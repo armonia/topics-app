@@ -1,0 +1,784 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Font stack */
+:root {
+  --primary: #0066ff;
+  --primary-hover: #0052cc;
+  --primary-light: rgba(0,102,255,0.1);
+  --primary-medium: rgba(0,102,255,0.15);
+  
+  /* Neutral theme colors */
+  --bg: #f8f9fa;
+  --bg-surface: #ffffff;
+  --bg-elevated: #fafafa;
+  --bg-hover: #f5f5f5;
+  --bg-code: #1a1a2e;
+  --text: #1a1a1a;
+  --text-secondary: #666666;
+  --text-tertiary: #8b8b8b;
+  --text-muted: #888888;
+  --text-placeholder: #b0b0b0;
+  --border: #e8e8e8;
+  --border-light: #e0e0e0;
+  
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* Safe area insets for notch/home indicator */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/* PWA viewport - apply safe areas properly */
+@supports (padding: env(safe-area-inset-top)) {
+  html {
+    /* Don't pad html, use safe areas on specific elements instead */
+    padding: 0;
+  }
+}
+
+/* PWA standalone mode styles */
+@media (display-mode: standalone) {
+  /* Extra top padding for status bar on iOS */
+  .pwa-safe-top {
+    padding-top: max(env(safe-area-inset-top, 0px), 20px);
+  }
+  
+  /* Bottom padding for home indicator */
+  .pwa-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  
+  /* Full height accounting for safe areas */
+  .pwa-full-height {
+    height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* iOS PWA specific fixes */
+@supports (-webkit-touch-callout: none) {
+  /* Fix 100vh on iOS */
+  .h-screen {
+    height: 100vh;
+    height: 100dvh;
+  }
+}
+
+/* Dark mode overrides */
+.dark {
+  --bg: #111111;
+  --bg-surface: #1a1a1a;
+  --bg-elevated: #222222;
+  --bg-hover: #2a2a2a;
+  --bg-code: #0d0d1a;
+  --text: #e5e5e5;
+  --text-secondary: #999999;
+  --text-tertiary: #8b8b8b;
+  --text-muted: #666666;
+  --text-placeholder: #555555;
+  --border: #2a2a2a;
+  --border-light: #3a3a3a;
+}
+
+/* Global focus styles for keyboard navigation */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Prevent pull-to-refresh on mobile (we handle it ourselves) */
+html, body {
+  overscroll-behavior-y: contain;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Mobile tap highlight */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Scrollbar — hidden by default, thin on hover */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 2px;
+  transition: background-color 0.2s;
+}
+
+*:hover > ::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.25);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: rgba(156, 163, 175, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+.dark *:hover > ::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.25);
+}
+
+.dark ::-webkit-scrollbar-thumb:active {
+  background-color: rgba(100, 116, 139, 0.4);
+}
+
+/* Sidebar scroll — show scrollbar on container hover */
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.2);
+}
+.dark .sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.2);
+}
+
+/* Resize handle styles */
+.resize-handle {
+  background-color: #e5e7eb;
+  transition: background-color 0.15s;
+}
+
+.dark .resize-handle {
+  background-color: #374151;
+}
+
+.resize-handle:hover,
+.resize-handle.active {
+  background-color: #5865f2;
+}
+
+/* Prevent long words from causing horizontal scroll */
+.message-content {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* Animation for message appear */
+@keyframes messageAppear {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-appear {
+  animation: messageAppear 0.2s ease-out;
+}
+
+/* Skeleton loading animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.dark .skeleton {
+  background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Typing indicator animation */
+@keyframes bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}
+
+.typing-dot {
+  animation: bounce 1.4s infinite;
+}
+
+.typing-dot:nth-child(1) { animation-delay: 0s; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Sidebar transitions */
+.sidebar-transition {
+  transition: width 200ms ease, transform 200ms ease, opacity 150ms ease;
+}
+.sidebar-transition[style*="width: 0"] {
+  opacity: 0;
+}
+
+/* Code block styles */
+pre {
+  background-color: #1f2937;
+  color: #f9fafb;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin: 0.375rem 0;
+  position: relative;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.dark pre {
+  background-color: #111827;
+  border: 1px solid #1f2937;
+}
+
+code {
+  background-color: #f3f4f6;
+  color: #374151;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.2rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.8125em;
+}
+
+.dark code {
+  background-color: #374151;
+  color: #e5e7eb;
+}
+
+/* Inline code inside user message bubbles (blue bg) */
+.user-bubble code {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.user-bubble pre {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+.user-bubble a {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.5);
+}
+
+pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+/* Code block copy button */
+.code-block-wrapper {
+  position: relative;
+}
+
+.code-block-wrapper .copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.code-block-wrapper:hover .copy-btn {
+  opacity: 1;
+}
+
+/* Language badge */
+.code-lang-badge {
+  position: absolute;
+  top: 0;
+  left: 0.75rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem;
+  background-color: rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-radius: 0 0 0.25rem 0.25rem;
+}
+
+/* Prose styles for markdown rendering */
+.prose h1 { font-size: 1.35em; font-weight: 700; margin: 0.35em 0; }
+.prose h2 { font-size: 1.15em; font-weight: 600; margin: 0.35em 0; }
+.prose h3 { font-size: 1.05em; font-weight: 600; margin: 0.3em 0; }
+.prose p { margin: 0.3em 0; line-height: 1.55; }
+.prose ul { list-style-type: disc; padding-left: 1.25em; margin: 0.3em 0; }
+.prose ol { list-style-type: decimal; padding-left: 1.25em; margin: 0.3em 0; }
+.prose li { margin: 0.1em 0; }
+.prose blockquote {
+  border-left: 2px solid #d1d5db;
+  padding-left: 0.6em;
+  margin: 0.4em 0;
+  color: #6b7280;
+  font-style: italic;
+}
+.dark .prose blockquote {
+  border-left-color: #4b5563;
+  color: #9ca3af;
+}
+.prose hr { border-top: 1px solid #e8e8e8; margin: 0.5em 0; }
+.dark .prose hr { border-top-color: #2a2a2a; }
+.prose strong { font-weight: 600; }
+.prose em { font-style: italic; }
+.prose a { color: var(--primary); text-decoration: none; }
+.prose a:hover { text-decoration: underline; }
+.prose img { max-width: 100%; border-radius: 0.375rem; }
+.prose table { border-collapse: collapse; width: 100%; }
+.prose th, .prose td { border: 1px solid #e8e8e8; padding: 0.3rem 0.6rem; font-size: 0.875em; }
+.dark .prose th, .dark .prose td { border-color: #333; }
+.prose th { background-color: #f8f9fa; font-weight: 600; text-align: left; }
+.dark .prose th { background-color: #1a1a1a; }
+
+/* Audio player styling */
+audio {
+  width: 100%;
+  border-radius: 0.5rem;
+}
+audio::-webkit-media-controls-panel {
+  background-color: #f9fafb;
+}
+.dark audio::-webkit-media-controls-panel {
+  background-color: #1f2937;
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* macOS titlebar drag region */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag;
+  touch-action: manipulation; /* Enable proper touch on mobile */
+  -webkit-touch-callout: none; /* Prevent iOS callout */
+}
+
+/* Mobile: disable drag regions, enable normal touch */
+@media (pointer: coarse) {
+  .app-drag-region {
+    -webkit-app-region: none;
+  }
+  button, a, input, textarea, select {
+    touch-action: manipulation;
+  }
+}
+
+/* macOS titlebar spacing — push content below traffic lights */
+.titlebar-inset {
+  padding-top: env(titlebar-area-height, 0px);
+}
+
+/* Range input styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 3px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.dark input[type="range"]::-webkit-slider-thumb {
+  border-color: #333;
+}
+
+/* Toast animation */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Bounce once animation for new message banner */
+@keyframes bounceOnce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-4px); }
+}
+
+.animate-bounce-once {
+  animation: bounceOnce 0.4s ease;
+}
+
+/* Code block header styles - override pre margin for connected blocks */
+.code-block-wrapper pre {
+  margin: 0;
+  border-radius: 0;
+}
+
+.code-block-wrapper pre:last-child {
+  border-radius: 0 0 0.375rem 0.375rem;
+}
+
+/* Code block table styles */
+.code-block-wrapper table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.code-block-wrapper td {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+/* Improved scrollbar for code blocks */
+.code-block-wrapper pre::-webkit-scrollbar {
+  height: 4px;
+}
+
+.code-block-wrapper pre::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.3);
+  border-radius: 2px;
+}
+
+/* Dark mode specific improvements */
+.dark .prose a {
+  color: #4d94ff;
+}
+
+.dark .prose strong {
+  color: #e5e5e5;
+}
+
+.dark .prose em {
+  color: #ccc;
+}
+
+/* Modal backdrop blur */
+.fixed.inset-0.z-50 {
+  backdrop-filter: blur(2px);
+}
+
+/* ============ MOBILE OPTIMIZATIONS ============ */
+
+/* Larger touch targets on mobile — opt-in via class, not global override */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Mobile drawer animation */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+/* Pull to refresh indicator */
+.pull-indicator {
+  transition: transform 0.2s ease-out;
+}
+
+.pull-indicator.pulling {
+  transform: rotate(180deg);
+}
+
+/* Mobile bottom sheet */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.bottom-sheet {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Hide scrollbar on mobile (use swipe instead) */
+@media (max-width: 768px) {
+  .hide-scrollbar-mobile {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar-mobile::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Mobile keyboard adjustments */
+@media (max-height: 500px) and (max-width: 768px) {
+  /* Compact mode when keyboard is open */
+  .mobile-compact {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+}
+
+/* iOS rubber band effect */
+@supports (-webkit-overflow-scrolling: touch) {
+  .scroll-container {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Prevent zoom on input focus (iOS) */
+@media screen and (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+/* Swipe hint animation */
+@keyframes swipeHint {
+  0% { transform: translateX(0); opacity: 1; }
+  50% { transform: translateX(10px); opacity: 0.5; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+.swipe-hint {
+  animation: swipeHint 2s ease-in-out infinite;
+}
+
+/* Mobile message bubble style */
+@media (max-width: 768px) {
+  .message-bubble {
+    max-width: 85%;
+    border-radius: 1.25rem;
+  }
+  
+  .message-bubble.user {
+    border-bottom-right-radius: 0.25rem;
+  }
+  
+  .message-bubble.assistant {
+    border-bottom-left-radius: 0.25rem;
+  }
+}
+
+/* Voice recording pulse */
+@keyframes recordPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+.recording-pulse {
+  animation: recordPulse 1s ease-in-out infinite;
+}
+
+/* Floating action button (FAB) */
+.fab {
+  position: fixed;
+  bottom: calc(4rem + var(--sab, 0px));
+  right: 1rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.fab:active {
+  transform: scale(0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ============ UX POLISH ============ */
+
+/* Keyboard shortcut badge */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #6b7280;
+  background: linear-gradient(180deg, #fff 0%, #f3f4f6 100%);
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.08);
+  min-width: 1.2rem;
+  white-space: nowrap;
+}
+
+.dark .kbd {
+  color: #9ca3af;
+  background: linear-gradient(180deg, #374151 0%, #1f2937 100%);
+  border-color: #4b5563;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.3);
+}
+
+/* Command palette overlay */
+@keyframes commandPaletteIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes commandPaletteOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+.command-palette-enter {
+  animation: commandPaletteIn 0.15s ease-out;
+}
+
+/* Context pill animations */
+@keyframes pillAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.context-pill {
+  animation: pillAppear 0.15s ease-out;
+}
+
+/* Smooth panel focus transition */
+@keyframes focusRing {
+  from {
+    box-shadow: inset 0 0 0 1px rgba(0, 102, 255, 0);
+  }
+  to {
+    box-shadow: inset 0 0 0 1px rgba(0, 102, 255, 0.3);
+  }
+}
+
+/* Staggered message appear */
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-appear {
+  animation: messageSlideIn 0.2s ease-out both;
+}
+
+/* Subtle hover lift for interactive cards */
+.hover-lift {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.dark .hover-lift:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* Streaming indicator dot */
+@keyframes streamDot {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.stream-dot {
+  animation: streamDot 1.4s ease-in-out infinite;
+}
+
+/* Empty state icon animation */
+@keyframes floatIcon {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.float-icon {
+  animation: floatIcon 3s ease-in-out infinite;
+}
+
+/* Input focus glow */
+.input-glow:focus-within {
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.08);
+}
+.dark .input-glow:focus-within {
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.12);
+}
+
+/* Message max-width for readability on wide screens */
+@media (min-width: 900px) {
+  .chat-messages-container {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+}

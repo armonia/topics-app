@@ -1,0 +1,101 @@
+import { FolderOpen, ExternalLink } from 'lucide-react';
+
+interface ProjectHeaderProps {
+  projectPath: string;
+  projectName: string;
+  color: string;
+  onOpenInFinder?: () => void;
+}
+
+// Generate a color from a string (project path → HSL)
+export function hashToColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  // Use hue from hash, fixed saturation/lightness for good contrast
+  const hue = Math.abs(hash % 360);
+  return `hsl(${hue}, 65%, 50%)`;
+}
+
+export function hashToColorLight(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash;
+  }
+  const hue = Math.abs(hash % 360);
+  return `hsl(${hue}, 60%, 95%)`;
+}
+
+export function hashToColorDark(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash;
+  }
+  const hue = Math.abs(hash % 360);
+  return `hsl(${hue}, 40%, 15%)`;
+}
+
+export function ProjectHeader({ projectPath, projectName, color: _color, onOpenInFinder }: ProjectHeaderProps) {
+  const accentColor = hashToColor(projectPath);
+  
+  // Detect dark mode
+  const isDark = typeof window !== 'undefined' && 
+    (document.documentElement.classList.contains('dark') || 
+     window.matchMedia('(prefers-color-scheme: dark)').matches);
+  
+  const bgColor = isDark ? hashToColorDark(projectPath) : hashToColorLight(projectPath);
+
+  return (
+    <div 
+      className="h-9 flex items-center gap-2 px-3 border-b flex-shrink-0 app-drag-region transition-colors"
+      style={{ 
+        backgroundColor: bgColor,
+        borderColor: `color-mix(in srgb, ${accentColor} 20%, transparent)`,
+      }}
+    >
+      
+      <div 
+        className="w-2 h-2 rounded-full flex-shrink-0"
+        style={{ backgroundColor: accentColor }}
+      />
+      
+      <FolderOpen 
+        size={14} 
+        className="flex-shrink-0"
+        style={{ color: accentColor }}
+      />
+      
+      <span 
+        className="text-[13px] font-semibold truncate"
+        style={{ color: accentColor }}
+      >
+        {projectName}
+      </span>
+      
+      <span className="text-[11px] text-[#888] dark:text-[#666] truncate flex-1 min-w-0">
+        {projectPath}
+      </span>
+      
+      {onOpenInFinder && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenInFinder(); }}
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors app-no-drag"
+          style={{ color: accentColor }}
+          title="Open in Finder"
+        >
+          <ExternalLink size={13} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Helper to extract project name from path
+export function getProjectName(projectPath: string): string {
+  const parts = projectPath.split('/').filter(Boolean);
+  return parts[parts.length - 1] || projectPath;
+}

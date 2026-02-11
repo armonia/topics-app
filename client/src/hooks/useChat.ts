@@ -1,0 +1,524 @@
+import { useState, useCallback, useRef, useEffect } from 'react';
+import type { ChatMessage, Message, ToolCall } from '../types';
+import { chatApi } from '../lib/api';
+
+export function useChat() {
+  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [streaming, setStreaming] = useState<Record<string, boolean>>({});
+  const [thinking, setThinking] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const wsHandlersRef = useRef<Set<(event: any) => void>>(new Set());
+  const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Keep a ref to the latest messages to avoid stale closure in sendMessage
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Auto-clear stuck streams after 3 minutes of no activity
+  const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
+  
+  const resetStreamTimeout = useCallback((sessionKey: string) => {
+    // Clear existing timeout
+    if (streamingTimeoutRef.current[sessionKey]) {
+      clearTimeout(streamingTimeoutRef.current[sessionKey]);
+    }
+    // Set new timeout
+    streamingTimeoutRef.current[sessionKey] = setTimeout(() => {
+      console.warn(`[useChat] Stream timeout for ${sessionKey}, auto-clearing`);
+      setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+      setLoading(prev => ({ ...prev, [sessionKey]: false }));
+      setThinking(prev => ({ ...prev, [sessionKey]: false }));
+    }, STREAM_TIMEOUT_MS);
+  }, []);
+
+  const clearStreamTimeout = useCallback((sessionKey: string) => {
+    if (streamingTimeoutRef.current[sessionKey]) {
+      clearTimeout(streamingTimeoutRef.current[sessionKey]);
+      delete streamingTimeoutRef.current[sessionKey];
+    }
+  }, []);
+
+  const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Strip {{BROWSER:...}} markers from visible content (processed server-side for navigation)
+  const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
+
+  // Filter out internal gateway context messages
+  const isContextMessage = (content: string): boolean => {
+    return content.startsWith('[Chat messages since your last reply');
+  };
+
+  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'>) => {
+    const newMessage: ChatMessage = {
+      ...message,
+      id: generateMessageId(),
+    };
+
+    setMessages(prev => ({
+      ...prev,
+      [sessionKey]: [...(prev[sessionKey] || []), newMessage],
+    }));
+
+    return newMessage;
+  }, []);
+
+  const updateLastMessage = useCallback((sessionKey: string, updates: Partial<ChatMessage>) => {
+    setMessages(prev => {
+      const sessionMessages = prev[sessionKey] || [];
+      const lastMessageIndex = sessionMessages.length - 1;
+      
+      if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
+        const updatedMessages = [...sessionMessages];
+        updatedMessages[lastMessageIndex] = {
+          ...updatedMessages[lastMessageIndex],
+          ...updates,
+        };
+        
+        return {
+          ...prev,
+          [sessionKey]: updatedMessages,
+        };
+      }
+      
+      return prev;
+    });
+  }, []);
+
+  const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
+    setMessages(prev => {
+      const sessionMessages = prev[sessionKey] || [];
+      const lastMessageIndex = sessionMessages.length - 1;
+      
+      if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
+        const updatedMessages = [...sessionMessages];
+        const lastMsg = updatedMessages[lastMessageIndex];
+        
+        if (contentDelta) {
+          lastMsg.content = (lastMsg.content || '') + contentDelta;
+        }
+        if (thinkingDelta) {
+          lastMsg.thinking = (lastMsg.thinking || '') + thinkingDelta;
+        }
+        
+        updatedMessages[lastMessageIndex] = { ...lastMsg };
+        
+        return {
+          ...prev,
+          [sessionKey]: updatedMessages,
+        };
+      }
+      
+      return prev;
+    });
+  }, []);
+
+  const addToolCallToLastMessage = useCallback((sessionKey: string, toolCall: ToolCall) => {
+    setMessages(prev => {
+      const sessionMessages = prev[sessionKey] || [];
+      const lastMessageIndex = sessionMessages.length - 1;
+      
+      if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
+        const updatedMessages = [...sessionMessages];
+        const lastMsg = updatedMessages[lastMessageIndex];
+        
+        if (!lastMsg.toolCalls) lastMsg.toolCalls = [];
+        lastMsg.toolCalls.push(toolCall);
+        
+        updatedMessages[lastMessageIndex] = { ...lastMsg };
+        
+        return {
+          ...prev,
+          [sessionKey]: updatedMessages,
+        };
+      }
+      
+      return prev;
+    });
+  }, []);
+
+  // Handle WebSocket stream events
+  const handleStreamEvent = useCallback((event: any) => {
+    const sessionKey = event.sessionKey;
+    if (!sessionKey) return;
+
+    switch (event.type) {
+      case 'stream:start':
+        setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+        resetStreamTimeout(sessionKey); // Start timeout watchdog
+        // Only create assistant placeholder if there isn't already a partial one
+        // (sendMessage creates one via SSE, so WS broadcast to OTHER windows only)
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          const lastMsg = sessionMessages[sessionMessages.length - 1];
+          if (lastMsg?.role === 'assistant' && lastMsg.partial) {
+            // Already have a partial assistant message — skip duplicate
+            return prev;
+          }
+          // No partial assistant msg — this is from another window, create placeholder
+          return {
+            ...prev,
+            [sessionKey]: [...sessionMessages, {
+              id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              role: 'assistant' as const,
+              content: '',
+              timestamp: new Date().toISOString(),
+              partial: true,
+            }],
+          };
+        });
+        break;
+
+      case 'stream:thinking_start':
+        setThinking(prev => ({ ...prev, [sessionKey]: true }));
+        break;
+
+      case 'stream:thinking_chunk':
+        if (event.content) {
+          appendToLastMessage(sessionKey, undefined, event.content);
+        }
+        break;
+
+      case 'stream:thinking_end':
+        setThinking(prev => ({ ...prev, [sessionKey]: false }));
+        break;
+
+      case 'stream:content_chunk':
+        if (event.content) {
+          const cleanedChunk = stripBrowserMarker(event.content);
+          if (cleanedChunk) appendToLastMessage(sessionKey, cleanedChunk, undefined);
+          resetStreamTimeout(sessionKey); // Reset watchdog on each chunk
+        }
+        break;
+
+      case 'stream:tool_call':
+        if (event.toolCall) {
+          addToolCallToLastMessage(sessionKey, event.toolCall);
+        }
+        break;
+
+      case 'stream:end':
+        clearStreamTimeout(sessionKey); // Clear watchdog
+        setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+        setThinking(prev => ({ ...prev, [sessionKey]: false }));
+        // Strip any remaining browser markers (handles split-across-chunks case)
+        setMessages(prev => {
+          const msgs = prev[sessionKey] || [];
+          const last = msgs[msgs.length - 1];
+          if (last?.role === 'assistant' && last.content.includes('{{BROWSER:')) {
+            const updated = [...msgs];
+            updated[msgs.length - 1] = { ...last, content: stripBrowserMarker(last.content), partial: false };
+            return { ...prev, [sessionKey]: updated };
+          }
+          return prev;
+        });
+        updateLastMessage(sessionKey, { partial: false });
+        break;
+
+      case 'message:media':
+        if (event.media?.length > 0) {
+          updateLastMessage(sessionKey, {
+            media: event.media,
+          });
+        }
+        break;
+    }
+  }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout]);
+
+  // Register WebSocket handler
+  const registerWSHandler = useCallback((handler: (event: any) => void) => {
+    wsHandlersRef.current.add(handler);
+    return () => wsHandlersRef.current.delete(handler);
+  }, []);
+
+  // Expose handler for App to connect
+  const onWSMessage = useCallback((event: any) => {
+    // Handle stream events directly
+    if (event.type?.startsWith('stream:') || event.type === 'message:media') {
+      handleStreamEvent(event);
+    }
+    // Forward to registered handlers
+    for (const handler of wsHandlersRef.current) {
+      try { handler(event); } catch {}
+    }
+  }, [handleStreamEvent]);
+
+  const sendMessage = useCallback(async (sessionKey: string, content: string): Promise<boolean> => {
+    try {
+      setError(null);
+      setLoading(prev => ({ ...prev, [sessionKey]: true }));
+
+      addMessage(sessionKey, {
+        role: 'user',
+        content,
+        timestamp: new Date().toISOString(),
+      });
+
+      const sessionMessages = messagesRef.current[sessionKey] || [];
+      const apiMessages: Message[] = [
+        ...sessionMessages.map(msg => ({ role: msg.role, content: msg.content })),
+        { role: 'user', content }
+      ];
+
+      setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+
+      const stream = await chatApi.sendMessage({ sessionKey, messages: apiMessages });
+      
+      if (!stream) {
+        throw new Error('No stream received');
+      }
+
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let assistantMessageCreated = false;
+      let currentThinking = '';
+      let currentContent = '';
+      let isInThinking = false;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') {
+              // Finalize message — strip any remaining browser markers from accumulated content
+              if (assistantMessageCreated) {
+                if (currentContent.includes('{{BROWSER:')) {
+                  currentContent = stripBrowserMarker(currentContent);
+                  updateLastMessage(sessionKey, { content: currentContent, partial: false });
+                } else {
+                  updateLastMessage(sessionKey, { partial: false });
+                }
+              }
+              continue;
+            }
+            
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+              
+              if (delta?.content) {
+                let chunk = delta.content;
+
+                // Detect thinking markers
+                if (chunk.includes('<thinking>')) {
+                  isInThinking = true;
+                  setThinking(prev => ({ ...prev, [sessionKey]: true }));
+                  chunk = chunk.replace('<thinking>', '');
+                }
+                if (chunk.includes('</thinking>')) {
+                  isInThinking = false;
+                  setThinking(prev => ({ ...prev, [sessionKey]: false }));
+                  chunk = chunk.replace('</thinking>', '');
+                }
+
+                // Strip browser markers from visible content
+                if (!isInThinking) chunk = stripBrowserMarker(chunk);
+
+                // Create assistant message on first content chunk
+                if (!assistantMessageCreated) {
+                  if (isInThinking) {
+                    currentThinking = chunk;
+                    addMessage(sessionKey, {
+                      role: 'assistant',
+                      content: '',
+                      thinking: chunk,
+                      timestamp: new Date().toISOString(),
+                      partial: true,
+                    });
+                  } else if (chunk) {
+                    currentContent = chunk;
+                    addMessage(sessionKey, {
+                      role: 'assistant',
+                      content: chunk,
+                      timestamp: new Date().toISOString(),
+                      partial: true,
+                    });
+                  }
+                  if (chunk) assistantMessageCreated = true;
+                } else {
+                  if (isInThinking) {
+                    currentThinking += chunk;
+                    appendToLastMessage(sessionKey, undefined, chunk);
+                  } else if (chunk) {
+                    currentContent += chunk;
+                    appendToLastMessage(sessionKey, chunk, undefined);
+                  }
+                }
+              }
+
+              // Handle tool calls
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (tc.function?.name) {
+                    const toolCall: ToolCall = {
+                      id: tc.id || generateMessageId(),
+                      name: tc.function.name,
+                      args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
+                      status: 'pending',
+                    };
+                    addToolCallToLastMessage(sessionKey, toolCall);
+                  }
+                }
+              }
+            } catch (parseErr) {
+              console.warn('Failed to parse SSE data:', parseErr);
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      setError(err instanceof Error ? err.message : 'Failed to send message');
+      
+      // Only remove last message if it's an empty assistant message (partial response)
+      setMessages(prev => {
+        const sessionMessages = prev[sessionKey] || [];
+        const lastMsg = sessionMessages[sessionMessages.length - 1];
+        // Remove if last message is assistant with empty or very short content (likely partial)
+        if (lastMsg?.role === 'assistant' && lastMsg.content.length < 10 && !lastMsg.thinking) {
+          return {
+            ...prev,
+            [sessionKey]: sessionMessages.slice(0, -1),
+          };
+        }
+        return prev;
+      });
+      
+      return false;
+    } finally {
+      setLoading(prev => ({ ...prev, [sessionKey]: false }));
+      setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+      setThinking(prev => ({ ...prev, [sessionKey]: false }));
+      abortControllerRef.current = null;
+    }
+  }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage]);
+
+  const getSessionMessages = useCallback((sessionKey: string): ChatMessage[] => {
+    return (messages[sessionKey] || []).filter(msg => !isContextMessage(msg.content));
+  }, [messages]);
+
+  const isSessionLoading = useCallback((sessionKey: string): boolean => {
+    return loading[sessionKey] || false;
+  }, [loading]);
+
+  const isSessionStreaming = useCallback((sessionKey: string): boolean => {
+    return streaming[sessionKey] || false;
+  }, [streaming]);
+
+  const isSessionThinking = useCallback((sessionKey: string): boolean => {
+    return thinking[sessionKey] || false;
+  }, [thinking]);
+
+  const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
+    try {
+      setError(null);
+      setLoading(prev => ({ ...prev, [sessionKey]: true }));
+      
+      const response = await chatApi.getHistory(sessionKey, { limit: 100 });
+      
+      const chatMessages: ChatMessage[] = response.messages
+        .filter((msg: any) => !isContextMessage(msg.content))
+        .map((msg: any) => ({
+          ...msg,
+          id: msg.id || generateMessageId(),
+          content: stripBrowserMarker(msg.content || ''),
+          timestamp: msg.timestamp || new Date().toISOString(),
+          // Preserve enhanced fields from server
+          thinking: msg.thinking,
+          toolCalls: msg.toolCalls,
+          media: msg.media,
+          partial: msg.partial,
+        }));
+
+      setMessages(prev => ({
+        ...prev,
+        [sessionKey]: chatMessages,
+      }));
+
+      // Restore streaming state from server (for cross-device sync)
+      if (response.isStreaming) {
+        console.log(`[loadHistory] Restoring streaming state for ${sessionKey}`);
+        setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+        if (response.streamState?.isThinking) {
+          setThinking(prev => ({ ...prev, [sessionKey]: true }));
+        }
+        // Reset the stream timeout since we just reconnected
+        resetStreamTimeout(sessionKey);
+      }
+
+      // Track orphaned messages (last message from user with no response)
+      if (response.hasOrphanedMessage) {
+        setOrphanedSessions(prev => new Set([...prev, sessionKey]));
+      } else {
+        setOrphanedSessions(prev => {
+          const next = new Set(prev);
+          next.delete(sessionKey);
+          return next;
+        });
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Failed to load history:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load history');
+      return false;
+    } finally {
+      setLoading(prev => ({ ...prev, [sessionKey]: false }));
+    }
+  }, [resetStreamTimeout]);
+
+  const appendMediaToLastAssistant = useCallback((sessionKey: string, mediaPaths: string[]) => {
+    setMessages(prev => {
+      const sessionMessages = prev[sessionKey] || [];
+      const lastAssistantIdx = sessionMessages.findLastIndex(m => m.role === 'assistant');
+      if (lastAssistantIdx < 0) return prev;
+
+      const updated = [...sessionMessages];
+      updated[lastAssistantIdx] = {
+        ...updated[lastAssistantIdx],
+        media: [...(updated[lastAssistantIdx].media || []), ...mediaPaths],
+      };
+      return { ...prev, [sessionKey]: updated };
+    });
+  }, []);
+
+  const clearSession = useCallback((sessionKey: string) => {
+    setMessages(prev => ({
+      ...prev,
+      [sessionKey]: [],
+    }));
+  }, []);
+
+  return {
+    sendMessage,
+    getSessionMessages,
+    isSessionLoading,
+    isSessionStreaming,
+    isSessionThinking,
+    loadHistory,
+    appendMediaToLastAssistant,
+    clearSession,
+    addMessageFromWS: addMessage, // For real-time sync across windows
+    onWSMessage,
+    registerWSHandler,
+    error,
+    isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
+  };
+}

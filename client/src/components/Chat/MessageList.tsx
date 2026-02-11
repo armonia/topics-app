@@ -1,0 +1,232 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Paperclip } from 'lucide-react';
+import type { Topic, ChatMessage } from '../../types';
+import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
+import { loadSettings } from '../Settings/GlobalSettings';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { MessageBubble } from './MessageBubble';
+
+interface MessageListProps {
+  isMobile: boolean;
+  topic: Topic;
+  currentMessages: ChatMessage[];
+  currentLoading: boolean;
+  currentStreaming: boolean;
+  copiedMsgId: string | null;
+  fileDragOver: boolean;
+  chatContainerRef: React.RefObject<HTMLDivElement | null>;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onReply: (msg: ChatMessage) => void;
+  onCopy: (msg: ChatMessage) => void;
+  onTogglePin: (msg: ChatMessage) => void;
+  onFileDragOver: (e: React.DragEvent) => void;
+  onFileDragLeave: (e: React.DragEvent) => void;
+  onFileDrop: (e: React.DragEvent) => void;
+  setMessage: (v: string) => void;
+}
+
+export function MessageList({
+  isMobile,
+  topic,
+  currentMessages,
+  currentLoading,
+  currentStreaming,
+  copiedMsgId,
+  fileDragOver,
+  chatContainerRef,
+  messagesEndRef,
+  textareaRef,
+  onReply,
+  onCopy,
+  onTogglePin,
+  onFileDragOver,
+  onFileDragLeave,
+  onFileDrop,
+  setMessage,
+}: MessageListProps) {
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [newMsgCount, setNewMsgCount] = useState(0);
+  const [showNewBanner, setShowNewBanner] = useState(false);
+  const prevMsgCountRef = useRef(currentMessages.length);
+  const settings = loadSettings();
+  const isCompact = settings.messageDensity === 'compact';
+
+  // Memoize filtered messages
+  const filteredMessages = useMemo(() => 
+    currentMessages.filter(msg => {
+      const c = msg.content?.trim();
+      if (!c) return false;
+      if (c === 'NO_REPLY' || c === 'ANNOUNCE_SKIP') return false;
+      if (c.startsWith('Agent-to-agent announce step')) return false;
+      return true;
+    }),
+    [currentMessages]
+  );
+
+  // Detect scroll position
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      const scrolledUp = distFromBottom > 200;
+      setIsScrolledUp(scrolledUp);
+      if (!scrolledUp) {
+        setNewMsgCount(0);
+        setShowNewBanner(false);
+      }
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [chatContainerRef]);
+
+  // Detect new messages while scrolled up
+  useEffect(() => {
+    if (currentMessages.length > prevMsgCountRef.current && isScrolledUp) {
+      const newCount = currentMessages.length - prevMsgCountRef.current;
+      setNewMsgCount(prev => prev + newCount);
+      setShowNewBanner(true);
+    }
+    prevMsgCountRef.current = currentMessages.length;
+  }, [currentMessages.length, isScrolledUp]);
+
+  const scrollToBottom = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+    setNewMsgCount(0);
+    setShowNewBanner(false);
+  }, []);
+
+  return (
+    <div
+      ref={chatContainerRef}
+      className={`flex-1 overflow-y-auto ${isMobile ? 'px-2 py-1.5' : 'px-4 py-3'} relative min-h-0 ${fileDragOver ? 'bg-[var(--primary)]/3' : ''}`}
+      onDragOver={onFileDragOver}
+      onDragLeave={onFileDragLeave}
+      onDrop={onFileDrop}
+    >
+      {fileDragOver && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--primary)]/5 border-2 border-dashed border-[var(--primary)]/30 rounded-lg pointer-events-none">
+          <div className="text-center">
+            <Paperclip size={20} className="mx-auto mb-1 text-[var(--primary)]/50" />
+            <p className="text-[var(--primary)]/70 font-medium text-[12px]">Drop files here</p>
+          </div>
+        </div>
+      )}
+
+      <NewMessageBanner show={showNewBanner} onClick={scrollToBottom} />
+
+      {currentLoading && currentMessages.length === 0 ? (
+        <div className={isCompact ? 'space-y-1' : 'space-y-2'}>
+          {[1,2,3].map(i => (
+            <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
+              <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
+                i % 2 === 0 
+                  ? 'bg-[var(--primary)]/20' 
+                  : 'bg-[#f5f5f5] dark:bg-[#222]'
+              }`}>
+                <div className="h-3 rounded w-32 mb-1.5 bg-black/10 dark:bg-white/10" />
+                <div className="h-3 rounded w-20 bg-black/5 dark:bg-white/5" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredMessages.length === 0 ? (
+        <div className={`text-center ${isMobile ? 'py-4 px-3' : 'py-8 px-4'}`}>
+          <div className="float-icon inline-block mb-3">
+            <span className="text-3xl">{topic.icon}</span>
+          </div>
+          <p className="text-[14px] font-medium text-[#666] dark:text-[#aaa]">{topic.name}</p>
+          {topic.systemPrompt && (
+            <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
+              <span>✨</span> Custom system prompt active
+            </p>
+          )}
+          {!topic.projectPath && (
+            <p className="text-[12px] text-[#aaa] dark:text-[#666] mt-2 mb-2">Start a conversation</p>
+          )}
+          <div className="flex flex-wrap gap-2 justify-center mt-4">
+            {(topic.projectPath ? [
+                { label: '📋 Describe this project', msg: 'Give me a brief overview of this project — what it does, the tech stack, and the main files.' },
+                { label: '🔄 Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
+                { label: '🐛 Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
+              ] : [
+                { label: '💡 Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
+                { label: '📝 Write something', msg: 'Help me write ' },
+                { label: '🔍 Research a topic', msg: 'Research ' },
+              ]).map(q => (
+                <button
+                  key={q.label}
+                  onClick={() => { setMessage(q.msg); textareaRef.current?.focus(); }}
+                  className="px-3 py-1.5 text-[12px] rounded-full border border-[#e0e0e0] dark:border-[#333] text-[#666] dark:text-[#aaa] hover:bg-[#f5f5f5] dark:hover:bg-[#222] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all hover-lift"
+                >
+                  {q.label}
+                </button>
+              ))}
+          </div>
+          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-[#aaa] dark:text-[#555]">
+            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘K</kbd> commands</span>
+            <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
+            {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
+            <span className="flex items-center gap-1.5"><kbd className="kbd">⌘?</kbd> all shortcuts</span>
+          </div>
+        </div>
+      ) : (
+        <Virtuoso
+          ref={virtuosoRef}
+          data={filteredMessages}
+          initialTopMostItemIndex={filteredMessages.length - 1}
+          followOutput="smooth"
+          atBottomStateChange={(atBottom) => {
+            setIsScrolledUp(!atBottom);
+            if (atBottom) {
+              setNewMsgCount(0);
+              setShowNewBanner(false);
+            }
+          }}
+          increaseViewportBy={{ top: 400, bottom: 400 }}
+          itemContent={(idx, msg) => {
+            const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
+            return (
+              <MessageBubble
+                msg={msg}
+                prev={prev}
+                idx={idx}
+                topic={topic}
+                copiedMsgId={copiedMsgId}
+                isCompact={isCompact}
+                fontSize={settings.fontSize}
+                isMobile={isMobile}
+                onReply={onReply}
+                onCopy={onCopy}
+                onTogglePin={onTogglePin}
+              />
+            );
+          }}
+          style={{ height: '100%' }}
+        />
+      )}
+
+      {/* Typing indicator */}
+      {currentStreaming && (
+        currentMessages.length === 0 ||
+        currentMessages[currentMessages.length - 1]?.role === 'user' || 
+        currentMessages[currentMessages.length - 1]?.content === ''
+      ) && (
+        <div className="flex gap-2 animate-pulse">
+          <div className="bg-[#e8e8e8] dark:bg-[#333] rounded-lg px-3 py-2.5 shadow-sm">
+            <div className="flex gap-1.5 items-center">
+              <div className="w-2 h-2 bg-[#666] dark:bg-[#888] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-[#666] dark:bg-[#888] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-[#666] dark:bg-[#888] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div ref={messagesEndRef} />
+      <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} />
+    </div>
+  );
+}

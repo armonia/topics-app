@@ -1,0 +1,34 @@
+{
+  "name": "topics-app",
+  "version": "1.0.0",
+  "description": "Topics App - Electron",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac",
+    "dev": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.topics.app",
+    "productName": "Topics",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "icon.icns",
+      "target": [
+        "dmg",
+        "dir"
+      ]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "icon.icns",
+      "tray-icon.png"
+    ]
+  },
+  "dependencies": {}
+}
