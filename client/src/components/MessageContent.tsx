@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState, useCallback, memo } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, CheckCheck } from 'lucide-react';
 import { getMediaUrl } from '../lib/api';
 import { ThinkingBlock, ToolCallsList, PartialIndicator } from './MessageParts';
-import { hasDiffBlocks, parseMessageWithDiffs } from '../lib/diffParser';
-import { DiffBlock } from './Chat/DiffBlock';
+import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
+import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
+import { isPlanResponse, PlanView } from './Chat/PlanView';
 
 // File extension helpers
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
@@ -81,7 +82,7 @@ function MediaImage({ path }: { path: string }) {
 
   if (error) {
     return (
-      <div className="inline-flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-2 text-sm text-gray-500">
+      <div className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
         🖼️ Image failed to load: {getFileName(path)}
       </div>
     );
@@ -98,8 +99,8 @@ function MediaImage({ path }: { path: string }) {
 function MediaAudio({ path }: { path: string }) {
   const src = getMediaUrl(path);
   return (
-    <div className="my-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-      <div className="flex items-center gap-2 mb-2 text-sm text-gray-600 dark:text-gray-400">🎵 {getFileName(path)}</div>
+    <div className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
+      <div className="flex items-center gap-2 mb-2 text-sm text-app-text-secondary">🎵 {getFileName(path)}</div>
       <audio controls className="w-full" preload="metadata">
         <source src={src} />
         Your browser does not support audio playback.
@@ -116,14 +117,14 @@ function MediaFile({ path }: { path: string }) {
       target="_blank"
       rel="noopener noreferrer"
       download={getFileName(path)}
-      className="my-1 flex items-center gap-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-700 transition-colors no-underline text-inherit"
+      className="my-1 flex items-center gap-3 bg-elevated hover:bg-app-hover rounded-lg p-3 border border-app-border-light transition-colors no-underline text-inherit"
     >
       <span className="text-2xl">{getFileIcon(path)}</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{getFileName(path)}</div>
-        <div className="text-xs text-gray-400 uppercase">{getExtension(path)} file</div>
+        <div className="text-xs text-app-text-muted uppercase">{getExtension(path)} file</div>
       </div>
-      <span className="text-gray-400 text-sm">⬇️</span>
+      <span className="text-app-text-muted text-sm">⬇️</span>
     </a>
   );
 }
@@ -176,7 +177,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   return (
     <div className="code-block-wrapper">
       {/* Header with language + controls */}
-      <div className="flex items-center justify-between bg-[var(--bg-code)] rounded-t-md px-2.5 py-1 border-b border-white/5">
+      <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
           {language && <span className="text-[10px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
           <span className="text-[10px] text-gray-500">{lineCount} lines</span>
@@ -204,7 +205,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           </button>
         </div>
       </div>
-      <pre className={`bg-[var(--bg-code)] text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-[12.5px] leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`} style={{ margin: 0 }}>
+      <pre className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-[12.5px] leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`} style={{ margin: 0 }}>
         <code className="text-[12.5px]">
           {showLineNumbers ? (
             <table className="border-collapse w-full">
@@ -226,7 +227,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       {isLong && (
         <button
           onClick={() => setCollapsed(p => !p)}
-          className="w-full bg-[var(--bg-code)] hover:bg-[var(--bg-code)] text-indigo-300/70 hover:text-indigo-300 text-[11px] py-1.5 rounded-b-md border-t border-white/5 transition-colors"
+          className="w-full bg-app-code-bg hover:bg-app-code-bg text-indigo-300/70 hover:text-indigo-300 text-[11px] py-1.5 rounded-b-md border-t border-white/5 transition-colors"
         >
           {collapsed ? `Show all ${lineCount} lines ↓` : 'Show less ↑'}
         </button>
@@ -257,20 +258,118 @@ const markdownComponents = {
   code: ({ children, className }: any) => {
     const isBlock = className?.includes('language-');
     if (isBlock) return <code className="text-[12.5px]">{children}</code>;
-    return <code className="bg-[var(--bg-hover)] text-[var(--text-secondary)] px-1 py-0.5 rounded text-[12.5px] font-mono">{children}</code>;
+    return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-[12.5px] font-mono">{children}</code>;
   },
   table: ({ children }: any) => (
     <div className="overflow-x-auto my-2">
-      <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600 text-sm">{children}</table>
+      <table className="min-w-full border-collapse border border-app-border-light text-sm">{children}</table>
     </div>
   ),
   th: ({ children }: any) => (
-    <th className="border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-left font-semibold">{children}</th>
+    <th className="border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
   ),
   td: ({ children }: any) => (
-    <td className="border border-gray-300 dark:border-gray-600 px-3 py-1.5">{children}</td>
+    <td className="border border-app-border-light px-3 py-1.5">{children}</td>
   ),
 };
+
+// Component to render diff blocks with "Apply All" button
+function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
+  const diffRefs = useRef<Map<number, DiffBlockHandle>>(new Map());
+  const [applyAllState, setApplyAllState] = useState<'idle' | 'applying' | 'done'>('idle');
+  const [applyProgress, setApplyProgress] = useState({ applied: 0, total: 0, failed: 0 });
+
+  const diffIndices = useMemo(() =>
+    segments.map((s, i) => s.type === 'diff' && s.edit ? i : -1).filter(i => i !== -1),
+    [segments]
+  );
+
+  const handleApplyAll = useCallback(async () => {
+    const total = diffIndices.length;
+    setApplyAllState('applying');
+    setApplyProgress({ applied: 0, total, failed: 0 });
+
+    let applied = 0;
+    let failed = 0;
+
+    for (const idx of diffIndices) {
+      const handle = diffRefs.current.get(idx);
+      if (!handle) continue;
+      const state = handle.getState();
+      if (state !== 'pending') {
+        // Already applied, rejected, or errored - skip
+        applied++;
+        setApplyProgress({ applied, total, failed });
+        continue;
+      }
+      const success = await handle.apply();
+      if (success) {
+        applied++;
+      } else {
+        failed++;
+      }
+      setApplyProgress({ applied, total, failed });
+    }
+
+    setApplyAllState('done');
+  }, [diffIndices]);
+
+  const setRef = useCallback((idx: number, handle: DiffBlockHandle | null) => {
+    if (handle) {
+      diffRefs.current.set(idx, handle);
+    } else {
+      diffRefs.current.delete(idx);
+    }
+  }, []);
+
+  return (
+    <div>
+      {/* Apply All button - only show when there are 2+ diffs */}
+      {diffIndices.length >= 2 && (
+        <div className="flex items-center gap-2 my-2 py-1.5 px-3 rounded-lg bg-elevated border border-app-border-light">
+          {applyAllState === 'idle' && (
+            <button
+              onClick={handleApplyAll}
+              className="flex items-center gap-1.5 px-3 py-1 rounded text-[12px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+            >
+              <CheckCheck size={14} /> Apply All ({diffIndices.length} edits)
+            </button>
+          )}
+          {applyAllState === 'applying' && (
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-[12px] text-app-text-secondary">
+                Applying {applyProgress.applied}/{applyProgress.total}...
+                {applyProgress.failed > 0 && <span className="text-red-500 ml-1">({applyProgress.failed} failed)</span>}
+              </span>
+            </div>
+          )}
+          {applyAllState === 'done' && (
+            <div className="flex items-center gap-2">
+              <CheckCheck size={14} className="text-emerald-500" />
+              <span className="text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">
+                {applyProgress.applied} applied
+                {applyProgress.failed > 0 && <span className="text-red-500 ml-1">({applyProgress.failed} failed)</span>}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {segments.map((segment, i) =>
+        segment.type === 'diff' && segment.edit ? (
+          <DiffBlock key={i} ref={(handle) => setRef(i, handle)} edit={segment.edit} />
+        ) : (
+          <div key={i} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {segment.content || ''}
+            </ReactMarkdown>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
 
 interface MessageContentProps {
   content: string;
@@ -280,9 +379,12 @@ interface MessageContentProps {
   toolCalls?: import('../types').ToolCall[];
   media?: string[];
   partial?: boolean;
+  // Plan mode
+  onPlanApprove?: () => void;
+  onPlanReject?: () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject }: MessageContentProps) {
   const { cleanText, mediaPaths: extractedMediaPaths } = useMemo(() => extractMediaPaths(content), [content]);
   
   // Combine extracted media paths with explicit media array
@@ -343,30 +445,36 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     <div>
       {/* Thinking block - always show if present */}
       {thinking && <ThinkingBlock content={thinking} />}
-      
+
       {/* Tool calls */}
       {toolCalls && toolCalls.length > 0 && <ToolCallsList toolCalls={toolCalls} />}
-      
+
       {/* Media */}
       {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} /></div>)}
-      
+
+      {/* Inline typing indicator for empty streaming message */}
+      {!cleanText && !thinking && partial && (
+        <div className="flex gap-1.5 items-center py-0.5">
+          <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      )}
+
+      {/* Plan view - detect plan-format responses */}
+      {cleanText && !partial && isPlanResponse(cleanText) && onPlanApprove && (
+        <PlanView
+          content={cleanText}
+          onApprove={onPlanApprove}
+          onReject={onPlanReject || (() => {})}
+          isStreaming={partial}
+        />
+      )}
+
       {/* Main content */}
-      {cleanText && (
+      {cleanText && (!isPlanResponse(cleanText) || !onPlanApprove || partial) && (
         hasDiffBlocks(cleanText) ? (
-          // Render mixed text + diff blocks
-          <div>
-            {parseMessageWithDiffs(cleanText).map((segment, i) => 
-              segment.type === 'diff' && segment.edit ? (
-                <DiffBlock key={i} edit={segment.edit} />
-              ) : (
-                <div key={i} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                    {segment.content || ''}
-                  </ReactMarkdown>
-                </div>
-              )
-            )}
-          </div>
+          <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
         ) : (
           <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -375,9 +483,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         )
       )}
-      
-      {/* Streaming indicator */}
-      {partial && <PartialIndicator />}
+
+      {/* Streaming indicator - only when content has started */}
+      {partial && (cleanText || thinking) && <PartialIndicator />}
     </div>
   );
 });
@@ -391,7 +499,7 @@ export function ImageThumbnail({ file, onRemove }: { file: File; onRemove: () =>
 
   return (
     <div className="relative inline-block">
-      <img src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-gray-300 dark:border-gray-600" />
+      <img src={src} alt={file.name} className="w-16 h-16 object-cover rounded-lg border border-app-border-light" />
       <button onClick={onRemove} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
     </div>
   );

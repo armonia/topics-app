@@ -1,6 +1,61 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, Message, ToolCall } from '../types';
+import type { ChatMessage, ChatRequest, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
+
+// --- Message cache helpers (localStorage) ---
+const CACHE_PREFIX = 'messages-cache-';
+const CACHE_MAX_MESSAGES = 50;
+const QUEUE_KEY = 'messages-outbound-queue';
+
+interface QueuedMessage {
+  sessionKey: string;
+  content: string;
+  timestamp: string;
+  options?: { planMode?: boolean };
+}
+
+function cacheMessages(sessionKey: string, msgs: ChatMessage[]) {
+  try {
+    const toCache = msgs
+      .filter(m => !m.partial)
+      .slice(-CACHE_MAX_MESSAGES);
+    localStorage.setItem(CACHE_PREFIX + sessionKey, JSON.stringify(toCache));
+  } catch {}
+}
+
+function getCachedMessages(sessionKey: string): ChatMessage[] | null {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + sessionKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearCachedMessages(sessionKey: string) {
+  try { localStorage.removeItem(CACHE_PREFIX + sessionKey); } catch {}
+}
+
+function getOutboundQueue(): QueuedMessage[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushToOutboundQueue(msg: QueuedMessage) {
+  try {
+    const queue = getOutboundQueue();
+    queue.push(msg);
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  } catch {}
+}
+
+function clearOutboundQueue() {
+  try { localStorage.removeItem(QUEUE_KEY); } catch {}
+}
 
 export function useChat() {
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
@@ -9,8 +64,10 @@ export function useChat() {
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
+  const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
+  const [pendingQueue, setPendingQueue] = useState<QueuedMessage[]>(getOutboundQueue);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const wsHandlersRef = useRef<Set<(event: any) => void>>(new Set());
+  const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Keep a ref to the latest messages to avoid stale closure in sendMessage
@@ -140,7 +197,7 @@ export function useChat() {
   }, []);
 
   // Handle WebSocket stream events
-  const handleStreamEvent = useCallback((event: any) => {
+  const handleStreamEvent = useCallback((event: WSMessage) => {
     const sessionKey = event.sessionKey;
     if (!sessionKey) return;
 
@@ -210,8 +267,12 @@ export function useChat() {
           if (last?.role === 'assistant' && last.content.includes('{{BROWSER:')) {
             const updated = [...msgs];
             updated[msgs.length - 1] = { ...last, content: stripBrowserMarker(last.content), partial: false };
+            // Cache after stream finishes
+            cacheMessages(sessionKey, updated);
             return { ...prev, [sessionKey]: updated };
           }
+          // Cache after stream finishes
+          cacheMessages(sessionKey, msgs);
           return prev;
         });
         updateLastMessage(sessionKey, { partial: false });
@@ -225,16 +286,16 @@ export function useChat() {
         }
         break;
     }
-  }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout]);
+  }, [appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout]);
 
   // Register WebSocket handler
-  const registerWSHandler = useCallback((handler: (event: any) => void) => {
+  const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
     wsHandlersRef.current.add(handler);
     return () => wsHandlersRef.current.delete(handler);
   }, []);
 
   // Expose handler for App to connect
-  const onWSMessage = useCallback((event: any) => {
+  const onWSMessage = useCallback((event: WSMessage) => {
     // Handle stream events directly
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
       handleStreamEvent(event);
@@ -245,7 +306,7 @@ export function useChat() {
     }
   }, [handleStreamEvent]);
 
-  const sendMessage = useCallback(async (sessionKey: string, content: string): Promise<boolean> => {
+  const sendMessage = useCallback(async (sessionKey: string, content: string, options?: { planMode?: boolean }): Promise<boolean> => {
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
@@ -264,8 +325,18 @@ export function useChat() {
 
       setStreaming(prev => ({ ...prev, [sessionKey]: true }));
 
-      const stream = await chatApi.sendMessage({ sessionKey, messages: apiMessages });
-      
+      // Create placeholder assistant message immediately for inline loading
+      addMessage(sessionKey, {
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        partial: true,
+      });
+
+      const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
+      if (options?.planMode) chatRequest.planMode = true;
+      const stream = await chatApi.sendMessage(chatRequest);
+
       if (!stream) {
         throw new Error('No stream received');
       }
@@ -273,7 +344,7 @@ export function useChat() {
       const reader = stream.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let assistantMessageCreated = false;
+      let assistantMessageCreated = true;
       let currentThinking = '';
       let currentContent = '';
       let isInThinking = false;
@@ -385,8 +456,30 @@ export function useChat() {
       return true;
     } catch (err) {
       console.error('Failed to send message:', err);
+
+      // If it's a network error, queue the message for later
+      const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
+      if (isNetworkError) {
+        const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options };
+        pushToOutboundQueue(queued);
+        setPendingQueue(prev => [...prev, queued]);
+        // Mark the user message as queued (keep it visible)
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          const lastMsg = sessionMessages[sessionMessages.length - 1];
+          if (lastMsg?.role === 'user') {
+            const updated = [...sessionMessages];
+            updated[updated.length - 1] = { ...lastMsg, partial: true }; // partial = queued indicator
+            return { ...prev, [sessionKey]: updated };
+          }
+          return prev;
+        });
+        setError('Message queued — will send when reconnected');
+        return false;
+      }
+
       setError(err instanceof Error ? err.message : 'Failed to send message');
-      
+
       // Only remove last message if it's an empty assistant message (partial response)
       setMessages(prev => {
         const sessionMessages = prev[sessionKey] || [];
@@ -400,7 +493,7 @@ export function useChat() {
         }
         return prev;
       });
-      
+
       return false;
     } finally {
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -434,23 +527,26 @@ export function useChat() {
       const response = await chatApi.getHistory(sessionKey, { limit: 100 });
       
       const chatMessages: ChatMessage[] = response.messages
-        .filter((msg: any) => !isContextMessage(msg.content))
-        .map((msg: any) => ({
+        .filter(msg => !isContextMessage(msg.content))
+        .map(msg => ({
           ...msg,
           id: msg.id || generateMessageId(),
           content: stripBrowserMarker(msg.content || ''),
           timestamp: msg.timestamp || new Date().toISOString(),
-          // Preserve enhanced fields from server
-          thinking: msg.thinking,
-          toolCalls: msg.toolCalls,
-          media: msg.media,
-          partial: msg.partial,
         }));
 
       setMessages(prev => ({
         ...prev,
         [sessionKey]: chatMessages,
       }));
+
+      // Cache messages for offline fallback
+      cacheMessages(sessionKey, chatMessages);
+      setCachedSessions(prev => {
+        const next = new Set(prev);
+        next.delete(sessionKey);
+        return next;
+      });
 
       // Restore streaming state from server (for cross-device sync)
       if (response.isStreaming) {
@@ -477,7 +573,22 @@ export function useChat() {
       return true;
     } catch (err) {
       console.error('Failed to load history:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load history');
+      // Fall back to localStorage cache
+      const cached = getCachedMessages(sessionKey);
+      if (cached && cached.length > 0) {
+        setMessages(prev => ({ ...prev, [sessionKey]: cached }));
+        setCachedSessions(prev => new Set([...prev, sessionKey]));
+        setError('Cached messages — may not be current');
+      } else {
+        // If we already have messages in memory, keep them
+        const existing = messagesRef.current[sessionKey];
+        if (existing && existing.length > 0) {
+          setCachedSessions(prev => new Set([...prev, sessionKey]));
+          setError('Cached messages — may not be current');
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load history');
+        }
+      }
       return false;
     } finally {
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
@@ -504,7 +615,45 @@ export function useChat() {
       ...prev,
       [sessionKey]: [],
     }));
+    clearCachedMessages(sessionKey);
   }, []);
+
+  // Drain outbound queue on reconnect
+  const drainQueue = useCallback(async () => {
+    const queue = getOutboundQueue();
+    if (queue.length === 0) return;
+
+    clearOutboundQueue();
+    setPendingQueue([]);
+
+    for (const item of queue) {
+      // Un-mark the queued user message
+      setMessages(prev => {
+        const sessionMessages = prev[item.sessionKey] || [];
+        const idx = sessionMessages.findIndex(
+          m => m.role === 'user' && m.partial && m.content === item.content
+        );
+        if (idx >= 0) {
+          const updated = [...sessionMessages];
+          updated[idx] = { ...updated[idx], partial: false };
+          return { ...prev, [item.sessionKey]: updated };
+        }
+        return prev;
+      });
+
+      try {
+        await sendMessage(item.sessionKey, item.content, item.options);
+      } catch {
+        // If still failing, re-queue
+        pushToOutboundQueue(item);
+        setPendingQueue(prev => [...prev, item]);
+      }
+    }
+  }, [sendMessage]);
+
+  const isSessionCached = useCallback((sessionKey: string): boolean => {
+    return cachedSessions.has(sessionKey);
+  }, [cachedSessions]);
 
   return {
     sendMessage,
@@ -512,12 +661,15 @@ export function useChat() {
     isSessionLoading,
     isSessionStreaming,
     isSessionThinking,
+    isSessionCached,
     loadHistory,
     appendMediaToLastAssistant,
     clearSession,
     addMessageFromWS: addMessage, // For real-time sync across windows
     onWSMessage,
     registerWSHandler,
+    drainQueue,
+    pendingQueueSize: pendingQueue.length,
     error,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
   };

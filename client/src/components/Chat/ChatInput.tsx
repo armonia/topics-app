@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
@@ -46,30 +46,30 @@ function OverflowVoiceMenu({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
+        className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
           anyActive
-            ? 'text-[var(--primary)] bg-[var(--primary)]/10'
-            : 'text-[#999] dark:text-[#666] hover:text-[#555] dark:hover:text-[#ccc] hover:bg-[#f0f0f0] dark:hover:bg-[#2a2a2a]'
+            ? 'text-primary bg-primary/10'
+            : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
         }`}
         title="Voice tools"
         aria-label="Voice tools"
       >
-        <MoreHorizontal size={18} />
+        <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div className="absolute bottom-full right-0 mb-1 bg-white dark:bg-[#1e1e1e] border border-[#e0e0e0] dark:border-[#333] rounded-lg shadow-xl z-50 py-1 min-w-[180px]">
+        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-lg shadow-xl z-50 py-1 min-w-[180px]">
           {voiceCallSupported && (
             <button
               type="button"
               onClick={() => { toggleCall(); setOpen(false); }}
-              className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] ${
-                isCallActive ? 'text-red-500' : 'text-[#333] dark:text-[#e5e5e5]'
+              className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+                isCallActive ? 'text-red-500' : 'text-app-text'
               }`}
               disabled={uploading}
             >
               {isCallActive ? <PhoneOff size={15} /> : <Phone size={15} />}
               {isCallActive ? 'End call' : 'Voice call'}
-              <span className="ml-auto text-[10px] text-[#999] dark:text-[#666]">⌘⇧C</span>
+              <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧C</span>
             </button>
           )}
           <button
@@ -78,27 +78,27 @@ function OverflowVoiceMenu({
               if (isRecording) stopRecording(); else startRecording();
               setOpen(false);
             }}
-            className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] ${
-              isRecording ? 'text-red-500' : 'text-[#333] dark:text-[#e5e5e5]'
+            className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+              isRecording ? 'text-red-500' : 'text-app-text'
             }`}
             disabled={currentStreaming || uploading}
           >
             {isRecording ? <MicOff size={15} /> : <Mic size={15} />}
             {isRecording ? 'Stop recording' : 'Record voice'}
-            <span className="ml-auto text-[10px] text-[#999] dark:text-[#666]">⌘⇧R</span>
+            <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧R</span>
           </button>
           {sttSupported && !isCallActive && (
             <button
               type="button"
               onClick={() => { toggleListening(); setOpen(false); }}
-              className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] ${
-                isListening ? 'text-green-500' : 'text-[#333] dark:text-[#e5e5e5]'
+              className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+                isListening ? 'text-green-500' : 'text-app-text'
               }`}
               disabled={currentStreaming || uploading}
             >
               {isListening ? <MicOff size={15} /> : <MessageSquare size={15} />}
               {isListening ? 'Stop dictation' : 'Dictation mode'}
-              <span className="ml-auto text-[10px] text-[#999] dark:text-[#666]">⌘⇧D</span>
+              <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧D</span>
             </button>
           )}
           <button
@@ -107,13 +107,13 @@ function OverflowVoiceMenu({
               if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
               setOpen(false);
             }}
-            className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] ${
-              isSpeaking || autoTTS ? 'text-blue-500' : 'text-[#333] dark:text-[#e5e5e5]'
+            className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+              isSpeaking || autoTTS ? 'text-blue-500' : 'text-app-text'
             }`}
           >
             {isSpeaking || autoTTS ? <Volume2 size={15} /> : <VolumeX size={15} />}
             {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
-            <span className="ml-auto text-[10px] text-[#999] dark:text-[#666]">⌘⇧T</span>
+            <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧T</span>
           </button>
         </div>
       )}
@@ -156,6 +156,8 @@ interface ChatInputProps {
   othersTypingText: string;
   mentionedFiles: MentionedFile[];
   setMentionedFiles: React.Dispatch<React.SetStateAction<MentionedFile[]>>;
+  planMode?: boolean;
+  onTogglePlanMode?: () => void;
 }
 
 export function ChatInput({
@@ -191,6 +193,8 @@ export function ChatInput({
   othersTypingText,
   mentionedFiles,
   setMentionedFiles,
+  planMode,
+  onTogglePlanMode,
 }: ChatInputProps) {
   // Context pills state
   const contextFilePaths = topic.contextFiles || [];
@@ -379,46 +383,14 @@ export function ChatInput({
     parentOnKeyDown(e);
   };
 
+  const hasAttachments = pendingImages.length > 0 || pendingFiles.length > 0;
+  const hasContext = mentionedFiles.length > 0 || contextFilePaths.length > 0;
+
   return (
     <>
-      {/* Pending pasted images */}
-      {pendingImages.length > 0 && (
-        <div className="px-3 pt-1.5 pb-0 bg-white dark:bg-[#1a1a1a] border-t border-[#f0f0f0] dark:border-[#222] flex-shrink-0">
-          <div className="flex flex-wrap gap-1.5">
-            {pendingImages.map((img, index) => (
-              <div key={index} className="relative inline-block">
-                <img src={img.dataUrl} alt="Pasted image" className="h-[100px] max-w-[200px] object-cover rounded-lg border border-gray-300 dark:border-gray-600" />
-                <button onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Pending files */}
-      {pendingFiles.length > 0 && (
-        <div className="px-3 pt-1.5 pb-0 bg-white dark:bg-[#1a1a1a] border-t border-[#f0f0f0] dark:border-[#222] flex-shrink-0">
-          <div className="flex flex-wrap gap-1.5">
-            {pendingFiles.map((file, index) => (
-              <div key={index}>
-                {isImageFile(file) ? (
-                  <ImageThumbnail file={file} onRemove={() => removePendingFile(index)} />
-                ) : (
-                  <div className="relative flex items-center gap-1.5 bg-[#f5f5f5] dark:bg-[#222] rounded px-2 py-1 text-[11px]">
-                    <Paperclip size={15} className="text-[#8b8b8b]" />
-                    <span className="max-w-24 truncate text-[#555] dark:text-[#aaa]">{file.name}</span>
-                    <button onClick={() => removePendingFile(index)} className="ml-0.5 text-red-400 hover:text-red-500 font-bold text-xs">×</button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Voice Call Status Banner */}
+      {/* Status banners (outside floating card) */}
       {isCallActive && (
-        <div className="px-3 py-2 bg-gradient-to-r from-green-500/20 to-blue-500/20 border-t border-green-500/30 flex items-center gap-3 flex-shrink-0">
+        <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl bg-gradient-to-r from-green-500/20 to-blue-500/20 border border-green-500/30 px-3 py-2 flex items-center gap-3 flex-shrink-0`}>
           <div className={`w-3 h-3 rounded-full ${
             callStatus === 'listening' ? 'bg-green-500 animate-pulse' :
             callStatus === 'processing' ? 'bg-yellow-500 animate-pulse' :
@@ -426,40 +398,25 @@ export function ChatInput({
             'bg-gray-400'
           }`} />
           <div className="flex-1">
-            <div className="text-[12px] font-medium text-green-700 dark:text-green-300">
-              📞 Voice Call Active
-            </div>
-            <div className="text-[11px] text-[#666] dark:text-[#999]">
-              {callStatus === 'listening' && '🎤 Listening... speak now'}
-              {callStatus === 'processing' && '⏳ Processing your message...'}
-              {callStatus === 'speaking' && '🔊 Speaking response...'}
+            <div className="text-[12px] font-medium text-green-700 dark:text-green-300">Voice Call Active</div>
+            <div className="text-[11px] text-app-text-secondary">
+              {callStatus === 'listening' && 'Listening... speak now'}
+              {callStatus === 'processing' && 'Processing your message...'}
+              {callStatus === 'speaking' && 'Speaking response...'}
             </div>
           </div>
-          <button
-            onClick={toggleCall}
-            className="px-3 py-1 text-[11px] bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
-          >
-            End Call
-          </button>
+          <button onClick={toggleCall} className="px-3 py-1 text-[11px] bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">End Call</button>
         </div>
       )}
 
-      {/* Orphaned message indicator */}
       {!currentStreaming && currentMessages.length > 0 && currentMessages[currentMessages.length - 1]?.role === 'user' && (
-        <div className="px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800/40 flex items-center gap-2 flex-shrink-0">
+        <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 flex items-center gap-2 flex-shrink-0`}>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-              No response received
-            </div>
-            <div className="text-[10px] text-amber-600 dark:text-amber-500">
-              The connection may have been interrupted
-            </div>
+            <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">No response received</div>
+            <div className="text-[10px] text-amber-600 dark:text-amber-500">The connection may have been interrupted</div>
           </div>
           <button
-            onClick={() => {
-              const lastMsg = currentMessages[currentMessages.length - 1];
-              if (lastMsg?.content) sendMessageDirect(lastMsg.content);
-            }}
+            onClick={() => { const lastMsg = currentMessages[currentMessages.length - 1]; if (lastMsg?.content) sendMessageDirect(lastMsg.content); }}
             className="px-3 py-1.5 text-[11px] bg-amber-500 text-white rounded-md hover:bg-amber-600 transition-colors flex items-center gap-1"
           >
             <span>↻</span> Retry
@@ -467,74 +424,25 @@ export function ChatInput({
         </div>
       )}
 
-      {/* Reply preview */}
-      {replyingTo && (
-        <div className="px-3 py-1.5 bg-[#fafafa] dark:bg-[#1e1e1e] border-t border-[#e8e8e8] dark:border-[#2a2a2a] flex items-center gap-1.5 flex-shrink-0">
-          <div className="w-0.5 h-5 bg-[var(--primary)] rounded-full flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="text-[10px] text-[#8b8b8b] font-medium">
-              Replying to {replyingTo.role === 'user' ? 'yourself' : 'assistant'}
-            </div>
-            <div className="text-[11px] text-[#666] dark:text-[#aaa] truncate">
-              {replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}
-            </div>
-          </div>
-          <button onClick={() => setReplyingTo(null)} className="text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] p-0.5">
-            <X size={13} />
-          </button>
-        </div>
-      )}
-
-      {/* Others typing indicator */}
       {othersTyping && (
-        <div className="px-3 py-1.5 border-t border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#fafafa] dark:bg-[#1e1e1e]">
-          <div className="flex items-start gap-2">
-            <div className="flex gap-1 mt-1.5 flex-shrink-0">
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-            </div>
-            <div className="text-[12px] text-[#666] dark:text-[#999] italic min-w-0 truncate">
-              {othersTypingText || 'typing...'}
-            </div>
+        <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 flex items-center gap-2 px-3`}>
+          <div className="flex gap-1 flex-shrink-0">
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
+          <div className="text-[11px] text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
         </div>
       )}
 
-      {/* Context pills */}
-      {(mentionedFiles.length > 0 || contextFilePaths.length > 0) && (
-        <div className="px-3 py-1.5 bg-white dark:bg-[#1a1a1a] border-t border-[#f0f0f0] dark:border-[#222] flex-shrink-0">
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-            <span className="text-[10px] text-[#888] dark:text-[#666] font-medium flex-shrink-0">Context</span>
-            {contextFilePaths.length > 0 && (
-              <ContextPills
-                files={contextFilePaths.map(cf => ({
-                  name: cf.split('/').pop() || cf,
-                  path: cf,
-                  tokens: contextTokenMap.get(cf),
-                  type: cf.toLowerCase().includes('claude') ? 'claude' as const : 'context' as const,
-                }))}
-                excludedPaths={excludedContextPaths}
-                onToggle={handleToggleContext}
-                onRemove={handleRemoveContext}
-                compact
-              />
-            )}
-            {mentionedFiles.map((file, idx) => (
-              <FilePill
-                key={file.path}
-                file={file}
-                onRemove={() => setMentionedFiles(prev => prev.filter((_, i) => i !== idx))}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Input area */}
-      <form onSubmit={onSubmit} className="px-3 py-2 border-t border-[#e8e8e8] dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] flex-shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))' }}>
+      {/* Floating input card */}
+      <form
+        onSubmit={onSubmit}
+        className={`relative ${isMobile ? 'mx-2 mb-1.5' : 'mx-3 mb-2'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
         {isRecording ? (
-          <div className="flex gap-2 items-center mb-2">
+          <div className="flex gap-2 items-center p-3">
             <div className="flex-1 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-xl px-3 py-2.5">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               <span className="text-red-500 font-medium text-[12px]">Recording</span>
@@ -546,35 +454,128 @@ export function ChatInput({
           </div>
         ) : (
           <>
-            <div className="relative input-glow rounded-xl flex items-end border border-[#e0e0e0] dark:border-[#333] bg-[#fafafa] dark:bg-[#222] focus-within:border-[var(--primary)] dark:focus-within:border-[var(--primary)] transition-all">
-              <div className="flex items-center gap-0.5 pl-1.5 pb-[7px] flex-shrink-0">
+            {/* Row 0: Attachments preview (inside card) */}
+            {hasAttachments && (
+              <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
+                {pendingImages.map((img, index) => (
+                  <div key={`img-${index}`} className="relative inline-block">
+                    <img src={img.dataUrl} alt="Pasted image" className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
+                    <button onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600">×</button>
+                  </div>
+                ))}
+                {pendingFiles.map((file, index) => (
+                  <div key={`file-${index}`}>
+                    {isImageFile(file) ? (
+                      <ImageThumbnail file={file} onRemove={() => removePendingFile(index)} />
+                    ) : (
+                      <div className="relative flex items-center gap-1.5 bg-app-hover rounded-lg px-2 py-1 text-[11px]">
+                        <Paperclip size={14} className="text-app-text-tertiary" />
+                        <span className="max-w-24 truncate text-app-text-secondary">{file.name}</span>
+                        <button onClick={() => removePendingFile(index)} className="ml-0.5 text-red-400 hover:text-red-500 font-bold text-xs">×</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Row 0b: Reply preview (inside card) */}
+            {replyingTo && (
+              <div className="mx-3 mt-2 flex items-center gap-1.5">
+                <div className="w-0.5 h-5 bg-primary rounded-full flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] text-app-text-tertiary font-medium">
+                    Replying to {replyingTo.role === 'user' ? 'yourself' : 'assistant'}
+                  </div>
+                  <div className="text-[11px] text-app-text-secondary truncate">
+                    {replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}
+                  </div>
+                </div>
+                <button onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
+            {/* Row 0c: Context pills (inside card) */}
+            {hasContext && (
+              <div className="px-3 mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+                <span className="text-[10px] text-app-text-muted font-medium flex-shrink-0">Context</span>
+                {contextFilePaths.length > 0 && (
+                  <ContextPills
+                    files={contextFilePaths.map(cf => ({
+                      name: cf.split('/').pop() || cf,
+                      path: cf,
+                      tokens: contextTokenMap.get(cf),
+                      type: cf.toLowerCase().includes('claude') ? 'claude' as const : 'context' as const,
+                    }))}
+                    excludedPaths={excludedContextPaths}
+                    onToggle={handleToggleContext}
+                    onRemove={handleRemoveContext}
+                    compact
+                  />
+                )}
+                {mentionedFiles.map((file, idx) => (
+                  <FilePill
+                    key={file.path}
+                    file={file}
+                    onRemove={() => setMentionedFiles(prev => prev.filter((_, i) => i !== idx))}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Row 1: Textarea (full width, borderless) */}
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={handleMessageChange}
+              onKeyDown={handleKeyDown}
+              onPaste={onPaste}
+              aria-label={`Message input for ${topic.name}`}
+              aria-describedby="chat-input-hint"
+              placeholder={replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
+              className={`w-full px-3 ${hasAttachments || replyingTo || hasContext ? 'pt-1.5' : 'pt-3'} pb-1 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+              style={{ minHeight: '36px', maxHeight: '140px' }}
+              rows={1}
+              disabled={uploading}
+            />
+            <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+
+            {/* Row 2: Action bar */}
+            <div className={`flex items-center justify-between ${isMobile ? 'px-1.5 pb-1.5' : 'px-2 pb-2'}`}>
+              {/* Left: tools */}
+              <div className="flex items-center gap-0.5">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg text-[#999] dark:text-[#666] hover:text-[var(--primary)] dark:hover:text-[var(--primary)] hover:bg-[#f0f0f0] dark:hover:bg-[#2a2a2a] transition-all"
+                  className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
                   title="Attach file (⌘U)"
                   aria-label="Attach file"
                   disabled={currentStreaming}
                 >
-                  <Paperclip size={18} />
+                  <Paperclip size={16} />
                 </button>
+                <button
+                  type="button"
+                  onClick={onTogglePlanMode}
+                  className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg transition-all ${
+                    planMode
+                      ? 'text-indigo-500 bg-indigo-500/10'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={planMode ? 'Plan Mode ON' : 'Plan Mode OFF'}
+                  aria-label="Toggle plan mode"
+                >
+                  <ClipboardList size={16} />
+                </button>
+                {planMode && (
+                  <span className="text-[9px] font-semibold text-indigo-500 uppercase tracking-wider ml-0.5">Plan</span>
+                )}
               </div>
 
-              <textarea
-                ref={textareaRef}
-                value={message}
-                onChange={handleMessageChange}
-                onKeyDown={handleKeyDown}
-                onPaste={onPaste}
-                aria-label="Message input"
-                placeholder={replyingTo ? 'Reply...' : topic.projectPath ? 'Message... (@ to mention files)' : 'Message...'}
-                className={`flex-1 px-1.5 py-2.5 min-w-0 bg-transparent text-[#1a1a1a] dark:text-[#e5e5e5] placeholder-[#b0b0b0] dark:placeholder-[#555] resize-none overflow-y-auto focus:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
-                style={{ minHeight: '40px', maxHeight: '140px' }}
-                rows={1}
-                disabled={uploading}
-              />
-
-              <div className="flex items-center gap-0.5 pr-1.5 pb-[7px] flex-shrink-0 relative">
+              {/* Right: voice + send */}
+              <div className="flex items-center gap-0.5">
                 {!isMobile && (
                   <OverflowVoiceMenu
                     isCallActive={isCallActive}
@@ -594,18 +595,17 @@ export function ChatInput({
                     setAutoTTS={setAutoTTS}
                   />
                 )}
-
                 <button
                   type="submit"
                   disabled={(!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) || uploading}
-                  className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all ${
+                  className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg transition-all ${
                     uploading
-                      ? 'bg-[var(--primary)] text-white'
+                      ? 'bg-primary text-white'
                       : currentStreaming && message.trim()
                         ? 'bg-orange-500 text-white hover:bg-orange-600'
                         : (message.trim() || pendingFiles.length > 0 || pendingImages.length > 0)
-                          ? 'bg-[var(--primary)] text-white hover:bg-[#0055dd]'
-                          : 'bg-transparent text-[#b0b0b0] dark:text-[#555]'
+                          ? 'bg-primary text-white hover:bg-primary-hover'
+                          : 'bg-transparent text-app-placeholder'
                   }`}
                   title={currentStreaming && message.trim() ? 'Queue message (Enter)' : 'Send (Enter)'}
                   aria-label="Send message"
@@ -613,56 +613,55 @@ export function ChatInput({
                   {uploading ? (
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <Send size={16} />
+                    <Send size={15} />
                   )}
                 </button>
               </div>
-
-              {/* Slash command menu */}
-              {showSlashMenu && filteredSlashCommands.length > 0 && (
-                <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-[#1e1e1e] border border-[#e0e0e0] dark:border-[#333] rounded-lg shadow-xl z-50 py-1 overflow-hidden max-h-48 overflow-y-auto">
-                  {filteredSlashCommands.map((cmd, idx) => (
-                    <button
-                      key={cmd.cmd}
-                      type="button"
-                      onClick={() => {
-                        setMessage(cmd.cmd + ' ');
-                        setShowSlashMenu(false);
-                        setSlashFilter('');
-                        textareaRef.current?.focus();
-                      }}
-                      className={`w-full px-3 py-1.5 text-left flex items-center gap-3 transition-colors ${
-                        idx === slashMenuIndex 
-                          ? 'bg-[var(--primary)]/15 text-[#1a1a1a] dark:text-white' 
-                          : 'text-[#333] dark:text-[#e5e5e5] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a]'
-                      }`}
-                    >
-                      <span className="text-[12px] font-mono text-[var(--primary)]">{cmd.cmd}</span>
-                      <span className="text-[11px] text-[#888]">{cmd.description}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* @-mention file menu */}
-              {topic.projectPath && (
-                <FileMentionMenu
-                  projectPath={topic.projectPath}
-                  visible={showMentionMenu}
-                  filter={mentionFilter}
-                  onSelect={handleMentionSelect}
-                  onClose={() => { setShowMentionMenu(false); setMentionStartPos(-1); }}
-                  selectedIndex={mentionMenuIndex}
-                  onIndexChange={setMentionMenuIndex}
-                />
-              )}
             </div>
+
+            {/* Popover menus (anchored to form) */}
+            {showSlashMenu && filteredSlashCommands.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface dark:bg-app-panel border border-app-border-input rounded-lg shadow-xl z-50 py-1 overflow-hidden max-h-48 overflow-y-auto">
+                {filteredSlashCommands.map((cmd, idx) => (
+                  <button
+                    key={cmd.cmd}
+                    type="button"
+                    onClick={() => {
+                      setMessage(cmd.cmd + ' ');
+                      setShowSlashMenu(false);
+                      setSlashFilter('');
+                      textareaRef.current?.focus();
+                    }}
+                    className={`w-full px-3 py-1.5 text-left flex items-center gap-3 transition-colors ${
+                      idx === slashMenuIndex
+                        ? 'bg-primary/15 text-app-text'
+                        : 'text-app-text hover:bg-app-hover'
+                    }`}
+                  >
+                    <span className="text-[12px] font-mono text-primary">{cmd.cmd}</span>
+                    <span className="text-[11px] text-app-text-muted">{cmd.description}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {topic.projectPath && (
+              <FileMentionMenu
+                projectPath={topic.projectPath}
+                visible={showMentionMenu}
+                filter={mentionFilter}
+                onSelect={handleMentionSelect}
+                selectedIndex={mentionMenuIndex}
+                onIndexChange={setMentionMenuIndex}
+              />
+            )}
+
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFileSelect} />
           </>
         )}
-        {chatError && <div className="text-red-500 text-[11px] mt-0.5">{chatError}</div>}
+        {chatError && <div className="text-red-500 text-[11px] px-3 pb-1.5">{chatError}</div>}
         {messageQueue.length > 0 && (
-          <div className="text-[11px] mt-1 text-orange-500 flex items-center gap-1.5">
+          <div className="text-[11px] px-3 pb-1.5 text-orange-500 flex items-center gap-1.5">
             ({messageQueue.length} message{messageQueue.length > 1 ? 's' : ''} queued)
           </div>
         )}

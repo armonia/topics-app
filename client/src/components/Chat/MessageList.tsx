@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
-import { loadSettings } from '../Settings/GlobalSettings';
+import { loadSettings } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageBubble } from './MessageBubble';
 
@@ -24,6 +24,9 @@ interface MessageListProps {
   onFileDragLeave: (e: React.DragEvent) => void;
   onFileDrop: (e: React.DragEvent) => void;
   setMessage: (v: string) => void;
+  onPlanApprove?: () => void;
+  onPlanReject?: () => void;
+  onRemember?: (msg: ChatMessage) => void;
 }
 
 export function MessageList({
@@ -31,7 +34,7 @@ export function MessageList({
   topic,
   currentMessages,
   currentLoading,
-  currentStreaming,
+  currentStreaming: _currentStreaming,
   copiedMsgId,
   fileDragOver,
   chatContainerRef,
@@ -44,6 +47,9 @@ export function MessageList({
   onFileDragLeave,
   onFileDrop,
   setMessage,
+  onPlanApprove,
+  onPlanReject,
+  onRemember,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
@@ -54,8 +60,10 @@ export function MessageList({
   const isCompact = settings.messageDensity === 'compact';
 
   // Memoize filtered messages
-  const filteredMessages = useMemo(() => 
+  const filteredMessages = useMemo(() =>
     currentMessages.filter(msg => {
+      // Keep partial assistant messages (streaming placeholder)
+      if (msg.role === 'assistant' && msg.partial) return true;
       const c = msg.content?.trim();
       if (!c) return false;
       if (c === 'NO_REPLY' || c === 'ANNOUNCE_SKIP') return false;
@@ -101,16 +109,19 @@ export function MessageList({
   return (
     <div
       ref={chatContainerRef}
-      className={`flex-1 overflow-y-auto ${isMobile ? 'px-2 py-1.5' : 'px-4 py-3'} relative min-h-0 ${fileDragOver ? 'bg-[var(--primary)]/3' : ''}`}
+      role="log"
+      aria-live="polite"
+      aria-label={`Messages for ${topic.name}`}
+      className={`flex-1 overflow-y-auto ${isMobile ? 'px-2 pt-1.5' : 'px-4 pt-3'} relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
     >
       {fileDragOver && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--primary)]/5 border-2 border-dashed border-[var(--primary)]/30 rounded-lg pointer-events-none">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary/30 rounded-lg pointer-events-none">
           <div className="text-center">
-            <Paperclip size={20} className="mx-auto mb-1 text-[var(--primary)]/50" />
-            <p className="text-[var(--primary)]/70 font-medium text-[12px]">Drop files here</p>
+            <Paperclip size={20} className="mx-auto mb-1 text-primary/50" />
+            <p className="text-primary/70 font-medium text-[12px]">Drop files here</p>
           </div>
         </div>
       )}
@@ -123,8 +134,8 @@ export function MessageList({
             <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
               <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
                 i % 2 === 0 
-                  ? 'bg-[var(--primary)]/20' 
-                  : 'bg-[#f5f5f5] dark:bg-[#222]'
+                  ? 'bg-primary/20' 
+                  : 'bg-app-hover'
               }`}>
                 <div className="h-3 rounded w-32 mb-1.5 bg-black/10 dark:bg-white/10" />
                 <div className="h-3 rounded w-20 bg-black/5 dark:bg-white/5" />
@@ -137,14 +148,14 @@ export function MessageList({
           <div className="float-icon inline-block mb-3">
             <span className="text-3xl">{topic.icon}</span>
           </div>
-          <p className="text-[14px] font-medium text-[#666] dark:text-[#aaa]">{topic.name}</p>
+          <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
           {topic.systemPrompt && (
             <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
               <span>✨</span> Custom system prompt active
             </p>
           )}
           {!topic.projectPath && (
-            <p className="text-[12px] text-[#aaa] dark:text-[#666] mt-2 mb-2">Start a conversation</p>
+            <p className="text-[12px] text-app-text-muted mt-2 mb-2">Start a conversation</p>
           )}
           <div className="flex flex-wrap gap-2 justify-center mt-4">
             {(topic.projectPath ? [
@@ -159,13 +170,13 @@ export function MessageList({
                 <button
                   key={q.label}
                   onClick={() => { setMessage(q.msg); textareaRef.current?.focus(); }}
-                  className="px-3 py-1.5 text-[12px] rounded-full border border-[#e0e0e0] dark:border-[#333] text-[#666] dark:text-[#aaa] hover:bg-[#f5f5f5] dark:hover:bg-[#222] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all hover-lift"
+                  className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift"
                 >
                   {q.label}
                 </button>
               ))}
           </div>
-          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-[#aaa] dark:text-[#555]">
+          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
             <span className="flex items-center gap-1.5"><kbd className="kbd">⌘K</kbd> commands</span>
             <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
             {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
@@ -188,6 +199,8 @@ export function MessageList({
           increaseViewportBy={{ top: 400, bottom: 400 }}
           itemContent={(idx, msg) => {
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
+            // Only show plan approve/reject on the last assistant message
+            const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
             return (
               <MessageBubble
                 msg={msg}
@@ -201,28 +214,14 @@ export function MessageList({
                 onReply={onReply}
                 onCopy={onCopy}
                 onTogglePin={onTogglePin}
+                onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
+                onPlanReject={isLastAssistant ? onPlanReject : undefined}
+                onRemember={onRemember}
               />
             );
           }}
           style={{ height: '100%' }}
         />
-      )}
-
-      {/* Typing indicator */}
-      {currentStreaming && (
-        currentMessages.length === 0 ||
-        currentMessages[currentMessages.length - 1]?.role === 'user' || 
-        currentMessages[currentMessages.length - 1]?.content === ''
-      ) && (
-        <div className="flex gap-2 animate-pulse">
-          <div className="bg-[#e8e8e8] dark:bg-[#333] rounded-lg px-3 py-2.5 shadow-sm">
-            <div className="flex gap-1.5 items-center">
-              <div className="w-2 h-2 bg-[#666] dark:bg-[#888] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-2 h-2 bg-[#666] dark:bg-[#888] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-2 h-2 bg-[#666] dark:bg-[#888] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            </div>
-          </div>
-        </div>
       )}
 
       <div ref={messagesEndRef} />

@@ -64,6 +64,7 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
   };
 
   if (!usage) return null;
+  if (usage.total === 0 && usage.breakdown.length === 0) return null;
 
   const percentage = Math.round((usage.total / usage.limit) * 100);
   const isWarning = percentage > 70;
@@ -74,7 +75,7 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
   let startAngle = -90; // Start from top
 
   const segments = usage.breakdown.map((item, i) => {
-    const angle = (item.tokens / total) * 360;
+    const angle = total > 0 ? (item.tokens / total) * 360 : 0;
     const endAngle = startAngle + angle;
     
     // Calculate SVG arc path
@@ -167,13 +168,13 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
         {/* Tooltip - positioned below to avoid header overlap */}
         {showTooltip && (
           <div 
-            className="fixed z-[100] bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg shadow-xl p-3 min-w-[220px]"
+            className="fixed z-[100] bg-surface border border-app-border rounded-lg shadow-xl p-3 min-w-[220px]"
             style={{ 
               left: Math.min(containerRef.current?.getBoundingClientRect().left ?? 0, window.innerWidth - 240),
               top: (containerRef.current?.getBoundingClientRect().bottom ?? 0) + 8,
             }}
           >
-            <div className="text-[11px] font-medium mb-2 text-[var(--text)]">
+            <div className="text-[11px] font-medium mb-2 text-app-text">
               Context: {formatTokens(usage.total)} / {formatTokens(usage.limit)} tokens
             </div>
             <svg viewBox="0 0 100 100" className="w-20 h-20 mx-auto mb-2">
@@ -214,24 +215,24 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
                 );
               })}
               {/* Center text */}
-              <text x="50" y="55" textAnchor="middle" className="text-[16px] font-bold fill-[var(--text)]">
+              <text x="50" y="55" textAnchor="middle" className="text-[16px] font-bold fill-app-text">
                 {percentage}%
               </text>
             </svg>
             <div className="space-y-1">
               {segments.map((seg, i) => {
-                const segPercent = Math.round((seg.tokens / usage.total) * 100);
+                const segPercent = usage.total > 0 ? Math.round((seg.tokens / usage.total) * 100) : 0;
                 return (
                   <div 
                     key={i} 
-                    className={`flex items-center gap-2 text-[10px] text-[var(--text)] ${hoveredSegment === i ? 'font-medium' : ''}`}
+                    className={`flex items-center gap-2 text-[10px] text-app-text ${hoveredSegment === i ? 'font-medium' : ''}`}
                     onMouseEnter={() => setHoveredSegment(i)}
                     onMouseLeave={() => setHoveredSegment(null)}
                   >
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: seg.color }} />
                     <span className="flex-1 truncate">{seg.label}</span>
-                    <span className="text-[var(--text-secondary)]">{segPercent}%</span>
-                    <span className="text-[var(--text-muted)] w-12 text-right">{formatTokens(seg.tokens)}</span>
+                    <span className="text-app-text-secondary">{segPercent}%</span>
+                    <span className="text-app-text-muted w-12 text-right">{formatTokens(seg.tokens)}</span>
                   </div>
                 );
               })}
@@ -246,13 +247,13 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
   return (
     <div 
       ref={containerRef}
-      className="p-3 border border-[var(--border)] rounded-lg bg-[var(--bg-elevated)]"
+      className="p-3 border border-app-border rounded-lg bg-elevated"
       onMouseMove={handleMouseMove}
     >
       <div className="flex items-center gap-2 mb-2">
         <PieChart size={14} className={isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-blue-500'} />
         <span className="text-[12px] font-medium">Context</span>
-        <span className={`text-[11px] ml-auto ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-[var(--text-muted)]'}`}>
+        <span className={`text-[11px] ml-auto ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-muted'}`}>
           {formatTokens(usage.total)} / {formatTokens(usage.limit)}
         </span>
       </div>
@@ -272,7 +273,7 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
             />
           ))}
           {/* Center circle with percentage */}
-          <circle cx="50" cy="50" r="22" fill="white" className="dark:fill-[var(--bg-surface)]" />
+          <circle cx="50" cy="50" r="22" fill="white" className="dark:fill-surface" />
           <text x="50" y="54" textAnchor="middle" className="text-[12px] font-bold fill-current">
             {percentage}%
           </text>
@@ -284,13 +285,13 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
             <div 
               key={i}
               className={`flex items-center gap-2 text-[10px] cursor-pointer rounded px-1 py-0.5 transition-colors
-                ${hoveredSegment === i ? 'bg-[var(--bg-hover)]' : ''}`}
+                ${hoveredSegment === i ? 'bg-app-hover' : ''}`}
               onMouseEnter={() => setHoveredSegment(i)}
               onMouseLeave={() => setHoveredSegment(null)}
             >
               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: seg.color }} />
               <span className="flex-1 truncate">{seg.label}</span>
-              <span className="text-[var(--text-muted)] flex-shrink-0">{formatTokens(seg.tokens)}</span>
+              <span className="text-app-text-muted flex-shrink-0">{formatTokens(seg.tokens)}</span>
             </div>
           ))}
         </div>
@@ -306,7 +307,7 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
 
       {/* Hovered segment detail */}
       {hoveredSegment !== null && segments[hoveredSegment]?.description && (
-        <div className="mt-2 text-[10px] text-[var(--text-secondary)] bg-[var(--bg-surface)] rounded p-2">
+        <div className="mt-2 text-[10px] text-app-text-secondary bg-surface rounded p-2">
           <Info size={10} className="inline mr-1" />
           {segments[hoveredSegment].description}
         </div>

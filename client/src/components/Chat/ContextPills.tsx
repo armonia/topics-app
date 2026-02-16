@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, BookOpen, Braces, FileText } from 'lucide-react';
 
 interface ContextFile {
@@ -20,9 +20,9 @@ export function ContextPills({ files, onRemove, onToggle, excludedPaths, compact
   if (files.length === 0) return null;
 
   return (
-    <div className={`flex items-center gap-1.5 overflow-x-auto scrollbar-hide ${compact ? '' : 'px-3 py-1.5 border-t border-[#f0f0f0] dark:border-[#222]'}`}>
+    <div className={`flex items-center gap-1.5 overflow-x-auto scrollbar-hide ${compact ? '' : 'px-3 py-1.5 border-t border-app-border'}`}>
       {!compact && (
-        <span className="text-[10px] text-[#888] dark:text-[#666] font-medium mr-0.5 flex-shrink-0">Context</span>
+        <span className="text-[10px] text-app-text-muted font-medium mr-0.5 flex-shrink-0">Context</span>
       )}
       {files.map(file => (
         <ContextPill
@@ -49,7 +49,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
     mention: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200/60 dark:border-emerald-800/30 text-emerald-600 dark:text-emerald-400',
   };
 
-  const excludedStyle = 'bg-gray-100 dark:bg-gray-800/30 border-gray-200/60 dark:border-gray-700/30 text-gray-400 dark:text-gray-500 opacity-60';
+  const excludedStyle = 'bg-app-hover border-app-border-light/60 text-app-text-muted opacity-60';
 
   const icon = file.type === 'claude'
     ? <Braces size={10} />
@@ -87,6 +87,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
 /** Hook to fetch token estimates for context files */
 export function useContextFileTokens(sessionKey: string, filePaths: string[]): Map<string, number> {
   const [tokenMap, setTokenMap] = useState<Map<string, number>>(new Map());
+  const filePathsKey = useMemo(() => filePaths.join(','), [filePaths]);
 
   useEffect(() => {
     if (!filePaths.length) { setTokenMap(new Map()); return; }
@@ -119,7 +120,7 @@ export function useContextFileTokens(sessionKey: string, filePaths: string[]): M
         setTokenMap(map);
       })
       .catch(() => {});
-  }, [sessionKey, filePaths.join(',')]);
+  }, [sessionKey, filePathsKey]);
 
   return tokenMap;
 }

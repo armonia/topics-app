@@ -14,22 +14,22 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, defaultColla
   if (!content) return null;
 
   return (
-    <div className="mb-2 border border-[var(--border-light)] rounded-lg overflow-hidden bg-[var(--bg-elevated)]">
+    <div className="mb-2 border border-app-border-light rounded-lg overflow-hidden bg-elevated">
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-app-text-secondary hover:bg-app-hover transition-colors"
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         <Brain size={14} className="text-purple-500" />
         <span className="font-medium">Thinking</span>
         {collapsed && (
-          <span className="text-[11px] text-[var(--text-muted)] ml-2 truncate max-w-[200px]">
+          <span className="text-[11px] text-app-text-muted ml-2 truncate max-w-[200px]">
             {content.slice(0, 50)}...
           </span>
         )}
       </button>
       {!collapsed && (
-        <div className="px-3 py-2 border-t border-[var(--border-light)] text-[12px] text-[var(--text-secondary)] whitespace-pre-wrap font-mono leading-relaxed">
+        <div className="px-3 py-2 border-t border-app-border-light text-[12px] text-app-text-secondary whitespace-pre-wrap font-mono leading-relaxed">
           {content}
         </div>
       )}
@@ -70,7 +70,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
       case 'error':
         return 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20';
       default:
-        return 'border-[var(--border)] bg-[var(--bg-elevated)]';
+        return 'border-app-border bg-elevated';
     }
   };
 
@@ -78,7 +78,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${statusColor()}`}>
         {statusIcon()}
-        <Wrench size={10} className="text-[var(--text-secondary)]" />
+        <Wrench size={10} className="text-app-text-secondary" />
         {toolCall.name}
       </span>
     );
@@ -92,10 +92,10 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         {statusIcon()}
-        <Wrench size={14} className="text-[var(--text-secondary)]" />
+        <Wrench size={14} className="text-app-text-secondary" />
         <span className="font-mono font-medium">{toolCall.name}</span>
         {!expanded && Object.keys(toolCall.args).length > 0 && (
-          <span className="text-[11px] text-[var(--text-muted)] ml-2">
+          <span className="text-[11px] text-app-text-muted ml-2">
             ({Object.keys(toolCall.args).length} args)
           </span>
         )}
@@ -105,8 +105,8 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {/* Arguments */}
           {Object.keys(toolCall.args).length > 0 && (
             <div className="px-3 py-2 border-b border-inherit">
-              <div className="text-[10px] uppercase text-[var(--text-muted)] mb-1 font-semibold">Arguments</div>
-              <pre className="text-[11px] font-mono text-[var(--text-secondary)] whitespace-pre-wrap overflow-auto max-h-32">
+              <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
+              <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
                 {JSON.stringify(toolCall.args, null, 2)}
               </pre>
             </div>
@@ -114,8 +114,8 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {/* Result */}
           {toolCall.result && (
             <div className="px-3 py-2">
-              <div className="text-[10px] uppercase text-[var(--text-muted)] mb-1 font-semibold">Result</div>
-              <pre className="text-[11px] font-mono text-[var(--text-secondary)] whitespace-pre-wrap overflow-auto max-h-48">
+              <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
+              <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
                 {toolCall.result}
               </pre>
             </div>
@@ -138,7 +138,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
 // Partial/streaming indicator
 export function PartialIndicator() {
   return (
-    <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] mt-1">
+    <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted mt-1">
       <Loader2 size={12} className="animate-spin" />
       <span>Streaming...</span>
     </div>

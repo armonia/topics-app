@@ -13,7 +13,6 @@ interface FileMentionMenuProps {
   visible: boolean;
   filter: string;
   onSelect: (file: MentionedFile) => void;
-  onClose: () => void;
   selectedIndex: number;
   onIndexChange: (index: number) => void;
 }
@@ -58,7 +57,7 @@ function fuzzyMatch(query: string, target: string): { match: boolean; score: num
   return { match: qi === q.length, score };
 }
 
-export function FileMentionMenu({ projectPath, visible, filter, onSelect, onClose: _onClose, selectedIndex, onIndexChange }: FileMentionMenuProps) {
+export function FileMentionMenu({ projectPath, visible, filter, onSelect, selectedIndex, onIndexChange }: FileMentionMenuProps) {
   const [allFiles, setAllFiles] = useState<{ path: string; name: string; depth: number }[]>([]);
   const [loading, setLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -112,26 +111,26 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, onClos
     <div
       ref={menuRef}
       data-mention-menu
-      className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-[#1e1e1e] border border-[#e0e0e0] dark:border-[#333] rounded-lg shadow-xl z-50 overflow-hidden max-h-64 flex flex-col"
+      className="absolute bottom-full left-0 right-0 mb-1 bg-surface border border-app-border-light rounded-lg shadow-xl z-50 overflow-hidden max-h-64 flex flex-col"
     >
       {/* Header */}
-      <div className="px-3 py-1.5 border-b border-[#e8e8e8] dark:border-[#2a2a2a] flex items-center gap-2">
-        <Search size={12} className="text-[#888]" />
-        <span className="text-[11px] text-[#888] font-medium">Files</span>
-        {filter && <span className="text-[11px] text-[var(--primary)] font-mono">@{filter}</span>}
+      <div className="px-3 py-1.5 border-b border-app-border flex items-center gap-2">
+        <Search size={12} className="text-app-text-muted" />
+        <span className="text-[11px] text-app-text-muted font-medium">Files</span>
+        {filter && <span className="text-[11px] text-primary font-mono">@{filter}</span>}
         <div className="flex-1" />
-        <span className="text-[10px] text-[#999] dark:text-[#666]">↑↓ navigate · Enter select · Esc close</span>
+        <span className="text-[10px] text-app-text-muted">↑↓ navigate · Enter select · Esc close</span>
       </div>
       
       {/* File list */}
       <div className="overflow-y-auto flex-1">
         {loading ? (
-          <div className="px-3 py-4 text-center text-[12px] text-[#888]">
-            <div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin mx-auto mb-2" />
+          <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
+            <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin mx-auto mb-2" />
             Loading files...
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-3 py-4 text-center text-[12px] text-[#888]">
+          <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
             No files found
           </div>
         ) : (
@@ -149,14 +148,14 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, onClos
                 onMouseEnter={() => onIndexChange(idx)}
                 className={`w-full px-3 py-1.5 text-left flex items-center gap-2 transition-colors ${
                   idx === selectedIndex
-                    ? 'bg-[var(--primary)]/15 text-[#1a1a1a] dark:text-white'
-                    : 'text-[#333] dark:text-[#e5e5e5] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a]'
+                    ? 'bg-primary/15 text-app-text'
+                    : 'text-app-text hover:bg-app-hover'
                 }`}
               >
-                <File size={13} className="text-[#888] flex-shrink-0" />
+                <File size={13} className="text-app-text-muted flex-shrink-0" />
                 <span className="text-[12px] font-medium truncate">{file.name}</span>
                 {dir && (
-                  <span className="text-[10px] text-[#aaa] dark:text-[#666] truncate ml-auto flex-shrink-0">
+                  <span className="text-[10px] text-app-text-muted truncate ml-auto flex-shrink-0">
                     {dir}
                   </span>
                 )}

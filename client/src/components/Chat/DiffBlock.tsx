@@ -1,45 +1,90 @@
-import { useState, useCallback, memo } from 'react';
-import { Check, X, FileCode } from 'lucide-react';
+import { useState, useCallback, useImperativeHandle, forwardRef, memo } from 'react';
+import { Check, X, FileCode, Undo2, AlertTriangle } from 'lucide-react';
+import { filesApi } from '../../lib/api';
 import type { DiffEdit } from '../../lib/diffParser';
+
+export interface DiffBlockHandle {
+  apply: () => Promise<boolean>;
+  getState: () => ApplyState;
+}
 
 interface DiffBlockProps {
   edit: DiffEdit;
 }
 
-type ApplyState = 'pending' | 'applying' | 'applied' | 'rejected' | 'error';
+type ApplyState = 'pending' | 'applying' | 'applied' | 'undoing' | 'rejected' | 'error';
 
-export const DiffBlock = memo(function DiffBlock({ edit }: DiffBlockProps) {
+export const DiffBlock = memo(forwardRef<DiffBlockHandle, DiffBlockProps>(function DiffBlock({ edit }, ref) {
   const [state, setState] = useState<ApplyState>('pending');
   const [errorMsg, setErrorMsg] = useState('');
+  const [contentAtApply, setContentAtApply] = useState<string | null>(null);
 
-  const handleApply = useCallback(async () => {
+  const handleApply = useCallback(async (): Promise<boolean> => {
     setState('applying');
     try {
-      const resp = await fetch('/api/files/apply-edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filePath: edit.filePath,
-          searchText: edit.searchText,
-          replaceText: edit.replaceText,
-        }),
-      });
-      const result = await resp.json();
+      const result = await filesApi.applyEdit(edit.filePath, edit.searchText, edit.replaceText);
       if (result.ok) {
         setState('applied');
+        // Store file content snapshot after apply for undo safety check
+        try {
+          const content = await filesApi.content(edit.filePath);
+          setContentAtApply(content);
+        } catch {
+          // If we can't read the file, undo will proceed without check
+        }
+        return true;
       } else {
         setState('error');
         setErrorMsg(result.error || 'Failed to apply edit');
+        return false;
+      }
+    } catch (err: any) {
+      setState('error');
+      setErrorMsg(err.message || 'Network error');
+      return false;
+    }
+  }, [edit]);
+
+  const handleUndo = useCallback(async () => {
+    // Check if file has been modified since we applied
+    if (contentAtApply) {
+      try {
+        const currentContent = await filesApi.content(edit.filePath);
+        if (currentContent !== contentAtApply) {
+          setState('error');
+          setErrorMsg('File has been modified since apply. Undo may revert wrong changes.');
+          return;
+        }
+      } catch {
+        // If we can't read the file, proceed with undo anyway
+      }
+    }
+
+    setState('undoing');
+    try {
+      const result = await filesApi.undoEdit(edit.filePath);
+      if (result.ok) {
+        setState('pending');
+        setContentAtApply(null);
+      } else {
+        setState('error');
+        setErrorMsg(result.error || 'Failed to undo');
       }
     } catch (err: any) {
       setState('error');
       setErrorMsg(err.message || 'Network error');
     }
-  }, [edit]);
+  }, [edit.filePath, contentAtApply]);
 
   const handleReject = useCallback(() => {
     setState('rejected');
   }, []);
+
+  // Expose apply method and state for "Apply All" feature
+  useImperativeHandle(ref, () => ({
+    apply: handleApply,
+    getState: () => state,
+  }), [handleApply, state]);
 
   const searchLines = edit.searchText.split('\n');
   const replaceLines = edit.replaceText.split('\n');
@@ -73,18 +118,30 @@ export const DiffBlock = memo(function DiffBlock({ edit }: DiffBlockProps) {
             <span className="text-[11px] text-gray-500">Applying...</span>
           )}
           {state === 'applied' && (
-            <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-              <Check size={12} /> Applied
-            </span>
+            <>
+              <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                <Check size={12} /> Applied
+              </span>
+              <button
+                onClick={handleUndo}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors ml-1"
+              >
+                <Undo2 size={12} /> Undo
+              </button>
+            </>
+          )}
+          {state === 'undoing' && (
+            <span className="text-[11px] text-gray-500">Undoing...</span>
           )}
           {state === 'rejected' && (
             <span className="text-[11px] text-gray-400">Dismissed</span>
           )}
           {state === 'error' && (
             <div className="flex items-center gap-2">
+              <AlertTriangle size={12} className="text-red-500" />
               <span className="text-[11px] text-red-500">{errorMsg}</span>
               <button
-                onClick={() => setState('pending')}
+                onClick={() => { setState('pending'); setErrorMsg(''); setContentAtApply(null); }}
                 className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline"
               >
                 Retry
@@ -111,4 +168,4 @@ export const DiffBlock = memo(function DiffBlock({ edit }: DiffBlockProps) {
       </div>
     </div>
   );
-});
+}));
