@@ -9,7 +9,19 @@ import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createTerminalRouter, handleTerminalWebSocket } from "./server/routes/terminal";
+import { createStatusRouter } from "./server/routes/status";
+import { createMemoryRouter } from "./server/routes/memory";
+import { createUsageRouter } from "./server/routes/usage";
+import { initUsageStore, rebuildSummary } from "./server/usage/store";
+import { createAgentsRouter } from "./server/routes/agents";
+import { createCheckpointsRouter } from "./server/routes/checkpoints";
+import { createSpacesRouter } from "./server/routes/spaces";
+import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createBrowserService, type BrowserService } from "./server/browser-service";
+import { ActivityMonitor } from "./server/activity-monitor";
+import { createActivityRouter } from "./server/routes/activity";
+import { JournalCollector } from "./server/journal-collector";
+import { createJournalRouter } from "./server/routes/journal";
 
 // Validate required environment variables
 if (!process.env.GATEWAY_TOKEN) {
@@ -25,6 +37,10 @@ const { PORT, PUBLIC_DIR, MESSAGES_DIR, wsClients, broadcastToAll, broadcastToTo
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService();
 
+// Init usage tracking
+initUsageStore(import.meta.dir);
+rebuildSummary();
+
 // Create route handlers
 const topicsRouter = createTopicsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
@@ -32,6 +48,22 @@ const browserRouter = createBrowserRouter(ctx, browserService);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx);
+const statusRouter = createStatusRouter(ctx);
+const memoryRouter = createMemoryRouter(ctx);
+const usageRouter = createUsageRouter(ctx);
+const agentsRouter = createAgentsRouter(ctx);
+const checkpointsRouter = createCheckpointsRouter(ctx);
+const spacesRouter = createSpacesRouter(ctx);
+const openclawContextRouter = createOpenClawContextRouter(ctx);
+
+// Init activity monitor (watches gateway log files)
+const activityMonitor = new ActivityMonitor();
+const activityRouter = createActivityRouter(ctx, activityMonitor);
+
+// Init journal collector (polls gateway for daily summaries)
+const journalCollector = new JournalCollector(import.meta.dir, ctx.GATEWAY_URL, ctx.GATEWAY_TOKEN);
+journalCollector.start();
+const journalRouter = createJournalRouter(ctx, journalCollector);
 
 const WS_HEARTBEAT_INTERVAL_MS = 30000;
 const WS_TIMEOUT_MS = 90000;
@@ -130,7 +162,16 @@ const server = Bun.serve<WSData>({
         || await browserRouter(req, url, pathname, method)
         || await cronRouter(req, url, pathname, method)
         || await contextRouter(req, url, pathname, method)
-        || await terminalRouter(req, url, pathname, method);
+        || await terminalRouter(req, url, pathname, method)
+        || await statusRouter(req, url, pathname, method)
+        || await memoryRouter(req, url, pathname, method)
+        || await usageRouter(req, url, pathname, method)
+        || await activityRouter(req, url, pathname, method)
+        || await agentsRouter(req, url, pathname, method)
+        || await checkpointsRouter(req, url, pathname, method)
+        || await journalRouter(req, url, pathname, method)
+        || await spacesRouter(req, url, pathname, method)
+        || await openclawContextRouter(req, url, pathname, method);
 
       if (response) return response;
       logRequest(method, pathname, 404, startTime);
@@ -143,11 +184,11 @@ const server = Bun.serve<WSData>({
     maxPayloadLength: 1024 * 1024,
     open(ws) {
       ws.data.lastPong = Date.now();
-      const termId = (ws.data as any).terminalId;
+      const termId = ws.data.terminalId;
       if (termId) {
         // Terminal WebSocket
         const handler = handleTerminalWebSocket(ws, termId);
-        if (handler) (ws.data as any)._termHandler = handler;
+        if (handler) ws.data._termHandler = handler;
         return;
       }
       wsClients.add(ws);
@@ -157,7 +198,7 @@ const server = Bun.serve<WSData>({
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
-      const handler = (ws.data as any)._termHandler;
+      const handler = ws.data._termHandler;
       if (handler) { handler.message(message); return; }
       try {
         const data = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
@@ -171,7 +212,7 @@ const server = Bun.serve<WSData>({
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws) {
-      const handler = (ws.data as any)._termHandler;
+      const handler = ws.data._termHandler;
       if (handler) { handler.close(); return; }
       wsClients.delete(ws); console.log(`[WS] Client disconnected: ${ws.data.id} (total: ${wsClients.size})`);
     },

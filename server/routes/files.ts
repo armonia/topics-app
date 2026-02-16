@@ -1,6 +1,106 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
+
+// Backup store persisted to disk for undo support
+interface FileBackup {
+  filePath: string;
+  content: string;
+  timestamp: number;
+}
+
+const MAX_BACKUPS_PER_FILE = 5;
+const MAX_TOTAL_BACKUP_BYTES = 50 * 1024 * 1024; // 50MB total cap
+let BACKUPS_DIR = "";
+
+function getBackupsDir(): string {
+  if (!BACKUPS_DIR) {
+    BACKUPS_DIR = join(process.cwd(), ".backups");
+    mkdirSync(BACKUPS_DIR, { recursive: true });
+  }
+  return BACKUPS_DIR;
+}
+
+function backupIndexPath(): string {
+  return join(getBackupsDir(), "index.json");
+}
+
+function loadBackupIndex(): Record<string, FileBackup[]> {
+  try {
+    return JSON.parse(readFileSync(backupIndexPath(), "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveBackupIndex(index: Record<string, FileBackup[]>) {
+  writeFileSync(backupIndexPath(), JSON.stringify(index, null, 2));
+}
+
+function totalBackupSize(index: Record<string, FileBackup[]>): number {
+  let total = 0;
+  for (const backups of Object.values(index)) {
+    for (const b of backups) {
+      total += b.content.length;
+    }
+  }
+  return total;
+}
+
+function evictOldestBackups(index: Record<string, FileBackup[]>) {
+  while (totalBackupSize(index) > MAX_TOTAL_BACKUP_BYTES) {
+    // Find oldest backup across all files
+    let oldestKey = "";
+    let oldestTime = Infinity;
+    for (const [key, backups] of Object.entries(index)) {
+      if (backups.length > 0 && backups[0].timestamp < oldestTime) {
+        oldestTime = backups[0].timestamp;
+        oldestKey = key;
+      }
+    }
+    if (!oldestKey) break;
+    index[oldestKey].shift();
+    if (index[oldestKey].length === 0) delete index[oldestKey];
+  }
+}
+
+function saveBackup(resolvedPath: string, content: string) {
+  const index = loadBackupIndex();
+  const backups = index[resolvedPath] || [];
+  backups.push({ filePath: resolvedPath, content, timestamp: Date.now() });
+  while (backups.length > MAX_BACKUPS_PER_FILE) backups.shift();
+  index[resolvedPath] = backups;
+  evictOldestBackups(index);
+  saveBackupIndex(index);
+}
+
+function popBackup(resolvedPath: string): FileBackup | undefined {
+  const index = loadBackupIndex();
+  const backups = index[resolvedPath];
+  if (!backups || backups.length === 0) return undefined;
+  const backup = backups.pop();
+  if (backups.length === 0) delete index[resolvedPath];
+  else index[resolvedPath] = backups;
+  saveBackupIndex(index);
+  return backup;
+}
+
+// Simple file-based lock for concurrent apply protection
+const activeLocks = new Set<string>();
+
+async function acquireLock(filePath: string, timeoutMs = 5000): Promise<boolean> {
+  const start = Date.now();
+  while (activeLocks.has(filePath)) {
+    if (Date.now() - start > timeoutMs) return false;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  activeLocks.add(filePath);
+  return true;
+}
+
+function releaseLock(filePath: string) {
+  activeLocks.delete(filePath);
+}
 
 export function createFilesRouter(ctx: AppContext): RouteHandler {
   const { GATEWAY_URL, GATEWAY_TOKEN, readJSON, json, errorResponse, resolveProjectPath } = ctx;
@@ -140,50 +240,78 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       }
       const resolvedFile = resolveProjectPath(body.filePath);
       if (!resolvedFile) return errorResponse(400, "Invalid path");
+
+      // Acquire lock to prevent concurrent applies to same file
+      const locked = await acquireLock(resolvedFile);
+      if (!locked) return json({ error: "File is locked by another edit operation" }, 409);
+
       try {
         if (!existsSync(resolvedFile)) return json({ error: "File not found" }, 404);
         const content = readFileSync(resolvedFile, "utf-8");
-        
+
         // Try exact match first
         let idx = content.indexOf(body.searchText);
-        
+
+        if (idx !== -1) {
+          // Save backup before writing
+          saveBackup(resolvedFile, content);
+          // Exact match apply
+          const newContent = content.substring(0, idx) + body.replaceText + content.substring(idx + body.searchText.length);
+          writeFileSync(resolvedFile, newContent, "utf-8");
+          return json({ ok: true, method: "exact" });
+        }
+
         // Fuzzy: normalize line endings and trim
-        if (idx === -1) {
+        {
           const normalizedContent = content.replace(/\r\n/g, "\n");
           const normalizedSearch = body.searchText.replace(/\r\n/g, "\n");
-          idx = normalizedContent.indexOf(normalizedSearch);
-          if (idx !== -1) {
-            // Apply on normalized content
-            const newContent = normalizedContent.substring(0, idx) + body.replaceText.replace(/\r\n/g, "\n") + normalizedContent.substring(idx + normalizedSearch.length);
+          const nIdx = normalizedContent.indexOf(normalizedSearch);
+          if (nIdx !== -1) {
+            // Save backup before writing
+            saveBackup(resolvedFile, content);
+            const newContent = normalizedContent.substring(0, nIdx) + body.replaceText.replace(/\r\n/g, "\n") + normalizedContent.substring(nIdx + normalizedSearch.length);
             writeFileSync(resolvedFile, newContent, "utf-8");
             return json({ ok: true, method: "normalized" });
           }
         }
-        
+
         // Fuzzy: try trimming each line
-        if (idx === -1) {
+        {
           const contentLines = content.split("\n").map(l => l.trimEnd());
           const searchLines = body.searchText.split("\n").map((l: string) => l.trimEnd());
           const searchJoined = searchLines.join("\n");
           const contentJoined = contentLines.join("\n");
           const fuzzyIdx = contentJoined.indexOf(searchJoined);
           if (fuzzyIdx !== -1) {
+            // Save backup before writing
+            saveBackup(resolvedFile, content);
             const newContent = contentJoined.substring(0, fuzzyIdx) + body.replaceText + contentJoined.substring(fuzzyIdx + searchJoined.length);
             writeFileSync(resolvedFile, newContent, "utf-8");
             return json({ ok: true, method: "fuzzy-trim" });
           }
         }
-        
-        if (idx === -1) {
-          return json({ error: "Search text not found in file", ok: false }, 400);
-        }
-        
-        // Exact match apply
-        const newContent = content.substring(0, idx) + body.replaceText + content.substring(idx + body.searchText.length);
-        writeFileSync(resolvedFile, newContent, "utf-8");
-        return json({ ok: true, method: "exact" });
+
+        return json({ error: "Search text not found in file", ok: false }, 400);
       } catch (err: any) {
         return json({ error: "Failed to apply edit" }, 500);
+      } finally {
+        releaseLock(resolvedFile);
+      }
+    }
+
+    // --- Undo edit (restore from backup) ---
+    if (method === "POST" && pathname === "/api/files/undo-edit") {
+      const body = await readJSON(req);
+      if (!body?.filePath) return json({ error: "filePath required" }, 400);
+      const resolvedFile = resolveProjectPath(body.filePath);
+      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      try {
+        const backup = popBackup(resolvedFile);
+        if (!backup) return json({ error: "No backup available for this file", ok: false }, 404);
+        writeFileSync(resolvedFile, backup.content, "utf-8");
+        return json({ ok: true });
+      } catch (err: any) {
+        return json({ error: "Failed to undo edit: " + err.message }, 500);
       }
     }
 

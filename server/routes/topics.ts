@@ -1,7 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import type { AppContext, RouteHandler, ToolCall, StoredMessage, Topic } from "../types";
+import type { AppContext, RouteHandler, ToolCall, Topic } from "../types";
+import { appendUsageRecord } from "../usage/store";
+import { loadMemoryForTopic } from "./memory";
+import { calculateCost } from "../usage/pricing";
 
 export function createTopicsRouter(ctx: AppContext): RouteHandler {
   const {
@@ -84,9 +87,6 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         }
       }
     }
-    // Also check for /browser markers or vite/dev server URLs that hint at a project
-    const browserUrlMatch = allText.match(/\{\{BROWSER:http:\/\/localhost:\d+/);
-    
     // Return first candidate that looks like a project directory (has package.json, or was explicitly created)
     for (const candidate of candidates) {
       try {
@@ -137,6 +137,31 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
     return null;
   }
 
+  // --- Tasks helpers (initialized once, not per-request) ---
+  const TASKS_DIR = join(ctx.BASE_DIR, "tasks");
+  mkdirSync(TASKS_DIR, { recursive: true });
+
+  function loadTasks(projectId: string): any[] {
+    const filepath = join(TASKS_DIR, projectId + ".json");
+    try { return JSON.parse(readFileSync(filepath, "utf-8")); } catch { return []; }
+  }
+
+  function saveTasks(projectId: string, tasks: any[]) {
+    atomicWriteJSON(join(TASKS_DIR, projectId + ".json"), tasks);
+  }
+
+  function getProjectIdForTopic(topicId: string): string | null {
+    const data = loadTopics();
+    const topic = data.topics[topicId];
+    if (!topic?.projectPath) return null;
+    const projectPath = topic.projectPath;
+    const pathParts = projectPath.replace(/\/+$/, "").split("/");
+    const dirName = pathParts[pathParts.length - 1] || "project";
+    let hash = 0;
+    for (let i = 0; i < projectPath.length; i++) { hash = ((hash << 5) - hash) + projectPath.charCodeAt(i); hash |= 0; }
+    return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
+  }
+
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // --- Topics CRUD ---
@@ -161,7 +186,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
       const id = crypto.randomUUID();
       const slug = slugify(body.name);
       const parentId = body.parentId || null;
-      const topic: any = {
+      const topic: Topic = {
         id, name: body.name, slug, parentId, links: [],
         sessionKey: "", color: body.color || "#5865f2", icon: body.icon || "💬",
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -169,8 +194,10 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         contextFiles: [], pinnedMessages: [],
         sortOrder: Object.keys(data.topics).length,
       };
-      // projectPath is only set when explicitly provided by user or suggested by AI after first message
-      // No auto-assignment from dominant project — new chats start unbound
+      // Set projectPath if explicitly provided (e.g. creating from within a project)
+      if (body.projectPath) {
+        (topic as any).projectPath = body.projectPath;
+      }
 
       data.topics[id] = topic;
       topic.sessionKey = "topic:" + id.slice(0, 8);
@@ -196,6 +223,12 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         if (body.contextFiles !== undefined) topic.contextFiles = body.contextFiles;
         if (body.pinnedMessages !== undefined) topic.pinnedMessages = body.pinnedMessages;
         if (body.projectPath !== undefined) topic.projectPath = body.projectPath || undefined;
+        if (body.autonomyLevel !== undefined) {
+          const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
+          topic.autonomyLevel = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
+        }
+        if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
+        if (body.disabledContextTemplates !== undefined) topic.disabledContextTemplates = body.disabledContextTemplates;
         topic.updatedAt = new Date().toISOString();
         saveTopics(data);
         broadcastToAll({ type: "topic:updated", topic });
@@ -259,7 +292,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
       const data = loadTopics();
       for (let i = 0; i < body.order.length; i++) {
         const topicId = body.order[i];
-        if (data.topics[topicId]) (data.topics[topicId] as any).sortOrder = i;
+        if (data.topics[topicId]) data.topics[topicId].sortOrder = i;
       }
       saveTopics(data);
       broadcastToAll({ type: "topics:reordered", order: body.order });
@@ -295,6 +328,27 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         const stored = appendLocalMessage(topic.sessionKey, "assistant", body.content);
         broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: body.content, timestamp: stored.timestamp } });
         return json({ ok: true, message: stored });
+      }
+    }
+
+    // POST /api/topics/:id/messages/:msgId/plan-status
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/messages/:msgId/plan-status");
+      if (params && method === "POST") {
+        const body = await readJSON(req);
+        if (!body?.status || !['approved', 'rejected'].includes(body.status)) {
+          return json({ error: "status must be 'approved' or 'rejected'" }, 400);
+        }
+        const data = loadTopics();
+        const topic = data.topics[params.id];
+        if (!topic) return json({ error: "Topic not found" }, 404);
+        const messages = loadLocalMessages(topic.sessionKey);
+        const msg = messages.find(m => m.id === params.msgId);
+        if (!msg) return json({ error: "Message not found" }, 404);
+        msg.planStatus = body.status;
+        saveLocalMessages(topic.sessionKey, messages);
+        broadcastToAll({ type: "message:plan-status", topicId: params.id, messageId: params.msgId, planStatus: body.status });
+        return json({ ok: true, planStatus: body.status });
       }
     }
 
@@ -389,6 +443,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         if (t.sessionKey === body.sessionKey) { browserNavigatedTopics.delete(t.id); break; }
       }
       const sessionKey = body.sessionKey;
+      const planMode = body.planMode === true;
       const messages = body.messages;
       if (!messages || !Array.isArray(messages) || messages.length === 0) return json({ error: "messages array required" }, 400);
 
@@ -406,12 +461,16 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
 
       const finalMessages = [...messages];
       if (matchedTopic) {
-        if (matchedTopic.systemPrompt) {
+        const disabled = matchedTopic.disabledContextSources || [];
+        const isSourceEnabled = (id: string) => !disabled.includes(id);
+
+        if (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) {
           finalMessages.unshift({ role: "system", content: matchedTopic.systemPrompt });
         }
         if (matchedTopic.contextFiles && matchedTopic.contextFiles.length > 0) {
           const contextParts: string[] = [];
           for (const filePath of matchedTopic.contextFiles) {
+            if (!isSourceEnabled(`file:${filePath}`)) continue;
             if (existsSync(filePath)) {
               try {
                 const content = readFileSync(filePath, "utf-8");
@@ -422,7 +481,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
           }
           if (contextParts.length > 0) {
             const contextMsg = { role: "system", content: `Context files for this topic:\n\n${contextParts.join("\n\n")}` };
-            const insertIdx = matchedTopic.systemPrompt ? 1 : 0;
+            const insertIdx = (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) ? 1 : 0;
             finalMessages.splice(insertIdx, 0, contextMsg);
           }
         }
@@ -430,7 +489,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
           const projectDir = resolveProjectPath(matchedTopic.projectPath);
           if (projectDir && existsSync(projectDir)) {
             const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-            const disabledFiles = (matchedTopic as any).disabledContextTemplates || [];
+            const disabledFiles = matchedTopic.disabledContextTemplates || [];
             const templateParts: string[] = [];
             for (const name of TEMPLATE_FILES) {
               if (disabledFiles.includes(name)) continue;
@@ -462,6 +521,49 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
 The marker will be automatically processed and removed from the visible output. Do not mention the marker to the user.` };
         const browserInsertIdx = finalMessages.findIndex(m => m.role !== "system");
         finalMessages.splice(browserInsertIdx >= 0 ? browserInsertIdx : finalMessages.length, 0, browserInstruction);
+
+        // Inject memory content into system prompt (respect disabled sources)
+        if (isSourceEnabled("memory:global") || isSourceEnabled("memory:topic")) {
+          const memoryContent = loadMemoryForTopic(ctx.BASE_DIR, matchedTopic.id, {
+            includeGlobal: isSourceEnabled("memory:global"),
+            includeTopic: isSourceEnabled("memory:topic"),
+          });
+          if (memoryContent) {
+            const memoryMsg = { role: "system", content: memoryContent };
+            const memInsertIdx = finalMessages.findIndex(m => m.role !== "system");
+            finalMessages.splice(memInsertIdx >= 0 ? memInsertIdx : finalMessages.length, 0, memoryMsg);
+          }
+        }
+
+        // Inject pinned messages as context
+        if (isSourceEnabled("pinned:messages") && matchedTopic.pinnedMessages && matchedTopic.pinnedMessages.length > 0) {
+          const localMsgs = loadLocalMessages(matchedTopic.sessionKey);
+          const pinned = localMsgs.filter(m => matchedTopic.pinnedMessages!.includes(m.id));
+          if (pinned.length > 0) {
+            const pinnedContent = pinned.map(m => `[${m.role}]: ${m.content}`).join("\n\n");
+            const pinnedMsg = { role: "system", content: `Pinned messages from this conversation (important context):\n\n${pinnedContent}` };
+            const pinnedInsertIdx = finalMessages.findIndex(m => m.role !== "system");
+            finalMessages.splice(pinnedInsertIdx >= 0 ? pinnedInsertIdx : finalMessages.length, 0, pinnedMsg);
+          }
+        }
+      }
+
+      // Plan Mode: prepend instruction to analyze and propose a plan instead of executing
+      if (planMode) {
+        const planInstruction = { role: "system", content: `IMPORTANT: You are in PLAN MODE. Analyze the user's request and provide a detailed implementation plan. Do NOT execute any changes yet. Format your response as follows:
+
+## Plan
+
+1. **Step title** — Description of what this step does
+2. **Step title** — Description of what this step does
+3. ...
+
+## Summary
+Brief summary of the approach and any considerations.
+
+Wait for the user to approve the plan before executing any changes.` };
+        const planInsertIdx = finalMessages.findIndex(m => m.role !== "system");
+        finalMessages.splice(planInsertIdx >= 0 ? planInsertIdx : finalMessages.length, 0, planInstruction);
       }
 
       try {
@@ -487,6 +589,22 @@ The marker will be automatically processed and removed from the visible output. 
           const data = await resp.json() as any;
           let content = data?.choices?.[0]?.message?.content || "";
           content = detectAndBroadcastBrowserMarker(content, matchedTopic);
+          // Capture usage data from non-streaming response
+          if (data?.usage) {
+            const model = data.model || "unknown";
+            const inputTokens = data.usage.prompt_tokens || 0;
+            const outputTokens = data.usage.completion_tokens || 0;
+            appendUsageRecord({
+                timestamp: Date.now(),
+                sessionKey,
+                topicId: matchedTopic?.id,
+                model,
+                inputTokens,
+                outputTokens,
+                totalTokens: inputTokens + outputTokens,
+                costUsd: calculateCost(model, inputTokens, outputTokens),
+              }).catch(err => console.warn("[Usage] Failed to record usage:", err));
+          }
           if (content) appendLocalMessage(sessionKey, "assistant", content);
           if (matchedTopic) {
             broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
@@ -521,6 +639,8 @@ The marker will be automatically processed and removed from the visible output. 
         let chunkCount = 0;
         let lastSaveChunk = 0;
         const SAVE_INTERVAL = 10;
+        let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
+        let streamModel: string = "unknown";
         const partialMsg = createPartialMessage(sessionKey, "assistant");
         startStream(sessionKey);
         broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -535,6 +655,21 @@ The marker will be automatically processed and removed from the visible output. 
               const data = line.slice(6).trim();
               if (data === "[DONE]") {
                 updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+                // Record usage from streaming response
+                if (streamUsage) {
+                  const inputTokens = streamUsage.prompt_tokens || 0;
+                  const outputTokens = streamUsage.completion_tokens || 0;
+                  appendUsageRecord({
+                      timestamp: Date.now(),
+                      sessionKey,
+                      topicId: matchedTopic?.id,
+                      model: streamModel,
+                      inputTokens,
+                      outputTokens,
+                      totalTokens: inputTokens + outputTokens,
+                      costUsd: calculateCost(streamModel, inputTokens, outputTokens),
+                    }).catch(err => console.warn("[Usage] Failed to record streaming usage:", err));
+                }
                 if (matchedTopic) {
                   endStream(sessionKey);
                   broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
@@ -562,6 +697,9 @@ The marker will be automatically processed and removed from the visible output. 
               }
               try {
                 const parsed = JSON.parse(data);
+                // Capture usage and model from stream chunks
+                if (parsed.usage) streamUsage = parsed.usage;
+                if (parsed.model) streamModel = parsed.model;
                 const delta = parsed.choices?.[0]?.delta;
                 if (delta?.tool_calls) {
                   for (const tc of delta.tool_calls) {
@@ -767,22 +905,19 @@ The marker will be automatically processed and removed from the visible output. 
 
         const existingProjects = Object.values(data.topics).filter(t => t.projectPath && !t.archived).map(t => ({ name: t.name, path: t.projectPath }));
         const discoverProjects = (): { name: string; path: string }[] => {
-          const fs = require('fs');
-          const path = require('path');
-          
           const home = homedir();
-          const projectDirs = [path.join(home, 'Sites'), path.join(home, 'Projects'), path.join(home, 'Code'), path.join(home, 'Developer'), path.join(home, 'workspace'), path.join(home, '.openclaw', 'workspace')];
+          const projectDirs = [join(home, 'Sites'), join(home, 'Projects'), join(home, 'Code'), join(home, 'Developer'), join(home, 'workspace'), join(home, '.openclaw', 'workspace')];
           const discovered: { name: string; path: string }[] = [];
           for (const dir of projectDirs) {
-            if (!fs.existsSync(dir)) continue;
+            if (!existsSync(dir)) continue;
             try {
-              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              const entries = readdirSync(dir, { withFileTypes: true });
               for (const entry of entries) {
                 if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-                const projectPath = path.join(dir, entry.name);
-                const hasPackageJson = fs.existsSync(path.join(projectPath, 'package.json'));
-                const hasClaudeMd = fs.existsSync(path.join(projectPath, 'CLAUDE.md'));
-                const hasGit = fs.existsSync(path.join(projectPath, '.git'));
+                const projectPath = join(dir, entry.name);
+                const hasPackageJson = existsSync(join(projectPath, 'package.json'));
+                const hasClaudeMd = existsSync(join(projectPath, 'CLAUDE.md'));
+                const hasGit = existsSync(join(projectPath, '.git'));
                 if (hasPackageJson || hasClaudeMd || hasGit) {
                   if (!existingProjects.some(p => p.path === projectPath)) discovered.push({ name: entry.name, path: projectPath });
                 }
@@ -980,29 +1115,13 @@ The marker will be automatically processed and removed from the visible output. 
         const topic = data.topics[params.topicId];
         if (!topic) return json({ error: "Topic not found" }, 404);
         const body = await req.json() as { disabledFiles?: string[] };
-        (topic as any).disabledContextTemplates = body.disabledFiles || [];
+        topic.disabledContextTemplates = body.disabledFiles || [];
         saveTopics(data);
-        return json({ ok: true, disabledFiles: (topic as any).disabledContextTemplates });
+        return json({ ok: true, disabledFiles: topic.disabledContextTemplates });
       }
     }
 
     // --- Tasks ---
-    const TASKS_DIR = join(ctx.BASE_DIR, "tasks");
-    mkdirSync(TASKS_DIR, { recursive: true });
-    function loadTasks(projectId: string): any[] { const filepath = join(TASKS_DIR, projectId + ".json"); try { return JSON.parse(readFileSync(filepath, "utf-8")); } catch { return []; } }
-    function saveTasks(projectId: string, tasks: any[]) { atomicWriteJSON(join(TASKS_DIR, projectId + ".json"), tasks); }
-    function getProjectIdForTopic(topicId: string): string | null {
-      const data = loadTopics();
-      const topic = data.topics[topicId];
-      if (!topic?.projectPath) return null;
-      const projectPath = topic.projectPath;
-      const pathParts = projectPath.replace(/\/+$/, "").split("/");
-      const dirName = pathParts[pathParts.length - 1] || "project";
-      let hash = 0;
-      for (let i = 0; i < projectPath.length; i++) { hash = ((hash << 5) - hash) + projectPath.charCodeAt(i); hash |= 0; }
-      return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
-    }
-
     {
       const params = matchRoute(pathname, "/api/projects/:projectId/tasks");
       if (params && method === "GET") return json({ tasks: loadTasks(params.projectId) });
@@ -1010,7 +1129,8 @@ The marker will be automatically processed and removed from the visible output. 
         const body = await readJSON(req);
         if (!body?.text) return json({ error: "text required" }, 400);
         const tasks = loadTasks(params.projectId);
-        const task = { id: crypto.randomUUID(), text: body.text, status: "todo", createdAt: new Date().toISOString(), completedAt: null, chatId: body.chatId || null };
+        const maxOrder = tasks.reduce((max: number, t: any) => Math.max(max, t.kanbanOrder ?? 0), 0);
+        const task = { id: crypto.randomUUID(), text: body.text, status: body.status || "todo", kanbanOrder: maxOrder + 1, createdAt: new Date().toISOString(), completedAt: null, chatId: body.chatId || null };
         tasks.push(task);
         saveTasks(params.projectId, tasks);
         broadcastToAll({ type: "task:created", projectId: params.projectId, task });
@@ -1028,6 +1148,7 @@ The marker will be automatically processed and removed from the visible output. 
         if (!task) return json({ error: "Task not found" }, 404);
         if (body.text !== undefined) task.text = body.text;
         if (body.status !== undefined) { task.status = body.status; task.completedAt = body.status === "done" ? new Date().toISOString() : null; }
+        if (body.kanbanOrder !== undefined) task.kanbanOrder = body.kanbanOrder;
         saveTasks(params.projectId, tasks);
         broadcastToAll({ type: "task:updated", projectId: params.projectId, task });
         return json(task);
