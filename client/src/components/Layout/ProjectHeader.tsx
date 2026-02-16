@@ -1,10 +1,11 @@
-import { FolderOpen, ExternalLink } from 'lucide-react';
+import { FolderOpen, ExternalLink, X } from 'lucide-react';
 
 interface ProjectHeaderProps {
   projectPath: string;
   projectName: string;
-  color: string;
+  color?: string;
   onOpenInFinder?: () => void;
+  onClose?: () => void;
 }
 
 // Generate a color from a string (project path → HSL)
@@ -39,7 +40,7 @@ export function hashToColorDark(str: string): string {
   return `hsl(${hue}, 40%, 15%)`;
 }
 
-export function ProjectHeader({ projectPath, projectName, color: _color, onOpenInFinder }: ProjectHeaderProps) {
+export function ProjectHeader({ projectPath, projectName, onOpenInFinder, onClose }: ProjectHeaderProps) {
   const accentColor = hashToColor(projectPath);
   
   // Detect dark mode
@@ -51,7 +52,7 @@ export function ProjectHeader({ projectPath, projectName, color: _color, onOpenI
 
   return (
     <div 
-      className="h-9 flex items-center gap-2 px-3 border-b flex-shrink-0 app-drag-region transition-colors"
+      className="h-10 flex items-center gap-2 px-3 border-b flex-shrink-0 app-drag-region transition-colors"
       style={{ 
         backgroundColor: bgColor,
         borderColor: `color-mix(in srgb, ${accentColor} 20%, transparent)`,
@@ -76,18 +77,27 @@ export function ProjectHeader({ projectPath, projectName, color: _color, onOpenI
         {projectName}
       </span>
       
-      <span className="text-[11px] text-[#888] dark:text-[#666] truncate flex-1 min-w-0">
+      <span className="text-[11px] text-app-text-muted truncate flex-1 min-w-0">
         {projectPath}
       </span>
       
       {onOpenInFinder && (
         <button
           onClick={(e) => { e.stopPropagation(); onOpenInFinder(); }}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors app-no-drag"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover transition-colors app-no-drag"
           style={{ color: accentColor }}
           title="Open in Finder"
         >
           <ExternalLink size={13} />
+        </button>
+      )}
+      {onClose && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover transition-colors app-no-drag text-app-text-muted hover:text-red-500"
+          title="Close project"
+        >
+          <X size={14} />
         </button>
       )}
     </div>
