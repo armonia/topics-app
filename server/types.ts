@@ -4,6 +4,8 @@ export interface WSData {
   id: string;
   focusedTopicId: string | null;
   lastPong: number;
+  terminalId?: string;
+  _termHandler?: { message: (data: string | Buffer | ArrayBuffer) => void; close: () => void };
 }
 
 export interface ToolCall {
@@ -25,6 +27,7 @@ export interface StoredMessage {
   media?: string[];
   partial?: boolean;
   streamedAt?: string;
+  planStatus?: 'approved' | 'rejected';
 }
 
 export interface Topic {
@@ -43,6 +46,10 @@ export interface Topic {
   contextFiles?: string[];
   pinnedMessages?: string[];
   projectPath?: string;
+  sortOrder?: number;
+  autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
+  disabledContextTemplates?: string[];
+  disabledContextSources?: string[];
 }
 
 export interface TopicsData {

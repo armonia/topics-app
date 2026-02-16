@@ -330,7 +330,7 @@ export function createAppContext(baseDir: string): AppContext {
         if (msgs[i].role === "assistant") {
           const mediaLines = mediaPaths.map((p: string) => `\nMEDIA:${p}`).join("");
           msgs[i].content += mediaLines;
-          writeFileSync(msgsPath, JSON.stringify(msgs, null, 2));
+          atomicWriteJSON(msgsPath, msgs);
           break;
         }
       }

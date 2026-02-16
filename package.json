@@ -8,11 +8,18 @@
     "type": "git",
     "url": "https://github.com/armonia/topics-app"
   },
-  "keywords": ["openclaw", "ai", "topics", "chat", "companion"],
+  "keywords": [
+    "openclaw",
+    "ai",
+    "topics",
+    "chat",
+    "companion"
+  ],
   "scripts": {
     "start": "bun run server.ts"
   },
   "dependencies": {
+    "node-pty": "^1.0.0",
     "playwright-core": "^1.50.0"
   }
 }

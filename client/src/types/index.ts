@@ -1,3 +1,5 @@
+export type AutonomyLevel = 'ask' | 'auto-apply' | 'yolo';
+
 export interface Topic {
   id: string;
   name: string;
@@ -15,6 +17,9 @@ export interface Topic {
   pinnedMessages?: string[];
   projectPath?: string;
   sortOrder?: number;
+  autonomyLevel?: AutonomyLevel;
+  disabledContextSources?: string[];
+  disabledContextTemplates?: string[];
 }
 
 export interface TopicsData {
@@ -54,6 +59,7 @@ export interface CreateTopicRequest {
   color?: string;
   icon?: string;
   systemPrompt?: string;
+  projectPath?: string;
 }
 
 export interface UpdateTopicRequest {
@@ -65,6 +71,9 @@ export interface UpdateTopicRequest {
   contextFiles?: string[];
   pinnedMessages?: string[];
   projectPath?: string;
+  autonomyLevel?: AutonomyLevel;
+  disabledContextSources?: string[];
+  disabledContextTemplates?: string[];
 }
 
 export interface LinkTopicRequest {
@@ -74,6 +83,7 @@ export interface LinkTopicRequest {
 export interface ChatRequest {
   sessionKey: string;
   messages: Message[];
+  planMode?: boolean;
 }
 
 export interface HistoryRequest {
@@ -81,8 +91,16 @@ export interface HistoryRequest {
   offset?: number;
 }
 
+export interface HistoryMessage extends Message {
+  id?: string;
+  thinking?: string;
+  toolCalls?: ToolCall[];
+  media?: string[];
+  partial?: boolean;
+}
+
 export interface HistoryResponse {
-  messages: Message[];
+  messages: HistoryMessage[];
   total?: number;
   hasOrphanedMessage?: boolean;
   isStreaming?: boolean;
@@ -120,7 +138,7 @@ export interface WSMessage {
   [key: string]: any;
 }
 
-export type ConnectionStatus = 'connected' | 'reconnecting' | 'offline';
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -164,7 +182,63 @@ export interface GitDiff {
   diff: string;
 }
 
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  remote?: string;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+  ago: string;
+}
+
 export type PanelTab = 'chat' | 'files' | 'changes' | 'processes' | 'browser' | 'terminal';
+
+// Pane types for ProjectWindow layout
+export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents';
+
+export interface Pane {
+  id: string;            // e.g. "chat:topicId123", "browser:1707840000", "file:1707840000"
+  type: PaneType;
+  topicId?: string;      // only for type='chat'
+  filePath?: string;     // only for type='file'
+  title?: string;
+}
+
+export interface PaneLayoutRow {
+  panes: string[];       // Pane IDs
+  widths: number[];      // fractions summing to 1
+}
+
+// Pane Groups — each group has its own tab bar (like VS Code editor groups)
+export type PaneGroupType = 'chat' | 'file' | 'utility';
+
+export interface PaneGroup {
+  id: string;
+  paneIds: string[];
+  activePaneId: string;
+  type: PaneGroupType;
+}
+
+export interface GroupLayoutRow {
+  groupIds: string[];
+  widths: number[];       // fractions summing to 1
+}
+
+export interface ProjectWindowState {
+  projectPath: string;
+  panes: Pane[];
+  rows: PaneLayoutRow[];
+  rowHeights: number[];
+  activePaneId: string | null;
+  sidebarCollapsed: boolean;
+}
+
+export type SidebarTab = 'agents' | 'activity' | 'journal' | 'cron' | 'remote' | 'system' | 'browser' | 'terminal';
 
 export interface AppSettings {
   fontSize: number;       // 12-18
