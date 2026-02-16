@@ -12,7 +12,7 @@ const TaskBoard = lazy(() => import('./TaskBoard').then(m => ({ default: m.TaskB
 
 const SectionSpinner = () => (
   <div className="flex items-center justify-center py-4">
-    <div className="w-3 h-3 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+    <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
   </div>
 );
 
@@ -68,19 +68,19 @@ export function ProjectSidebar({
 
   if (effectiveCollapsed) {
     return (
-      <div className="w-10 flex-shrink-0 border-r border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#fafafa] dark:bg-[#1a1a1a] flex flex-col items-center py-2 gap-1">
+      <div className="w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
         <button
           onClick={onToggleCollapse}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#888] hover:text-[#555] dark:hover:text-[#ccc] transition-colors"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
           title="Espandi sidebar"
         >
           <PanelLeft size={16} />
         </button>
-        <div className="w-6 h-px bg-[#e8e8e8] dark:bg-[#333] my-1" />
+        <div className="w-6 h-px bg-app-border my-1" />
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, files: true })); }}
           className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            expandedSections.files ? 'text-[var(--primary)] bg-[var(--primary)]/10' : 'text-[#888] hover:text-[#555] dark:hover:text-[#ccc] hover:bg-black/5 dark:hover:bg-white/5'
+            expandedSections.files ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
           }`}
           title="Files"
         >
@@ -89,7 +89,7 @@ export function ProjectSidebar({
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, git: true })); }}
           className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            expandedSections.git ? 'text-[var(--primary)] bg-[var(--primary)]/10' : 'text-[#888] hover:text-[#555] dark:hover:text-[#ccc] hover:bg-black/5 dark:hover:bg-white/5'
+            expandedSections.git ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
           }`}
           title="Git Changes"
         >
@@ -98,7 +98,7 @@ export function ProjectSidebar({
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, processes: true })); }}
           className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            expandedSections.processes ? 'text-[var(--primary)] bg-[var(--primary)]/10' : 'text-[#888] hover:text-[#555] dark:hover:text-[#ccc] hover:bg-black/5 dark:hover:bg-white/5'
+            expandedSections.processes ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
           }`}
           title="Processes"
         >
@@ -109,13 +109,13 @@ export function ProjectSidebar({
   }
 
   return (
-    <div className="w-56 flex-shrink-0 border-r border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#fafafa] dark:bg-[#1a1a1a] flex flex-col overflow-hidden">
+    <div className="w-56 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
-        <span className="text-[11px] font-medium text-[#888] uppercase tracking-wide">Project</span>
+      <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border">
+        <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wide">Project</span>
         <button
           onClick={onToggleCollapse}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#888] hover:text-[#555] dark:hover:text-[#ccc] transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
           title="Hide sidebar"
         >
           <PanelLeftClose size={14} />
@@ -135,10 +135,10 @@ export function ProjectSidebar({
         )}
 
         {/* Files Section */}
-        <div className="border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="border-b border-app-border">
           <button
             onClick={() => toggleSection('files')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-[#666] dark:text-[#999] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             {expandedSections.files ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <FolderTree size={13} />
@@ -154,10 +154,10 @@ export function ProjectSidebar({
         </div>
 
         {/* Git Section */}
-        <div className="border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="border-b border-app-border">
           <button
             onClick={() => toggleSection('git')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-[#666] dark:text-[#999] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             {expandedSections.git ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <GitBranch size={13} />
@@ -176,7 +176,7 @@ export function ProjectSidebar({
         <div>
           <button
             onClick={() => toggleSection('processes')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-[#666] dark:text-[#999] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             {expandedSections.processes ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <Zap size={13} />
@@ -184,7 +184,7 @@ export function ProjectSidebar({
           </button>
           {expandedSections.processes && (
             <div className="max-h-48 overflow-y-auto">
-              <ProcessList topicId={topicId} compact />
+              <ProcessList topicId={topicId} />
             </div>
           )}
         </div>

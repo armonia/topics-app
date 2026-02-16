@@ -1,37 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { ChevronRight, ChevronDown, Folder, FolderOpen, RefreshCw } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
-import { EditorTabs } from '../Editor/EditorTabs';
+import { getFileIcon } from '../../lib/fileIcons';
+
+const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
 interface FileExplorerProps {
   projectPath: string;
   compact?: boolean;
   onOpenFile?: (path: string) => void;
-}
-
-// File icon based on extension
-function getFileIcon(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const icons: Record<string, string> = {
-    ts: '🔷', tsx: '⚛️', js: '🟡', jsx: '⚛️',
-    json: '📋', md: '📝', css: '🎨', scss: '🎨',
-    html: '🌐', svg: '🖼️', png: '🖼️', jpg: '🖼️', gif: '🖼️', webp: '🖼️',
-    py: '🐍', rs: '🦀', go: '🐹', rb: '💎',
-    sh: '🐚', bash: '🐚', zsh: '🐚',
-    yaml: '⚙️', yml: '⚙️', toml: '⚙️',
-    env: '🔒', lock: '🔒',
-    sql: '🗄️', graphql: '◈', gql: '◈',
-    swift: '🦅', kt: '🟣', java: '☕',
-    txt: '📄', csv: '📊', xml: '📰',
-    gitignore: '🚫', dockerfile: '🐳',
-  };
-  const nameIcons: Record<string, string> = {
-    'Dockerfile': '🐳', '.gitignore': '🚫', '.env': '🔒',
-    'package.json': '📦', 'tsconfig.json': '🔷', 'Cargo.toml': '🦀',
-    'Makefile': '🔧', 'README.md': '📖',
-  };
-  return nameIcons[name] || icons[ext] || '📄';
+  pendingFile?: string | null;
+  onPendingFileConsumed?: () => void;
 }
 
 interface TreeNodeProps {
@@ -63,10 +43,10 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, onToggleDir, onSele
       <div
         className={`flex items-center gap-1 px-2 py-[3px] md:py-[3px] min-h-[44px] md:min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
           isSelected
-            ? 'bg-[var(--primary)]/10 text-[var(--primary)] dark:bg-[var(--primary)]/20 dark:text-[#4d94ff]'
+            ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-dark'
             : isFocused
-              ? 'bg-[#f0f0f0] dark:bg-[#2a2a2a]'
-              : 'hover:bg-[#f5f5f5] dark:hover:bg-[#222] text-[#444] dark:text-[#bbb]'
+              ? 'bg-app-hover'
+              : 'hover:bg-app-hover text-app-text-body'
         }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
@@ -75,13 +55,13 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, onToggleDir, onSele
       >
         {isDir ? (
           <>
-            <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-[#8b8b8b]">
+            <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-app-text-tertiary">
               {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </span>
             <span className="flex items-center justify-center w-4 h-4 flex-shrink-0">
               {isExpanded
-                ? <FolderOpen size={14} className="text-[#dcb67a]" />
-                : <Folder size={14} className="text-[#dcb67a]" />
+                ? <FolderOpen size={14} className="text-amber-400" />
+                : <Folder size={14} className="text-amber-400" />
               }
             </span>
           </>
@@ -93,7 +73,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, onToggleDir, onSele
         )}
         <span className={`truncate ${isDir ? 'font-medium' : ''}`}>{node.name}</span>
         {node.size !== undefined && !isDir && (
-          <span className="ml-auto text-[10px] text-[#aaa] dark:text-[#666] flex-shrink-0">
+          <span className="ml-auto text-[10px] text-app-text-faint flex-shrink-0">
             {node.size < 1024 ? `${node.size}B` : node.size < 1048576 ? `${(node.size / 1024).toFixed(1)}K` : `${(node.size / 1048576).toFixed(1)}M`}
           </span>
         )}
@@ -118,7 +98,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, onToggleDir, onSele
   );
 }
 
-export function FileExplorer({ projectPath }: FileExplorerProps) {
+export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed }: FileExplorerProps) {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -158,9 +138,40 @@ export function FileExplorer({ projectPath }: FileExplorerProps) {
   }, []);
 
   const handleSelectFile = useCallback((node: FileNode) => {
+    if (compact && onOpenFile) {
+      onOpenFile(node.path);
+      return;
+    }
     setSelectedFile(node);
     editorTabsRef.current?.openFile(node.path, node.name);
-  }, []);
+  }, [compact, onOpenFile]);
+
+  // Open file from external source (e.g. Context Inspector memory tree)
+  // Retry briefly to handle the case where EditorTabs hasn't mounted yet
+  useEffect(() => {
+    if (!pendingFile || compact) return;
+    const tryOpen = () => {
+      if (editorTabsRef.current) {
+        const name = pendingFile.split('/').pop() || pendingFile;
+        editorTabsRef.current.openFile(pendingFile, name);
+        // Set selectedFile so the tree collapses to max-h-[200px]
+        setSelectedFile({ name, path: pendingFile, type: 'file' });
+        onPendingFileConsumed?.();
+        return true;
+      }
+      return false;
+    };
+    if (tryOpen()) return;
+    // Retry a few times for lazy-loaded EditorTabs
+    let attempts = 0;
+    const interval = setInterval(() => {
+      if (tryOpen() || ++attempts > 10) {
+        clearInterval(interval);
+        if (attempts > 10) onPendingFileConsumed?.();
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [pendingFile, onPendingFileConsumed, compact]);
 
   // Flatten tree for keyboard navigation
   const flattenTree = useCallback((nodes: FileNode[]): FileNode[] => {
@@ -211,8 +222,8 @@ export function FileExplorer({ projectPath }: FileExplorerProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-2 text-[#8b8b8b] text-[13px]">
-          <div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+        <div className="flex items-center gap-2 text-app-text-tertiary text-[13px]">
+          <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
           Loading files...
         </div>
       </div>
@@ -223,7 +234,32 @@ export function FileExplorer({ projectPath }: FileExplorerProps) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2">
         <p className="text-red-500 text-[13px]">{error}</p>
-        <button onClick={loadFiles} className="text-[12px] text-[var(--primary)] hover:underline">Retry</button>
+        <button onClick={loadFiles} className="text-[12px] text-primary hover:underline">Retry</button>
+      </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div
+        ref={treeRef}
+        className="flex-1 overflow-y-auto"
+        role="tree"
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+      >
+        {files.map(node => (
+          <TreeNode
+            key={node.path}
+            node={node}
+            depth={0}
+            selectedPath={selectedFile?.path || null}
+            expandedDirs={expandedDirs}
+            onToggleDir={handleToggleDir}
+            onSelectFile={handleSelectFile}
+            focusedPath={focusedPath}
+          />
+        ))}
       </div>
     );
   }
@@ -233,16 +269,16 @@ export function FileExplorer({ projectPath }: FileExplorerProps) {
       {/* File tree */}
       <div
         ref={treeRef}
-        className={`flex-shrink-0 overflow-y-auto border-b border-[#e8e8e8] dark:border-[#2a2a2a] ${selectedFile ? 'max-h-[200px]' : ''}`}
+        className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
         role="tree"
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#e8e8e8] dark:border-[#2a2a2a] sticky top-0 bg-white dark:bg-[#1a1a1a] z-10">
-          <span className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider">Explorer</span>
+        <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border sticky top-0 bg-surface z-10">
+          <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">Explorer</span>
           <button
             onClick={loadFiles}
-            className="p-1 rounded hover:bg-[#f0f0f0] dark:hover:bg-[#2a2a2a] text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors"
+            className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
             title="Refresh"
           >
             <RefreshCw size={12} />
@@ -264,7 +300,9 @@ export function FileExplorer({ projectPath }: FileExplorerProps) {
 
       {/* Editor tabs */}
       <div className="flex-1 min-w-0 min-h-[300px] flex flex-col overflow-hidden">
-        <EditorTabs ref={editorTabsRef} projectPath={projectPath} />
+        <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+          <EditorTabs ref={editorTabsRef} projectPath={projectPath} />
+        </Suspense>
       </div>
     </div>
   );

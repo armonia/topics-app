@@ -1,8 +1,16 @@
-import { useState, useCallback } from 'react';
-import { ChevronRight, FolderGit2, MessageCircle, Archive } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { ChevronRight, FolderGit2, FolderClock, MessageCircle, Archive, Plus, MessageSquare, Terminal } from 'lucide-react';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import type { Topic, UnreadData } from '@/types';
+import type { Topic, UnreadData, PaneType } from '@/types';
+
+function getProjectLabel(projectPath: string | undefined): { name: string; isTemp: boolean } {
+  if (!projectPath) return { name: 'Unlinked', isTemp: false };
+  const dirName = projectPath.split('/').pop() || '';
+  if (!dirName) return { name: 'Unlinked', isTemp: false };
+  const isTemp = projectPath.startsWith('/tmp/') || projectPath.startsWith('/private/tmp/');
+  return { name: isTemp ? `${dirName} (temp)` : dirName, isTemp };
+}
 
 interface TopicTreeProps {
   topics: Record<string, Topic>;
@@ -17,10 +25,11 @@ interface TopicTreeProps {
   onTopicContextMenu: (e: React.MouseEvent, topic: Topic) => void;
   getChildren: (parentId: string | null) => Topic[];
   getArchivedTopics: () => Topic[];
-  getProjectTopics: () => Topic[];
-  searchTopics: (query: string) => Topic[];
   unreadData: UnreadData;
   onArchiveTopic: (topicId: string, archive: boolean) => Promise<boolean>;
+  onNewTopicInProject?: (projectPath: string) => void;
+  onAddProjectPane?: (projectPath: string, type: PaneType) => void;
+  onProjectClick?: (projectPath: string) => void;
 }
 
 export function TopicTree({
@@ -36,9 +45,11 @@ export function TopicTree({
   onTopicContextMenu,
   getChildren,
   getArchivedTopics,
-  getProjectTopics: _getProjectTopics,
   unreadData,
   onArchiveTopic,
+  onNewTopicInProject,
+  onAddProjectPane,
+  onProjectClick,
 }: TopicTreeProps) {
   const [showProjectsArchived, setShowProjectsArchived] = useState(false);
   const [showChatsArchived, setShowChatsArchived] = useState(false);
@@ -46,6 +57,15 @@ export function TopicTree({
   const [showChats, setShowChats] = useState(true);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [projectAddMenu, setProjectAddMenu] = useState<string | null>(null); // projectPath of open menu
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!projectAddMenu) return;
+    const h = (e: MouseEvent) => { if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setProjectAddMenu(null); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [projectAddMenu]);
   const [draggedId, setDraggedId] = useState<string | null>(null);
 
   const handleSidebarDragStart = useCallback((topicId: string) => {
@@ -178,9 +198,9 @@ export function TopicTree({
 
   // Group all project topics by project path
   const projectGroups = allProjectTopics.reduce((acc, topic) => {
-    const projectName = topic.projectPath?.split('/').pop() || 'Unknown';
+    const { name: projectName, isTemp } = getProjectLabel(topic.projectPath);
     if (!acc[projectName]) {
-      acc[projectName] = { path: topic.projectPath!, activeTopics: [], archivedTopics: [] };
+      acc[projectName] = { path: topic.projectPath!, activeTopics: [], archivedTopics: [], isTemp };
     }
     if (topic.archived) {
       acc[projectName].archivedTopics.push(topic);
@@ -188,7 +208,13 @@ export function TopicTree({
       acc[projectName].activeTopics.push(topic);
     }
     return acc;
-  }, {} as Record<string, { path: string; activeTopics: Topic[]; archivedTopics: Topic[] }>);
+  }, {} as Record<string, { path: string; activeTopics: Topic[]; archivedTopics: Topic[]; isTemp: boolean }>);
+
+  // Sort project groups: regular projects first, temp projects last
+  const sortedProjectEntries = Object.entries(projectGroups).sort(([, a], [, b]) => {
+    if (a.isTemp !== b.isTemp) return a.isTemp ? 1 : -1;
+    return 0;
+  });
 
   // Non-project archived topics
   const archivedOutsideProjects = archivedTopics.filter(t => !t.projectPath);
@@ -197,73 +223,122 @@ export function TopicTree({
   const totalProjectArchived = Object.values(projectGroups).reduce((sum, g) => sum + g.archivedTopics.length, 0);
 
   return (
-    <div className="py-1">
+    <div role="tree" aria-label="Topics">
       {/* Projects section */}
       {Object.keys(projectGroups).length > 0 && !searchQuery && (
         <>
           <div>
             {/* Projects section header */}
-            <div className="group flex items-center">
+            <div className="group flex items-center h-8 hover:bg-app-hover transition-colors">
               <button
                 onClick={() => setShowProjects(!showProjects)}
-                className="flex items-center gap-2 h-9 pr-2 flex-1 text-left hover:bg-[#f5f5f5] dark:hover:bg-[#252525] transition-colors"
+                aria-expanded={showProjects}
+                aria-label="Projects section"
+                className="flex items-center gap-2 flex-1 h-full text-left"
                 style={{ paddingLeft: 12 }}
               >
                 <ChevronRight
                   size={14}
                   strokeWidth={1.5}
-                  className={`transition-transform duration-150 text-[#666] dark:text-[#999] ${showProjects ? 'rotate-90' : ''}`}
+                  aria-hidden="true"
+                  className={`transition-transform duration-150 text-app-text-secondary ${showProjects ? 'rotate-90' : ''}`}
                 />
-                <FolderGit2 size={14} strokeWidth={1.5} className="text-[#888]" />
-                <span className="text-[13px] text-[#1a1a1a] dark:text-[#e5e5e5] flex-1">Projects</span>
-                <span className="text-[11px] text-[#888] bg-[#eee] dark:bg-[#333] px-1.5 rounded">{Object.keys(projectGroups).length}</span>
+                <FolderGit2 size={14} strokeWidth={1.5} className="text-app-text-muted" aria-hidden="true" />
+                <span className="text-[13px] text-app-text">Projects</span>
               </button>
-              {/* Show archived toggle - visible on hover */}
-              {totalProjectArchived > 0 && (
-                <button
-                  onClick={() => setShowProjectsArchived(!showProjectsArchived)}
-                  className={`mr-2 flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-all ${
-                    showProjectsArchived 
-                      ? 'bg-[var(--primary)]/10 text-[var(--primary)] dark:text-[#5599ff] opacity-100' 
-                      : 'text-[#8b8b8b] opacity-0 group-hover:opacity-100 hover:bg-[#f0f0f0] dark:hover:bg-[#252525]'
-                  }`}
-                  title={showProjectsArchived ? "Hide archived" : "Show archived"}
-                >
-                  <Archive size={13} />
-                  <span>{totalProjectArchived}</span>
-                </button>
-              )}
+              <div className="flex items-center pr-3">
+                {totalProjectArchived > 0 && (
+                  <button
+                    onClick={() => setShowProjectsArchived(!showProjectsArchived)}
+                    aria-pressed={showProjectsArchived}
+                    aria-label={showProjectsArchived ? `Hide ${totalProjectArchived} archived` : `Show ${totalProjectArchived} archived`}
+                    className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all mr-1.5 ${
+                      showProjectsArchived
+                        ? 'text-primary opacity-100'
+                        : 'text-app-text-tertiary opacity-0 md:group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10'
+                    }`}
+                    title={showProjectsArchived ? "Hide archived" : `Show ${totalProjectArchived} archived`}
+                  >
+                    <Archive size={12} />
+                  </button>
+                )}
+                <span className="text-[11px] text-app-text-muted opacity-0 md:group-hover:opacity-100 transition-opacity tabular-nums">{Object.keys(projectGroups).length}</span>
+              </div>
             </div>
-            
+
             {showProjects && (
               <div>
-                {Object.entries(projectGroups).map(([projectName, { path, activeTopics, archivedTopics: projectArchived }]) => {
+                {sortedProjectEntries.map(([projectName, { path, activeTopics, archivedTopics: projectArchived, isTemp }]) => {
                   const isExpanded = expandedProjects.has(projectName);
                   // Combine active and archived (if showing) and sort by name
-                  const allChats = showProjectsArchived 
+                  const allChats = showProjectsArchived
                     ? [...activeTopics, ...projectArchived].sort((a, b) => a.name.localeCompare(b.name))
                     : activeTopics;
-                  
+
+                  // Sum unread counts for all topics in this project group
+                  const groupUnread = allChats.reduce((sum, t) => sum + (unreadData[t.id]?.unreadCount || 0), 0);
+                  const FolderIcon = isTemp ? FolderClock : FolderGit2;
+
                   return (
                     <div key={projectName}>
                       {/* Project folder item */}
-                      <button
-                        onClick={() => toggleProject(projectName)}
-                        className="group/proj flex items-center gap-1.5 h-8 pr-2 w-full text-left text-[12px] font-medium text-[#666] dark:text-[#999] hover:text-[#333] dark:hover:text-[#ccc] hover:bg-[#f5f5f5] dark:hover:bg-[#222] transition-colors"
-                        style={{ paddingLeft: 24 }}
-                        title={path}
-                      >
-                        <ChevronRight
-                          size={11}
-                          strokeWidth={1.5}
-                          className={`transition-transform duration-150 flex-shrink-0 text-[#666] dark:text-[#999] ${isExpanded ? 'rotate-90' : ''}`}
-                        />
-                        <FolderGit2 size={14} strokeWidth={1.5} className="text-blue-500 flex-shrink-0" />
-                        <span className="truncate flex-1">{projectName}</span>
-                        <span className="text-[10px] text-[#b0b0b0] dark:text-[#555] flex-shrink-0">
-                          {allChats.length}
-                        </span>
-                      </button>
+                      <div className="group/proj flex items-center h-8 hover:bg-app-hover transition-colors">
+                        <button
+                          onClick={() => {
+                            const wasExpanded = expandedProjects.has(projectName);
+                            toggleProject(projectName);
+                            if (!wasExpanded && onProjectClick) {
+                              onProjectClick(path);
+                            }
+                          }}
+                          className="flex items-center gap-1.5 h-full flex-1 min-w-0 text-left text-[12px] font-medium text-app-text-secondary hover:text-app-text transition-colors"
+                          style={{ paddingLeft: 24 }}
+                          title={path}
+                        >
+                          <ChevronRight
+                            size={11}
+                            strokeWidth={1.5}
+                            className={`transition-transform duration-150 flex-shrink-0 text-app-text-secondary ${isExpanded ? 'rotate-90' : ''}`}
+                          />
+                          <FolderIcon size={14} strokeWidth={1.5} className={isTemp ? 'text-amber-500 flex-shrink-0' : 'text-blue-500 flex-shrink-0'} />
+                          <span className="truncate flex-1">{projectName}</span>
+                          {groupUnread > 0 ? (
+                            <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center flex-shrink-0">
+                              {groupUnread}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-app-placeholder flex-shrink-0">
+                              {allChats.length}
+                            </span>
+                          )}
+                        </button>
+                        {(onNewTopicInProject || onAddProjectPane) && (
+                          <div className="relative" ref={projectAddMenu === path ? addMenuRef : undefined}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setProjectAddMenu(projectAddMenu === path ? null : path); }}
+                              className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover/proj:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-all mr-1"
+                              title="Add to project"
+                              aria-label={`Add to ${projectName}`}
+                            >
+                              <Plus size={12} />
+                            </button>
+                            {projectAddMenu === path && (
+                              <div className="absolute top-full right-0 mt-1 bg-surface border border-app-border rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
+                                {onNewTopicInProject && (
+                                  <button onClick={() => { onNewTopicInProject(path); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                                    <MessageSquare size={13} /><span>New Chat</span>
+                                  </button>
+                                )}
+                                {onAddProjectPane && (
+                                  <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                                    <Terminal size={13} /><span>New Terminal</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       
                       {/* Chats under this project - all inline */}
                       {isExpanded && (
@@ -296,44 +371,50 @@ export function TopicTree({
             )}
           </div>
           {/* Divider between Projects and Chats */}
-          <div className="mx-2 my-2 border-t border-[#e5e5e5] dark:border-[#333]" />
+          <div className="border-t border-app-border" />
         </>
       )}
 
       {/* Chats section header */}
       {!searchQuery && (allRegularTopics.length > 0 || archivedOutsideProjects.length > 0) && (
-        <div className="group flex items-center">
+        <div className="group flex items-center h-8 hover:bg-app-hover transition-colors">
           <button
             onClick={() => setShowChats(!showChats)}
-            className="flex items-center gap-2 h-9 pr-2 flex-1 text-left hover:bg-[#f5f5f5] dark:hover:bg-[#252525] transition-colors"
+            aria-expanded={showChats}
+            aria-label="Chats section"
+            className="flex items-center gap-2 flex-1 h-full text-left"
             style={{ paddingLeft: 12 }}
           >
             <ChevronRight
               size={14}
               strokeWidth={1.5}
-              className={`transition-transform duration-150 text-[#666] dark:text-[#999] ${showChats ? 'rotate-90' : ''}`}
+              aria-hidden="true"
+              className={`transition-transform duration-150 text-app-text-secondary ${showChats ? 'rotate-90' : ''}`}
             />
-            <MessageCircle size={14} strokeWidth={1.5} className="text-[#888]" />
-            <span className="text-[13px] text-[#1a1a1a] dark:text-[#e5e5e5] flex-1">Chats</span>
-            <span className="text-[11px] text-[#888] bg-[#eee] dark:bg-[#333] px-1.5 rounded">
-              {showChatsArchived ? allRegularTopics.length + archivedOutsideProjects.length : allRegularTopics.length}
-            </span>
+            <MessageCircle size={14} strokeWidth={1.5} className="text-app-text-muted" aria-hidden="true" />
+            <span className="text-[13px] text-app-text">Chats</span>
           </button>
-          {/* Show archived toggle - visible on hover */}
-          {archivedOutsideProjects.length > 0 && (
-            <button
-              onClick={() => setShowChatsArchived(!showChatsArchived)}
-              className={`mr-2 flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded transition-all ${
-                showChatsArchived 
-                  ? 'bg-[var(--primary)]/10 text-[var(--primary)] dark:text-[#5599ff] opacity-100' 
-                  : 'text-[#8b8b8b] opacity-0 group-hover:opacity-100 hover:bg-[#f0f0f0] dark:hover:bg-[#252525]'
-              }`}
-              title={showChatsArchived ? "Hide archived" : "Show archived"}
-            >
-              <Archive size={13} />
-              <span>{archivedOutsideProjects.length}</span>
-            </button>
-          )}
+          {/* Right side: archive toggle button + count */}
+          <div className="flex items-center pr-3">
+            {archivedOutsideProjects.length > 0 && (
+              <button
+                onClick={() => setShowChatsArchived(!showChatsArchived)}
+                aria-pressed={showChatsArchived}
+                aria-label={showChatsArchived ? `Hide ${archivedOutsideProjects.length} archived chats` : `Show ${archivedOutsideProjects.length} archived chats`}
+                className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all mr-1.5 ${
+                  showChatsArchived
+                    ? 'text-primary opacity-100'
+                    : 'text-app-text-tertiary opacity-0 md:group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10'
+                }`}
+                title={showChatsArchived ? "Hide archived" : `Show ${archivedOutsideProjects.length} archived`}
+              >
+                <Archive size={12} />
+              </button>
+            )}
+            <span className="text-[11px] text-app-text-muted opacity-0 md:group-hover:opacity-100 transition-opacity tabular-nums">
+              {allRegularTopics.length}
+            </span>
+          </div>
         </div>
       )}
 
@@ -347,18 +428,18 @@ export function TopicTree({
       {Object.keys(topics).length === 0 && (
         <div className="px-4 py-12 text-center">
           <div className="text-4xl mb-3">💬</div>
-          <p className="text-[14px] font-medium text-[#666] dark:text-[#aaa] mb-1">No topics yet</p>
-          <p className="text-[12px] text-[#b0b0b0] dark:text-[#666] mb-4">Create your first topic to get started</p>
+          <p className="text-[14px] font-medium text-app-text-secondary mb-1">No topics yet</p>
+          <p className="text-[12px] text-app-text-muted mb-4">Create your first topic to get started</p>
           <button
             onClick={() => {
               // Trigger ⌘N shortcut programmatically
               window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, bubbles: true }));
             }}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-lg transition-colors shadow-sm"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium text-white bg-primary hover:bg-primary-hover rounded-lg transition-colors shadow-sm"
           >
             <span>+</span> Create Topic
           </button>
-          <p className="text-[11px] text-[#b0b0b0] dark:text-[#555] mt-3">or press <kbd className="kbd">⌘N</kbd></p>
+          <p className="text-[11px] text-app-placeholder mt-3">or press <kbd className="kbd">⌘N</kbd></p>
         </div>
       )}
     </div>

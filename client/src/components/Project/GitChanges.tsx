@@ -159,8 +159,8 @@ export function GitChanges({ projectPath }: GitChangesProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-2 text-[#8b8b8b] text-[13px]">
-          <div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+        <div className="flex items-center gap-2 text-app-text-tertiary text-[13px]">
+          <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
           Loading git status...
         </div>
       </div>
@@ -171,7 +171,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2">
         <p className="text-red-500 text-[13px]">{error}</p>
-        <button onClick={loadStatus} className="text-[12px] text-[var(--primary)] hover:underline">Retry</button>
+        <button onClick={loadStatus} className="text-[12px] text-primary hover:underline">Retry</button>
       </div>
     );
   }
@@ -181,26 +181,26 @@ export function GitChanges({ projectPath }: GitChangesProps) {
   return (
     <div className="flex h-full">
       {/* Left: status panel */}
-      <div className="w-[280px] flex-shrink-0 border-r border-[#e8e8e8] dark:border-[#2a2a2a] flex flex-col overflow-hidden">
+      <div className="w-[280px] flex-shrink-0 border-r border-app-border flex flex-col overflow-hidden">
         {/* Header info */}
-        <div className="px-3 py-2.5 border-b border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#fafafa] dark:bg-[#1e1e1e] flex-shrink-0 space-y-1.5">
+        <div className="px-3 py-2.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 space-y-1.5">
           <div className="flex items-center justify-between">
             <button
               onClick={() => setShowBranches(!showBranches)}
-              className="flex items-center gap-1.5 hover:bg-[#eee] dark:hover:bg-[#333] px-1.5 py-0.5 rounded transition-colors"
+              className="flex items-center gap-1.5 hover:bg-app-hover px-1.5 py-0.5 rounded transition-colors"
             >
-              <GitBranch size={13} className="text-[var(--primary)]" />
-              <span className="text-[12px] font-semibold text-[#333] dark:text-[#ddd]">{gitStatus.branch}</span>
+              <GitBranch size={13} className="text-primary" />
+              <span className="text-[12px] font-semibold text-app-text-heading">{gitStatus.branch}</span>
             </button>
             <div className="flex items-center gap-1">
               <button
                 onClick={handlePull}
                 disabled={pulling}
-                className="p-1 rounded hover:bg-[#eee] dark:hover:bg-[#333] text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors disabled:opacity-40"
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40"
                 title="Pull"
               >
                 {pulling ? (
-                  <div className="w-3 h-3 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
                 ) : (
                   <ArrowDown size={13} />
                 )}
@@ -208,18 +208,18 @@ export function GitChanges({ projectPath }: GitChangesProps) {
               <button
                 onClick={handlePush}
                 disabled={pushing}
-                className="p-1 rounded hover:bg-[#eee] dark:hover:bg-[#333] text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors disabled:opacity-40"
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40"
                 title="Push"
               >
                 {pushing ? (
-                  <div className="w-3 h-3 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
                 ) : (
                   <ArrowUp size={13} />
                 )}
               </button>
               <button
                 onClick={loadStatus}
-                className="p-1 rounded hover:bg-[#eee] dark:hover:bg-[#333] text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors"
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
                 title="Refresh"
               >
                 <RefreshCw size={12} />
@@ -227,7 +227,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
             </div>
           </div>
           {gitStatus.lastCommit.hash && (
-            <div className="text-[11px] text-[#888] dark:text-[#777] space-y-0.5">
+            <div className="text-[11px] text-app-text-muted space-y-0.5">
               <div className="flex items-center gap-1 truncate">
                 <Clock size={10} className="flex-shrink-0" />
                 <span className="truncate">{gitStatus.lastCommit.message}</span>
@@ -251,7 +251,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
           
           {/* Action message */}
           {actionMessage && (
-            <div className="text-[10px] text-[var(--primary)] truncate mt-1">
+            <div className="text-[10px] text-primary truncate mt-1">
               {actionMessage}
             </div>
           )}
@@ -259,7 +259,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
 
         {/* Branches section (collapsible) */}
         {showBranches && (
-          <div className="border-b border-[#e8e8e8] dark:border-[#2a2a2a] max-h-[200px] overflow-y-auto">
+          <div className="border-b border-app-border max-h-[200px] overflow-y-auto">
             <BranchList
               projectPath={projectPath}
               onBranchSwitch={() => {
@@ -273,7 +273,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
         {/* Changed files list */}
         <div className="flex-1 overflow-y-auto">
           {gitStatus.files.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-[#8b8b8b] text-[12px]">
+            <div className="flex items-center justify-center h-full text-app-text-tertiary text-[12px]">
               <div className="text-center">
                 <p>✨ Clean working tree</p>
                 <p className="text-[11px] mt-1 opacity-60">No changes to commit</p>
@@ -282,12 +282,12 @@ export function GitChanges({ projectPath }: GitChangesProps) {
           ) : (
             <>
               <div className="px-2 py-1 flex items-center justify-between">
-                <span className="text-[10px] font-medium text-[#8b8b8b] uppercase tracking-wider">
+                <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
                   Changes ({gitStatus.files.length})
                 </span>
                 <button
                   onClick={() => setShowCommitDialog(true)}
-                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-[var(--primary)] text-white hover:bg-[#0052cc] transition-colors"
+                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover transition-colors"
                 >
                   <GitCommit size={10} />
                   Commit
@@ -302,19 +302,19 @@ export function GitChanges({ projectPath }: GitChangesProps) {
                     key={file.path}
                     className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group ${
                       isSelected
-                        ? 'bg-[var(--primary)]/10 dark:bg-[var(--primary)]/20'
-                        : 'hover:bg-[#f5f5f5] dark:hover:bg-[#222]'
+                        ? 'bg-primary/10 dark:bg-primary/20'
+                        : 'hover:bg-app-hover'
                     }`}
                     onClick={() => handleFileClick(file.path)}
                   >
                     <span className={`${st.color} ${st.bg} text-[10px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
                       {st.text}
                     </span>
-                    <span className="truncate text-[#444] dark:text-[#bbb]">{file.path}</span>
+                    <span className="truncate text-app-text-body">{file.path}</span>
                     {/* Stage/unstage button */}
                     <button
                       onClick={(e) => staged ? handleUnstage(file.path, e) : handleStage(file.path, e)}
-                      className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[#ddd] dark:hover:bg-[#444] transition-all flex-shrink-0"
+                      className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-app-hover transition-all flex-shrink-0"
                       title={staged ? 'Unstage' : 'Stage'}
                     >
                       {staged ? <Minus size={12} className="text-red-500" /> : <Plus size={12} className="text-green-500" />}
@@ -331,9 +331,9 @@ export function GitChanges({ projectPath }: GitChangesProps) {
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {selectedFile ? (
           <>
-            <div className="px-3 py-1.5 border-b border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#fafafa] dark:bg-[#1e1e1e] flex-shrink-0 flex items-center justify-between">
-              <span className="text-[12px] text-[#666] dark:text-[#999]">{selectedFile}</span>
-              <div className="flex items-center gap-2 text-[10px] text-[#999] dark:text-[#666]">
+            <div className="px-3 py-1.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 flex items-center justify-between">
+              <span className="text-[12px] text-app-text-secondary">{selectedFile}</span>
+              <div className="flex items-center gap-2 text-[10px] text-app-text-muted">
                 <span>Original (HEAD)</span>
                 <span>|</span>
                 <span>Modified (Working)</span>
@@ -342,7 +342,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
             <div className="flex-1 overflow-hidden">
               {loadingDiff ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
                 </div>
               ) : (
                 <DiffViewer
@@ -355,7 +355,7 @@ export function GitChanges({ projectPath }: GitChangesProps) {
             </div>
           </>
         ) : (
-          <div className="flex items-center justify-center h-full text-[#8b8b8b] text-[13px]">
+          <div className="flex items-center justify-center h-full text-app-text-tertiary text-[13px]">
             <div className="text-center">
               <GitBranch size={32} className="mx-auto mb-2 opacity-30" />
               <p>Select a changed file to view its diff</p>

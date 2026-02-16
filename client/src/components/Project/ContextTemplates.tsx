@@ -76,8 +76,8 @@ export function ContextTemplates({ topicId, projectPath }: ContextTemplatesProps
 
   if (loading) {
     return (
-      <div className="border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
-        <div className="px-2 py-1.5 text-[11px] text-[#888]">Loading context...</div>
+      <div className="border-b border-app-border">
+        <div className="px-2 py-1.5 text-[11px] text-app-text-muted">Loading context...</div>
       </div>
     );
   }
@@ -85,16 +85,16 @@ export function ContextTemplates({ topicId, projectPath }: ContextTemplatesProps
   if (files.length === 0) return null;
 
   return (
-    <div className="border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
+    <div className="border-b border-app-border">
       {/* Header */}
       <button
         onClick={toggleCollapse}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-[#666] dark:text-[#999] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+        className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
       >
         {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
         <FileText size={13} />
-        <span>Context <span className="font-normal text-[10px] text-[#999] dark:text-[#666]">(auto)</span></span>
-        <span className="ml-auto text-[10px] text-[#999] dark:text-[#666] font-normal">
+        <span>Context <span className="font-normal text-[10px] text-app-text-muted">(auto)</span></span>
+        <span className="ml-auto text-[10px] text-app-text-muted font-normal">
           ~{enabledTokens.toLocaleString()} tokens
         </span>
       </button>
@@ -113,28 +113,28 @@ export function ContextTemplates({ topicId, projectPath }: ContextTemplatesProps
                   onClick={() => toggleFile(file.name)}
                   className={`flex-shrink-0 w-4 h-4 rounded-sm border flex items-center justify-center transition-colors ${
                     enabled
-                      ? 'bg-[var(--primary)]/10 border-[var(--primary)]/30 text-[var(--primary)]'
-                      : 'border-[#ddd] dark:border-[#444] text-transparent'
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'border-app-border-input text-transparent'
                   }`}
                   title={enabled ? 'Click to exclude from context' : 'Click to include in context'}
                 >
                   {enabled ? <Check size={10} strokeWidth={3} /> : <X size={10} />}
                 </button>
-                <FileText size={12} className={`flex-shrink-0 ${enabled ? 'text-[#666] dark:text-[#999]' : 'text-[#ccc] dark:text-[#444]'}`} />
+                <FileText size={12} className={`flex-shrink-0 ${enabled ? 'text-app-text-secondary' : 'text-app-spinner'}`} />
                 <span className={`text-[11px] truncate flex-1 ${
-                  enabled ? 'text-[#333] dark:text-[#ccc]' : 'text-[#aaa] dark:text-[#555] line-through'
+                  enabled ? 'text-app-text-heading' : 'text-app-text-faint line-through'
                 }`}>
                   {file.name}
                 </span>
                 <span className={`text-[10px] flex-shrink-0 ${
-                  enabled ? 'text-[#999] dark:text-[#666]' : 'text-[#ccc] dark:text-[#444]'
+                  enabled ? 'text-app-text-muted' : 'text-app-spinner'
                 }`}>
                   ~{file.tokenEstimate.toLocaleString()}
                 </span>
               </div>
             );
           })}
-          <div className="text-[10px] text-[#bbb] dark:text-[#555] mt-1 px-1">
+          <div className="text-[10px] text-app-text-faint mt-1 px-1">
             Auto-included from project • {files.length} files
           </div>
         </div>

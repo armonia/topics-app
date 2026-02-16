@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, lazy, Suspense } from 'react';
 import { X, File } from 'lucide-react';
 import { filesApi } from '../../lib/api';
+import { getFileIcon } from '../../lib/fileIcons';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -14,17 +15,6 @@ export interface TabInfo {
 
 interface EditorTabsProps {
   projectPath: string;
-}
-
-// File icon based on extension
-function getFileIcon(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const icons: Record<string, string> = {
-    ts: '🔷', tsx: '⚛️', js: '🟡', jsx: '⚛️', json: '📋', md: '📝',
-    css: '🎨', scss: '🎨', html: '🌐', py: '🐍', rs: '🦀', go: '🐹',
-    sh: '🐚', yaml: '⚙️', yml: '⚙️', sql: '🗄️', txt: '📄',
-  };
-  return icons[ext] || '📄';
 }
 
 export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function EditorTabs({ projectPath }, ref) {
@@ -96,7 +86,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
   if (tabs.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-[#8b8b8b] text-[13px]">
+      <div className="flex items-center justify-center h-full text-app-text-tertiary text-[13px]">
         <div className="text-center">
           <File size={32} className="mx-auto mb-2 opacity-30" />
           <p>Select a file to view its content</p>
@@ -108,7 +98,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   return (
     <div className="flex flex-col h-full">
       {/* Tab bar */}
-      <div className="flex items-center overflow-x-auto border-b border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#f5f5f5] dark:bg-[#1e1e1e] flex-shrink-0">
+      <div className="flex items-center overflow-x-auto border-b border-app-border bg-app-hover dark:bg-app-panel flex-shrink-0">
         {tabs.map((tab, i) => {
           const isActive = i === activeIndex;
           const isModified = tab.content !== tab.originalContent;
@@ -117,15 +107,15 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
             <div
               key={tab.path}
               onClick={() => setActiveIndex(i)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] cursor-pointer border-r border-[#e8e8e8] dark:border-[#2a2a2a] max-w-[180px] group select-none ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] cursor-pointer border-r border-app-border max-w-[180px] group select-none ${
                 isActive
-                  ? 'bg-white dark:bg-[#1a1a1a] text-[#1a1a1a] dark:text-white border-b-2 border-b-[var(--primary)]'
-                  : 'text-[#888] hover:bg-[#eee] dark:hover:bg-[#252525]'
+                  ? 'bg-surface text-app-text border-b-2 border-b-primary'
+                  : 'text-app-text-muted hover:bg-app-hover'
               }`}
             >
               <span className="text-[11px] flex-shrink-0">{getFileIcon(tab.name)}</span>
               <span className="truncate">{tab.name}</span>
-              {isModified && <span className="w-2 h-2 rounded-full bg-[var(--primary)] flex-shrink-0" title="Unsaved changes" />}
+              {isModified && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Unsaved changes" />}
               {status === 'saved' && <span className="text-[10px] text-green-500 flex-shrink-0">✓</span>}
               {status === 'error' && <span className="text-[10px] text-red-500 flex-shrink-0">!</span>}
               <button
@@ -141,8 +131,8 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
       {/* File path bar */}
       {activeTab && (
-        <div className="flex items-center px-3 py-1 border-b border-[#e8e8e8] dark:border-[#2a2a2a] bg-[#fafafa] dark:bg-[#1e1e1e] flex-shrink-0">
-          <span className="text-[11px] text-[#888] truncate">
+        <div className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0">
+          <span className="text-[11px] text-app-text-muted truncate">
             {activeTab.path.replace(projectPath, '').replace(/^\//, '')}
           </span>
         </div>
@@ -152,10 +142,10 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       <div className="flex-1 overflow-hidden">
         {activeTab?.loading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
           </div>
         ) : activeTab ? (
-          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
             <CodeEditor
               content={activeTab.content}
               filename={activeTab.name}

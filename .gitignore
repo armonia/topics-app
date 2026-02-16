@@ -45,7 +45,7 @@ yarn-error.log*
 # Runtime data
 data/
 memory/
-journal/
+/journal/
 pids
 *.pid
 *.seed

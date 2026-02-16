@@ -80,6 +80,11 @@ export const TopicItem = memo(function TopicItem({
 
   return (
     <div
+      role="treeitem"
+      aria-selected={isFocused}
+      aria-expanded={hasChildren ? isExpanded : undefined}
+      aria-label={topic.name}
+      tabIndex={isFocused ? 0 : -1}
       draggable={!isArchived}
       onDragStart={handleDragStart}
       onDragOver={(e) => {
@@ -96,19 +101,43 @@ export const TopicItem = memo(function TopicItem({
         }
       }}
       onDragEnd={() => onSidebarDragEnd?.()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(e as unknown as React.MouseEvent);
+        }
+        if (e.key === 'ArrowRight' && hasChildren && !isExpanded) {
+          e.preventDefault();
+          onToggle();
+        }
+        if (e.key === 'ArrowLeft' && hasChildren && isExpanded) {
+          e.preventDefault();
+          onToggle();
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const next = (e.currentTarget as HTMLElement).nextElementSibling as HTMLElement;
+          next?.focus();
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prev = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement;
+          prev?.focus();
+        }
+      }}
       className={cn(
         'group flex items-center gap-1.5 min-h-[44px] h-11 pr-2 cursor-pointer text-[13px] font-medium transition-colors duration-100 select-none relative md:min-h-9 md:h-9',
         // Focused (panel open and focused): accent bg + left border
-        isFocused && 'bg-[var(--primary)]/8 dark:bg-[var(--primary)]/15 text-[var(--primary)] dark:text-[#5599ff]',
+        isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
         // Open but not focused
-        !isFocused && isOpen && 'bg-[#f0f0f0] dark:bg-[#252525] text-[#1a1a1a] dark:text-[#e5e5e5]',
+        !isFocused && isOpen && 'bg-app-hover text-app-text',
         // Default (not open)
-        !isFocused && !isOpen && 'text-[#555] dark:text-[#999] hover:bg-[#f5f5f5] dark:hover:bg-[#222] hover:text-[#1a1a1a] dark:hover:text-[#e5e5e5]',
+        !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
         // Preview panels show italic name
         isPreview && 'italic',
         isArchived && 'opacity-60',
         // Drag over indicator
-        isDragOver && 'border-t-2 border-[var(--primary)]'
+        isDragOver && 'border-t-2 border-primary'
       )}
       style={{ paddingLeft }}
       onClick={onClick}
@@ -140,7 +169,7 @@ export const TopicItem = memo(function TopicItem({
       {/* Icon */}
       <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5 text-[15px]">
         {isArchived ? (
-          <Archive size={14} className="text-[#8b8b8b]" />
+          <Archive size={14} className="text-app-text-tertiary" />
         ) : isProject ? (
           <FolderGit2 size={14} className="text-blue-500" />
         ) : (
@@ -151,7 +180,7 @@ export const TopicItem = memo(function TopicItem({
       {/* Name */}
       <span className={cn(
         "flex-1 truncate leading-none",
-        unreadCount > 0 && !isFocused && "font-semibold text-[#1a1a1a] dark:text-[#e5e5e5]"
+        unreadCount > 0 && !isFocused && "font-semibold text-app-text"
       )}>
         {topic.name}
       </span>
@@ -160,20 +189,21 @@ export const TopicItem = memo(function TopicItem({
       {onArchive && (
         <button
           onClick={handleArchiveClick}
-          className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+          className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
           title={topic.archived ? "Unarchive" : "Archive"}
+          aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
         >
           {topic.archived ? (
-            <ArchiveRestore size={12} className="text-[#8b8b8b]" />
+            <ArchiveRestore size={12} className="text-app-text-tertiary" />
           ) : (
-            <Archive size={12} className="text-[#8b8b8b]" />
+            <Archive size={12} className="text-app-text-tertiary" />
           )}
         </button>
       )}
 
       {/* Unread badge */}
       {unreadCount > 0 && !isFocused && (
-        <span className="flex-shrink-0 bg-[var(--primary)] text-white text-[10px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none">
+        <span className="flex-shrink-0 bg-primary text-white text-[10px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none">
           {unreadCount > 99 ? '99+' : unreadCount}
         </span>
       )}
