@@ -82,12 +82,12 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Search messages">
       <div className="absolute inset-0 bg-black/40 dark:bg-black/60" />
       <div
-        className="relative w-full max-w-2xl mx-4 bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#e0e0e0] dark:border-[#333] overflow-hidden"
+        className="relative w-full max-w-2xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border-light overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
-          <Search size={18} className="text-[#8b8b8b] flex-shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-app-border">
+          <Search size={18} className="text-app-text-tertiary flex-shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -95,9 +95,9 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
             onChange={e => handleQueryChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search messages across all topics..."
-            className="flex-1 bg-transparent text-[#1a1a1a] dark:text-[#e5e5e5] placeholder-[#aaa] dark:placeholder-[#666] outline-none text-[14px]"
+            className="flex-1 bg-transparent text-app-text placeholder-app-placeholder outline-none text-[14px]"
           />
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors" aria-label="Close search">
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close search">
             <X size={15} />
           </button>
         </div>
@@ -105,18 +105,18 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
         {/* Results */}
         <div className="max-h-[50vh] overflow-y-auto">
           {loading && (
-            <div className="px-4 py-8 flex items-center justify-center gap-2 text-[#8b8b8b] text-[13px]">
-              <div className="w-4 h-4 border-2 border-[#ccc] dark:border-[#555] border-t-[var(--primary)] rounded-full animate-spin" />
+            <div className="px-4 py-8 flex items-center justify-center gap-2 text-app-text-tertiary text-[13px]">
+              <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
               Searching...
             </div>
           )}
           
           {!loading && query && results.length === 0 && (
-            <div className="px-4 py-8 text-center text-[#888] text-[13px]">No results found</div>
+            <div className="px-4 py-8 text-center text-app-text-muted text-[13px]">No results found</div>
           )}
 
           {!loading && !query && (
-            <div className="px-4 py-8 text-center text-[#aaa] dark:text-[#666] text-[13px]">
+            <div className="px-4 py-8 text-center text-app-text-muted text-[13px]">
               Type to search across all conversations
             </div>
           )}
@@ -124,19 +124,19 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
           {!loading && Object.entries(grouped).map(([key, groupResults]) => {
             const first = groupResults[0];
             return (
-              <div key={key} className="border-b border-[#f0f0f0] dark:border-[#2a2a2a] last:border-b-0">
-                <div className="px-4 py-2 bg-[#f5f5f5] dark:bg-[#222] flex items-center gap-2">
+              <div key={key} className="border-b border-app-border last:border-b-0">
+                <div className="px-4 py-2 bg-app-hover flex items-center gap-2">
                   <span>{first.topicIcon}</span>
-                  <span className="text-[11px] font-semibold text-[#666] dark:text-[#999]">{first.topicName}</span>
-                  <span className="text-[11px] text-[#aaa] dark:text-[#666]">({groupResults.length})</span>
+                  <span className="text-[11px] font-semibold text-app-text-secondary">{first.topicName}</span>
+                  <span className="text-[11px] text-app-text-muted">({groupResults.length})</span>
                 </div>
                 {groupResults.slice(0, 3).map((result, i) => {
                   const globalIndex = results.indexOf(result);
                   return (
                     <button
                       key={i}
-                      className={`w-full text-left px-4 py-2.5 hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] transition-colors ${
-                        globalIndex === selectedIndex ? 'bg-[var(--primary)]/10' : ''
+                      className={`w-full text-left px-4 py-2.5 hover:bg-app-hover transition-colors ${
+                        globalIndex === selectedIndex ? 'bg-primary/10' : ''
                       }`}
                       onClick={() => {
                         if (result.topicId) {
@@ -146,16 +146,16 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
                       }}
                     >
                       <div className="flex items-center gap-2 mb-0.5">
-                        <span className={`text-[11px] font-medium ${result.role === 'user' ? 'text-[var(--primary)]' : 'text-[#22c55e]'}`}>
+                        <span className={`text-[11px] font-medium ${result.role === 'user' ? 'text-primary' : 'text-emerald-500'}`}>
                           {result.role === 'user' ? 'You' : 'Assistant'}
                         </span>
                         {result.timestamp && (
-                          <span className="text-[11px] text-[#aaa] dark:text-[#666]">
+                          <span className="text-[11px] text-app-text-muted">
                             {new Date(result.timestamp).toLocaleDateString()}
                           </span>
                         )}
                       </div>
-                      <div className="text-[13px] text-[#444] dark:text-[#ccc] line-clamp-2">
+                      <div className="text-[13px] text-app-text line-clamp-2">
                         {highlightQuery(result.content.slice(0, 200), query)}
                       </div>
                     </button>
@@ -167,7 +167,7 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 border-t border-[#e8e8e8] dark:border-[#2a2a2a] flex items-center gap-4 text-[11px] text-[#aaa] dark:text-[#666]">
+        <div className="px-4 py-2 border-t border-app-border flex items-center gap-4 text-[11px] text-app-text-muted">
           <span>↑↓ Navigate</span>
           <span>↵ Open topic</span>
           <span>Esc Close</span>

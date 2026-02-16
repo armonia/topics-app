@@ -50,23 +50,23 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
     <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={onClose}>
       <div className="fixed inset-0 bg-black/30 dark:bg-black/50" />
       <div
-        className="relative w-full max-w-md mx-4 bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#e0e0e0] dark:border-[#333] overflow-hidden command-palette-enter"
+        className="relative w-full max-w-md mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
-          <h3 className="text-[14px] font-semibold text-[#1a1a1a] dark:text-[#e5e5e5]">Keyboard Shortcuts</h3>
-          <button onClick={onClose} className="text-[#888] hover:text-[#555] dark:hover:text-[#ccc]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+          <h3 className="text-[14px] font-semibold text-app-text">Keyboard Shortcuts</h3>
+          <button onClick={onClose} className="text-app-text-muted hover:text-app-text-secondary">
             <X size={16} />
           </button>
         </div>
         <div className="p-4 max-h-[60vh] overflow-y-auto space-y-5">
           {SHORTCUT_GROUPS.map(group => (
             <div key={group.title}>
-              <h4 className="text-[11px] font-semibold text-[#999] dark:text-[#666] uppercase tracking-wider mb-2">{group.title}</h4>
+              <h4 className="text-[11px] font-semibold text-app-text-muted uppercase tracking-wider mb-2">{group.title}</h4>
               <div className="space-y-1.5">
                 {group.shortcuts.map(s => (
                   <div key={s.keys} className="flex items-center justify-between">
-                    <span className="text-[12px] text-[#555] dark:text-[#aaa]">{s.description}</span>
+                    <span className="text-[12px] text-app-text-secondary">{s.description}</span>
                     <div className="flex items-center gap-0.5">
                       {s.keys.split('').filter(k => k !== '+').map((k, i) => {
                         // Group multi-char keys

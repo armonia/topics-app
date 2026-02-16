@@ -7,16 +7,35 @@ interface UseWebSocketReturn {
   sendWS: (message: WSMessage) => void;
   onMessage: (handler: (msg: WSMessage) => void) => () => void;
   reconnect: () => void;
+  lastConnectedAt: number | null;
 }
 
+const OFFLINE_THRESHOLD_MS = 10_000;
+
 export function useWebSocket(): UseWebSocketReturn {
-  const [status, setStatus] = useState<ConnectionStatus>('offline');
+  const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [unreadData, setUnreadData] = useState<UnreadData>({});
+  const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<Set<(msg: WSMessage) => void>>(new Set());
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearOfflineTimer = useCallback(() => {
+    if (offlineTimerRef.current) {
+      clearTimeout(offlineTimerRef.current);
+      offlineTimerRef.current = null;
+    }
+  }, []);
+
+  const startOfflineTimer = useCallback(() => {
+    clearOfflineTimer();
+    offlineTimerRef.current = setTimeout(() => {
+      setStatus('offline');
+    }, OFFLINE_THRESHOLD_MS);
+  }, [clearOfflineTimer]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -27,8 +46,10 @@ export function useWebSocket(): UseWebSocketReturn {
 
     ws.onopen = () => {
       setStatus('connected');
+      setLastConnectedAt(Date.now());
       reconnectAttemptRef.current = 0;
-      
+      clearOfflineTimer();
+
       // Start ping interval
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       pingIntervalRef.current = setInterval(() => {
@@ -41,13 +62,13 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onmessage = (event) => {
       try {
         const data: WSMessage = JSON.parse(event.data);
-        
+
         // Handle unread init
         if (data.type === 'unread:init') {
           setUnreadData(data.data || {});
           return;
         }
-        
+
         // Handle unread updates
         if (data.type === 'unread:updated') {
           setUnreadData(prev => ({
@@ -58,7 +79,7 @@ export function useWebSocket(): UseWebSocketReturn {
             },
           }));
         }
-        
+
         // Forward to all handlers
         for (const handler of handlersRef.current) {
           try { handler(data); } catch {}
@@ -72,11 +93,14 @@ export function useWebSocket(): UseWebSocketReturn {
         clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = null;
       }
-      
+
+      // Start timer to transition to 'offline' if we can't reconnect quickly
+      startOfflineTimer();
+
       // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
       const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 30000);
       reconnectAttemptRef.current++;
-      
+
       reconnectTimerRef.current = setTimeout(() => {
         connect();
       }, delay);
@@ -85,20 +109,21 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onerror = () => {
       // onclose will handle reconnection
     };
-  }, []);
+  }, [clearOfflineTimer, startOfflineTimer]);
 
   useEffect(() => {
     connect();
-    
+
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      clearOfflineTimer();
       if (wsRef.current) {
         wsRef.current.onclose = null; // prevent reconnect on cleanup
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connect, clearOfflineTimer]);
 
   const sendWS = useCallback((message: WSMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -119,6 +144,7 @@ export function useWebSocket(): UseWebSocketReturn {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
+    clearOfflineTimer();
     // Close existing connection if any
     if (wsRef.current) {
       wsRef.current.onclose = null;
@@ -126,8 +152,9 @@ export function useWebSocket(): UseWebSocketReturn {
       wsRef.current = null;
     }
     reconnectAttemptRef.current = 0;
+    setStatus('connecting');
     connect();
-  }, [connect]);
+  }, [connect, clearOfflineTimer]);
 
-  return { status, unreadData, sendWS, onMessage, reconnect };
+  return { status, unreadData, sendWS, onMessage, reconnect, lastConnectedAt };
 }

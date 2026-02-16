@@ -70,10 +70,10 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
       }`}
     >
       {iconMap[toast.type]}
-      <span className="text-[#333] dark:text-[#ddd] font-medium">{toast.message}</span>
+      <span className="text-app-text font-medium">{toast.message}</span>
       <button
         onClick={() => onRemove(toast.id)}
-        className="ml-auto w-4 h-4 flex items-center justify-center text-[#999] hover:text-[#555] dark:hover:text-[#ccc]"
+        className="ml-auto w-4 h-4 flex items-center justify-center text-app-text-muted hover:text-app-text-secondary"
       >
         <X size={10} />
       </button>

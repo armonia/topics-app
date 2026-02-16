@@ -96,13 +96,13 @@ export function RemoteBrowserPanel({ contextId: _baseContextId, initialUrl, navi
               key={tab.id}
               className={`flex items-center gap-1 px-2 py-1 text-[11px] cursor-pointer select-none border-r border-[#1e1e2e] max-w-[160px] transition-colors ${
                 activeTabId === tab.id
-                  ? 'bg-[#1a1a24] text-[#d4d4d8]'
-                  : 'text-[#71717a] hover:text-[#a1a1aa] hover:bg-[#16161e]'
+                  ? 'bg-[#1a1a24] text-zinc-300'
+                  : 'text-zinc-500 hover:text-zinc-400 hover:bg-[#16161e]'
               }`}
               onClick={() => setActiveTabId(tab.id)}
             >
               {tab.loading ? (
-                <div className="w-3 h-3 border border-[#60a5fa] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
               ) : (
                 <Globe size={11} className="flex-shrink-0" />
               )}
@@ -110,7 +110,7 @@ export function RemoteBrowserPanel({ contextId: _baseContextId, initialUrl, navi
               {tabs.length > 1 && (
                 <button
                   onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                  className="ml-auto w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-[#71717a] hover:text-[#d4d4d8] flex-shrink-0"
+                  className="ml-auto w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-zinc-500 hover:text-zinc-300 flex-shrink-0"
                 >
                   <X size={10} />
                 </button>
@@ -120,7 +120,7 @@ export function RemoteBrowserPanel({ contextId: _baseContextId, initialUrl, navi
         </div>
         <button
           onClick={createTab}
-          className="w-6 h-6 flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-white/5 transition-colors flex-shrink-0"
+          className="w-6 h-6 flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors flex-shrink-0"
           title="New tab"
         >
           <Plus size={12} />
@@ -141,16 +141,16 @@ export function RemoteBrowserPanel({ contextId: _baseContextId, initialUrl, navi
       />
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-hidden relative bg-white dark:bg-[#1a1a1a]">
+      <div className="flex-1 min-h-0 overflow-hidden relative bg-surface">
         {!activeTab?.url ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <Globe size={36} className="mx-auto mb-3 text-[#ccc] dark:text-[#444]" />
-              <p className="text-[13px] text-[#888] dark:text-[#666] mb-1">No page loaded</p>
-              <p className="text-[11px] text-[#aaa] dark:text-[#555]">Enter a URL above or click below</p>
+              <Globe size={36} className="mx-auto mb-3 text-app-spinner" />
+              <p className="text-[13px] text-app-text-muted mb-1">No page loaded</p>
+              <p className="text-[11px] text-app-text-faint">Enter a URL above or click below</p>
               <button
                 onClick={() => navigateTo('http://localhost:3000')}
-                className="mt-3 text-[12px] text-[var(--primary)] hover:underline"
+                className="mt-3 text-[12px] text-primary hover:underline"
               >
                 Open localhost:3000
               </button>

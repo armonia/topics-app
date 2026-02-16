@@ -78,7 +78,9 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white dark:bg-[#1e1e1e] rounded-xl shadow-xl border border-[#e0e0e0] dark:border-[#333] py-1 min-w-[200px]"
+      role="menu"
+      aria-label={`Actions for ${topic.name}`}
+      className="fixed z-50 bg-surface rounded-xl shadow-xl border border-app-border-light py-1 min-w-[200px]"
       style={{ left: pos.left, top: pos.top }}
     >
       {subMenu === 'none' && (
@@ -86,39 +88,40 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
           <MenuItem label="✏️ Rename" onClick={() => setSubMenu('rename')} />
           <MenuItem label="😀 Change icon" onClick={() => setSubMenu('icon')} />
           <MenuItem label="🎨 Change color" onClick={() => setSubMenu('color')} />
-          <div className="border-t border-[#f0f0f0] dark:border-[#2a2a2a] my-1" />
+          <div className="border-t border-app-border my-1" />
           <MenuItem label="🗑️ Archive / Delete" onClick={handleDelete} danger />
         </>
       )}
 
       {subMenu === 'rename' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-[#888] dark:text-[#666] mb-2">Rename topic</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Rename topic</div>
           <input
             ref={inputRef}
             type="text"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') onClose(); }}
-            className="w-full px-2 py-1.5 border border-[#e0e0e0] dark:border-[#333] rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] bg-white dark:bg-[#222] text-[#1a1a1a] dark:text-[#e5e5e5] transition-colors"
+            className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
           />
           <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="text-[12px] text-[#888] hover:text-[#555] dark:hover:text-[#ccc] px-2 py-1 transition-colors">Cancel</button>
-            <button onClick={handleRename} className="text-[12px] bg-[var(--primary)] text-white px-3 py-1 rounded-lg hover:bg-[#0055dd] transition-colors">Save</button>
+            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Cancel</button>
+            <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Save</button>
           </div>
         </div>
       )}
 
       {subMenu === 'icon' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-[#888] dark:text-[#666] mb-2">Choose icon</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Choose icon</div>
           <div className="grid grid-cols-6 gap-1">
             {EMOJI_OPTIONS.map((emoji) => (
               <button
                 key={emoji}
                 onClick={() => handleIconChange(emoji)}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] text-lg transition-colors ${
-                  topic.icon === emoji ? 'bg-[var(--primary)]/10 ring-2 ring-[var(--primary)]/50' : ''
+                aria-label={`Icon ${emoji}`}
+                className={`w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-app-hover text-lg transition-colors ${
+                  topic.icon === emoji ? 'bg-primary/10 ring-2 ring-primary/50' : ''
                 }`}
               >{emoji}</button>
             ))}
@@ -128,13 +131,14 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
 
       {subMenu === 'color' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-[#888] dark:text-[#666] mb-2">Choose color</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Choose color</div>
           <div className="grid grid-cols-5 gap-2">
             {COLOR_OPTIONS.map((color) => (
               <button
                 key={color}
                 onClick={() => handleColorChange(color)}
-                className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${
+                aria-label={`Color ${color}`}
+                className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-transform hover:scale-110 ${
                   topic.color === color ? 'border-[#1a1a1a] dark:border-[#e5e5e5] scale-110' : 'border-transparent'
                 }`}
                 style={{ backgroundColor: color }}
@@ -151,9 +155,10 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
 function MenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
   return (
     <button
+      role="menuitem"
       onClick={onClick}
-      className={`w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] transition-colors ${
-        danger ? 'text-[#dc2626] hover:bg-[#dc2626]/10' : 'text-[#444] dark:text-[#ccc]'
+      className={`w-full text-left px-4 py-2.5 text-[13px] hover:bg-app-hover transition-colors ${
+        danger ? 'text-red-600 hover:bg-red-600/10' : 'text-app-text'
       }`}
     >{label}</button>
   );

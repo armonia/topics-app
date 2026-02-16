@@ -3,23 +3,36 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { Plus, X, TerminalSquare, RefreshCw } from 'lucide-react';
+import { Plus, X, TerminalSquare, RefreshCw, Link, Code2 } from 'lucide-react';
 
 interface TerminalTab {
   id: string;
   label: string;
-  stale?: boolean; // Session no longer exists on server
+  stale?: boolean;
+  type: 'shell' | 'claude-code';
+}
+
+interface RemoteSession {
+  id: string;
+  name: string;
+  createdAt: string;
+  cwd: string;
+  command: string;
+  clients: number;
+  topicId?: string;
+  type: 'shell' | 'claude-code';
 }
 
 interface TerminalPanelProps {
   projectPath?: string;
+  topicId?: string;
 }
 
-const THEME = {
-  background: '#0c0c12',
+const DARK_THEME = {
+  background: '#1a1a1a',
   foreground: '#d4d4d8',
   cursor: '#a1a1aa',
-  cursorAccent: '#0c0c12',
+  cursorAccent: '#1a1a1a',
   selectionBackground: '#3f3f4640',
   black: '#18181b',
   red: '#f87171',
@@ -39,40 +52,82 @@ const THEME = {
   brightWhite: '#fafafa',
 };
 
-export function TerminalPanel({ projectPath }: TerminalPanelProps) {
+const LIGHT_THEME = {
+  background: '#ffffff',
+  foreground: '#1a1a1a',
+  cursor: '#1a1a1a',
+  cursorAccent: '#ffffff',
+  selectionBackground: '#0066ff30',
+  black: '#1a1a1a',
+  red: '#dc2626',
+  green: '#16a34a',
+  yellow: '#ca8a04',
+  blue: '#2563eb',
+  magenta: '#9333ea',
+  cyan: '#0891b2',
+  white: '#e5e5e5',
+  brightBlack: '#737373',
+  brightRed: '#ef4444',
+  brightGreen: '#22c55e',
+  brightYellow: '#eab308',
+  brightBlue: '#3b82f6',
+  brightMagenta: '#a855f7',
+  brightCyan: '#06b6d4',
+  brightWhite: '#fafafa',
+};
+
+function getTerminalTheme(isDark: boolean) {
+  return isDark ? DARK_THEME : LIGHT_THEME;
+}
+
+export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  const [showNewMenu, setShowNewMenu] = useState(false);
+  const [showSessionPicker, setShowSessionPicker] = useState(false);
+  const [remoteSessions, setRemoteSessions] = useState<RemoteSession[]>([]);
+  const isDarkRef = useRef(isDark);
   const terminalsRef = useRef<Map<string, { term: Terminal; fit: FitAddon; ws: WebSocket }>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+  const initialLoadDone = useRef(false);
 
-  const createTerminal = useCallback(async () => {
-    try {
-      const res = await fetch('/api/terminal/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd: projectPath || undefined }),
-      });
-      const data = await res.json();
-      const id = data.id;
+  useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
 
-      const tab: TerminalTab = { id, label: `Terminal ${tabs.length + 1}` };
-      setTabs(prev => [...prev, tab]);
-      setActiveTabId(id);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.classList.contains('dark'));
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
 
-      // Defer terminal creation to next tick so the container is visible
-      setTimeout(() => mountTerminal(id), 0);
-    } catch (err) {
-      console.error('Failed to create terminal:', err);
+  useEffect(() => {
+    const theme = getTerminalTheme(isDark);
+    for (const [, entry] of terminalsRef.current) {
+      entry.term.options.theme = { ...theme };
     }
-  }, [projectPath, tabs.length]);
+  }, [isDark]);
 
-  const mountTerminal = useCallback((id: string) => {
-    if (terminalsRef.current.has(id)) return;
+  // Close new menu on outside click
+  useEffect(() => {
+    if (!showNewMenu) return;
+    const h = (e: MouseEvent) => {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) setShowNewMenu(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [showNewMenu]);
+
+  const mountTerminal = useCallback((id: string): boolean => {
+    if (terminalsRef.current.has(id)) return true;
     const el = document.getElementById(`terminal-${id}`);
-    if (!el) return;
+    if (!el) return false;
 
     const term = new Terminal({
-      theme: THEME,
+      theme: getTerminalTheme(isDarkRef.current),
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace",
       cursorBlink: true,
@@ -86,18 +141,18 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
     term.loadAddon(new WebLinksAddon());
     term.open(el);
 
-    // Small delay to let the DOM settle before fitting
-    setTimeout(() => {
-      try { fitAddon.fit(); } catch {}
-    }, 50);
+    const doFit = () => { try { fitAddon.fit(); } catch {} };
+    setTimeout(doFit, 50);
+    setTimeout(doFit, 200);
+    setTimeout(doFit, 500);
+    setTimeout(() => { doFit(); term.focus(); }, 600);
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${id}`);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      // Send initial size
-      fetch(`/api/terminal/${id}/resize`, {
+      fetch(`/api/terminal/sessions/${id}/resize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cols: term.cols, rows: term.rows }),
@@ -114,10 +169,8 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
     };
 
     ws.onclose = (event) => {
-      // Code 1008 = Policy Violation (session not found on server)
       if (event.code === 1008) {
         term.write('\r\n\x1b[90m[Session expired - click refresh to start a new terminal]\x1b[0m\r\n');
-        // Mark tab as stale
         setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
       } else {
         term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
@@ -131,7 +184,7 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
     });
 
     term.onResize(({ cols, rows }) => {
-      fetch(`/api/terminal/${id}/resize`, {
+      fetch(`/api/terminal/sessions/${id}/resize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cols, rows }),
@@ -139,7 +192,59 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
     });
 
     terminalsRef.current.set(id, { term, fit: fitAddon, ws });
+    return true;
   }, []);
+
+  const connectToSession = useCallback((id: string, label: string, type: 'shell' | 'claude-code' = 'shell') => {
+    if (tabs.some(t => t.id === id)) {
+      setActiveTabId(id);
+      return;
+    }
+
+    const tab: TerminalTab = { id, label, type };
+    setTabs(prev => [...prev, tab]);
+    setActiveTabId(id);
+
+    setTimeout(() => {
+      if (!mountTerminal(id)) {
+        setTimeout(() => {
+          if (!mountTerminal(id)) {
+            setTimeout(() => mountTerminal(id), 200);
+          }
+        }, 100);
+      }
+    }, 0);
+  }, [tabs, mountTerminal]);
+
+  const createTerminal = useCallback(async (type: 'shell' | 'claude-code' = 'shell') => {
+    setError(null);
+    setShowNewMenu(false);
+    try {
+      const container = containerRef.current;
+      const cols = container ? Math.floor((container.clientWidth - 10) / 7.8) : 120;
+      const rows = container ? Math.floor((container.clientHeight - 40) / 17) : 30;
+      const name = type === 'claude-code' ? 'Claude Code' : `Shell ${tabs.filter(t => t.type === 'shell').length + 1}`;
+      const res = await fetch('/api/terminal/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cwd: projectPath || undefined,
+          cols,
+          rows,
+          topicId,
+          type,
+          name,
+        }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+      const data = await res.json();
+      connectToSession(data.id, data.name || name, type);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to create terminal:', err);
+      setError(`Failed to create terminal: ${msg}`);
+    }
+  }, [projectPath, topicId, tabs, connectToSession]);
 
   const closeTerminal = useCallback(async (id: string) => {
     const entry = terminalsRef.current.get(id);
@@ -148,7 +253,7 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
       entry.term.dispose();
       terminalsRef.current.delete(id);
     }
-    fetch(`/api/terminal/${id}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/terminal/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
     setTabs(prev => {
       const next = prev.filter(t => t.id !== id);
       if (activeTabId === id) {
@@ -158,9 +263,9 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
     });
   }, [activeTabId]);
 
-  // Replace a stale terminal with a new one
   const replaceStaleTerminal = useCallback(async (oldId: string) => {
-    // Close the old terminal
+    const oldTab = tabs.find(t => t.id === oldId);
+    const type = oldTab?.type || 'shell';
     const entry = terminalsRef.current.get(oldId);
     if (entry) {
       entry.ws.close();
@@ -168,33 +273,64 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
       terminalsRef.current.delete(oldId);
     }
 
-    // Create a new session
     try {
-      const res = await fetch('/api/terminal/create', {
+      const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd: projectPath || undefined }),
+        body: JSON.stringify({ cwd: projectPath || undefined, topicId, type }),
       });
       const data = await res.json();
       const newId = data.id;
 
-      // Replace the tab in-place to preserve position
       setTabs(prev => prev.map(t => t.id === oldId
-        ? { id: newId, label: t.label, stale: false }
+        ? { id: newId, label: data.name || t.label, stale: false, type }
         : t
       ));
       setActiveTabId(newId);
-
-      // Mount the new terminal
       setTimeout(() => mountTerminal(newId), 0);
     } catch (err) {
       console.error('Failed to replace terminal:', err);
     }
-  }, [projectPath, mountTerminal]);
+  }, [projectPath, topicId, tabs, mountTerminal]);
 
-  // Auto-create first terminal
+  const fetchRemoteSessions = useCallback(async () => {
+    try {
+      const params = topicId ? `?topicId=${topicId}` : '';
+      const res = await fetch(`/api/terminal/sessions${params}`);
+      const data = await res.json();
+      setRemoteSessions(data);
+    } catch {}
+  }, [topicId]);
+
+  const handleShowSessionPicker = useCallback(() => {
+    fetchRemoteSessions();
+    setShowSessionPicker(true);
+  }, [fetchRemoteSessions]);
+
+  // On mount: reconnect to existing sessions for this topic, or show empty state
   useEffect(() => {
-    if (tabs.length === 0) createTerminal();
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    if (!topicId) {
+      // No topic binding — legacy behavior: auto-create shell
+      createTerminal('shell');
+      return;
+    }
+
+    // Check for existing sessions belonging to this topic
+    fetch(`/api/terminal/sessions?topicId=${topicId}`)
+      .then(r => r.json())
+      .then((sessions: RemoteSession[]) => {
+        if (sessions.length > 0) {
+          // Reconnect to all existing sessions
+          for (const s of sessions) {
+            connectToSession(s.id, s.name, s.type || 'shell');
+          }
+        }
+        // If no sessions, show empty state (user picks Shell or Claude Code)
+      })
+      .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fit on resize
@@ -221,70 +357,170 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
     if (activeTabId) {
       const entry = terminalsRef.current.get(activeTabId);
       if (entry) {
-        setTimeout(() => {
-          try { entry.fit.fit(); entry.term.focus(); } catch {}
-        }, 50);
+        const doFit = () => { try { entry.fit.fit(); } catch {} };
+        setTimeout(() => { doFit(); entry.term.focus(); }, 50);
+        setTimeout(doFit, 200);
+        setTimeout(doFit, 500);
       }
     }
   }, [activeTabId]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — only close WS, don't kill sessions
   useEffect(() => {
     return () => {
-      for (const [id, entry] of terminalsRef.current) {
+      for (const [, entry] of terminalsRef.current) {
         entry.ws.close();
         entry.term.dispose();
-        fetch(`/api/terminal/${id}`, { method: 'DELETE' }).catch(() => {});
       }
       terminalsRef.current.clear();
     };
   }, []);
 
   const activeTab = tabs.find(t => t.id === activeTabId);
+  const connectedIds = new Set(tabs.map(t => t.id));
+
+  // Empty state — no terminals yet for this topic
+  if (tabs.length === 0 && !error && topicId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full bg-surface gap-4" ref={containerRef}>
+        <div className="text-app-text-muted text-[13px] mb-2">Open a terminal for this topic</div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => createTerminal('claude-code')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-[13px] font-medium rounded-lg transition-colors shadow-sm"
+          >
+            <Code2 size={16} />
+            Claude Code
+          </button>
+          <button
+            onClick={() => createTerminal('shell')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-app-hover hover:bg-app-hover/80 text-app-text text-[13px] font-medium rounded-lg transition-colors border border-app-border"
+          >
+            <TerminalSquare size={16} />
+            Shell
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full bg-[#0c0c12]" ref={containerRef}>
-      {/* Tab bar */}
-      <div className="flex items-center bg-[#111118] border-b border-[#1e1e2e] flex-shrink-0 min-h-[32px]">
-        <div className="flex items-center flex-1 overflow-x-auto scrollbar-none">
-          {tabs.map(tab => (
-            <div
-              key={tab.id}
-              className={`flex items-center gap-1 px-2.5 py-1 text-[11px] cursor-pointer select-none border-r border-[#1e1e2e] transition-colors ${
-                activeTabId === tab.id
-                  ? 'bg-[#0c0c12] text-[#d4d4d8]'
-                  : 'text-[#71717a] hover:text-[#a1a1aa] hover:bg-[#16161e]'
-              } ${tab.stale ? 'opacity-60' : ''}`}
-              onClick={() => setActiveTabId(tab.id)}
-            >
-              <TerminalSquare size={11} className={tab.stale ? 'text-yellow-500' : ''} />
-              <span>{tab.label}</span>
-              {tab.stale && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); replaceStaleTerminal(tab.id); }}
-                  className="ml-0.5 w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-yellow-500 hover:text-yellow-400"
-                  title="Session expired - click to restart"
-                >
-                  <RefreshCw size={9} />
-                </button>
-              )}
-              <button
-                onClick={(e) => { e.stopPropagation(); closeTerminal(tab.id); }}
-                className="ml-1 w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 text-[#71717a] hover:text-[#d4d4d8]"
+    <div className="flex flex-col h-full bg-surface" ref={containerRef}>
+      {/* Tab bar — only show when multiple sessions */}
+      {tabs.length > 1 && (
+        <div className="flex items-center bg-app-hover dark:bg-app-panel border-b border-app-border flex-shrink-0 min-h-[32px]">
+          <div className="flex items-center flex-1 overflow-x-auto scrollbar-none">
+            {tabs.map(tab => (
+              <div
+                key={tab.id}
+                className={`flex items-center gap-1 px-2.5 py-1 text-[11px] cursor-pointer select-none border-r border-app-border transition-colors ${
+                  activeTabId === tab.id
+                    ? 'bg-surface text-app-text'
+                    : 'text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover'
+                } ${tab.stale ? 'opacity-60' : ''}`}
+                onClick={() => setActiveTabId(tab.id)}
               >
-                <X size={10} />
-              </button>
-            </div>
-          ))}
+                {tab.type === 'claude-code' ? (
+                  <Code2 size={11} className={`${tab.stale ? 'text-yellow-500' : 'text-violet-500'}`} />
+                ) : (
+                  <TerminalSquare size={11} className={tab.stale ? 'text-yellow-500' : ''} />
+                )}
+                <span>{tab.label}</span>
+                {tab.stale && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); replaceStaleTerminal(tab.id); }}
+                    className="ml-0.5 w-4 h-4 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-yellow-500 hover:text-yellow-400"
+                    title="Session expired - click to restart"
+                  >
+                    <RefreshCw size={9} />
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); closeTerminal(tab.id); }}
+                  className="ml-1 w-4 h-4 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-muted hover:text-app-text"
+                  title="Kill session"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={handleShowSessionPicker}
+            className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+            title="Connect to existing session"
+          >
+            <Link size={13} />
+          </button>
+          <div className="relative" ref={newMenuRef}>
+            <button
+              onClick={() => setShowNewMenu(!showNewMenu)}
+              className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+              title="New terminal"
+            >
+              <Plus size={14} />
+            </button>
+            {showNewMenu && (
+              <div className="absolute top-full right-0 mt-1 bg-surface border border-app-border rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
+                <button
+                  onClick={() => createTerminal('claude-code')}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                >
+                  <Code2 size={14} className="text-violet-500" />
+                  <span>Claude Code</span>
+                </button>
+                <button
+                  onClick={() => createTerminal('shell')}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                >
+                  <TerminalSquare size={14} />
+                  <span>Shell</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <button
-          onClick={createTerminal}
-          className="w-7 h-7 flex items-center justify-center text-[#71717a] hover:text-[#d4d4d8] hover:bg-white/5 transition-colors flex-shrink-0"
-          title="New terminal"
-        >
-          <Plus size={14} />
-        </button>
-      </div>
+      )}
+
+      {/* Session picker dropdown */}
+      {showSessionPicker && (
+        <div className="absolute top-8 right-0 z-50 bg-surface border border-app-border rounded-lg shadow-lg min-w-[280px] max-h-[300px] overflow-y-auto">
+          <div className="p-2 border-b border-app-border flex items-center justify-between">
+            <span className="text-[11px] font-medium text-app-text-muted">Active Sessions</span>
+            <button onClick={() => setShowSessionPicker(false)} className="text-app-text-muted hover:text-app-text">
+              <X size={12} />
+            </button>
+          </div>
+          {remoteSessions.length === 0 ? (
+            <div className="p-3 text-[11px] text-app-text-muted text-center">No active sessions</div>
+          ) : (
+            remoteSessions.map(s => (
+              <div
+                key={s.id}
+                className={`px-3 py-2 text-[11px] border-b border-app-border last:border-0 ${
+                  connectedIds.has(s.id) ? 'opacity-50' : 'hover:bg-app-hover cursor-pointer'
+                }`}
+                onClick={() => {
+                  if (!connectedIds.has(s.id)) {
+                    connectToSession(s.id, s.name, s.type || 'shell');
+                    setShowSessionPicker(false);
+                  }
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-app-text font-medium">
+                    {s.type === 'claude-code' ? <Code2 size={11} className="text-violet-500" /> : <TerminalSquare size={11} />}
+                    {s.name}
+                  </span>
+                  <span className="text-app-text-muted">{s.clients} client{s.clients !== 1 ? 's' : ''}</span>
+                </div>
+                <div className="text-app-text-muted truncate mt-0.5">{s.cwd}</div>
+                {connectedIds.has(s.id) && <div className="text-green-500 mt-0.5">Connected</div>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Terminal containers */}
       <div className="flex-1 min-h-0 relative">
@@ -294,21 +530,38 @@ export function TerminalPanel({ projectPath }: TerminalPanelProps) {
             id={`terminal-${tab.id}`}
             className="absolute inset-0 p-1"
             style={{ display: activeTabId === tab.id ? 'block' : 'none' }}
+            onClick={() => {
+              const entry = terminalsRef.current.get(tab.id);
+              if (entry) entry.term.focus();
+            }}
           />
         ))}
-        {tabs.length === 0 && (
-          <div className="flex items-center justify-center h-full text-[#52525b] text-[12px]">
+        {tabs.length === 0 && !error && (
+          <div className="flex items-center justify-center h-full text-app-text-muted text-[12px]">
             No terminals open
           </div>
         )}
-        {/* Show refresh prompt for stale active tab */}
-        {activeTab?.stale && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0c0c12]/80 z-10">
+        {error && (
+          <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <p className="text-[#71717a] text-[12px] mb-3">This terminal session has expired</p>
+              <p className="text-red-400 text-[12px] mb-3">{error}</p>
+              <button
+                onClick={() => { setError(null); createTerminal(); }}
+                className="px-4 py-2 bg-app-hover text-app-text text-[12px] rounded-md flex items-center gap-2 mx-auto transition-colors"
+              >
+                <RefreshCw size={12} />
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+        {activeTab?.stale && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
+            <div className="text-center">
+              <p className="text-app-text-muted text-[12px] mb-3">This terminal session has expired</p>
               <button
                 onClick={() => replaceStaleTerminal(activeTab.id)}
-                className="px-4 py-2 bg-[#3f3f46] hover:bg-[#52525b] text-[#d4d4d8] text-[12px] rounded-md flex items-center gap-2 mx-auto transition-colors"
+                className="px-4 py-2 bg-app-hover text-app-text text-[12px] rounded-md flex items-center gap-2 mx-auto transition-colors"
               >
                 <RefreshCw size={12} />
                 Start New Session

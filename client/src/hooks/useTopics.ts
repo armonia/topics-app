@@ -30,7 +30,16 @@ export function useTopics() {
       try { localStorage.setItem('topics-cache', JSON.stringify(data.topics)); } catch {}
     } catch (err) {
       console.error('Failed to load topics:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load topics');
+      // If we have cached data, show a less alarming error
+      setTopics(prev => {
+        const hasCachedData = Object.keys(prev).length > 0;
+        if (hasCachedData) {
+          setError('Using cached data -- server unreachable');
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load topics');
+        }
+        return prev;
+      });
     } finally {
       setLoading(false);
     }

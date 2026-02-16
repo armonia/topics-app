@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Upload, Trash2, FileText, FolderOpen } from 'lucide-react';
-import type { Topic, UpdateTopicRequest } from '../../types';
-import { uploadApi } from '../../lib/api';
+import { X, FolderOpen } from 'lucide-react';
+import type { Topic, UpdateTopicRequest, AutonomyLevel } from '../../types';
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -11,18 +10,20 @@ interface TopicSettingsModalProps {
 }
 
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
-  const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
-  const [contextFiles, setContextFiles] = useState<string[]>(topic.contextFiles || []);
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
-  const [uploading, setUploading] = useState(false);
+  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(topic.autonomyLevel || 'ask');
+  const [topicName, setTopicName] = useState(topic.name);
+  const [topicIcon, setTopicIcon] = useState(topic.icon);
+  const [topicColor, setTopicColor] = useState(topic.color);
   const [saved, setSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setSystemPrompt(topic.systemPrompt || '');
-    setContextFiles(topic.contextFiles || []);
     setProjectPath(topic.projectPath || '');
+    setAutonomyLevel(topic.autonomyLevel || 'ask');
+    setTopicName(topic.name);
+    setTopicIcon(topic.icon);
+    setTopicColor(topic.color);
     setSaved(false);
     setIsDirty(false);
   }, [topic, isOpen]);
@@ -30,11 +31,13 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   // Track dirty state
   useEffect(() => {
     if (!isOpen) return;
-    const promptChanged = systemPrompt !== (topic.systemPrompt || '');
     const pathChanged = projectPath !== (topic.projectPath || '');
-    const filesChanged = JSON.stringify(contextFiles) !== JSON.stringify(topic.contextFiles || []);
-    setIsDirty(promptChanged || pathChanged || filesChanged);
-  }, [systemPrompt, projectPath, contextFiles, topic, isOpen]);
+    const autonomyChanged = autonomyLevel !== (topic.autonomyLevel || 'ask');
+    const nameChanged = topicName !== topic.name;
+    const iconChanged = topicIcon !== topic.icon;
+    const colorChanged = topicColor !== topic.color;
+    setIsDirty(pathChanged || autonomyChanged || nameChanged || iconChanged || colorChanged);
+  }, [projectPath, autonomyLevel, topicName, topicIcon, topicColor, topic, isOpen]);
 
   const handleClose = () => {
     if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) {
@@ -45,9 +48,11 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
   const handleSave = async () => {
     await onUpdate(topic.id, {
-      systemPrompt,
-      contextFiles,
+      name: topicName,
+      icon: topicIcon,
+      color: topicColor,
       projectPath: projectPath.trim() || undefined,
+      autonomyLevel,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -55,40 +60,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
   const handleUnlinkProject = async () => {
     setProjectPath('');
-    await onUpdate(topic.id, {
-      systemPrompt,
-      contextFiles,
-      projectPath: '',
-    });
+    await onUpdate(topic.id, { projectPath: '' });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  };
-
-  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    
-    setUploading(true);
-    try {
-      for (const file of files) {
-        const result = await uploadApi.uploadContextFile(file, topic.id);
-        setContextFiles(prev => [...prev, result.path]);
-      }
-    } catch (err) {
-      console.error('Upload failed:', err);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleRemoveFile = async (filePath: string) => {
-    try {
-      await uploadApi.deleteContextFile(topic.id, filePath);
-      setContextFiles(prev => prev.filter(f => f !== filePath));
-    } catch (err) {
-      console.error('Failed to remove file:', err);
-    }
   };
 
   // Common project paths suggestions
@@ -102,7 +76,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Focus the dialog when it opens
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => dialogRef.current?.focus(), 50);
@@ -117,31 +90,69 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="relative w-full max-w-xl mx-4 bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#e0e0e0] dark:border-[#333] overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col focus:outline-none"
+        className="relative w-full max-w-xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border-light overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col focus:outline-none"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
             <span className="text-lg">{topic.icon}</span>
-            <h2 className="text-[15px] font-semibold text-[#1a1a1a] dark:text-[#e5e5e5]">{topic.name} Settings</h2>
+            <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
           </div>
-          <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors" aria-label="Close settings">
+          <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
             <X size={15} />
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Name & Icon */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              Name & Icon
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={topicIcon}
+                onChange={e => setTopicIcon(e.target.value)}
+                className="w-12 px-2 py-2 border border-app-border-light rounded-lg text-[16px] text-center bg-surface dark:bg-elevated focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                maxLength={4}
+              />
+              <input
+                type="text"
+                value={topicName}
+                onChange={e => setTopicName(e.target.value)}
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Color */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              Color
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={topicColor}
+                onChange={e => setTopicColor(e.target.value)}
+                className="w-8 h-8 rounded border border-app-border-light cursor-pointer"
+              />
+              <span className="text-[12px] text-app-text-muted">{topicColor}</span>
+            </div>
+          </div>
+
           {/* Link Project */}
           <div>
-            <label className="block text-[13px] font-medium text-[#333] dark:text-[#ccc] mb-2">
+            <label className="block text-[13px] font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <FolderOpen size={15} />
                 Link Project
               </span>
             </label>
-            <p className="text-[11px] text-[#888] dark:text-[#666] mb-2">
+            <p className="text-[11px] text-app-text-muted mb-2">
               Link a local project directory to enable file explorer and git integration.
             </p>
             <div className="flex gap-2">
@@ -150,12 +161,12 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 value={projectPath}
                 onChange={e => setProjectPath(e.target.value)}
                 placeholder="/Users/you/projects/my-project"
-                className="flex-1 px-3 py-2 border border-[#e0e0e0] dark:border-[#333] rounded-lg text-[13px] bg-white dark:bg-[#222] text-[#1a1a1a] dark:text-[#e5e5e5] placeholder-[#aaa] dark:placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] transition-colors"
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
               />
               {projectPath && (
                 <button
                   onClick={handleUnlinkProject}
-                  className="px-3 py-2 text-[13px] text-[#dc2626] hover:bg-[#dc2626]/10 rounded-lg border border-[#dc2626]/30 transition-colors"
+                  className="px-3 py-2 text-[13px] text-red-600 hover:bg-red-600/10 rounded-lg border border-red-600/30 transition-colors"
                 >
                   Unlink
                 </button>
@@ -167,7 +178,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 <button
                   key={p}
                   onClick={() => setProjectPath(p)}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-[#f5f5f5] dark:bg-[#2a2a2a] text-[#888] dark:text-[#666] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)] transition-colors"
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-app-hover text-app-text-muted hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   {p}
                 </button>
@@ -175,83 +186,59 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             </div>
           </div>
 
-          {/* System Prompt */}
+          {/* Autonomy Level */}
           <div>
-            <label className="block text-[13px] font-medium text-[#333] dark:text-[#ccc] mb-2">
-              System Prompt
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              Autonomy Level
             </label>
-            <p className="text-[11px] text-[#888] dark:text-[#666] mb-2">
-              Custom instructions sent as system message. Shapes how the AI responds in this topic.
+            <p className="text-[11px] text-app-text-muted mb-2">
+              Controls how much approval the agent needs before taking actions.
             </p>
-            <textarea
-              value={systemPrompt}
-              onChange={e => setSystemPrompt(e.target.value)}
-              placeholder="e.g. You are a code review expert. Focus on code quality, best practices, and potential bugs..."
-              className="w-full px-3 py-2 border border-[#e0e0e0] dark:border-[#333] rounded-lg text-[13px] bg-white dark:bg-[#222] text-[#1a1a1a] dark:text-[#e5e5e5] placeholder-[#aaa] dark:placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-y min-h-[100px] transition-colors"
-              rows={4}
-            />
+            <div className="flex rounded-lg border border-app-border-light overflow-hidden">
+              {([
+                { value: 'ask' as AutonomyLevel, label: 'Ask', desc: 'Approve each action' },
+                { value: 'auto-apply' as AutonomyLevel, label: 'Auto-apply', desc: 'Apply, show results' },
+                { value: 'yolo' as AutonomyLevel, label: 'Full Auto', desc: 'Minimal feedback' },
+              ]).map(({ value, label, desc }) => (
+                <button
+                  key={value}
+                  onClick={() => setAutonomyLevel(value)}
+                  className={`flex-1 px-3 py-2 text-center transition-colors ${
+                    autonomyLevel === value
+                      ? 'bg-primary text-white'
+                      : 'bg-surface dark:bg-elevated text-app-text-secondary hover:bg-app-hover'
+                  } ${value !== 'ask' ? 'border-l border-app-border-light' : ''}`}
+                >
+                  <div className="text-[12px] font-medium">{label}</div>
+                  <div className={`text-[10px] mt-0.5 ${autonomyLevel === value ? 'text-white/70' : 'text-app-text-muted'}`}>{desc}</div>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Context Files */}
-          <div>
-            <label className="block text-[13px] font-medium text-[#333] dark:text-[#ccc] mb-2">
-              Context Files
-            </label>
-            <p className="text-[11px] text-[#888] dark:text-[#666] mb-2">
-              Files included as context in every message. Great for reference docs, code, specs.
+          {/* Note about Context Inspector */}
+          <div className="rounded-lg bg-primary/5 border border-primary/10 px-4 py-3">
+            <p className="text-[12px] text-app-text-secondary">
+              System prompt, context files, and memory are now managed in the <strong className="text-app-text">Context Inspector</strong> panel. Click the <span className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 rounded text-primary text-[11px] font-medium">Layers</span> button in the header to open it.
             </p>
-            
-            {contextFiles.length > 0 && (
-              <div className="space-y-1.5 mb-3">
-                {contextFiles.map((filePath, i) => (
-                  <div key={i} className="flex items-center gap-2 bg-[#f5f5f5] dark:bg-[#222] rounded-lg px-3 py-2 text-[13px] border border-[#e0e0e0] dark:border-[#333]">
-                    <FileText size={14} className="text-[#8b8b8b] flex-shrink-0" />
-                    <span className="flex-1 truncate text-[#444] dark:text-[#ccc]">
-                      {filePath.split('/').pop()}
-                    </span>
-                    <button
-                      onClick={() => handleRemoveFile(filePath)}
-                      className="p-1 hover:bg-[#dc2626]/10 rounded text-[#dc2626]"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={handleUploadFile}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="flex items-center gap-2 px-3 py-2 border border-dashed border-[#ccc] dark:border-[#444] rounded-lg text-[13px] text-[#666] dark:text-[#999] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] transition-colors"
-            >
-              <Upload size={14} />
-              {uploading ? 'Uploading...' : 'Add context file'}
-            </button>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-app-border">
           {saved && (
-            <span className="text-[#22c55e] text-[13px] mr-auto">✓ Saved</span>
+            <span className="text-emerald-500 text-[13px] mr-auto">Saved</span>
           )}
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-[13px] text-[#666] dark:text-[#999] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] rounded-lg transition-colors"
+            className="px-4 py-2 text-[13px] text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 text-[13px] bg-[var(--primary)] text-white rounded-lg hover:bg-[#0055dd] transition-colors"
+            disabled={!isDirty}
+            className="px-4 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save
           </button>

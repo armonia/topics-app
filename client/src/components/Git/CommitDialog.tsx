@@ -103,31 +103,31 @@ export function CommitDialog({ projectPath, files, onClose, onCommitted }: Commi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="bg-white dark:bg-[#1e1e1e] rounded-lg shadow-xl w-[500px] max-h-[80vh] flex flex-col border border-[#e0e0e0] dark:border-[#333]"
+        className="bg-surface dark:bg-app-panel rounded-lg shadow-xl w-[500px] max-h-[80vh] flex flex-col border border-app-border-input"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
           <div className="flex items-center gap-2">
-            <GitCommit size={16} className="text-[var(--primary)]" />
-            <span className="text-[14px] font-semibold text-[#333] dark:text-[#ddd]">Commit Changes</span>
+            <GitCommit size={16} className="text-primary" />
+            <span className="text-[14px] font-semibold text-app-text-heading">Commit Changes</span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[#f0f0f0] dark:hover:bg-[#333] text-[#8b8b8b]"
+            className="p-1 rounded hover:bg-app-hover text-app-text-tertiary"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* Commit message */}
-        <div className="px-4 py-3 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="px-4 py-3 border-b border-app-border">
           <textarea
             ref={inputRef}
             value={message}
             onChange={e => setMessage(e.target.value)}
             placeholder="Commit message..."
-            className="w-full h-[60px] px-3 py-2 text-[13px] bg-[#f5f5f5] dark:bg-[#161616] border border-[#e0e0e0] dark:border-[#333] rounded-md resize-none focus:outline-none focus:border-[var(--primary)] text-[#333] dark:text-[#ddd] placeholder-[#aaa] dark:placeholder-[#666]"
+            className="w-full h-[60px] px-3 py-2 text-[13px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded-md resize-none focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -140,12 +140,12 @@ export function CommitDialog({ projectPath, files, onClose, onCommitted }: Commi
         {/* Files list */}
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="flex items-center justify-between px-4 py-2">
-            <span className="text-[11px] font-medium text-[#8b8b8b] uppercase tracking-wider">
+            <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
               Files ({stagedCount}/{changedFiles.length} staged)
             </span>
             <button
               onClick={stageAll}
-              className="text-[11px] text-[var(--primary)] hover:underline"
+              className="text-[11px] text-primary hover:underline"
             >
               Stage All
             </button>
@@ -155,16 +155,16 @@ export function CommitDialog({ projectPath, files, onClose, onCommitted }: Commi
             return (
               <div
                 key={file.path}
-                className="flex items-center gap-2 px-4 py-[5px] cursor-pointer hover:bg-[#f5f5f5] dark:hover:bg-[#222] transition-colors"
+                className="flex items-center gap-2 px-4 py-[5px] cursor-pointer hover:bg-app-hover transition-colors"
                 onClick={() => toggleStage(file.path)}
               >
-                <span className="flex-shrink-0 text-[var(--primary)]">
+                <span className="flex-shrink-0 text-primary">
                   {file.staged ? <CheckSquare size={14} /> : <Square size={14} className="opacity-40" />}
                 </span>
                 <span className={`text-[10px] font-bold flex-shrink-0 ${st.color}`}>
                   {st.text}
                 </span>
-                <span className="text-[12px] truncate text-[#444] dark:text-[#bbb]">{file.path}</span>
+                <span className="text-[12px] truncate text-app-text-body">{file.path}</span>
               </div>
             );
           })}
@@ -172,33 +172,33 @@ export function CommitDialog({ projectPath, files, onClose, onCommitted }: Commi
 
         {/* Error */}
         {error && (
-          <div className="px-4 py-2 text-red-500 text-[12px] border-t border-[#e8e8e8] dark:border-[#2a2a2a]">
+          <div className="px-4 py-2 text-red-500 text-[12px] border-t border-app-border">
             {error}
           </div>
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[#e8e8e8] dark:border-[#2a2a2a]">
-          <label className="flex items-center gap-2 text-[12px] text-[#666] dark:text-[#999] cursor-pointer">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-app-border">
+          <label className="flex items-center gap-2 text-[12px] text-app-text-secondary cursor-pointer">
             <input
               type="checkbox"
               checked={pushAfter}
               onChange={e => setPushAfter(e.target.checked)}
-              className="accent-[var(--primary)]"
+              className="accent-primary"
             />
             Push after commit
           </label>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 text-[12px] rounded-md hover:bg-[#f0f0f0] dark:hover:bg-[#333] text-[#666] dark:text-[#999] transition-colors"
+              className="px-3 py-1.5 text-[12px] rounded-md hover:bg-app-hover text-app-text-secondary transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleCommit}
               disabled={committing || !message.trim() || stagedCount === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md bg-[var(--primary)] text-white hover:bg-[#0052cc] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {committing ? (
                 <>

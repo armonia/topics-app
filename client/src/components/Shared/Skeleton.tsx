@@ -27,8 +27,8 @@ export function SkeletonMessageList({ count = 3 }: { count?: number }) {
           <div
             className={`rounded-lg px-3 py-2 max-w-[85%] ${
               i % 2 === 0
-                ? 'bg-[#f5f5f5] dark:bg-[#222]'
-                : 'bg-[var(--primary)]/20'
+                ? 'bg-app-hover'
+                : 'bg-primary/20'
             }`}
           >
             <div className="h-3 rounded w-32 mb-1.5 bg-black/10 dark:bg-white/10" />

@@ -12,7 +12,7 @@ export function ScrollToBottom({ show, newCount, onClick }: ScrollToBottomProps)
   return (
     <button
       onClick={onClick}
-      className="absolute bottom-3 right-3 z-10 w-8 h-8 bg-[var(--primary)] hover:bg-[#0055dd] text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-105"
+      className="absolute bottom-3 right-3 z-10 w-8 h-8 bg-primary hover:bg-primary-hover text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-105"
       title="Scroll to bottom"
     >
       <ArrowDown size={16} />
@@ -36,7 +36,7 @@ export function NewMessageBanner({ show, onClick }: NewMessageBannerProps) {
   return (
     <button
       onClick={onClick}
-      className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-[var(--primary)] text-white text-[11px] font-medium px-3 py-1 rounded-full shadow-md hover:bg-[#0055dd] transition-all duration-200 animate-bounce-once"
+      className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-primary text-white text-[11px] font-medium px-3 py-1 rounded-full shadow-md hover:bg-primary-hover transition-all duration-200 animate-bounce-once"
     >
       New messages ↓
     </button>

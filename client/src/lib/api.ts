@@ -13,6 +13,8 @@ import type {
   FileNode,
   GitStatus,
   ProcessInfo,
+  GitBranch,
+  GitLogEntry,
 } from '../types';
 
 const API_BASE = '/api';
@@ -215,6 +217,20 @@ export const filesApi = {
       body: JSON.stringify({ path, content }),
     });
   },
+
+  async applyEdit(filePath: string, searchText: string, replaceText: string): Promise<{ ok: boolean; method?: string; error?: string }> {
+    return request<{ ok: boolean; method?: string; error?: string }>('/files/apply-edit', {
+      method: 'POST',
+      body: JSON.stringify({ filePath, searchText, replaceText }),
+    });
+  },
+
+  async undoEdit(filePath: string): Promise<{ ok: boolean; error?: string }> {
+    return request<{ ok: boolean; error?: string }>('/files/undo-edit', {
+      method: 'POST',
+      body: JSON.stringify({ filePath }),
+    });
+  },
 };
 
 // Git API
@@ -234,8 +250,8 @@ export const gitApi = {
     return response.text();
   },
 
-  async branches(path: string): Promise<any[]> {
-    return request<any[]>(`/git/branches?path=${encodeURIComponent(path)}`);
+  async branches(path: string): Promise<GitBranch[]> {
+    return request<GitBranch[]>(`/git/branches?path=${encodeURIComponent(path)}`);
   },
 
   async checkout(path: string, branch: string): Promise<{ ok: boolean }> {
@@ -245,8 +261,8 @@ export const gitApi = {
     });
   },
 
-  async log(path: string, limit = 20): Promise<any[]> {
-    return request<any[]>(`/git/log?path=${encodeURIComponent(path)}&limit=${limit}`);
+  async log(path: string, limit = 20): Promise<GitLogEntry[]> {
+    return request<GitLogEntry[]>(`/git/log?path=${encodeURIComponent(path)}&limit=${limit}`);
   },
 
   async stage(path: string, file: string): Promise<{ ok: boolean }> {
@@ -327,7 +343,6 @@ export const contextTemplatesApi = {
   async setDisabled(topicId: string, disabledFiles: string[]): Promise<void> {
     await request(`/projects/${topicId}/context-templates/disabled`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ disabledFiles }),
     });
   },
@@ -337,7 +352,8 @@ export const contextTemplatesApi = {
 export interface Task {
   id: string;
   text: string;
-  status: 'todo' | 'in_progress' | 'done';
+  status: 'backlog' | 'active' | 'review' | 'done';
+  kanbanOrder: number;
   createdAt: string;
   completedAt: string | null;
   chatId: string | null;
@@ -355,7 +371,7 @@ export const tasksApi = {
     });
   },
 
-  async update(projectId: string, taskId: string, updates: { status?: string; text?: string }): Promise<Task> {
+  async update(projectId: string, taskId: string, updates: { status?: string; text?: string; kanbanOrder?: number }): Promise<Task> {
     return request<Task>(`/projects/${projectId}/tasks/${taskId}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
@@ -412,5 +428,166 @@ export const commandApi = {
 
   async toggleReasoning(sessionKey: string): Promise<CommandResult> {
     return this.execute(sessionKey, 'reasoning');
+  },
+};
+
+// Memory API
+export interface MemoryData {
+  topicContent: string;
+  globalContent: string;
+  topicId: string;
+}
+
+export const memoryApi = {
+  async getForTopic(topicId: string): Promise<MemoryData> {
+    return request<MemoryData>(`/memory/${topicId}`);
+  },
+
+  async updateTopic(topicId: string, content: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/memory/${topicId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  async appendToTopic(topicId: string, content: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/memory/${topicId}/append`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  async getGlobal(): Promise<{ content: string }> {
+    return request<{ content: string }>('/memory');
+  },
+
+  async updateGlobal(content: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/memory', {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  async deleteTopic(topicId: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/memory/topic/${topicId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async deleteGlobal(): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/memory/global', {
+      method: 'DELETE',
+    });
+  },
+};
+
+// OpenClaw Context API
+export interface OpenClawContextFile {
+  content: string;
+  tokens: number;
+}
+
+export interface MemoryTreeNode {
+  path: string;
+  name: string;
+  type: 'file' | 'dir';
+  tokens?: number;
+  children?: MemoryTreeNode[];
+}
+
+export interface OpenClawContextResponse {
+  soul: OpenClawContextFile | null;
+  memory: OpenClawContextFile | null;
+  agents: OpenClawContextFile | null;
+  tools: OpenClawContextFile | null;
+  identity: OpenClawContextFile | null;
+  user: OpenClawContextFile | null;
+  memoryIndex: MemoryTreeNode[];
+  memoryTokens: number;
+  totalTokens: number;
+  workspacePath: string;
+}
+
+export interface ContextSource {
+  id: string;
+  label: string;
+  category: 'openclaw' | 'memory' | 'prompt' | 'template' | 'file' | 'pinned';
+  tokens: number;
+  enabled: boolean;
+  editable: boolean;
+  preview?: string;
+  countInBudget: boolean;
+}
+
+export interface ContextWarning {
+  type: string;
+  detail: string;
+}
+
+export interface ContextAnalysis {
+  sources: ContextSource[];
+  totalTokens: number;
+  budgetLimit: number;
+  budgetPercent: number;
+  warnings: ContextWarning[];
+}
+
+export const openclawContextApi = {
+  async getAll(): Promise<OpenClawContextResponse> {
+    return request<OpenClawContextResponse>('/openclaw/context');
+  },
+
+  async readFile(path: string): Promise<{ content: string; tokens: number; path: string }> {
+    return request<{ content: string; tokens: number; path: string }>(`/openclaw/context/file?path=${encodeURIComponent(path)}`);
+  },
+};
+
+export const contextAnalysisApi = {
+  async analyze(topicId: string): Promise<ContextAnalysis> {
+    return request<ContextAnalysis>(`/context/analyze?topicId=${encodeURIComponent(topicId)}`);
+  },
+};
+
+// Usage API
+export interface UsageRecord {
+  timestamp: number;
+  sessionKey: string;
+  topicId?: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+}
+
+export interface DaySummary {
+  date: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  requestCount: number;
+}
+
+export interface UsageSummary {
+  daily: Record<string, DaySummary>;
+  byModel: Record<string, { model: string; totalTokens: number; costUsd: number; requestCount: number }>;
+  byTopic: Record<string, { topicId: string; totalTokens: number; costUsd: number; requestCount: number }>;
+  totalCostUsd: number;
+  totalTokens: number;
+  totalRequests: number;
+}
+
+export const usageApi = {
+  async getToday(): Promise<{ records: UsageRecord[]; summary: DaySummary }> {
+    return request<{ records: UsageRecord[]; summary: DaySummary }>('/usage/today');
+  },
+
+  async getSummary(): Promise<UsageSummary> {
+    return request<UsageSummary>('/usage/summary');
+  },
+
+  async getRange(from: string, to: string): Promise<{ records: UsageRecord[] }> {
+    return request<{ records: UsageRecord[] }>(`/usage/range?from=${from}&to=${to}`);
   },
 };

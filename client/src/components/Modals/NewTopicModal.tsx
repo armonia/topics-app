@@ -37,9 +37,10 @@ interface NewTopicModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (data: CreateTopicRequest) => Promise<any>;
+  projectPath?: string;
 }
 
-export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps) {
+export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTopicModalProps) {
   const [name, setName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<TopicTemplate | null>(null);
   const [showTemplates, setShowTemplates] = useState(true);
@@ -59,8 +60,9 @@ export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps)
     const data: CreateTopicRequest = {
       name: finalName,
       icon: selectedTemplate?.icon || '💬',
-      color: selectedTemplate?.color || '#5865f2',
+      color: selectedTemplate?.color || '#0066ff',
       systemPrompt: selectedTemplate?.systemPrompt,
+      projectPath,
     };
     const topic = await onCreate(data);
     if (topic) onClose();
@@ -75,16 +77,19 @@ export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps)
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 dark:bg-black/60" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="presentation">
+      <div className="absolute inset-0 bg-black/40 dark:bg-black/60" aria-hidden="true" />
       <div
-        className="relative w-full max-w-md mx-4 bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl border border-[#e0e0e0] dark:border-[#333] overflow-hidden max-h-[90vh] overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-topic-title"
+        className="relative w-full max-w-md mx-4 bg-surface rounded-xl shadow-2xl border border-app-border-light overflow-hidden max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#e8e8e8] dark:border-[#2a2a2a]">
-          <h2 className="text-[15px] font-semibold text-[#1a1a1a] dark:text-[#e5e5e5]">New Topic</h2>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-[#8b8b8b] hover:text-[#555] dark:hover:text-[#ccc] transition-colors">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
+          <h2 id="new-topic-title" className="text-[15px] font-semibold text-app-text">New Topic</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close dialog">
             <X size={15} />
           </button>
         </div>
@@ -92,7 +97,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps)
         <div className="p-5 space-y-4">
           {/* Topic name */}
           <div>
-            <label className="block text-[13px] font-medium text-[#333] dark:text-[#ccc] mb-1.5">
+            <label className="block text-[13px] font-medium text-app-text mb-1.5">
               Topic Name
             </label>
             <input
@@ -105,14 +110,14 @@ export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps)
                 if (e.key === 'Escape') onClose();
               }}
               placeholder="Enter topic name..."
-              className="w-full px-3 py-2 border border-[#e0e0e0] dark:border-[#333] rounded-lg text-[13px] bg-white dark:bg-[#222] text-[#1a1a1a] dark:text-[#e5e5e5] placeholder-[#aaa] dark:placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] transition-colors"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
             />
           </div>
 
           {/* Templates */}
           {showTemplates && (
             <div>
-              <label className="block text-[13px] font-medium text-[#333] dark:text-[#ccc] mb-2">
+              <label className="block text-[13px] font-medium text-app-text mb-2">
                 Or start from a template
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -122,15 +127,15 @@ export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps)
                     onClick={() => handleSelectTemplate(template)}
                     className={`text-left p-3 rounded-lg border transition-colors ${
                       selectedTemplate?.name === template.name
-                        ? 'border-[var(--primary)]/50 bg-[var(--primary)]/10'
-                        : 'border-[#e0e0e0] dark:border-[#333] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a]'
+                        ? 'border-primary/50 bg-primary/10'
+                        : 'border-app-border-light hover:bg-app-hover'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-lg">{template.icon}</span>
-                      <span className="text-[13px] font-medium text-[#1a1a1a] dark:text-[#e5e5e5]">{template.name}</span>
+                      <span className="text-[13px] font-medium text-app-text">{template.name}</span>
                     </div>
-                    <p className="text-[11px] text-[#888] dark:text-[#666]">{template.description}</p>
+                    <p className="text-[11px] text-app-text-muted">{template.description}</p>
                   </button>
                 ))}
               </div>
@@ -139,38 +144,38 @@ export function NewTopicModal({ isOpen, onClose, onCreate }: NewTopicModalProps)
 
           {/* Selected template info */}
           {selectedTemplate && !showTemplates && (
-            <div className="bg-[#f5f5f5] dark:bg-[#222] rounded-lg p-3 border border-[#e0e0e0] dark:border-[#333]">
+            <div className="bg-app-hover rounded-lg p-3 border border-app-border-light">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <span>{selectedTemplate.icon}</span>
-                  <span className="text-[13px] font-medium text-[#333] dark:text-[#ccc]">
+                  <span className="text-[13px] font-medium text-app-text">
                     {selectedTemplate.name} Template
                   </span>
                 </div>
                 <button
                   onClick={() => { setSelectedTemplate(null); setShowTemplates(true); }}
-                  className="text-[12px] text-[var(--primary)] hover:text-[#0055dd]"
+                  className="text-[12px] text-primary hover:text-primary-hover"
                 >
                   Change
                 </button>
               </div>
-              <p className="text-[11px] text-[#888] dark:text-[#666]">{selectedTemplate.description}</p>
+              <p className="text-[11px] text-app-text-muted">{selectedTemplate.description}</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-[#e8e8e8] dark:border-[#2a2a2a]">
+        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-app-border">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-[13px] text-[#666] dark:text-[#999] hover:bg-[#f5f5f5] dark:hover:bg-[#2a2a2a] rounded-lg transition-colors"
+            className="px-4 py-2 text-[13px] text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleCreate}
             disabled={!name.trim() && !selectedTemplate}
-            className="px-4 py-2 text-[13px] bg-[var(--primary)] text-white rounded-lg hover:bg-[#0055dd] disabled:bg-[#ccc] dark:disabled:bg-[#444] disabled:text-[#888] transition-colors"
+            className="px-4 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover disabled:bg-app-disabled disabled:text-app-text-muted transition-colors"
           >
             Create Topic
           </button>
