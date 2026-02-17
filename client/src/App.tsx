@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, Terminal } from 'lucide-react';
 import type { Topic, CreateTopicRequest, AppSettings, SidebarTab } from './types';
+import { SidebarToolsMenu } from './components/Sidebar/SidebarToolsMenu';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -14,8 +15,6 @@ import { ToastProvider } from './components/Shared/Toast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
-import { SidebarTabBar } from './components/Sidebar/SidebarTabBar';
-import { SidebarBottomPanel } from './components/Sidebar/SidebarBottomPanel';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
 import { generateUUID } from './utils/uuid';
 
@@ -39,8 +38,6 @@ const getWindowId = () => {
 // Persist open panels to localStorage (main window only)
 const OPEN_PANELS_KEY = 'topics-open-panels';
 const FOCUSED_PANEL_KEY = 'topics-focused-panel';
-const SIDEBAR_TAB_KEY = 'topics-sidebar-tab';
-
 const loadSavedPanels = (): string[] => {
   try {
     const saved = localStorage.getItem(OPEN_PANELS_KEY);
@@ -293,36 +290,24 @@ function App() {
   }, [wsStatus, drainQueue]);
   const { themeMode, toggleTheme, setTheme } = useTheme();
 
-  // Sidebar bottom panel tab
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab | null>(() => {
-    try {
-      const saved = localStorage.getItem(SIDEBAR_TAB_KEY);
-      return saved as SidebarTab | null;
-    } catch {
-      return null;
-    }
-  });
-  const [sidebarPanelExpanded, setSidebarPanelExpanded] = useState(false);
+  // Badge data from SidebarStatusBar (agent count)
   const [sidebarBadges, setSidebarBadges] = useState<Partial<Record<SidebarTab, number | boolean>>>({});
   const handleSidebarBadgeData = useCallback((badges: Partial<Record<SidebarTab, number | boolean>>) => {
     setSidebarBadges(prev => {
-      // Only update if values actually changed
       const keys = Object.keys(badges) as SidebarTab[];
       const changed = keys.some(k => prev[k] !== badges[k]);
       return changed ? { ...prev, ...badges } : prev;
     });
   }, []);
-  const handleSidebarTabChange = useCallback((tab: SidebarTab | null) => {
-    setSidebarTab(tab);
-    if (!tab) setSidebarPanelExpanded(false);
-    try {
-      if (tab) localStorage.setItem(SIDEBAR_TAB_KEY, tab);
-      else localStorage.removeItem(SIDEBAR_TAB_KEY);
-    } catch {}
-  }, []);
-  const toggleSidebarPanelExpand = useCallback(() => {
-    setSidebarPanelExpanded(prev => !prev);
-  }, []);
+
+  // Open a utility page (Activity/Journal/Agents) as a pane in the main panel
+  const handleOpenAsPage = useCallback((type: 'activity' | 'journal' | 'agents') => {
+    const id = utilityPanelId(type);
+    if (!openPanels.includes(id)) {
+      setOpenPanels(prev => [...prev, id]);
+    }
+    setFocusedPanelId(id);
+  }, [openPanels]);
 
   // Listen for WS messages to trigger notifications
   useEffect(() => {
@@ -734,7 +719,7 @@ function App() {
         onTouchEnd={isMobile ? handleSidebarTouchEnd : undefined}
         role="navigation"
         aria-label="Topics sidebar"
-        className={`bg-surface ${sidebarCollapsed && !isMobile ? '' : 'border-r border-app-border'} flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
+        className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-[280px]' : ''
         }`}
         style={{ 
@@ -774,6 +759,10 @@ function App() {
             >
               <SettingsIcon size={14} />
             </button>
+            <SidebarToolsMenu
+              onOpenAsPage={handleOpenAsPage}
+              agentsBadge={sidebarBadges.agents}
+            />
             <div className="relative" ref={newMenuRef}>
               <button
                 onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
@@ -798,92 +787,64 @@ function App() {
           </div>
         </div>
 
-        {/* Search + Topic list — hidden when panel is expanded */}
-        {!(sidebarTab && sidebarPanelExpanded) && (
-          <>
-            <div className="px-2 py-2 flex-shrink-0">
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-app-text-tertiary" aria-hidden="true" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search topics..."
-                  aria-label="Search topics"
-                  className="w-full pl-8 pr-3 py-1.5 text-[13px] bg-transparent border border-app-border rounded-md focus:outline-none focus:border-primary text-app-text placeholder-app-placeholder transition-colors"
-                />
-              </div>
-              {topicsError && <div className="text-red-500 text-[11px] mt-1">{topicsError}</div>}
-            </div>
+        {/* Search + Topic list */}
+        <div className="px-2 py-2 flex-shrink-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-app-text-tertiary" aria-hidden="true" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search topics..."
+              aria-label="Search topics"
+              className="w-full pl-8 pr-3 py-1.5 text-[13px] bg-transparent border border-app-border rounded-md focus:outline-none focus:border-primary text-app-text placeholder-app-placeholder transition-colors"
+            />
+          </div>
+          {topicsError && <div className="text-red-500 text-[11px] mt-1">{topicsError}</div>}
+        </div>
 
-            <div className="flex-1 overflow-y-auto sidebar-scroll">
-              <ErrorBoundary fallbackMessage="Sidebar error">
-              {topicsLoading && Object.keys(topics).length === 0 ? (
-                <SkeletonTopicList count={5} />
-              ) : (
-              <TopicTree
-                topics={topics}
-                searchQuery={searchQuery}
-                expandedNodes={expandedNodes}
-                onToggleNode={handleToggleNode}
-                focusedTopicId={focusedPanelId}
-                previewPanelId={previewPanelId}
-                openPanels={openPanels}
-                onTopicClick={handleTopicClick}
-                onTopicDoubleClick={handleTopicDoubleClick}
-                onTopicContextMenu={handleTopicContextMenu}
-                getChildren={getChildren}
-                getArchivedTopics={getArchivedTopics}
-                unreadData={unreadData}
-                onArchiveTopic={archiveTopic}
-                onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
-                onAddProjectPane={handleAddProjectPane}
-                onProjectClick={handleProjectClick}
-              />
-              )}
-              </ErrorBoundary>
-            </div>
-          </>
-        )}
+        <div className="flex-1 overflow-y-auto sidebar-scroll">
+          <ErrorBoundary fallbackMessage="Sidebar error">
+          {topicsLoading && Object.keys(topics).length === 0 ? (
+            <SkeletonTopicList count={5} />
+          ) : (
+          <TopicTree
+            topics={topics}
+            searchQuery={searchQuery}
+            expandedNodes={expandedNodes}
+            onToggleNode={handleToggleNode}
+            focusedTopicId={focusedPanelId}
+            previewPanelId={previewPanelId}
+            openPanels={openPanels}
+            onTopicClick={handleTopicClick}
+            onTopicDoubleClick={handleTopicDoubleClick}
+            onTopicContextMenu={handleTopicContextMenu}
+            getChildren={getChildren}
+            getArchivedTopics={getArchivedTopics}
+            unreadData={unreadData}
+            onArchiveTopic={archiveTopic}
+            onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
+            onAddProjectPane={handleAddProjectPane}
+            onProjectClick={handleProjectClick}
+          />
+          )}
+          </ErrorBoundary>
+        </div>
         
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar onOpenTab={handleSidebarTabChange} onBadgeData={handleSidebarBadgeData} />
+        <SidebarStatusBar onOpenTab={(tab) => {
+          if (tab === 'agents' || tab === 'activity' || tab === 'journal') {
+            handleOpenAsPage(tab);
+          }
+        }} onBadgeData={handleSidebarBadgeData} />
         </ErrorBoundary>
-
-        {/* Tab bar */}
-        <SidebarTabBar
-          activeTab={sidebarTab}
-          onTabChange={handleSidebarTabChange}
-          badges={sidebarBadges}
-        />
-
-        {/* Bottom panel (slide-up or expanded) */}
-        {sidebarTab && (
-          <ErrorBoundary fallbackMessage="Panel error">
-          <SidebarBottomPanel
-            tab={sidebarTab}
-            onClose={() => handleSidebarTabChange(null)}
-            expanded={sidebarPanelExpanded}
-            onToggleExpand={toggleSidebarPanelExpand}
-            onNavigateToTopic={(topicId) => handleTopicClick(topicId)}
-            onMessage={onWSMessage}
-            onOpenAsPane={(type) => {
-              const id = utilityPanelId(type);
-              if (!openPanels.includes(id)) {
-                setOpenPanels(prev => [...prev, id]);
-              }
-              setFocusedPanelId(id);
-            }}
-          />
-          </ErrorBoundary>
-        )}
       </div>
 
       {/* Sidebar resize handle - hide on mobile */}
       {!isMobile && (
         <div
-          className="w-[4px] flex-shrink-0 cursor-col-resize relative group hover:bg-primary/20 transition-colors z-20"
+          className="w-[4px] flex-shrink-0 cursor-col-resize relative group bg-surface border-l border-black/[0.06] dark:border-white/[0.06] hover:bg-primary/20 transition-colors z-20"
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >
