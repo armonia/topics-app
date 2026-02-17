@@ -13,7 +13,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
     loadTopics, saveTopics, loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, addToolCallToLastMessage,
-    startStream, updateStreamActivity, endStream, isStreaming,
+    startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath, atomicWriteJSON,
@@ -631,7 +631,8 @@ Wait for the user to approve the plan before executing any changes.` };
           return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
         }
 
-        // Streaming
+        // Streaming — decoupled from HTTP response so gateway is fully consumed
+        // even if the client disconnects mid-stream (reload, navigate away).
         const originalBody = resp.body!;
         let fullContent = "";
         let fullThinking = "";
@@ -642,104 +643,141 @@ Wait for the user to approve the plan before executing any changes.` };
         let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
         let streamModel: string = "unknown";
         const partialMsg = createPartialMessage(sessionKey, "assistant");
-        startStream(sessionKey);
+        startStream(sessionKey, partialMsg.id);
         broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
-        const transform = new TransformStream<Uint8Array, Uint8Array>({
-          transform(chunk, controller) {
-            controller.enqueue(chunk);
-            const text = new TextDecoder().decode(chunk);
-            const lines = text.split("\n");
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") {
-                updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-                // Record usage from streaming response
-                if (streamUsage) {
-                  const inputTokens = streamUsage.prompt_tokens || 0;
-                  const outputTokens = streamUsage.completion_tokens || 0;
-                  appendUsageRecord({
-                      timestamp: Date.now(),
-                      sessionKey,
-                      topicId: matchedTopic?.id,
-                      model: streamModel,
-                      inputTokens,
-                      outputTokens,
-                      totalTokens: inputTokens + outputTokens,
-                      costUsd: calculateCost(streamModel, inputTokens, outputTokens),
-                    }).catch(err => console.warn("[Usage] Failed to record streaming usage:", err));
-                }
-                if (matchedTopic) {
-                  endStream(sessionKey);
-                  broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
-                  broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-                  const unread = loadUnread();
-                  if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-                  unread[matchedTopic.id].unreadCount += 1;
-                  saveUnread(unread);
-                  broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
-                }
-                setTimeout(() => {
-                  try {
-                    const newMedia = findNewMediaFiles(requestStartMs);
-                    if (newMedia.length > 0 && sessionKey) {
-                      updateLastMessageWithMedia(sessionKey, newMedia);
-                      broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: newMedia });
-                    }
-                  } catch {}
-                }, 1000);
-                // Auto-bind project path from conversation content (no LLM needed)
-                if (matchedTopic && !matchedTopic.projectPath) {
-                  setTimeout(() => autoBindProject(matchedTopic!), 500);
-                }
-                continue;
-              }
+        // Create a pass-through stream for the HTTP response
+        const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+        const writer = writable.getWriter();
+        let clientDisconnected = false;
+
+        // Helper: forward chunk to HTTP response (ignore errors if client left)
+        const forwardToClient = async (chunk: Uint8Array) => {
+          if (clientDisconnected) return;
+          try { await writer.write(chunk); } catch { clientDisconnected = true; }
+        };
+        const closeClient = async () => {
+          if (clientDisconnected) return;
+          try { await writer.close(); } catch { clientDisconnected = true; }
+        };
+
+        // Process a single SSE line from the gateway
+        const processLine = (line: string) => {
+          if (!line.startsWith("data: ")) return;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") {
+            updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+            if (streamUsage) {
+              const inputTokens = streamUsage.prompt_tokens || 0;
+              const outputTokens = streamUsage.completion_tokens || 0;
+              appendUsageRecord({
+                timestamp: Date.now(), sessionKey, topicId: matchedTopic?.id, model: streamModel,
+                inputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
+                costUsd: calculateCost(streamModel, inputTokens, outputTokens),
+              }).catch(err => console.warn("[Usage] Failed to record streaming usage:", err));
+            }
+            endStream(sessionKey);
+            if (matchedTopic) {
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+              const unread = loadUnread();
+              if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+              unread[matchedTopic.id].unreadCount += 1;
+              saveUnread(unread);
+              broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
+            }
+            setTimeout(() => {
               try {
-                const parsed = JSON.parse(data);
-                // Capture usage and model from stream chunks
-                if (parsed.usage) streamUsage = parsed.usage;
-                if (parsed.model) streamModel = parsed.model;
-                const delta = parsed.choices?.[0]?.delta;
-                if (delta?.tool_calls) {
-                  for (const tc of delta.tool_calls) {
-                    if (tc.function?.name) {
-                      const toolCall: ToolCall = { id: tc.id || crypto.randomUUID(), name: tc.function.name, args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {}, status: 'pending' };
-                      addToolCallToLastMessage(sessionKey, toolCall);
-                      broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
-                    }
-                  }
-                }
-                if (delta?.content) {
-                  const content = delta.content;
-                  if (content.includes('<thinking>')) { isInThinking = true; updateStreamActivity(sessionKey, true); broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
-                  if (content.includes('</thinking>')) { isInThinking = false; updateStreamActivity(sessionKey, false); broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-                  if (isInThinking) {
-                    const cleaned = content.replace(/<\/?thinking>/g, '');
-                    fullThinking += cleaned;
-                    broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
-                  } else {
-                    const cleaned = content.replace(/<\/?thinking>/g, '');
-                    if (cleaned) {
-                      fullContent += cleaned;
-                      broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
-                      // Detect browser marker in accumulated content
-                      fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
-                    }
-                  }
-                  chunkCount++;
-                  if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) {
-                    lastSaveChunk = chunkCount;
-                    updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined });
-                  }
+                const newMedia = findNewMediaFiles(requestStartMs);
+                if (newMedia.length > 0 && sessionKey) {
+                  updateLastMessageWithMedia(sessionKey, newMedia);
+                  broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: newMedia });
                 }
               } catch {}
+            }, 1000);
+            if (matchedTopic && !matchedTopic.projectPath) {
+              setTimeout(() => autoBindProject(matchedTopic!), 500);
             }
-          },
-        });
+            return;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.usage) streamUsage = parsed.usage;
+            if (parsed.model) streamModel = parsed.model;
+            const delta = parsed.choices?.[0]?.delta;
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (tc.function?.name) {
+                  const toolCall: ToolCall = { id: tc.id || crypto.randomUUID(), name: tc.function.name, args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {}, status: 'pending' };
+                  addToolCallToLastMessage(sessionKey, toolCall);
+                  broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+                }
+              }
+            }
+            if (delta?.content) {
+              const content = delta.content;
+              if (content.includes('<thinking>')) { isInThinking = true; updateStreamActivity(sessionKey, true); broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
+              if (content.includes('</thinking>')) { isInThinking = false; updateStreamActivity(sessionKey, false); broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
+              if (isInThinking) {
+                const cleaned = content.replace(/<\/?thinking>/g, '');
+                fullThinking += cleaned;
+                broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
+              } else {
+                const cleaned = content.replace(/<\/?thinking>/g, '');
+                if (cleaned) {
+                  fullContent += cleaned;
+                  broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
+                  fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
+                }
+              }
+              chunkCount++;
+              updateStreamContent(sessionKey, fullContent, fullThinking);
+              if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) {
+                lastSaveChunk = chunkCount;
+                updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined });
+              }
+            }
+          } catch {}
+        };
 
-        const transformedStream = originalBody.pipeThrough(transform);
-        return new Response(transformedStream, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+        // Background task: read gateway stream to completion (survives client disconnect)
+        const consumeGateway = async () => {
+          const reader = originalBody.getReader();
+          const decoder = new TextDecoder();
+          let sseBuffer = "";
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              // Forward raw bytes to HTTP client (best-effort)
+              await forwardToClient(value);
+              // Parse SSE lines for server-side processing + WS broadcast
+              sseBuffer += decoder.decode(value, { stream: true });
+              const lines = sseBuffer.split("\n");
+              sseBuffer = lines.pop() || "";
+              for (const line of lines) processLine(line);
+            }
+            // Process remaining buffer
+            if (sseBuffer.trim()) processLine(sseBuffer);
+          } catch (err) {
+            console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err);
+          } finally {
+            reader.releaseLock();
+            await closeClient();
+            // Safety: ensure stream is ended even if [DONE] was missed
+            if (isStreaming(sessionKey)) {
+              console.warn(`[Stream] Force-ending stream for ${sessionKey} (gateway closed without [DONE])`);
+              updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+              endStream(sessionKey);
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+            }
+          }
+        };
+
+        // Fire and forget — the gateway is consumed independently of the HTTP response
+        consumeGateway();
+
+        return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
       } catch (err: any) {
         if (err.name === "AbortError") return json({ error: "Request timeout (5 min)" }, 504);
         return json({ error: "Gateway unreachable: " + err.message }, 502);
@@ -766,9 +804,22 @@ Wait for the user to approve the plan before executing any changes.` };
           const total = completeMsgs.length;
           const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
           const result = sliced.slice(-limit);
+          const currentStream = isStreaming(sessionKey);
+
+          // Overlay in-memory stream content onto the last assistant message
+          if (currentStream) {
+            const streamContent = getStreamContent(sessionKey);
+            if (streamContent && result.length > 0) {
+              const last = result[result.length - 1];
+              if (last.role === 'assistant' && last.partial) {
+                last.content = streamContent.content;
+                if (streamContent.thinking) last.thinking = streamContent.thinking;
+              }
+            }
+          }
+
           const lastMsg = completeMsgs[completeMsgs.length - 1];
           const hasOrphanedMessage = lastMsg?.role === 'user';
-          const currentStream = isStreaming(sessionKey);
           return json({ messages: result, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null });
         }
 
@@ -900,55 +951,59 @@ Wait for the user to approve the plan before executing any changes.` };
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "not found" }, 404);
         const localMsgs = loadLocalMessages(topic.sessionKey);
-        const recentMsgs = localMsgs.slice(-4);
-        if (recentMsgs.length < 2) return json({ error: "Not enough messages yet" }, 400);
+        if (localMsgs.length < 2) return json({ error: "Not enough messages yet" }, 400);
 
-        const existingProjects = Object.values(data.topics).filter(t => t.projectPath && !t.archived).map(t => ({ name: t.name, path: t.projectPath }));
-        const discoverProjects = (): { name: string; path: string }[] => {
-          const home = homedir();
-          const projectDirs = [join(home, 'Sites'), join(home, 'Projects'), join(home, 'Code'), join(home, 'Developer'), join(home, 'workspace'), join(home, '.openclaw', 'workspace')];
-          const discovered: { name: string; path: string }[] = [];
-          for (const dir of projectDirs) {
-            if (!existsSync(dir)) continue;
-            try {
-              const entries = readdirSync(dir, { withFileTypes: true });
-              for (const entry of entries) {
-                if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-                const projectPath = join(dir, entry.name);
-                const hasPackageJson = existsSync(join(projectPath, 'package.json'));
-                const hasClaudeMd = existsSync(join(projectPath, 'CLAUDE.md'));
-                const hasGit = existsSync(join(projectPath, '.git'));
-                if (hasPackageJson || hasClaudeMd || hasGit) {
-                  if (!existingProjects.some(p => p.path === projectPath)) discovered.push({ name: entry.name, path: projectPath });
-                }
-              }
-            } catch {}
-          }
-          return discovered;
-        };
-        const discoveredProjects = discoverProjects();
-        const allProjects = [...existingProjects, ...discoveredProjects.map(p => ({ name: `[new] ${p.name}`, path: p.path }))];
-        const projectsContext = allProjects.length > 0 ? `\n\nKnown projects:\n${allProjects.map(p => `- ${p.name}: ${p.path}`).join('\n')}` : '';
-        const nameMessages = [
-          { role: "system", content: `Given this conversation start, suggest:\n1. A short title (3-5 words, describing the topic)\n2. One emoji icon that represents the topic\n3. If the conversation is related to a project, suggest its full absolute path. You can pick from the known projects list below, OR suggest a NEW path if the user created/mentioned a specific project directory in the conversation (e.g. /tmp/react-demo, ~/projects/my-app). Suggest null only if no project is involved.\n\nReply ONLY with valid JSON: {"title": "...", "icon": "...", "projectPath": "..." or null}. No other text.${projectsContext}` },
-          ...recentMsgs.map((m) => ({ role: m.role, content: m.content.slice(0, 200) })),
+        // --- Local heuristic (instant, no LLM call) ---
+        const userMsg = localMsgs.find(m => m.role === 'user')?.content || '';
+        const cleaned = userMsg
+          .replace(/https?:\/\/\S+/g, '')
+          .replace(/[#*_`~\[\]()]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        let title = topic.name;
+        if (cleaned.length > 0) {
+          const words = cleaned.split(' ').filter(w => w.length > 0);
+          const titleWords = words.slice(0, 5).join(' ');
+          title = titleWords.length > 40 ? titleWords.slice(0, 40).trim() + '…' : titleWords;
+          title = title.charAt(0).toUpperCase() + title.slice(1);
+        }
+
+        // Pick emoji by keyword matching
+        const text = localMsgs.map(m => m.content).join(' ').toLowerCase();
+        const emojiMap: [RegExp, string][] = [
+          [/\bbug\b|fix|error|crash|debug/i, '🐛'],
+          [/\btest\b|testing|spec/i, '🧪'],
+          [/\bdeploy|release|ship|launch/i, '🚀'],
+          [/\bdesign|css|style|ui|layout/i, '🎨'],
+          [/\bapi|endpoint|route|server/i, '🔌'],
+          [/\bdatabase|sql|query|db\b/i, '🗄️'],
+          [/\bauth|login|password|session/i, '🔐'],
+          [/\brefactor|clean|reorgan/i, '♻️'],
+          [/\bperform|speed|optim|fast/i, '⚡'],
+          [/\bdoc|readme|comment/i, '📝'],
+          [/\bbuild|compil|bundle/i, '🏗️'],
+          [/\bconfig|setup|install/i, '⚙️'],
+          [/\bscherz|barzell|joke|ridere|divert/i, '😂'],
+          [/\bciao|hello|hi\b|salut/i, '👋'],
+          [/\baiut|help|assist/i, '🆘'],
+          [/\bimmagin|image|foto|photo|screenshot/i, '🖼️'],
+          [/\bvideo|film|stream/i, '🎬'],
+          [/\bmusic|song|audio/i, '🎵'],
+          [/\bmail|email/i, '📧'],
         ];
+        let icon = '💬';
+        for (const [pattern, emoji] of emojiMap) {
+          if (pattern.test(text)) { icon = emoji; break; }
+        }
 
-        try {
-          const autoNameSessionKey = `auto-name:${params.id}`;
-          const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": autoNameSessionKey },
-            body: JSON.stringify({ model: "openclaw", stream: false, messages: nameMessages }),
-          });
-          if (!resp.ok) { const errText = await resp.text(); return json({ error: "Gateway error: " + errText }, 502); }
-          const result = await resp.json() as any;
-          const content = result?.choices?.[0]?.message?.content || "";
-          let title = topic.name;
-          let icon = topic.icon;
-          let suggestedProject: string | null = null;
-          try { const jsonMatch = content.match(/\{[^}]+\}/); if (jsonMatch) { const parsed = JSON.parse(jsonMatch[0]); if (parsed.title) title = parsed.title; if (parsed.icon) icon = parsed.icon; if (parsed.projectPath) suggestedProject = parsed.projectPath; } } catch {}
-          // Re-read fresh data to avoid overwriting projectPath set by autoBindProject
+        // Detect project path from messages
+        let suggestedProject: string | null = null;
+        const detectedPath = detectProjectPathFromMessages(localMsgs);
+        if (detectedPath && !topic.projectPath) suggestedProject = detectedPath;
+
+        // Apply immediately
+        if (title !== topic.name) {
           const freshData = loadTopics();
           const freshTopic = freshData.topics[params.id];
           if (freshTopic) {
@@ -956,15 +1011,14 @@ Wait for the user to approve the plan before executing any changes.` };
             freshTopic.icon = icon;
             freshTopic.slug = slugify(title);
             freshTopic.updatedAt = new Date().toISOString();
-            // Only set projectPath if not already set (autoBindProject may have set it)
-            if (!freshTopic.projectPath && suggestedProject) {
-              freshTopic.projectPath = suggestedProject;
-            }
+            if (!freshTopic.projectPath && suggestedProject) freshTopic.projectPath = suggestedProject;
             saveTopics(freshData);
             broadcastToAll({ type: "topic:updated", topic: freshTopic });
+            console.log(`[AutoName] Named "${title}" ${icon}`);
           }
-          return json({ title, icon, suggestedProject });
-        } catch (err: any) { return json({ error: "Auto-name failed: " + err.message }, 500); }
+        }
+
+        return json({ title, icon, suggestedProject });
       }
     }
 

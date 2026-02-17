@@ -68,6 +68,9 @@ export interface ActiveStream {
   startedAt: string;
   isThinking: boolean;
   lastActivity: string;
+  content: string;
+  thinking: string;
+  messageId: string;
 }
 
 export interface ErrorResponseOptions {
@@ -111,8 +114,10 @@ export interface AppContext {
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
   addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall) => StoredMessage | null;
   updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string) => StoredMessage | null;
-  startStream: (sessionKey: string) => void;
+  startStream: (sessionKey: string, messageId: string) => void;
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
+  updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
+  getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;
   endStream: (sessionKey: string) => void;
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
   readJSON: (req: Request) => Promise<any>;

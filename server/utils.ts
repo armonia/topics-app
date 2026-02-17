@@ -166,8 +166,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Streams ---
-  function startStream(sessionKey: string) {
-    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString() });
+  function startStream(sessionKey: string, messageId: string) {
+    activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId });
   }
 
   function updateStreamActivity(sessionKey: string, isThinking?: boolean) {
@@ -176,6 +176,21 @@ export function createAppContext(baseDir: string): AppContext {
       stream.lastActivity = new Date().toISOString();
       if (isThinking !== undefined) stream.isThinking = isThinking;
     }
+  }
+
+  function updateStreamContent(sessionKey: string, content: string, thinking: string) {
+    const stream = activeStreams.get(sessionKey);
+    if (stream) {
+      stream.content = content;
+      stream.thinking = thinking;
+      stream.lastActivity = new Date().toISOString();
+    }
+  }
+
+  function getStreamContent(sessionKey: string): { content: string; thinking: string; messageId: string } | null {
+    const stream = activeStreams.get(sessionKey);
+    if (!stream) return null;
+    return { content: stream.content, thinking: stream.thinking, messageId: stream.messageId };
   }
 
   function endStream(sessionKey: string) { activeStreams.delete(sessionKey); }
@@ -407,7 +422,7 @@ export function createAppContext(baseDir: string): AppContext {
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult,
-    startStream, updateStreamActivity, endStream, isStreaming,
+    startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveSafePath, resolveProjectPath, getMimeType, isPathAllowed,
     findNewMediaFiles, updateLastMessageWithMedia, atomicWriteJSON, logRequest,
