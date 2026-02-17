@@ -16,7 +16,9 @@
     "companion"
   ],
   "scripts": {
-    "start": "bun run server.ts"
+    "start": "bun run server.ts",
+    "dev:server": "bun --watch run server.ts",
+    "dev:client": "cd client && bun run dev"
   },
   "dependencies": {
     "node-pty": "^1.0.0",
