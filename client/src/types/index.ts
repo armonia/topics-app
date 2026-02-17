@@ -229,6 +229,11 @@ export interface GroupLayoutRow {
   widths: number[];       // fractions summing to 1
 }
 
+export interface PanelGridRow {
+  itemKeys: string[];     // GridItem.key values in this row
+  widths: number[];       // fractions summing to 1 per row
+}
+
 export interface ProjectWindowState {
   projectPath: string;
   panes: Pane[];

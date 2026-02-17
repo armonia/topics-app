@@ -1,13 +1,16 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow } from '../../types';
 import { ProjectWindow } from './ProjectWindow';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { getProjectName, hashToColor } from './ProjectHeader';
 import { UtilityPanel, isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import { useGridResize } from '../../hooks/useGridResize';
+import { DND_TYPES } from '../../lib/dndTypes';
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
+
+const STORAGE_KEY = 'topics-panel-grid-layout';
 
 /* ------------------------------------------------------------------ */
 /*  Layout model                                                       */
@@ -93,8 +96,8 @@ export function PanelGrid({
   onWSMessage,
   onUpdateTopic,
   windowId,
-  externalDragTopicId: _externalDragTopicId,
-  onExternalDrop: _onExternalDrop,
+  externalDragTopicId,
+  onExternalDrop,
   onToggleSidebar,
   panelInitialTab,
   onPanelInitialTabConsumed,
@@ -106,9 +109,6 @@ export function PanelGrid({
   onNewChat,
 }: PanelGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-
-  /* ---- Group order state (for drag reordering) ---- */
-  const [groupOrder, setGroupOrder] = useState<(string | null)[]>([]);
 
   /* ---- Separate utility panels from topic panels ---- */
   const { topicPanels, utilityPanelIds } = useMemo(() => {
@@ -144,40 +144,20 @@ export function PanelGrid({
     return byProject;
   }, [topicPanels, topics, openProjects]);
 
-  // Sync groupOrder when groups change
-  useEffect(() => {
-    const currentKeys = [...groupsByProject.keys()];
-    setGroupOrder(prev => {
-      // Keep existing order for keys that still exist, add new keys at end
-      const existing = prev.filter(k => groupsByProject.has(k));
-      const newKeys = currentKeys.filter(k => !prev.includes(k));
-      // Sort new keys: projects first (alphabetically), null at end
-      newKeys.sort((a, b) => {
-        if (a === null) return 1;
-        if (b === null) return -1;
-        return a.localeCompare(b);
-      });
-      return [...existing, ...newKeys];
-    });
-  }, [groupsByProject]);
-
   const groups = useMemo<ProjectGroup[]>(() => {
-    const keysToUse = groupOrder.length > 0
-      ? groupOrder.filter(key => groupsByProject.has(key))
-      : [...groupsByProject.keys()].sort((a, b) => {
-          if (a === null) return 1;
-          if (b === null) return -1;
-          return a.localeCompare(b);
-        });
-
-    return keysToUse.map(projectPath => ({
+    const keys = [...groupsByProject.keys()].sort((a, b) => {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a.localeCompare(b);
+    });
+    return keys.map(projectPath => ({
       projectPath,
       panels: groupsByProject.get(projectPath)!,
     }));
-  }, [groupOrder, groupsByProject]);
+  }, [groupsByProject]);
 
-  /* ---- Build unified grid items (utility + project + standalone) ---- */
-  const gridItems = useMemo<GridItem[]>(() => {
+  /* ---- Build natural grid items (unordered) ---- */
+  const naturalGridItems = useMemo<GridItem[]>(() => {
     const items: GridItem[] = [];
 
     for (const id of utilityPanelIds) {
@@ -196,25 +176,107 @@ export function PanelGrid({
     return items;
   }, [utilityPanelIds, groups]);
 
-  /* ---- Top-level group widths (fractions summing to 1) ---- */
-  const [groupWidths, setGroupWidths] = useState<number[]>([]);
+  /* ---- Item lookup map ---- */
+  const itemMap = useMemo(() => {
+    const m = new Map<string, GridItem>();
+    for (const item of naturalGridItems) m.set(item.key, item);
+    return m;
+  }, [naturalGridItems]);
 
+  /* ---- Grid rows state (row-based layout, persisted) ---- */
+  const [gridRows, setGridRows] = useState<PanelGridRow[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.gridRows)) return parsed.gridRows;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [gridRowHeights, setGridRowHeights] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.gridRowHeights)) return parsed.gridRowHeights;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Sync gridRows when naturalGridItems change (add/remove items)
   useEffect(() => {
-    setGroupWidths(prev => {
-      if (prev.length === gridItems.length && gridItems.length > 0) return prev;
-      return gridItems.map(() => 1 / Math.max(1, gridItems.length));
-    });
-  }, [gridItems.length]);
+    const currentKeys = new Set(naturalGridItems.map(i => i.key));
 
-  /* ---- Top-level resize via useGridResize ---- */
+    setGridRows(prev => {
+      // 1. Remove stale keys from each row, recalculate widths proportionally
+      let rows = prev.map(row => {
+        const kept: number[] = [];
+        for (let i = 0; i < row.itemKeys.length; i++) {
+          if (currentKeys.has(row.itemKeys[i])) kept.push(i);
+        }
+        if (kept.length === row.itemKeys.length) return row; // unchanged
+        if (kept.length === 0) return { itemKeys: [] as string[], widths: [] as number[] };
+
+        const newKeys = kept.map(i => row.itemKeys[i]);
+        const newWidths = kept.map(i => row.widths[i]);
+        const total = newWidths.reduce((s, w) => s + w, 0);
+        return {
+          itemKeys: newKeys,
+          widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length),
+        };
+      });
+
+      // 2. Remove empty rows
+      rows = rows.filter(r => r.itemKeys.length > 0);
+
+      // 3. Find new keys not in any row
+      const existing = new Set(rows.flatMap(r => r.itemKeys));
+      const newKeys = naturalGridItems.map(i => i.key).filter(k => !existing.has(k));
+
+      // 4. Add new keys to first row (or create one)
+      if (newKeys.length > 0) {
+        if (rows.length === 0) {
+          rows = [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
+        } else {
+          const first = rows[0];
+          const allKeys = [...first.itemKeys, ...newKeys];
+          rows = [{ itemKeys: allKeys, widths: allKeys.map(() => 1 / allKeys.length) }, ...rows.slice(1)];
+        }
+      }
+
+      return rows;
+    });
+  }, [naturalGridItems]);
+
+  // Sync row heights when row count changes
+  useEffect(() => {
+    setGridRowHeights(prev => {
+      if (prev.length === gridRows.length && gridRows.length > 0) return prev;
+      return gridRows.map(() => 1 / Math.max(1, gridRows.length));
+    });
+  }, [gridRows.length]);
+
+  // Persist layout to localStorage
+  useEffect(() => {
+    if (gridRows.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ gridRows, gridRowHeights }));
+    }
+  }, [gridRows, gridRowHeights]);
+
+  /* ---- Resize via useGridResize ---- */
   const resizeCallbacks = useMemo(() => ({
-    onHorizontalResize: (_rowIdx: number, _divIdx: number, newWidths: number[]) => {
-      setGroupWidths(newWidths);
+    onHorizontalResize: (rowIdx: number, _divIdx: number, newWidths: number[]) => {
+      setGridRows(prev => prev.map((r, i) => i === rowIdx ? { ...r, widths: newWidths } : r));
     },
-    onVerticalResize: () => {},
+    onVerticalResize: (_divIdx: number, newHeights: number[]) => {
+      setGridRowHeights(newHeights);
+    },
   }), []);
 
-  const { startHorizontalResize } = useGridResize(containerRef, resizeCallbacks);
+  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, resizeCallbacks);
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -222,7 +284,7 @@ export function PanelGrid({
 
   const handleDragStart = useCallback((topicId: string) => (e: React.DragEvent) => {
     setDraggingId(topicId);
-    e.dataTransfer.setData('application/x-panel-id', topicId);
+    e.dataTransfer.setData(DND_TYPES.PANEL_ID, topicId);
     e.dataTransfer.effectAllowed = 'move';
 
     const topic = topics[topicId];
@@ -274,80 +336,184 @@ export function PanelGrid({
     sendWS(msg);
   }, [sendWS]);
 
-  /* ---- drag state for groups ---- */
-  const [draggingGroupPath, setDraggingGroupPath] = useState<string | null>(null);
-  const [groupDropTarget, setGroupDropTarget] = useState<{ idx: number; side: 'left' | 'right' } | null>(null);
+  /* ---- Grid item drag & edge-drop ---- */
+  const [draggingGridKey, setDraggingGridKey] = useState<string | null>(null);
+  const [gridDropTarget, setGridDropTarget] = useState<{
+    rowIdx: number;
+    colIdx: number;
+    zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
+    centerSide?: 'left' | 'right';
+  } | null>(null);
 
-  const handleGroupDragStart = useCallback((projectPath: string) => (e: React.DragEvent) => {
-    setDraggingGroupPath(projectPath);
-    e.dataTransfer.setData('application/x-project-group', projectPath);
+  const handleGridItemDragStart = useCallback((item: GridItem) => (e: React.DragEvent) => {
+    setDraggingGridKey(item.key);
+    e.dataTransfer.setData(DND_TYPES.GRID_ITEM, item.key);
     e.dataTransfer.effectAllowed = 'move';
 
-    // Ghost
+    // Also set legacy type for backward compatibility
+    if (item.kind === 'project' && item.projectPath) {
+      e.dataTransfer.setData(DND_TYPES.PROJECT_GROUP, item.projectPath);
+    }
+
+    // Ghost image based on item kind
     const ghost = document.createElement('div');
     ghost.style.cssText = `
       position:fixed;left:-9999px;top:-9999px;
+      display:flex;align-items:center;gap:6px;
       padding:6px 14px;border-radius:8px;
-      background:${hashToColor(projectPath)};color:#fff;
       font:500 13px/1 Inter,system-ui,sans-serif;
       box-shadow:0 4px 12px rgba(0,0,0,0.15);
+      white-space:nowrap;pointer-events:none;
     `;
-    ghost.textContent = getProjectName(projectPath);
+    if (item.kind === 'project' && item.projectPath) {
+      ghost.style.background = hashToColor(item.projectPath);
+      ghost.style.color = '#fff';
+      ghost.textContent = getProjectName(item.projectPath);
+    } else if (item.kind === 'standalone') {
+      ghost.style.background = 'color-mix(in srgb, var(--primary) 90%, transparent)';
+      ghost.style.color = '#fff';
+      ghost.textContent = `\uD83D\uDCAC Chats`;
+    } else if (item.kind === 'utility') {
+      ghost.style.background = 'color-mix(in srgb, var(--primary) 90%, transparent)';
+      ghost.style.color = '#fff';
+      ghost.textContent = `\uD83D\uDD27 ${item.utilityId ? parseUtilityPanelType(item.utilityId) || 'Panel' : 'Panel'}`;
+    }
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
     requestAnimationFrame(() => document.body.removeChild(ghost));
   }, []);
 
-  const handleGroupDragOver = useCallback((groupIdx: number) => (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes('application/x-project-group')) return;
+  const handleGridItemDragOver = useCallback((rowIdx: number, colIdx: number) => (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     e.stopPropagation();
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const xRatio = (e.clientX - rect.left) / rect.width;
-    const side = xRatio < 0.5 ? 'left' : 'right';
-    setGroupDropTarget({ idx: groupIdx, side });
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const edgeSize = 30;
+
+    let zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
+    let centerSide: 'left' | 'right' | undefined;
+
+    if (x < edgeSize) zone = 'left';
+    else if (x > rect.width - edgeSize) zone = 'right';
+    else if (y < edgeSize) zone = 'top';
+    else if (y > rect.height - edgeSize) zone = 'bottom';
+    else {
+      zone = 'center';
+      centerSide = (x / rect.width) < 0.5 ? 'left' : 'right';
+    }
+
+    setGridDropTarget({ rowIdx, colIdx, zone, centerSide });
   }, []);
 
-  const handleGroupDragEnd = useCallback(() => {
-    setDraggingGroupPath(null);
-    setGroupDropTarget(null);
+  const handleGridItemDragEnd = useCallback(() => {
+    setDraggingGridKey(null);
+    setGridDropTarget(null);
   }, []);
 
-  const handleGroupDrop = useCallback((e: React.DragEvent) => {
+  const handleGridItemDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const sourceProjectPath = e.dataTransfer.getData('application/x-project-group');
-    if (!sourceProjectPath || !groupDropTarget) return;
+    const sourceKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
+    if (!sourceKey || !gridDropTarget) return;
 
-    setGroupOrder(prev => {
-      const sourceIdx = prev.indexOf(sourceProjectPath);
-      if (sourceIdx === -1) return prev;
+    const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = gridDropTarget;
 
-      // Remove source from current position
-      const newOrder = prev.filter(p => p !== sourceProjectPath);
-
-      // Calculate target index
-      let targetIdx = groupDropTarget.idx;
-      // Adjust if source was before target
-      if (sourceIdx < groupDropTarget.idx) {
-        targetIdx--;
+    setGridRows(prev => {
+      // Find source position
+      let srcRow = -1, srcCol = -1;
+      for (let r = 0; r < prev.length; r++) {
+        const c = prev[r].itemKeys.indexOf(sourceKey);
+        if (c >= 0) { srcRow = r; srcCol = c; break; }
       }
-      // If dropping on right side, insert after
-      if (groupDropTarget.side === 'right') {
-        targetIdx++;
+      if (srcRow === -1) return prev;
+
+      // Find target key
+      const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
+      if (!targetKey || sourceKey === targetKey) return prev;
+
+      // Deep copy rows
+      let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+
+      // Remove source from its row
+      rows[srcRow].itemKeys.splice(srcCol, 1);
+      rows[srcRow].widths.splice(srcCol, 1);
+      // Renormalize source row widths
+      if (rows[srcRow].itemKeys.length > 0) {
+        const total = rows[srcRow].widths.reduce((s, w) => s + w, 0);
+        rows[srcRow].widths = rows[srcRow].widths.map(w => w / total);
       }
 
-      // Insert at new position
-      newOrder.splice(targetIdx, 0, sourceProjectPath);
-      return newOrder;
+      // Remove empty rows (source row may now be empty)
+      rows = rows.filter(r => r.itemKeys.length > 0);
+
+      // Find target's new position (may have shifted after removal)
+      let tRow = -1, tCol = -1;
+      for (let r = 0; r < rows.length; r++) {
+        const c = rows[r].itemKeys.indexOf(targetKey);
+        if (c >= 0) { tRow = r; tCol = c; break; }
+      }
+      if (tRow === -1) return rows;
+
+      // Insert source based on zone
+      if (zone === 'top' || zone === 'bottom') {
+        // Create new row above/below target
+        const newRow: PanelGridRow = { itemKeys: [sourceKey], widths: [1] };
+        rows.splice(zone === 'top' ? tRow : tRow + 1, 0, newRow);
+      } else {
+        // left/right/center — insert as column in target's row
+        const row = rows[tRow];
+        const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
+          ? tCol + 1
+          : tCol;
+        row.itemKeys.splice(insertAt, 0, sourceKey);
+        row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
+      }
+
+      return rows;
     });
 
-    setDraggingGroupPath(null);
-    setGroupDropTarget(null);
-  }, [groupDropTarget]);
+    setDraggingGridKey(null);
+    setGridDropTarget(null);
+  }, [gridDropTarget]);
+
+  /* ---- External drop zone (cross-window drag) ---- */
+  const [showExternalDropZone, setShowExternalDropZone] = useState(false);
+  const externalDropTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (externalDragTopicId) {
+      // 200ms debounce before showing drop zone to avoid flicker
+      externalDropTimerRef.current = setTimeout(() => {
+        setShowExternalDropZone(true);
+      }, 200);
+    } else {
+      if (externalDropTimerRef.current) {
+        clearTimeout(externalDropTimerRef.current);
+        externalDropTimerRef.current = null;
+      }
+      setShowExternalDropZone(false);
+    }
+    return () => {
+      if (externalDropTimerRef.current) {
+        clearTimeout(externalDropTimerRef.current);
+      }
+    };
+  }, [externalDragTopicId]);
+
+  /* ---- Cross-panel-type topic reassignment ---- */
+  const handleAssignTopicToProject = useCallback((projectPath: string) => (topicId: string) => {
+    onUpdateTopic(topicId, { projectPath });
+  }, [onUpdateTopic]);
+
+  const handleRemoveTopicFromProject = useCallback((topicId: string) => {
+    // Setting projectPath to empty string removes the association
+    onUpdateTopic(topicId, { projectPath: '' });
+  }, [onUpdateTopic]);
 
   /* ---- empty state ---- */
-  if (gridItems.length === 0) {
+  if (naturalGridItems.length === 0) {
     return (
       <div
         ref={containerRef}
@@ -355,7 +521,7 @@ export function PanelGrid({
           emptyDragOver ? 'bg-primary/5 dark:bg-primary/10' : ''
         }`}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes('application/x-panel-id')) return;
+          if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
           e.preventDefault();
           setEmptyDragOver(true);
         }}
@@ -363,7 +529,7 @@ export function PanelGrid({
         onDrop={(e) => {
           e.preventDefault();
           setEmptyDragOver(false);
-          const id = e.dataTransfer.getData('application/x-panel-id');
+          const id = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
           if (id) onOpenPanelAt(id, 0);
         }}
       >
@@ -400,114 +566,175 @@ export function PanelGrid({
     );
   }
 
-  /* ---- render unified grid layout ---- */
+  /* ---- render multi-row grid layout ---- */
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-row min-h-0 overflow-auto relative"
-      onDragEnd={(e) => { handleDragEnd(e); handleGroupDragEnd(); }}
+      className="flex-1 flex flex-col min-h-0 overflow-auto relative"
+      onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); }}
     >
-      {gridItems.map((item, idx) => {
-        const width = groupWidths[idx] || (1 / Math.max(1, gridItems.length));
-        const groupIdx = item.groupIdx ?? -1;
-        const isDraggingThis = item.kind === 'project' && draggingGroupPath !== null && draggingGroupPath === item.projectPath;
-        const isDropLeft = item.kind === 'project' && groupDropTarget?.idx === groupIdx && groupDropTarget?.side === 'left';
-        const isDropRight = item.kind === 'project' && groupDropTarget?.idx === groupIdx && groupDropTarget?.side === 'right';
-
-        return (
-          <Fragment key={item.key}>
-            <div
-              className={`flex min-h-0 min-w-[200px] transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
-              style={{
-                flex: `${width} 1 0%`,
-                boxShadow: isDropLeft ? `inset 4px 0 0 0 var(--primary)` : isDropRight ? `inset -4px 0 0 0 var(--primary)` : undefined,
-              }}
-              onDragOver={item.kind === 'project' ? handleGroupDragOver(groupIdx) : undefined}
-              onDrop={item.kind === 'project' ? handleGroupDrop : undefined}
-            >
-              {/* Utility panel */}
-              {item.kind === 'utility' && (() => {
-                const panelType = parseUtilityPanelType(item.utilityId!);
-                if (!panelType) return null;
-                return (
-                  <div className="flex-1 min-h-0">
-                    <UtilityPanel
-                      type={panelType}
-                      isFocused={focusedPanelId === item.utilityId}
-                      onFocus={() => onFocusPanel(item.utilityId!)}
-                      onClose={() => onClosePanel(item.utilityId!)}
-                      onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
-                      onMessage={onWSMessage}
-                    />
-                  </div>
-                );
-              })()}
-
-              {/* Project window */}
-              {item.kind === 'project' && (
-                <ProjectWindow
-                  projectPath={item.projectPath!}
-                  topicIds={item.topicIds!}
-                  topics={topics}
-                  focusedPanelId={focusedPanelId}
-                  onFocusPanel={onFocusPanel}
-                  onClosePanel={onClosePanel}
-                  getSessionMessages={getSessionMessages}
-                  isSessionLoading={isSessionLoading}
-                  isSessionStreaming={isSessionStreaming}
-                  sendMessage={sendMessage}
-                  loadHistory={loadHistory}
-                  chatError={chatError}
-                  sendWS={sendWS}
-                  onWSMessage={onWSMessage}
-                  onUpdateTopic={onUpdateTopic}
-                  onOpenInFinder={handleOpenInFinder(item.projectPath!)}
-                  onGroupDragStart={handleGroupDragStart(item.projectPath!)}
-                  onCloseProject={onCloseProject ? () => onCloseProject(item.projectPath!) : undefined}
-                  pendingPane={pendingProjectPane && pendingProjectPane.projectPath === item.projectPath ? pendingProjectPane.type : undefined}
-                  onPendingPaneConsumed={onPendingProjectPaneConsumed}
-                  onNewChat={onNewChatInProject ? () => onNewChatInProject(item.projectPath!) : undefined}
-                />
-              )}
-
-              {/* Standalone chats (tabbed) */}
-              {item.kind === 'standalone' && (
-                <StandaloneChatGroup
-                  topicIds={item.topicIds!}
-                  topics={topics}
-                  focusedPanelId={focusedPanelId}
-                  onFocusPanel={onFocusPanel}
-                  onClosePanel={onClosePanel}
-                  onDragStart={handleDragStart}
-                  getSessionMessages={getSessionMessages}
-                  isSessionLoading={isSessionLoading}
-                  isSessionStreaming={isSessionStreaming}
-                  sendMessage={sendMessage}
-                  loadHistory={loadHistory}
-                  chatError={chatError}
-                  sendWS={sendWS}
-                  onWSMessage={onWSMessage}
-                  onUpdateTopic={onUpdateTopic}
-                  onToggleSidebar={onToggleSidebar}
-                  panelInitialTab={panelInitialTab}
-                  onPanelInitialTabConsumed={onPanelInitialTabConsumed}
-                  onNewChat={onNewChat}
-                />
-              )}
+      {/* External drop zone overlay (cross-window drag from another window) */}
+      {showExternalDropZone && externalDragTopicId && onExternalDrop && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-primary/5 backdrop-blur-[1px] cursor-copy"
+          onClick={onExternalDrop}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+          onDrop={(e) => { e.preventDefault(); onExternalDrop(); }}
+        >
+          <div className="bg-surface border-2 border-dashed border-primary rounded-xl px-8 py-6 text-center shadow-lg">
+            <div className="text-[32px] mb-2">{'\uD83D\uDCCC'}</div>
+            <div className="text-[15px] font-semibold text-primary mb-1">Drop here</div>
+            <div className="text-[12px] text-app-text-muted">
+              Move chat to this window
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* Divider between items */}
-            {idx < gridItems.length - 1 && (
-              <div
-                className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
-                onMouseDown={startHorizontalResize(0, idx, groupWidths)}
-              >
-                <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
-              </div>
-            )}
-          </Fragment>
-        );
-      })}
+      {gridRows.map((row, rowIdx) => (
+        <Fragment key={rowIdx}>
+          <div
+            className="flex flex-row min-h-0"
+            style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / gridRows.length} 1 0%` }}
+          >
+            {row.itemKeys.map((key, colIdx) => {
+              const item = itemMap.get(key);
+              if (!item) return null;
+
+              const width = row.widths[colIdx] ?? 1 / row.itemKeys.length;
+              const isDraggingThis = draggingGridKey === key;
+              const isTarget = gridDropTarget?.rowIdx === rowIdx && gridDropTarget?.colIdx === colIdx;
+              const zone = isTarget ? gridDropTarget!.zone : null;
+              const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
+
+              return (
+                <Fragment key={key}>
+                  <div
+                    className={`flex min-h-0 min-w-[200px] relative transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
+                    style={{
+                      flex: `${width} 1 0%`,
+                      boxShadow: zone === 'center'
+                        ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
+                        : undefined,
+                    }}
+                    onDragOver={handleGridItemDragOver(rowIdx, colIdx)}
+                    onDrop={handleGridItemDrop}
+                  >
+                    {/* Utility panel */}
+                    {item.kind === 'utility' && (() => {
+                      const panelType = parseUtilityPanelType(item.utilityId!);
+                      if (!panelType) return null;
+                      return (
+                        <div className="flex-1 min-h-0">
+                          <UtilityPanel
+                            type={panelType}
+                            isFocused={focusedPanelId === item.utilityId}
+                            onFocus={() => onFocusPanel(item.utilityId!)}
+                            onClose={() => onClosePanel(item.utilityId!)}
+                            onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
+                            onMessage={onWSMessage}
+                          />
+                        </div>
+                      );
+                    })()}
+
+                    {/* Project window */}
+                    {item.kind === 'project' && (
+                      <ProjectWindow
+                        projectPath={item.projectPath!}
+                        topicIds={item.topicIds!}
+                        topics={topics}
+                        focusedPanelId={focusedPanelId}
+                        onFocusPanel={onFocusPanel}
+                        onClosePanel={onClosePanel}
+                        getSessionMessages={getSessionMessages}
+                        isSessionLoading={isSessionLoading}
+                        isSessionStreaming={isSessionStreaming}
+                        sendMessage={sendMessage}
+                        loadHistory={loadHistory}
+                        chatError={chatError}
+                        sendWS={sendWS}
+                        onWSMessage={onWSMessage}
+                        onUpdateTopic={onUpdateTopic}
+                        onOpenInFinder={handleOpenInFinder(item.projectPath!)}
+                        onGroupDragStart={handleGridItemDragStart(item)}
+                        onCloseProject={onCloseProject ? () => onCloseProject(item.projectPath!) : undefined}
+                        pendingPane={pendingProjectPane && pendingProjectPane.projectPath === item.projectPath ? pendingProjectPane.type : undefined}
+                        onPendingPaneConsumed={onPendingProjectPaneConsumed}
+                        onNewChat={onNewChatInProject ? () => onNewChatInProject(item.projectPath!) : undefined}
+                        onAcceptTopicDrop={handleAssignTopicToProject(item.projectPath!)}
+                      />
+                    )}
+
+                    {/* Standalone chats (tabbed) */}
+                    {item.kind === 'standalone' && (
+                      <StandaloneChatGroup
+                        topicIds={item.topicIds!}
+                        topics={topics}
+                        focusedPanelId={focusedPanelId}
+                        onFocusPanel={onFocusPanel}
+                        onClosePanel={onClosePanel}
+                        onDragStart={handleDragStart}
+                        onGroupDragStart={handleGridItemDragStart(item)}
+                        getSessionMessages={getSessionMessages}
+                        isSessionLoading={isSessionLoading}
+                        isSessionStreaming={isSessionStreaming}
+                        sendMessage={sendMessage}
+                        loadHistory={loadHistory}
+                        chatError={chatError}
+                        sendWS={sendWS}
+                        onWSMessage={onWSMessage}
+                        onUpdateTopic={onUpdateTopic}
+                        onToggleSidebar={onToggleSidebar}
+                        panelInitialTab={panelInitialTab}
+                        onPanelInitialTabConsumed={onPanelInitialTabConsumed}
+                        onNewChat={onNewChat}
+                        onAcceptProjectTopicDrop={handleRemoveTopicFromProject}
+                      />
+                    )}
+
+                    {/* Edge drop zone overlay (top/bottom/left/right) */}
+                    {zone && zone !== 'center' && (
+                      <div
+                        className="absolute pointer-events-none z-30"
+                        style={{
+                          top: zone === 'bottom' ? '50%' : 0,
+                          bottom: zone === 'top' ? '50%' : 0,
+                          left: zone === 'right' ? '50%' : 0,
+                          right: zone === 'left' ? '50%' : 0,
+                          background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
+                          border: '2px dashed var(--primary)',
+                          borderRadius: '4px',
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Column divider (between items in a row) */}
+                  {colIdx < row.itemKeys.length - 1 && (
+                    <div
+                      className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+                      onMouseDown={startHorizontalResize(rowIdx, colIdx, row.widths)}
+                    >
+                      <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
+                    </div>
+                  )}
+                </Fragment>
+              );
+            })}
+          </div>
+
+          {/* Row divider (between rows) */}
+          {rowIdx < gridRows.length - 1 && (
+            <div
+              className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+              onMouseDown={startVerticalResize(rowIdx, gridRowHeights)}
+            >
+              <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
+            </div>
+          )}
+        </Fragment>
+      ))}
     </div>
   );
 }
