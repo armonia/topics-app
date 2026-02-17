@@ -307,6 +307,7 @@ export function useChat() {
   }, [handleStreamEvent]);
 
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: { planMode?: boolean }): Promise<boolean> => {
+    let streamStarted = false; // Track if server received the request (don't re-queue if true)
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
@@ -335,11 +336,15 @@ export function useChat() {
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
       if (options?.planMode) chatRequest.planMode = true;
+
       const stream = await chatApi.sendMessage(chatRequest);
 
       if (!stream) {
         throw new Error('No stream received');
       }
+
+      // Server received the request — do NOT re-queue on stream read errors
+      streamStarted = true;
 
       const reader = stream.getReader();
       const decoder = new TextDecoder();
@@ -457,9 +462,10 @@ export function useChat() {
     } catch (err) {
       console.error('Failed to send message:', err);
 
-      // If it's a network error, queue the message for later
+      // Only queue if the server never received the request (fetch itself failed).
+      // If streamStarted=true, the server already has the message — do NOT re-queue.
       const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
-      if (isNetworkError) {
+      if (isNetworkError && !streamStarted) {
         const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options };
         pushToOutboundQueue(queued);
         setPendingQueue(prev => [...prev, queued]);
@@ -626,7 +632,16 @@ export function useChat() {
     clearOutboundQueue();
     setPendingQueue([]);
 
+    // Discard stale queued messages (>30s old = likely from interrupted streams, not real offline)
+    const MAX_QUEUE_AGE_MS = 30_000;
+    const now = Date.now();
+
     for (const item of queue) {
+      const age = now - new Date(item.timestamp).getTime();
+      if (age > MAX_QUEUE_AGE_MS) {
+        console.log(`[useChat] Discarding stale queued message (${Math.round(age / 1000)}s old) for ${item.sessionKey}`);
+        continue;
+      }
       // Un-mark the queued user message
       setMessages(prev => {
         const sessionMessages = prev[item.sessionKey] || [];

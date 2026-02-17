@@ -80,6 +80,7 @@ export function ChatPane({
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
   useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus(), 50); }, [isFocused]);
 
+  // After first assistant response, call server auto-name for project path detection
   useEffect(() => {
     if (autoNameTriggered || currentStreaming) return;
     const aMsgs = currentMessages.filter(m => m.role === 'assistant' && m.content.trim() !== '');
@@ -90,7 +91,7 @@ export function ChatPane({
         if (r.suggestedProject && !topic.projectPath) {
           onUpdateTopic(topic.id, { projectPath: r.suggestedProject });
         }
-      }).catch(() => {});
+      }).catch((err) => console.warn('[AutoName] failed for topic', topic.id, err));
     }
   }, [currentMessages, currentStreaming, topic.id, topic.name, topic.projectPath, autoNameTriggered, onUpdateTopic]);
 
@@ -176,6 +177,19 @@ export function ChatPane({
       finalMessage = `[Context files]\n${parts.join('\n\n')}\n[/Context files]\n\n${finalMessage}`;
     }
     if (curReply) { const qt = curReply.content.length > 120 ? curReply.content.slice(0, 120) + '...' : curReply.content; finalMessage = qt.split('\n').map(l => `> ${l}`).join('\n') + '\n\n' + finalMessage; }
+
+    // Instant auto-name: set title from first message text immediately
+    if (finalMessage && currentMessages.length === 0 && (topic.name === 'New Chat' || topic.name.startsWith('New '))) {
+      const raw = message.trim().replace(/https?:\/\/\S+/g, '').replace(/[#*_`~\[\]()]/g, '').replace(/\s+/g, ' ').trim();
+      if (raw.length > 0) {
+        const words = raw.split(' ').filter(w => w.length > 0);
+        let autoTitle = words.slice(0, 5).join(' ');
+        if (autoTitle.length > 40) autoTitle = autoTitle.slice(0, 40).trim() + '…';
+        autoTitle = autoTitle.charAt(0).toUpperCase() + autoTitle.slice(1);
+        onUpdateTopic(topic.id, { name: autoTitle });
+      }
+    }
+
     if (finalMessage) await sendMessage(topic.sessionKey, finalMessage, planMode ? { planMode: true } : undefined);
   };
 
