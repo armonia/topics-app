@@ -404,7 +404,7 @@ export function PanelGrid({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-row min-h-0 overflow-auto relative px-1 pt-1"
+      className="flex-1 flex flex-row min-h-0 overflow-auto relative"
       onDragEnd={(e) => { handleDragEnd(e); handleGroupDragEnd(); }}
     >
       {gridItems.map((item, idx) => {

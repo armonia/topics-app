@@ -80,7 +80,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
   return (
     <div
-      className={className ?? "flex items-center bg-elevated flex-shrink-0 px-1 gap-0.5 overflow-x-auto"}
+      className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 px-1 gap-0.5 overflow-x-auto"}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes('application/x-pane-tab')) return;
         e.preventDefault();
@@ -99,8 +99,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
-            className={`group flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium transition-colors relative cursor-pointer select-none min-w-0 ${
-              isActive ? 'text-primary dark:text-primary-dark' : 'text-app-text-tertiary hover:text-app-text'
+            className={`group flex items-center gap-1.5 px-2.5 h-7 text-[11px] font-medium transition-all relative cursor-pointer select-none min-w-0 rounded-md ${
+              isActive
+                ? 'bg-white dark:bg-white/10 text-app-text shadow-[0_1px_3px_rgba(0,0,0,0.1),0_0_0_1px_rgba(0,0,0,0.06)]'
+                : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => onActivate(pane.id)}
             draggable={!!onReorderPanes}
@@ -123,7 +125,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             >
               <X size={10} />
             </button>
-            {isActive && <div className="absolute bottom-0 left-1 right-1 h-[2px] bg-primary dark:bg-primary-dark rounded-t" />}
             {showRightIndicator && (
               <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
             )}
@@ -133,7 +134,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
       {/* Add pane button — hidden when no menu items */}
       {hasMenuItems && (
-        <div className="relative" ref={menuRef}>
+        <div className="relative flex items-center" ref={menuRef}>
           <button
             ref={buttonRef}
             onClick={() => {
@@ -145,7 +146,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               }
               setShowAddMenu(!showAddMenu);
             }}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 ml-1"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.08] text-app-text-muted hover:text-app-text transition-colors flex-shrink-0"
             title="Add pane"
           >
             <Plus size={14} />

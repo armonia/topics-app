@@ -71,7 +71,7 @@ export function StandaloneChatGroup({
   // Tab bar rendered inline in ChatPanel's header (replaces icon/name/drag)
   const tabBar = (
     <PaneTabBar
-      className="flex items-stretch gap-0.5 overflow-x-auto min-w-0 h-full"
+      className="flex items-center gap-0.5 overflow-x-auto min-w-0"
       panes={panes}
       activePaneId={activeTopicId}
       onActivate={(paneId) => onFocusPanel(paneId)}
@@ -84,29 +84,27 @@ export function StandaloneChatGroup({
   );
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden rounded-lg border border-app-border">
-      <ChatPanel
-        topic={activeTopic}
-        isFocused={focusedPanelId === activeTopicId}
-        onFocus={() => onFocusPanel(activeTopicId!)}
-        onClose={() => onClosePanel(activeTopicId!)}
-        onDragStart={onDragStart(activeTopicId!)}
-        onToggleSidebar={onToggleSidebar}
-        isDragOver={false}
-        headerLeft={tabBar}
-        showCloseButton={false}
-        getSessionMessages={getSessionMessages}
-        isSessionLoading={isSessionLoading}
-        isSessionStreaming={isSessionStreaming}
-        sendMessage={sendMessage}
-        loadHistory={loadHistory}
-        chatError={chatError}
-        sendWS={sendWS}
-        onWSMessage={onWSMessage}
-        onUpdateTopic={onUpdateTopic}
-        initialTab={panelInitialTab?.[activeTopicId!]}
-        onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(activeTopicId!) : undefined}
-      />
-    </div>
+    <ChatPanel
+      topic={activeTopic}
+      isFocused={focusedPanelId === activeTopicId}
+      onFocus={() => onFocusPanel(activeTopicId!)}
+      onClose={() => onClosePanel(activeTopicId!)}
+      onDragStart={onDragStart(activeTopicId!)}
+      onToggleSidebar={onToggleSidebar}
+      isDragOver={false}
+      headerLeft={tabBar}
+      showCloseButton={false}
+      getSessionMessages={getSessionMessages}
+      isSessionLoading={isSessionLoading}
+      isSessionStreaming={isSessionStreaming}
+      sendMessage={sendMessage}
+      loadHistory={loadHistory}
+      chatError={chatError}
+      sendWS={sendWS}
+      onWSMessage={onWSMessage}
+      onUpdateTopic={onUpdateTopic}
+      initialTab={panelInitialTab?.[activeTopicId!]}
+      onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(activeTopicId!) : undefined}
+    />
   );
 }

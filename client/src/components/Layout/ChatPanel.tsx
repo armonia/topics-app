@@ -109,12 +109,12 @@ export function ChatPanel({
 
   return (
     <>
-      <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''} ${isFocused ? 'ring-1 ring-primary/30 ring-inset' : ''}`} onClick={onFocus}>
+      <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header */}
         <div className="flex items-center gap-1.5 px-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
           {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><Menu size={18} /></button>}
           {headerLeft ? (
-            <div className="flex items-stretch min-w-0 overflow-hidden app-no-drag self-stretch" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
+            <div className="flex items-center min-w-0 overflow-hidden app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
               <span className="text-[16px] leading-none flex items-center justify-center w-6 h-6 flex-shrink-0">{topic.icon}</span>
