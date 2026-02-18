@@ -30,6 +30,7 @@ interface TopicTreeProps {
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType) => void;
   onProjectClick?: (projectPath: string) => void;
+  isSessionStreaming?: (sessionKey: string) => boolean;
 }
 
 export function TopicTree({
@@ -50,6 +51,7 @@ export function TopicTree({
   onNewTopicInProject,
   onAddProjectPane,
   onProjectClick,
+  isSessionStreaming,
 }: TopicTreeProps) {
   const [showProjectsArchived, setShowProjectsArchived] = useState(false);
   const [showChatsArchived, setShowChatsArchived] = useState(false);
@@ -156,6 +158,7 @@ export function TopicTree({
           isOpen={isOpen}
           isFocused={isFocused}
           isPreview={previewPanelId === topic.id}
+          isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
           unreadCount={unread}
           onToggle={() => onToggleNode(topic.id)}
           onClick={(e) => onTopicClick(topic.id, e)}
@@ -353,6 +356,7 @@ export function TopicTree({
                               isOpen={openPanels.includes(topic.id)}
                               isFocused={focusedTopicId === topic.id}
                               isPreview={previewPanelId === topic.id}
+                              isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
                               unreadCount={unreadData[topic.id]?.unreadCount || 0}
                               onToggle={() => {}}
                               onClick={(e) => onTopicClick(topic.id, e)}

@@ -2,6 +2,7 @@ import { useCallback, memo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, FolderGit2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
+import { DND_TYPES } from '@/lib/dndTypes';
 
 interface TopicItemProps {
   topic: Topic;
@@ -13,6 +14,7 @@ interface TopicItemProps {
   isPreview?: boolean;
   isArchived?: boolean;
   isProject?: boolean;
+  isStreaming?: boolean;
   unreadCount?: number;
   onToggle: () => void;
   onClick: (e: React.MouseEvent) => void;
@@ -36,6 +38,7 @@ export const TopicItem = memo(function TopicItem({
   isPreview,
   isArchived,
   isProject,
+  isStreaming,
   unreadCount = 0,
   onToggle,
   onClick,
@@ -51,8 +54,8 @@ export const TopicItem = memo(function TopicItem({
   const paddingLeft = 8 + depth * 16;
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
-    e.dataTransfer.setData('application/x-panel-id', topic.id);
-    e.dataTransfer.setData('application/x-sidebar-reorder', topic.id);
+    e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
+    e.dataTransfer.setData(DND_TYPES.SIDEBAR_REORDER, topic.id);
     e.dataTransfer.effectAllowed = 'move';
 
     // Compact ghost
@@ -88,14 +91,14 @@ export const TopicItem = memo(function TopicItem({
       draggable={!isArchived}
       onDragStart={handleDragStart}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('application/x-sidebar-reorder')) {
+        if (e.dataTransfer.types.includes(DND_TYPES.SIDEBAR_REORDER)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
           onSidebarDragOver?.();
         }
       }}
       onDrop={(e) => {
-        if (e.dataTransfer.types.includes('application/x-sidebar-reorder')) {
+        if (e.dataTransfer.types.includes(DND_TYPES.SIDEBAR_REORDER)) {
           e.preventDefault();
           onSidebarDrop?.();
         }
@@ -184,6 +187,15 @@ export const TopicItem = memo(function TopicItem({
       )}>
         {topic.name}
       </span>
+
+      {/* Streaming indicator */}
+      {isStreaming && (
+        <span className="flex-shrink-0 flex items-center gap-[3px]" title="Generating...">
+          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
+          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }} />
+          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }} />
+        </span>
+      )}
 
       {/* Archive/Unarchive button - show on hover */}
       {onArchive && (
