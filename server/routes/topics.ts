@@ -794,8 +794,11 @@ Wait for the user to approve the plan before executing any changes.` };
         const offset = body?.offset || parseInt(urlParams.get('offset') || '0');
 
         const localMsgs = loadLocalMessages(sessionKey);
-        const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
         const activeStream = isStreaming(sessionKey);
+        // When streaming, keep ALL messages (including empty partials) — filtering them deletes from disk
+        const completeMsgs = activeStream
+          ? localMsgs
+          : localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
         let needsSave = completeMsgs.length !== localMsgs.length;
         if (!activeStream) { completeMsgs.forEach(m => { if (m.partial) { m.partial = false; needsSave = true; } }); }
         if (needsSave) saveLocalMessages(sessionKey, completeMsgs);
@@ -953,72 +956,60 @@ Wait for the user to approve the plan before executing any changes.` };
         const localMsgs = loadLocalMessages(topic.sessionKey);
         if (localMsgs.length < 2) return json({ error: "Not enough messages yet" }, 400);
 
-        // --- Local heuristic (instant, no LLM call) ---
-        const userMsg = localMsgs.find(m => m.role === 'user')?.content || '';
-        const cleaned = userMsg
-          .replace(/https?:\/\/\S+/g, '')
-          .replace(/[#*_`~\[\]()]/g, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-
-        let title = topic.name;
-        if (cleaned.length > 0) {
-          const words = cleaned.split(' ').filter(w => w.length > 0);
-          const titleWords = words.slice(0, 5).join(' ');
-          title = titleWords.length > 40 ? titleWords.slice(0, 40).trim() + '…' : titleWords;
-          title = title.charAt(0).toUpperCase() + title.slice(1);
-        }
-
-        // Pick emoji by keyword matching
-        const text = localMsgs.map(m => m.content).join(' ').toLowerCase();
-        const emojiMap: [RegExp, string][] = [
-          [/\bbug\b|fix|error|crash|debug/i, '🐛'],
-          [/\btest\b|testing|spec/i, '🧪'],
-          [/\bdeploy|release|ship|launch/i, '🚀'],
-          [/\bdesign|css|style|ui|layout/i, '🎨'],
-          [/\bapi|endpoint|route|server/i, '🔌'],
-          [/\bdatabase|sql|query|db\b/i, '🗄️'],
-          [/\bauth|login|password|session/i, '🔐'],
-          [/\brefactor|clean|reorgan/i, '♻️'],
-          [/\bperform|speed|optim|fast/i, '⚡'],
-          [/\bdoc|readme|comment/i, '📝'],
-          [/\bbuild|compil|bundle/i, '🏗️'],
-          [/\bconfig|setup|install/i, '⚙️'],
-          [/\bscherz|barzell|joke|ridere|divert/i, '😂'],
-          [/\bciao|hello|hi\b|salut/i, '👋'],
-          [/\baiut|help|assist/i, '🆘'],
-          [/\bimmagin|image|foto|photo|screenshot/i, '🖼️'],
-          [/\bvideo|film|stream/i, '🎬'],
-          [/\bmusic|song|audio/i, '🎵'],
-          [/\bmail|email/i, '📧'],
-        ];
-        let icon = '💬';
-        for (const [pattern, emoji] of emojiMap) {
-          if (pattern.test(text)) { icon = emoji; break; }
-        }
-
         // Detect project path from messages
         let suggestedProject: string | null = null;
         const detectedPath = detectProjectPathFromMessages(localMsgs);
         if (detectedPath && !topic.projectPath) suggestedProject = detectedPath;
 
-        // Apply immediately
-        if (title !== topic.name) {
+        if (suggestedProject) {
           const freshData = loadTopics();
           const freshTopic = freshData.topics[params.id];
-          if (freshTopic) {
-            freshTopic.name = title;
-            freshTopic.icon = icon;
-            freshTopic.slug = slugify(title);
+          if (freshTopic && !freshTopic.projectPath) {
+            freshTopic.projectPath = suggestedProject;
             freshTopic.updatedAt = new Date().toISOString();
-            if (!freshTopic.projectPath && suggestedProject) freshTopic.projectPath = suggestedProject;
             saveTopics(freshData);
             broadcastToAll({ type: "topic:updated", topic: freshTopic });
-            console.log(`[AutoName] Named "${title}" ${icon}`);
           }
         }
 
-        return json({ title, icon, suggestedProject });
+        // Background: ask AI for a smart title (single user message to avoid gateway session issues)
+        const topicId = params.id;
+        const recentMsgs = localMsgs.slice(-4);
+        const conversationSummary = recentMsgs.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 150)}`).join('\n');
+        (async () => {
+          try {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), 8000);
+            const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": `auto-name:${topicId}:${Date.now()}` },
+              body: JSON.stringify({ model: "openclaw", stream: false, messages: [
+                { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
+              ] }),
+              signal: controller.signal,
+            });
+            if (!resp.ok) return;
+            const result = await resp.json() as any;
+            const content = result?.choices?.[0]?.message?.content || "";
+            const jsonMatch = content.match(/\{[^}]+\}/);
+            if (!jsonMatch) { console.log("[AutoName] AI did not return JSON:", content.slice(0, 100)); return; }
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (!parsed.title) return;
+            const aiData = loadTopics();
+            const aiTopic = aiData.topics[topicId];
+            if (aiTopic) {
+              aiTopic.name = parsed.title;
+              if (parsed.icon) aiTopic.icon = parsed.icon;
+              aiTopic.slug = slugify(parsed.title);
+              aiTopic.updatedAt = new Date().toISOString();
+              saveTopics(aiData);
+              broadcastToAll({ type: "topic:updated", topic: aiTopic });
+              console.log(`[AutoName] AI: "${parsed.title}" ${parsed.icon || ''}`);
+            }
+          } catch (err) { console.warn("[AutoName] AI call failed:", err); }
+        })();
+
+        return json({ title: topic.name, icon: topic.icon, suggestedProject });
       }
     }
 
