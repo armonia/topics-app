@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi } from '../../lib/api';
+import { DND_TYPES } from '../../lib/dndTypes';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
@@ -42,7 +43,20 @@ export function ChatPane({
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
-  const [message, setMessage] = useState('');
+  const draftKey = `draft:${topic.id}`;
+  const queueKey = `msgQueue:${topic.id}`;
+
+  const [message, setMessage] = useState(() => {
+    try { return localStorage.getItem(draftKey) || ''; } catch { return ''; }
+  });
+  // Restore draft on topic switch
+  useEffect(() => {
+    try { setMessage(localStorage.getItem(`draft:${topic.id}`) || ''); } catch { setMessage(''); }
+  }, [topic.id]);
+  // Persist draft to localStorage
+  useEffect(() => {
+    try { if (message) localStorage.setItem(draftKey, message); else localStorage.removeItem(draftKey); } catch {}
+  }, [message, draftKey]);
   const [pendingImages, setPendingImages] = useState<{ dataUrl: string; mimeType: string }[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
@@ -54,7 +68,26 @@ export function ChatPane({
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
   const [_commandLoading, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const [messageQueue, setMessageQueue] = useState<string[]>(() => {
+    try { const s = localStorage.getItem(queueKey); return s ? JSON.parse(s) : []; } catch { return []; }
+  });
+  // Restore queue on topic switch
+  useEffect(() => {
+    try { const s = localStorage.getItem(`msgQueue:${topic.id}`); setMessageQueue(s ? JSON.parse(s) : []); } catch { setMessageQueue([]); }
+  }, [topic.id]);
+  // Persist queue to localStorage
+  useEffect(() => {
+    try { if (messageQueue.length) localStorage.setItem(queueKey, JSON.stringify(messageQueue)); else localStorage.removeItem(queueKey); } catch {}
+  }, [messageQueue, queueKey]);
+  // Cross-tab sync: listen for storage changes from other tabs
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === draftKey) setMessage(e.newValue || '');
+      if (e.key === queueKey) { try { setMessageQueue(e.newValue ? JSON.parse(e.newValue) : []); } catch {} }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, [draftKey, queueKey]);
   const [planMode, setPlanMode] = useState(() => {
     try { const stored = localStorage.getItem(`planMode:${topic.id}`); return stored === 'true'; } catch { return false; }
   });
@@ -204,9 +237,9 @@ export function ChatPane({
     if (others.length > 0) { e.preventDefault(); setPendingFiles(prev => [...prev, ...others]); }
   }, [resizeImageToBase64]);
 
-  const handleFileDragOver = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes('application/x-panel-id')) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(true); }, []);
+  const handleFileDragOver = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(true); }, []);
   const handleFileDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileDragOver(false); }, []);
-  const handleFileDrop = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes('application/x-panel-id')) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(false); const f = Array.from(e.dataTransfer.files); if (f.length > 0) setPendingFiles(prev => [...prev, ...f]); }, []);
+  const handleFileDrop = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(false); const f = Array.from(e.dataTransfer.files); if (f.length > 0) setPendingFiles(prev => [...prev, ...f]); }, []);
 
   const handleCopyMessage = (msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); };
   const handleTogglePin = async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); };

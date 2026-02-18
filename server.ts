@@ -195,6 +195,22 @@ const server = Bun.serve<WSData>({
       console.log(`[WS] Client connected: ${ws.data.id} (total: ${wsClients.size})`);
       ws.send(JSON.stringify({ type: "connected", clientId: ws.data.id }));
       ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
+
+      // Send catch-up for any active streams so new clients can join mid-stream
+      const topicsData = loadTopics();
+      for (const [sessionKey, stream] of activeStreams.entries()) {
+        let topicId: string | undefined;
+        for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
+        ws.send(JSON.stringify({
+          type: "stream:catchup",
+          sessionKey,
+          topicId,
+          messageId: stream.messageId,
+          content: stream.content,
+          thinking: stream.thinking,
+          isThinking: stream.isThinking,
+        }));
+      }
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();

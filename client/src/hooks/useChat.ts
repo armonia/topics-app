@@ -69,6 +69,8 @@ export function useChat() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
+  const localSSESessionsRef = useRef<Set<string>>(new Set());
 
   // Keep a ref to the latest messages to avoid stale closure in sendMessage
   const messagesRef = useRef(messages);
@@ -196,10 +198,14 @@ export function useChat() {
     });
   }, []);
 
-  // Handle WebSocket stream events
+  // Handle WebSocket stream events (cross-window sync)
   const handleStreamEvent = useCallback((event: WSMessage) => {
     const sessionKey = event.sessionKey;
     if (!sessionKey) return;
+
+    // Skip WS stream events for sessions with an active local SSE stream
+    // (sendMessage already processes these via HTTP response — avoid double content)
+    if (localSSESessionsRef.current.has(sessionKey)) return;
 
     switch (event.type) {
       case 'stream:start':
@@ -278,6 +284,42 @@ export function useChat() {
         updateLastMessage(sessionKey, { partial: false });
         break;
 
+      case 'stream:catchup':
+        // Full buffer catch-up from server on WS connect — set streaming state
+        // and create/update the assistant message with accumulated content
+        setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+        resetStreamTimeout(sessionKey);
+        if (event.isThinking) {
+          setThinking(prev => ({ ...prev, [sessionKey]: true }));
+        }
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          const lastMsg = sessionMessages[sessionMessages.length - 1];
+          if (lastMsg?.role === 'assistant' && lastMsg.partial) {
+            // Update existing partial message with full buffer content
+            const updated = [...sessionMessages];
+            updated[updated.length - 1] = {
+              ...lastMsg,
+              content: event.content || '',
+              thinking: event.thinking || undefined,
+            };
+            return { ...prev, [sessionKey]: updated };
+          }
+          // Create new partial assistant message with buffer content
+          return {
+            ...prev,
+            [sessionKey]: [...sessionMessages, {
+              id: event.messageId || generateMessageId(),
+              role: 'assistant' as const,
+              content: event.content || '',
+              thinking: event.thinking || undefined,
+              timestamp: new Date().toISOString(),
+              partial: true,
+            }],
+          };
+        });
+        break;
+
       case 'message:media':
         if (event.media?.length > 0) {
           updateLastMessage(sessionKey, {
@@ -308,6 +350,7 @@ export function useChat() {
 
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: { planMode?: boolean }): Promise<boolean> => {
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
+    localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
@@ -502,6 +545,7 @@ export function useChat() {
 
       return false;
     } finally {
+      localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
