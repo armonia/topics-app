@@ -28,6 +28,9 @@ interface ChatPanelProps {
   headerLeft?: React.ReactNode;
   /** Hide the close button in header (useful when tabs already have close) */
   showCloseButton?: boolean;
+  /** External toggle for context inspector (from tab ring click) */
+  contextOpen?: boolean;
+  onToggleContext?: () => void;
 }
 
 export function ChatPanel({
@@ -35,14 +38,20 @@ export function ChatPanel({
   getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
+  contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
   const [showSettings, setShowSettings] = useState(false);
-  const [showContext, setShowContext] = useState(() => {
+  const [showContextInternal, setShowContextInternal] = useState(() => {
     try { return localStorage.getItem(CONTEXT_INSPECTOR_KEY) === 'true'; } catch { return false; }
   });
+  // Use external state if provided, otherwise internal
+  const showContext = externalContextOpen !== undefined ? externalContextOpen : showContextInternal;
+  const setShowContext = externalToggleContext
+    ? (_v: boolean | ((prev: boolean) => boolean)) => externalToggleContext()
+    : setShowContextInternal;
   const [activeTab, setActiveTab] = useState<PanelTab>(initialTab || (topic.name === 'Terminal' ? 'terminal' : 'chat'));
 
   // Persist context inspector state
@@ -62,8 +71,8 @@ export function ChatPanel({
   const [commandLoading, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Lightweight budget % for the header button
-  const { budgetPercent } = useContextInspector(topic.id);
+  // Keep hook alive for potential inspector use
+  useContextInspector(topic.id);
 
   const currentMessages = getSessionMessages(topic.sessionKey);
 
@@ -89,10 +98,6 @@ export function ChatPanel({
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
-  // Budget indicator colors
-  const isCritical = budgetPercent > 90;
-  const isWarning = budgetPercent > 70;
-  const budgetColor = isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-primary';
 
   // Standalone tabs: show browser/terminal if topic has a project OR if opened as terminal
   const isTerminalTopic = activeTab === 'terminal' || topic.name === 'Terminal';
@@ -111,10 +116,10 @@ export function ChatPanel({
     <>
       <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header */}
-        <div className="flex items-center gap-1.5 px-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+        <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
           {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><Menu size={18} /></button>}
           {headerLeft ? (
-            <div className="flex items-center min-w-0 overflow-hidden app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
+            <div className="flex items-center min-w-0 app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
               <span className="text-[16px] leading-none flex items-center justify-center w-6 h-6 flex-shrink-0">{topic.icon}</span>
@@ -125,28 +130,29 @@ export function ChatPanel({
             </div>
           )}
           <div className="flex-1" />
-          {/* Context Inspector button — replaces ContextPieChart + Brain */}
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowContext(!showContext); }}
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors app-no-drag ${
-              showContext
-                ? 'bg-primary/10 text-primary'
-                : 'hover:bg-app-hover text-app-text-tertiary hover:text-app-text'
-            }`}
-            title="Context Inspector"
-            aria-label="Context Inspector"
-          >
-            <Layers size={13} />
-            {budgetPercent > 0 && (
-              <span className={`text-[10px] font-semibold tabular-nums leading-none ${budgetColor}`}>
-                {budgetPercent}%
-              </span>
-            )}
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
-          {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
-          {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag" title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
-          {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={13} /></button>}
+          {/* Context Inspector toggle — hidden when headerLeft has rings */}
+          {!headerLeft && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowContext(!showContext); }}
+              className={`w-7 h-7 flex items-center justify-center rounded transition-colors app-no-drag ${
+                showContext
+                  ? 'bg-primary/10 text-primary'
+                  : 'hover:bg-app-hover text-app-text-tertiary hover:text-app-text'
+              }`}
+              title="Context Inspector"
+              aria-label="Context Inspector"
+            >
+              <Layers size={13} />
+            </button>
+          )}
+          {!headerLeft && (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
+              {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
+              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag" title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
+              {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={13} /></button>}
+            </>
+          )}
           {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Close panel" aria-label="Close panel"><X size={14} strokeWidth={1.5} /></button>}
         </div>
 

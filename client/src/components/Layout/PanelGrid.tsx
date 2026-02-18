@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow } from '../../types';
+import { X, AlertTriangle } from 'lucide-react';
 import { ProjectWindow } from './ProjectWindow';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { getProjectName, hashToColor } from './ProjectHeader';
@@ -156,6 +157,28 @@ export function PanelGrid({
     }));
   }, [groupsByProject]);
 
+  /* ---- Solo topic IDs (topics placed independently in the grid) ---- */
+  const [soloTopicIds, setSoloTopicIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.soloTopicIds)) return parsed.soloTopicIds;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Cleanup: remove soloTopicIds for topics no longer in standalone (null-project) group
+  useEffect(() => {
+    const standaloneGroup = groups.find(g => g.projectPath === null);
+    const standaloneSet = new Set(standaloneGroup?.panels || []);
+    setSoloTopicIds(prev => {
+      const filtered = prev.filter(id => standaloneSet.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [groups]);
+
   /* ---- Build natural grid items (unordered) ---- */
   const naturalGridItems = useMemo<GridItem[]>(() => {
     const items: GridItem[] = [];
@@ -169,12 +192,22 @@ export function PanelGrid({
       if (group.projectPath) {
         items.push({ kind: 'project', key: `proj:${group.projectPath}`, projectPath: group.projectPath, topicIds: group.panels, groupIdx: i });
       } else if (group.panels.length > 0) {
-        items.push({ kind: 'standalone', key: 'standalone', topicIds: group.panels, groupIdx: i });
+        // Split into regular standalone group and solo (independently placed) items
+        const soloSet = new Set(soloTopicIds);
+        const regularPanels = group.panels.filter(id => !soloSet.has(id));
+        if (regularPanels.length > 0) {
+          items.push({ kind: 'standalone', key: 'standalone', topicIds: regularPanels, groupIdx: i });
+        }
+        for (const id of group.panels) {
+          if (soloSet.has(id)) {
+            items.push({ kind: 'standalone', key: `solo:${id}`, topicIds: [id], groupIdx: i });
+          }
+        }
       }
     }
 
     return items;
-  }, [utilityPanelIds, groups]);
+  }, [utilityPanelIds, groups, soloTopicIds]);
 
   /* ---- Item lookup map ---- */
   const itemMap = useMemo(() => {
@@ -262,9 +295,9 @@ export function PanelGrid({
   // Persist layout to localStorage
   useEffect(() => {
     if (gridRows.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ gridRows, gridRowHeights }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ gridRows, gridRowHeights, soloTopicIds }));
     }
-  }, [gridRows, gridRowHeights]);
+  }, [gridRows, gridRowHeights, soloTopicIds]);
 
   /* ---- Resize via useGridResize ---- */
   const resizeCallbacks = useMemo(() => ({
@@ -344,6 +377,18 @@ export function PanelGrid({
     zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
     centerSide?: 'left' | 'right';
   } | null>(null);
+  // Ref mirror: updated synchronously so the drop handler always has the latest value
+  // (React state may not be committed yet when drop fires immediately after dragover)
+  const gridDropTargetRef = useRef(gridDropTarget);
+  gridDropTargetRef.current = gridDropTarget;
+
+  // Pending project-detach confirmation dialog
+  const [pendingDetach, setPendingDetach] = useState<{
+    topicId: string;
+    topicName: string;
+    projectName: string;
+    gridTarget: typeof gridDropTarget;
+  } | null>(null);
 
   const handleGridItemDragStart = useCallback((item: GridItem) => (e: React.DragEvent) => {
     setDraggingGridKey(item.key);
@@ -383,10 +428,12 @@ export function PanelGrid({
     requestAnimationFrame(() => document.body.removeChild(ghost));
   }, []);
 
-  const handleGridItemDragOver = useCallback((rowIdx: number, colIdx: number) => (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
-    e.preventDefault();
-    e.stopPropagation();
+  // Capture phase: fires BEFORE children, so we can intercept edge drags
+  // even when ProjectWindow/GroupLayout/StandaloneChatGroup consume bubble-phase events
+  const handleGridItemDragOverCapture = useCallback((rowIdx: number, colIdx: number) => (e: React.DragEvent) => {
+    const isGridDrag = e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM);
+    const isTabDrag = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB);
+    if (!isGridDrag && !isTabDrag) return;
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -405,33 +452,135 @@ export function PanelGrid({
       centerSide = (x / rect.width) < 0.5 ? 'left' : 'right';
     }
 
-    setGridDropTarget({ rowIdx, colIdx, zone, centerSide });
+    // For PANE_TAB drags at center: let children handle (tab reorder, project drops)
+    if (isTabDrag && !isGridDrag && zone === 'center') {
+      setGridDropTarget(null);
+      gridDropTargetRef.current = null;
+      return;
+    }
+
+    // Edge zone (or any GRID_ITEM drag): handle at grid level
+    e.preventDefault();
+    e.stopPropagation(); // Prevent children from also handling this edge drag
+    const target = { rowIdx, colIdx, zone, centerSide };
+    setGridDropTarget(target);
+    gridDropTargetRef.current = target; // sync update for immediate drop access
   }, []);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
     setGridDropTarget(null);
+    gridDropTargetRef.current = null;
   }, []);
 
-  const handleGridItemDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const sourceKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
-    if (!sourceKey || !gridDropTarget) return;
+  const handleGridItemDropCapture = useCallback((e: React.DragEvent) => {
+    // Read from ref for synchronous access (state may lag behind after dragover)
+    const dropTarget = gridDropTargetRef.current;
+    if (!dropTarget) return;
 
-    const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = gridDropTarget;
+    let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
+    const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+    const sourceTopicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
+
+    // For PANE_TAB center drops: let children handle
+    if (!effectiveKey && sourcePaneTab && dropTarget.zone === 'center') return;
+
+    e.preventDefault();
+    e.stopPropagation(); // Prevent children from also handling this drop
+
+    // Tab drag → create a solo standalone item at the target position
+    if (!effectiveKey && sourcePaneTab && sourceTopicId) {
+      const soloKey = `solo:${sourceTopicId}`;
+
+      if (itemMap.has(soloKey)) {
+        // Already a solo item — reorder via the grid path below
+        effectiveKey = soloKey;
+      } else {
+        const topic = topics[sourceTopicId];
+
+        // If topic belongs to a project, show confirmation dialog
+        if (topic?.projectPath) {
+          setPendingDetach({
+            topicId: sourceTopicId,
+            topicName: topic.name || 'Chat',
+            projectName: getProjectName(topic.projectPath),
+            gridTarget: { ...dropTarget },
+          });
+          setDraggingGridKey(null);
+          setGridDropTarget(null);
+          gridDropTargetRef.current = null;
+          return;
+        }
+
+        // Standalone topic: just make it solo
+        setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
+
+        const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
+        setGridRows(prev => {
+          const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
+          if (!targetKey) return prev;
+
+          let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+
+          // Safety: remove soloKey if already present
+          for (const row of rows) {
+            const idx = row.itemKeys.indexOf(soloKey);
+            if (idx >= 0) {
+              row.itemKeys.splice(idx, 1);
+              row.widths.splice(idx, 1);
+              if (row.itemKeys.length > 0) {
+                const total = row.widths.reduce((s, w) => s + w, 0);
+                row.widths = row.widths.map(w => w / total);
+              }
+            }
+          }
+          rows = rows.filter(r => r.itemKeys.length > 0);
+
+          let tRow = -1, tCol = -1;
+          for (let r = 0; r < rows.length; r++) {
+            const c = rows[r].itemKeys.indexOf(targetKey);
+            if (c >= 0) { tRow = r; tCol = c; break; }
+          }
+          if (tRow === -1) return rows;
+
+          if (zone === 'top' || zone === 'bottom') {
+            const newRow: PanelGridRow = { itemKeys: [soloKey], widths: [1] };
+            rows.splice(zone === 'top' ? tRow : tRow + 1, 0, newRow);
+          } else {
+            const row = rows[tRow];
+            const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
+              ? tCol + 1
+              : tCol;
+            row.itemKeys.splice(insertAt, 0, soloKey);
+            row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
+          }
+
+          return rows;
+        });
+
+        setDraggingGridKey(null);
+        setGridDropTarget(null);
+        return;
+      }
+    }
+
+    // GRID_ITEM drag (or existing solo item reorder) — reorder in the grid
+    if (!effectiveKey) return;
+
+    const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
 
     setGridRows(prev => {
       // Find source position
       let srcRow = -1, srcCol = -1;
       for (let r = 0; r < prev.length; r++) {
-        const c = prev[r].itemKeys.indexOf(sourceKey);
+        const c = prev[r].itemKeys.indexOf(effectiveKey);
         if (c >= 0) { srcRow = r; srcCol = c; break; }
       }
       if (srcRow === -1) return prev;
 
       // Find target key
       const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
-      if (!targetKey || sourceKey === targetKey) return prev;
+      if (!targetKey || effectiveKey === targetKey) return prev;
 
       // Deep copy rows
       let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
@@ -459,7 +608,7 @@ export function PanelGrid({
       // Insert source based on zone
       if (zone === 'top' || zone === 'bottom') {
         // Create new row above/below target
-        const newRow: PanelGridRow = { itemKeys: [sourceKey], widths: [1] };
+        const newRow: PanelGridRow = { itemKeys: [effectiveKey], widths: [1] };
         rows.splice(zone === 'top' ? tRow : tRow + 1, 0, newRow);
       } else {
         // left/right/center — insert as column in target's row
@@ -467,7 +616,7 @@ export function PanelGrid({
         const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
           ? tCol + 1
           : tCol;
-        row.itemKeys.splice(insertAt, 0, sourceKey);
+        row.itemKeys.splice(insertAt, 0, effectiveKey);
         row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
       }
 
@@ -476,7 +625,62 @@ export function PanelGrid({
 
     setDraggingGridKey(null);
     setGridDropTarget(null);
-  }, [gridDropTarget]);
+    gridDropTargetRef.current = null;
+  }, [itemMap, topics, onUpdateTopic]);
+
+  /* ---- Detach confirmation handlers ---- */
+  const executeSoloPlacement = useCallback((topicId: string, target: typeof gridDropTarget) => {
+    if (!target) return;
+    const soloKey = `solo:${topicId}`;
+    onUpdateTopic(topicId, { projectPath: '' });
+    setSoloTopicIds(prev => prev.includes(topicId) ? prev : [...prev, topicId]);
+
+    const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = target;
+    setGridRows(prev => {
+      const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
+      if (!targetKey) return prev;
+
+      let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+      for (const row of rows) {
+        const idx = row.itemKeys.indexOf(soloKey);
+        if (idx >= 0) { row.itemKeys.splice(idx, 1); row.widths.splice(idx, 1); }
+      }
+      rows = rows.filter(r => r.itemKeys.length > 0);
+
+      let tRow = -1, tCol = -1;
+      for (let r = 0; r < rows.length; r++) {
+        const c = rows[r].itemKeys.indexOf(targetKey);
+        if (c >= 0) { tRow = r; tCol = c; break; }
+      }
+      if (tRow === -1) return rows;
+
+      if (zone === 'top' || zone === 'bottom') {
+        rows.splice(zone === 'top' ? tRow : tRow + 1, 0, { itemKeys: [soloKey], widths: [1] });
+      } else {
+        const row = rows[tRow];
+        const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right')) ? tCol + 1 : tCol;
+        row.itemKeys.splice(insertAt, 0, soloKey);
+        row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
+      }
+      return rows;
+    });
+  }, [onUpdateTopic]);
+
+  const handleConfirmDetach = useCallback(() => {
+    if (!pendingDetach) return;
+    if (pendingDetach.gridTarget) {
+      // Edge-drop: place as solo item at the specified grid position
+      executeSoloPlacement(pendingDetach.topicId, pendingDetach.gridTarget);
+    } else {
+      // Center-drop onto standalone group: just clear projectPath
+      onUpdateTopic(pendingDetach.topicId, { projectPath: '' });
+    }
+    setPendingDetach(null);
+  }, [pendingDetach, executeSoloPlacement, onUpdateTopic]);
+
+  const handleCancelDetach = useCallback(() => {
+    setPendingDetach(null);
+  }, []);
 
   /* ---- External drop zone (cross-window drag) ---- */
   const [showExternalDropZone, setShowExternalDropZone] = useState(false);
@@ -508,9 +712,20 @@ export function PanelGrid({
   }, [onUpdateTopic]);
 
   const handleRemoveTopicFromProject = useCallback((topicId: string) => {
-    // Setting projectPath to empty string removes the association
+    const topic = topics[topicId];
+    // If topic belongs to a project, show confirmation dialog
+    if (topic?.projectPath) {
+      setPendingDetach({
+        topicId,
+        topicName: topic.name || 'Chat',
+        projectName: getProjectName(topic.projectPath),
+        gridTarget: null, // No grid placement needed — stays in standalone group
+      });
+      return;
+    }
+    // No project association, just clear
     onUpdateTopic(topicId, { projectPath: '' });
-  }, [onUpdateTopic]);
+  }, [onUpdateTopic, topics]);
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
@@ -617,8 +832,8 @@ export function PanelGrid({
                         ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
                         : undefined,
                     }}
-                    onDragOver={handleGridItemDragOver(rowIdx, colIdx)}
-                    onDrop={handleGridItemDrop}
+                    onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
+                    onDropCapture={handleGridItemDropCapture}
                   >
                     {/* Utility panel */}
                     {item.kind === 'utility' && (() => {
@@ -735,6 +950,46 @@ export function PanelGrid({
           )}
         </Fragment>
       ))}
+
+      {/* Detach from project confirmation dialog */}
+      {pendingDetach && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={handleCancelDetach}>
+          <div
+            className="bg-surface dark:bg-app-panel rounded-lg shadow-xl w-[400px] flex flex-col border border-app-border-input"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} className="text-amber-500" />
+                <span className="text-[14px] font-semibold text-app-text-heading">Remove from project?</span>
+              </div>
+              <button onClick={handleCancelDetach} className="p-1 rounded hover:bg-app-hover text-app-text-tertiary">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-4 py-4">
+              <p className="text-[13px] text-app-text leading-relaxed">
+                <strong>{pendingDetach.topicName}</strong> belongs to project <strong>{pendingDetach.projectName}</strong>.
+                Moving it out will remove it from the project and it will lose access to project files, git, and tools.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-app-border">
+              <button
+                onClick={handleCancelDetach}
+                className="px-3 py-1.5 text-[12px] font-medium rounded-md border border-app-border text-app-text hover:bg-app-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDetach}
+                className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+              >
+                Remove from project
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

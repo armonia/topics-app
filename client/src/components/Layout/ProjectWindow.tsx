@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { Layers } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PaneGroup, PaneGroupType, GroupLayoutRow } from '../../types';
-import { ProjectHeader, getProjectName, hashToColor } from './ProjectHeader';
+import { ProjectHeader, getProjectName } from './ProjectHeader';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
 import { createPaneId, createGroupId, PANE_CONFIG } from '../../lib/paneConfig';
-import { useContextInspector } from '../../hooks/useContextInspector';
+import { DND_TYPES } from '../../lib/dndTypes';
+import { useMultiContextPercent } from '../../hooks/useContextInspector';
 
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
@@ -136,6 +136,8 @@ interface ProjectWindowProps {
   onPendingPaneConsumed?: () => void;
   // Create new chat in this project
   onNewChat?: () => void;
+  // Accept topic drop from standalone (cross-panel-type)
+  onAcceptTopicDrop?: (topicId: string) => void;
 }
 
 export function ProjectWindow({
@@ -144,6 +146,7 @@ export function ProjectWindow({
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
+  onAcceptTopicDrop,
 }: ProjectWindowProps) {
   // Load persisted state
   const persisted = useRef(loadPersistedState(projectPath));
@@ -164,7 +167,29 @@ export function ProjectWindow({
   const focusedPane = focusedGroup ? panes.find(p => p.id === focusedGroup.activePaneId) : null;
   const activeTopicId = focusedPane?.type === 'chat' ? focusedPane.topicId || null : null;
   const activeTopic = activeTopicId ? topics[activeTopicId] : null;
-  const { budgetPercent } = useContextInspector(activeTopicId);
+  // Build paneId → topicId map for context rings on chat tabs
+  const paneToTopicMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of panes) {
+      if (p.type === 'chat' && p.topicId) map[p.id] = p.topicId;
+    }
+    return map;
+  }, [panes]);
+  const contextPercent = useMultiContextPercent(paneToTopicMap);
+
+  // Build set of pane IDs that are currently streaming
+  const streamingPaneIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of panes) {
+      if (p.type === 'chat' && p.topicId) {
+        const topic = topics[p.topicId];
+        if (topic && isSessionStreaming(topic.sessionKey)) {
+          ids.add(p.id);
+        }
+      }
+    }
+    return ids;
+  }, [panes, topics, isSessionStreaming]);
 
   // Persist context inspector state
   useEffect(() => {
@@ -501,6 +526,107 @@ export function ProjectWindow({
     ));
   }, []);
 
+  // Move a pane tab from one group to another (cross-group tab drag)
+  const handleMovePaneBetweenGroups = useCallback((sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => {
+    setGroups(prev => {
+      const sourceGroup = prev.find(g => g.id === sourceGroupId);
+      const targetGroup = prev.find(g => g.id === targetGroupId);
+      if (!sourceGroup || !targetGroup) return prev;
+      if (!sourceGroup.paneIds.includes(paneId)) return prev;
+
+      return prev.map(g => {
+        if (g.id === sourceGroupId) {
+          const remaining = g.paneIds.filter(id => id !== paneId);
+          if (remaining.length === 0) return g; // will be cleaned by sync
+          const newActive = g.activePaneId === paneId
+            ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
+            : g.activePaneId;
+          return { ...g, paneIds: remaining, activePaneId: newActive };
+        }
+        if (g.id === targetGroupId) {
+          const newPaneIds = [...g.paneIds];
+          newPaneIds.splice(Math.max(0, Math.min(insertIdx, newPaneIds.length)), 0, paneId);
+          return { ...g, paneIds: newPaneIds, activePaneId: paneId };
+        }
+        return g;
+      }).filter(g => g.paneIds.length > 0);
+    });
+    setFocusedGroupId(targetGroupId);
+  }, []);
+
+  // Split a group by dropping a pane on an edge (creates new row or column)
+  const handleSplitGroup = useCallback((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => {
+    // Create a new group containing just the dragged pane
+    const pane = panes.find(p => p.id === paneId);
+    if (!pane) return;
+
+    const newGroupId = createGroupId();
+    const newGroup: PaneGroup = {
+      id: newGroupId,
+      paneIds: [paneId],
+      activePaneId: paneId,
+      type: paneTypeToGroupType(pane.type),
+    };
+
+    // Remove pane from source group
+    setGroups(prev => {
+      const updated = prev.map(g => {
+        if (g.id === sourceGroupId) {
+          const remaining = g.paneIds.filter(id => id !== paneId);
+          if (remaining.length === 0) return g;
+          const newActive = g.activePaneId === paneId
+            ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
+            : g.activePaneId;
+          return { ...g, paneIds: remaining, activePaneId: newActive };
+        }
+        return g;
+      }).filter(g => g.paneIds.length > 0);
+
+      return [...updated, newGroup];
+    });
+
+    // Update rows to place the new group
+    setRows(prev => {
+      if (edge === 'left' || edge === 'right') {
+        // Insert new group in the same row as target, left or right of it
+        return prev.map(row => {
+          const targetIdx = row.groupIds.indexOf(targetGroupId);
+          if (targetIdx === -1) return row;
+
+          const newGroupIds = [...row.groupIds];
+          const insertAt = edge === 'left' ? targetIdx : targetIdx + 1;
+          newGroupIds.splice(insertAt, 0, newGroupId);
+          const newWidths = newGroupIds.map(() => 1 / newGroupIds.length);
+          return { groupIds: newGroupIds, widths: newWidths };
+        });
+      } else {
+        // top/bottom: create a new row above or below the row containing the target
+        const targetRowIdx = prev.findIndex(row => row.groupIds.includes(targetGroupId));
+        if (targetRowIdx === -1) return prev;
+
+        const newRow = { groupIds: [newGroupId], widths: [1] };
+        const newRows = [...prev];
+        const insertAt = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
+        newRows.splice(insertAt, 0, newRow);
+        return newRows;
+      }
+    });
+
+    setFocusedGroupId(newGroupId);
+  }, [panes]);
+
+  // Reorder rows within the group layout
+  const handleReorderRows = useCallback((newRowOrder: number[]) => {
+    setRows(prev => {
+      const newRows = newRowOrder.map(i => prev[i]).filter(Boolean);
+      return newRows;
+    });
+    setRowHeights(prev => {
+      const newHeights = newRowOrder.map(i => prev[i]).filter(h => h !== undefined);
+      return newHeights;
+    });
+  }, []);
+
   // Available types for the "+" menu, based on group type
   const availableTypesForGroup = useCallback((groupType: PaneGroupType): PaneType[] => {
     const types: PaneType[] = ['browser', 'terminal', 'git', 'activity', 'journal', 'agents'];
@@ -597,12 +723,41 @@ export function ProjectWindow({
     handleOpenFile,
   ]);
 
-  const projectColor = hashToColor(projectPath);
+  // Cross-panel-type drop: accept standalone chat drops
+  const [panelDragOver, setPanelDragOver] = useState(false);
+
+  const handleProjectDragOver = useCallback((e: React.DragEvent) => {
+    if (!onAcceptTopicDrop) return;
+    if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
+    // Don't accept if it's a grid item drag (handled by PanelGrid)
+    if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
+    e.preventDefault();
+    setPanelDragOver(true);
+  }, [onAcceptTopicDrop]);
+
+  const handleProjectDragLeave = useCallback(() => {
+    setPanelDragOver(false);
+  }, []);
+
+  const handleProjectDrop = useCallback((e: React.DragEvent) => {
+    if (!onAcceptTopicDrop) return;
+    const topicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
+    if (!topicId) return;
+    // Don't accept topics already in this project
+    if (topicIds.includes(topicId)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setPanelDragOver(false);
+    onAcceptTopicDrop(topicId);
+  }, [onAcceptTopicDrop, topicIds]);
 
   return (
     <div
-      className="flex flex-col min-h-0 min-w-[200px] rounded-lg overflow-hidden"
-      style={{ border: `2px solid ${projectColor}`, flex: 1 }}
+      className={`flex flex-col min-h-0 min-w-[200px] overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+      style={{ flex: 1 }}
+      onDragOver={handleProjectDragOver}
+      onDragLeave={handleProjectDragLeave}
+      onDrop={handleProjectDrop}
     >
       {/* Project header — draggable for group reordering */}
       <div
@@ -629,27 +784,6 @@ export function ProjectWindow({
           onWSMessage={onWSMessage}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-          {/* Context Inspector toggle (floated top-right) */}
-          {activeTopic && (
-            <div className="flex justify-end px-1 py-0.5 bg-elevated border-b border-app-border flex-shrink-0">
-              <button
-                onClick={() => setShowContext(!showContext)}
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors flex-shrink-0 ${
-                  showContext
-                    ? 'bg-primary/10 text-primary'
-                    : 'hover:bg-app-hover text-app-text-tertiary hover:text-app-text'
-                }`}
-                title="Context Inspector"
-              >
-                <Layers size={12} />
-                {budgetPercent > 0 && (
-                  <span className={`text-[10px] font-semibold tabular-nums leading-none ${budgetPercent > 90 ? 'text-red-500' : budgetPercent > 70 ? 'text-amber-500' : 'text-primary'}`}>
-                    {budgetPercent}%
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
           <GroupLayout
             panes={panes}
             groups={groups}
@@ -661,10 +795,16 @@ export function ProjectWindow({
             onAddPaneToGroup={handleAddPaneToGroup}
             onNewChatInGroup={onNewChat ? handleNewChatInGroup : undefined}
             onReorderGroupPanes={handleReorderGroupPanes}
+            onMovePaneBetweenGroups={handleMovePaneBetweenGroups}
+            onSplitGroup={handleSplitGroup}
+            onReorderRows={handleReorderRows}
             onUpdateRows={setRows}
             onUpdateRowHeights={setRowHeights}
             renderPane={renderPane}
             availableTypesForGroup={availableTypesForGroup}
+            contextPercent={contextPercent}
+            onContextRingClick={() => setShowContext(prev => !prev)}
+            streamingPaneIds={streamingPaneIds}
           />
         </div>
         {showContext && activeTopic && (

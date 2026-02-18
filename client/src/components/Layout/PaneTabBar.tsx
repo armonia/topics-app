@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode } from 'lucide-react';
+import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { PANE_CONFIG } from '../../lib/paneConfig';
 import { getFileIcon } from '../../lib/fileIcons';
+import { DND_TYPES } from '../../lib/dndTypes';
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode,
@@ -16,18 +17,60 @@ interface PaneTabBarProps {
   onAddPane: (type: PaneType) => void;
   availableTypes: PaneType[];
   groupType?: PaneGroupType;
+  groupId?: string;
   onNewChat?: () => void;
   onReorderPanes?: (newPaneIds: string[]) => void;
+  onCrossGroupDrop?: (sourcePaneId: string, sourceGroupId: string, insertIdx: number) => void;
   className?: string;
+  contextPercent?: Record<string, number>;
+  onContextRingClick?: (paneId: string) => void;
+  onCloseOthers?: (paneId: string) => void;
+  onDetach?: (paneId: string) => void;
+  onRename?: (paneId: string) => void;
+  onSettings?: (paneId: string) => void;
+  onPopOut?: (paneId: string) => void;
+  streamingPaneIds?: Set<string>;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, onNewChat, onReorderPanes, className }: PaneTabBarProps) {
+// Mini context ring SVG for chat tabs
+function ContextRing({ percent, onClick }: { percent: number; onClick?: () => void }) {
+  const r = 5;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (percent / 100) * circumference;
+  const isCritical = percent > 90;
+  const isWarning = percent > 70;
+  const color = isCritical ? '#ef4444' : isWarning ? '#f59e0b' : '#3b82f6';
+  const bgColor = isCritical ? 'rgba(239,68,68,0.2)' : isWarning ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.2)';
+
+  return (
+    <svg
+      width="14" height="14" className={`flex-shrink-0 ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
+      viewBox="0 0 14 14"
+      onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
+    >
+      <circle cx="7" cy="7" r={r} fill="none" stroke={bgColor} strokeWidth="2" />
+      <circle
+        cx="7" cy="7" r={r} fill="none"
+        stroke={color} strokeWidth="2" strokeLinecap="round"
+        strokeDasharray={circumference} strokeDashoffset={offset}
+        transform="rotate(-90 7 7)"
+        className="transition-all duration-300"
+      />
+    </svg>
+  );
+}
+
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
+
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showAddMenu) return;
@@ -36,15 +79,44 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     return () => document.removeEventListener('mousedown', h);
   }, [showAddMenu]);
 
+  // Close context menu on click outside
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const h = (e: MouseEvent) => {
+      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) setCtxMenu(null);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [ctxMenu]);
+
+  const handleContextMenu = useCallback((paneId: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Position menu with edge detection
+    const menuWidth = 160;
+    const menuHeight = 160;
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 8);
+    setCtxMenu({ paneId, x, y });
+  }, []);
+
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
     setDraggedPaneId(paneId);
-    e.dataTransfer.setData('application/x-pane-tab', paneId);
+    e.dataTransfer.setData(DND_TYPES.PANE_TAB, paneId);
+    if (groupId) {
+      e.dataTransfer.setData(DND_TYPES.PANE_TAB_GROUP, groupId);
+    }
+    // Also set PANEL_ID for cross-panel-type drops (chat panes carry their topicId)
+    const pane = panes.find(p => p.id === paneId);
+    if (pane?.topicId) {
+      e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.topicId);
+    }
     e.dataTransfer.effectAllowed = 'move';
-  }, [onReorderPanes]);
+  }, [onReorderPanes, groupId, panes]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes('application/x-pane-tab')) return;
+    if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -54,22 +126,32 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
   const handleTabDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const sourcePaneId = e.dataTransfer.getData('application/x-pane-tab');
-    if (!sourcePaneId || dragOverIdx === null || !onReorderPanes) return;
+    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+    if (!sourcePaneId || dragOverIdx === null) return;
 
-    const currentIds = panes.map(p => p.id);
-    const sourceIdx = currentIds.indexOf(sourcePaneId);
-    if (sourceIdx === -1) return;
+    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const isCrossGroup = sourceGroupId && groupId && sourceGroupId !== groupId;
 
-    const newIds = currentIds.filter(id => id !== sourcePaneId);
-    let insertIdx = dragOverIdx;
-    if (sourceIdx < dragOverIdx) insertIdx--;
-    newIds.splice(Math.max(0, insertIdx), 0, sourcePaneId);
+    if (isCrossGroup && onCrossGroupDrop) {
+      // Cross-group drop: move pane from source group to this group at insertIdx
+      onCrossGroupDrop(sourcePaneId, sourceGroupId, dragOverIdx);
+    } else if (onReorderPanes) {
+      // Same-group reorder
+      const currentIds = panes.map(p => p.id);
+      const sourceIdx = currentIds.indexOf(sourcePaneId);
+      if (sourceIdx === -1) return;
 
-    onReorderPanes(newIds);
+      const newIds = currentIds.filter(id => id !== sourcePaneId);
+      let insertIdx = dragOverIdx;
+      if (sourceIdx < dragOverIdx) insertIdx--;
+      newIds.splice(Math.max(0, insertIdx), 0, sourcePaneId);
+
+      onReorderPanes(newIds);
+    }
+
     setDraggedPaneId(null);
     setDragOverIdx(null);
-  }, [panes, dragOverIdx, onReorderPanes]);
+  }, [panes, dragOverIdx, onReorderPanes, onCrossGroupDrop, groupId]);
 
   const handleTabDragEnd = useCallback(() => {
     setDraggedPaneId(null);
@@ -80,9 +162,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
   return (
     <div
-      className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 px-1 gap-0.5 overflow-x-auto"}
+      className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5"}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes('application/x-pane-tab')) return;
+        if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
         e.preventDefault();
       }}
       onDrop={handleTabDrop}
@@ -95,16 +177,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         const isDragged = draggedPaneId === pane.id;
         const showLeftIndicator = dragOverIdx === paneIdx && draggedPaneId && draggedPaneId !== pane.id;
         const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && draggedPaneId && draggedPaneId !== pane.id;
+        const paneContextPercent = pane.type === 'chat' && contextPercent ? contextPercent[pane.id] : undefined;
+        const isPaneStreaming = pane.type === 'chat' && streamingPaneIds?.has(pane.id);
 
         return (
           <div
             key={pane.id}
             className={`group flex items-center gap-1.5 px-2.5 h-7 text-[11px] font-medium transition-all relative cursor-pointer select-none min-w-0 rounded-md ${
               isActive
-                ? 'bg-white dark:bg-white/10 text-app-text shadow-[0_1px_3px_rgba(0,0,0,0.1),0_0_0_1px_rgba(0,0,0,0.06)]'
+                ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
                 : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => onActivate(pane.id)}
+            onContextMenu={handleContextMenu(pane.id)}
             draggable={!!onReorderPanes}
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
@@ -119,6 +204,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               <Icon size={13} className="flex-shrink-0" />
             ) : null}
             <span className="truncate max-w-[100px]">{label}</span>
+            {pane.type === 'chat' && contextPercent && (
+              <ContextRing percent={paneContextPercent ?? 0} onClick={onContextRingClick ? () => onContextRingClick(pane.id) : undefined} />
+            )}
+            {isPaneStreaming && (
+              <span className="flex-shrink-0 flex items-center gap-[2px]" title="Generating...">
+                <span className="w-[3px] h-[3px] rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
+                <span className="w-[3px] h-[3px] rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }} />
+                <span className="w-[3px] h-[3px] rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }} />
+              </span>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
               className="w-4 h-4 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
@@ -180,6 +275,82 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 );
               })}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Right-click context menu */}
+      {ctxMenu && (
+        <div
+          ref={ctxMenuRef}
+          className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
+          style={{ top: ctxMenu.y, left: ctxMenu.x }}
+        >
+          <button
+            onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            <X size={13} />
+            <span>Close</span>
+          </button>
+          {panes.length > 1 && (
+            <button
+              onClick={() => {
+                if (onCloseOthers) {
+                  onCloseOthers(ctxMenu.paneId);
+                } else {
+                  // Fallback: close all except the targeted pane
+                  panes.forEach(p => { if (p.id !== ctxMenu.paneId) onClose(p.id); });
+                }
+                setCtxMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <X size={13} />
+              <span>Close Others</span>
+            </button>
+          )}
+          {onDetach && (
+            <>
+              <div className="h-px bg-app-border my-1" />
+              <button
+                onClick={() => { onDetach(ctxMenu.paneId); setCtxMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <ExternalLink size={13} />
+                <span>Detach</span>
+              </button>
+            </>
+          )}
+          {onRename && (
+            <button
+              onClick={() => { onRename(ctxMenu.paneId); setCtxMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Edit3 size={13} />
+              <span>Rename</span>
+            </button>
+          )}
+          {(onSettings || onPopOut) && (
+            <div className="h-px bg-app-border my-1" />
+          )}
+          {onSettings && (
+            <button
+              onClick={() => { onSettings(ctxMenu.paneId); setCtxMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Settings size={13} />
+              <span>Settings</span>
+            </button>
+          )}
+          {onPopOut && (
+            <button
+              onClick={() => { onPopOut(ctxMenu.paneId); setCtxMenu(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <ExternalLink size={13} />
+              <span>Pop Out</span>
+            </button>
           )}
         </div>
       )}
