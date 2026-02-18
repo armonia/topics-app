@@ -275,10 +275,16 @@ function App() {
     appendMediaToLastAssistant,
     clearSession,
     drainQueue,
+    onWSMessage: chatStreamHandler,
     error: chatError,
   } = useChat();
 
   const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage, reconnect: wsReconnect, lastConnectedAt: wsLastConnectedAt } = useWebSocket();
+
+  // Wire up chat stream handler to WebSocket (enables cross-window streaming)
+  useEffect(() => {
+    return onWSMessage(chatStreamHandler);
+  }, [onWSMessage, chatStreamHandler]);
 
   // Drain outbound message queue when WS reconnects
   const prevWsStatus = useRef(wsStatus);
@@ -826,6 +832,7 @@ function App() {
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
+            isSessionStreaming={isSessionStreaming}
           />
           )}
           </ErrorBoundary>
@@ -844,13 +851,11 @@ function App() {
       {/* Sidebar resize handle - hide on mobile */}
       {!isMobile && (
         <div
-          className="w-[4px] flex-shrink-0 cursor-col-resize relative group bg-surface border-l border-black/[0.06] dark:border-white/[0.06] hover:bg-primary/20 transition-colors z-20"
+          className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-20"
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >
-          <div className="absolute inset-y-0 -left-[2px] -right-[2px]" />
-          {/* Visual indicator on hover */}
-          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[2px] h-8 bg-app-border rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
         </div>
       )}
 
