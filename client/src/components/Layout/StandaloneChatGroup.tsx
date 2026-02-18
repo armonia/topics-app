@@ -41,7 +41,7 @@ export function StandaloneChatGroup({
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
-  onNewChat, onGroupDragStart, onAcceptProjectTopicDrop,
+  onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop,
 }: StandaloneChatGroupProps) {
   // Track order locally for tab reordering
   const [orderedIds, setOrderedIds] = useState<string[]>(topicIds);
