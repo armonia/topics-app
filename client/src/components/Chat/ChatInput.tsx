@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
@@ -8,24 +8,26 @@ import { ContextPills, useContextFileTokens } from './ContextPills';
 
 // Available slash commands
 const SLASH_COMMANDS = [
-  { cmd: '/status', label: 'Status', description: 'Show session status' },
-  { cmd: '/clear', label: 'Clear', description: 'Clear conversation' },
-  { cmd: '/model', label: 'Model', description: 'Change model (e.g. /model claude-opus-4-5)' },
-  { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning mode' },
-  { cmd: '/help', label: 'Help', description: 'Show available commands' },
+  { cmd: '/status', label: 'Status', description: 'Show session status', icon: Zap },
+  { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
+  { cmd: '/model', label: 'Model', description: 'Change model', icon: Cpu },
+  { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning mode', icon: Brain },
+  { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
 ];
 
-// ---- Overflow Voice Menu ----
+// ---- Overflow Menu (slash commands + voice tools) ----
 
-function OverflowVoiceMenu({
+function OverflowMenu({
   isCallActive, isRecording, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
   toggleCall, startRecording, stopRecording, toggleListening, stopSpeaking, setAutoTTS,
+  onSlashCommand,
 }: {
   isCallActive: boolean; isRecording: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
   toggleCall: () => void; startRecording: () => void; stopRecording: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
+  onSlashCommand: (cmd: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -51,23 +53,44 @@ function OverflowVoiceMenu({
             ? 'text-primary bg-primary/10'
             : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
         }`}
-        title="Voice tools"
-        aria-label="Voice tools"
+        title="Tools & commands"
+        aria-label="Tools & commands"
       >
         <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-lg shadow-xl z-50 py-1 min-w-[180px]">
+        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-lg shadow-xl z-50 py-1 min-w-[200px]">
+          {/* Slash commands */}
+          {SLASH_COMMANDS.map((cmd) => {
+            const Icon = cmd.icon;
+            return (
+              <button
+                key={cmd.cmd}
+                type="button"
+                onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
+                className="w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover text-app-text"
+              >
+                <Icon size={14} className="text-app-text-muted flex-shrink-0" />
+                <span className="font-mono text-primary text-[11px]">{cmd.cmd}</span>
+                <span className="ml-auto text-[10px] text-app-text-muted">{cmd.description}</span>
+              </button>
+            );
+          })}
+
+          {/* Divider */}
+          <div className="h-px bg-app-border my-1" />
+
+          {/* Voice tools */}
           {voiceCallSupported && (
             <button
               type="button"
               onClick={() => { toggleCall(); setOpen(false); }}
-              className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+              className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
                 isCallActive ? 'text-red-500' : 'text-app-text'
               }`}
               disabled={uploading}
             >
-              {isCallActive ? <PhoneOff size={15} /> : <Phone size={15} />}
+              {isCallActive ? <PhoneOff size={14} /> : <Phone size={14} />}
               {isCallActive ? 'End call' : 'Voice call'}
               <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧C</span>
             </button>
@@ -78,12 +101,12 @@ function OverflowVoiceMenu({
               if (isRecording) stopRecording(); else startRecording();
               setOpen(false);
             }}
-            className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
               isRecording ? 'text-red-500' : 'text-app-text'
             }`}
             disabled={currentStreaming || uploading}
           >
-            {isRecording ? <MicOff size={15} /> : <Mic size={15} />}
+            {isRecording ? <MicOff size={14} /> : <Mic size={14} />}
             {isRecording ? 'Stop recording' : 'Record voice'}
             <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧R</span>
           </button>
@@ -91,12 +114,12 @@ function OverflowVoiceMenu({
             <button
               type="button"
               onClick={() => { toggleListening(); setOpen(false); }}
-              className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+              className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
                 isListening ? 'text-green-500' : 'text-app-text'
               }`}
               disabled={currentStreaming || uploading}
             >
-              {isListening ? <MicOff size={15} /> : <MessageSquare size={15} />}
+              {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
               {isListening ? 'Stop dictation' : 'Dictation mode'}
               <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧D</span>
             </button>
@@ -107,11 +130,11 @@ function OverflowVoiceMenu({
               if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
               setOpen(false);
             }}
-            className={`w-full px-3 py-2 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
               isSpeaking || autoTTS ? 'text-blue-500' : 'text-app-text'
             }`}
           >
-            {isSpeaking || autoTTS ? <Volume2 size={15} /> : <VolumeX size={15} />}
+            {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
             {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
             <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧T</span>
           </button>
@@ -577,7 +600,7 @@ export function ChatInput({
               {/* Right: voice + send */}
               <div className="flex items-center gap-0.5">
                 {!isMobile && (
-                  <OverflowVoiceMenu
+                  <OverflowMenu
                     isCallActive={isCallActive}
                     isRecording={isRecording}
                     isListening={isListening}
@@ -593,6 +616,10 @@ export function ChatInput({
                     toggleListening={toggleListening}
                     stopSpeaking={stopSpeaking}
                     setAutoTTS={setAutoTTS}
+                    onSlashCommand={(cmd) => {
+                      setMessage(cmd + ' ');
+                      textareaRef.current?.focus();
+                    }}
                   />
                 )}
                 <button

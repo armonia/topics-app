@@ -1,5 +1,8 @@
 import { useState, useMemo, memo } from 'react';
-import { Check, X, Play, ClipboardList } from 'lucide-react';
+import { Check, X, Play, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { markdownComponents } from '../MessageContent';
 
 interface PlanStep {
   number: number;
@@ -63,6 +66,7 @@ interface PlanViewProps {
 export const PlanView = memo(function PlanView({ content, onApprove, onReject, isStreaming }: PlanViewProps) {
   const [approved, setApproved] = useState(false);
   const [rejected, setRejected] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const steps = useMemo(() => parsePlanSteps(content), [content]);
 
@@ -95,35 +99,55 @@ export const PlanView = memo(function PlanView({ content, onApprove, onReject, i
         </span>
       </div>
 
-      {/* Steps */}
-      <div className="space-y-1.5 mb-3">
-        {steps.map((step) => (
-          <div
-            key={step.number}
-            className="flex items-start gap-2.5 p-2 rounded-lg bg-white/50 dark:bg-surface/50 border border-app-border"
-          >
-            <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
-              {step.number}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-medium text-app-text">
-                {step.title}
-              </div>
-              {step.description && (
-                <div className="text-[11px] text-app-text-secondary mt-0.5">
-                  {step.description}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Toggle button */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-1 mb-2 text-[11px] font-medium text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300 transition-colors"
+      >
+        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {expanded ? 'Comprimi' : 'Mostra dettagli'}
+      </button>
 
-      {/* Summary */}
-      {summary && (
-        <div className="text-[11px] text-app-text-secondary mb-3 px-2 py-1.5 bg-app-inset dark:bg-app-panel rounded border-l-2 border-indigo-300 dark:border-indigo-700">
-          {summary}
+      {expanded ? (
+        /* Expanded: full markdown content */
+        <div className="mb-3 prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {content}
+          </ReactMarkdown>
         </div>
+      ) : (
+        <>
+          {/* Compact: Steps list */}
+          <div className="space-y-1.5 mb-3">
+            {steps.map((step) => (
+              <div
+                key={step.number}
+                className="flex items-start gap-2.5 p-2 rounded-lg bg-white/50 dark:bg-surface/50 border border-app-border"
+              >
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                  {step.number}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-medium text-app-text">
+                    {step.title}
+                  </div>
+                  {step.description && (
+                    <div className="text-[11px] text-app-text-secondary mt-0.5">
+                      {step.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Summary */}
+          {summary && (
+            <div className="text-[11px] text-app-text-secondary mb-3 px-2 py-1.5 bg-app-inset dark:bg-app-panel rounded border-l-2 border-indigo-300 dark:border-indigo-700">
+              {summary}
+            </div>
+          )}
+        </>
       )}
 
       {/* Streaming indicator */}

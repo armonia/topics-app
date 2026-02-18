@@ -236,8 +236,8 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   );
 });
 
-// Shared markdown components config
-const markdownComponents = {
+// Shared markdown components config (exported for reuse in PlanView)
+export const markdownComponents = {
   img: ({ src, alt }: any) => {
     if (!src) return null;
     const isAbsolute = src.startsWith('/');
