@@ -41,7 +41,8 @@ export function ChatPanel({
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
+  useEffect(() => { const h = () => { setIsMobile(window.innerWidth < 768); setIsNarrow(window.innerWidth < 1024); }; window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
   const [showSettings, setShowSettings] = useState(false);
   const [showContextInternal, setShowContextInternal] = useState(() => {
@@ -119,7 +120,7 @@ export function ChatPanel({
         <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
           {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><Menu size={18} /></button>}
           {headerLeft ? (
-            <div className="flex items-center min-w-0 app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
+            <div className="flex-1 flex items-center min-w-0 overflow-x-auto app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
               <span className="text-[16px] leading-none flex items-center justify-center w-6 h-6 flex-shrink-0">{topic.icon}</span>
@@ -129,7 +130,7 @@ export function ChatPanel({
               )}
             </div>
           )}
-          <div className="flex-1" />
+          {!headerLeft && <div className="flex-1" />}
           {/* Context Inspector toggle — hidden when headerLeft has rings */}
           {!headerLeft && (
             <button
@@ -158,7 +159,7 @@ export function ChatPanel({
 
         {/* Tab Bar — hidden when only one tab (standalone chat) */}
         {tabs.length > 1 && (
-          <div role="tablist" aria-label="Panel views" className="flex items-center border-b border-app-border bg-elevated dark:bg-elevated flex-shrink-0 px-1">
+          <div role="tablist" aria-label="Panel views" className="flex items-center border-b border-app-border bg-elevated dark:bg-elevated flex-shrink-0 px-1 relative z-10">
             {tabs.map(tab => (
               <button role="tab" aria-selected={activeTab === tab.id} key={tab.id} onClick={(e) => { e.stopPropagation(); setActiveTab(tab.id); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium transition-colors relative app-no-drag ${activeTab === tab.id ? 'text-primary dark:text-primary-dark' : 'text-app-text-tertiary hover:text-app-text'}`}>
                 {tab.icon}<span>{tab.label}</span>
@@ -184,7 +185,7 @@ export function ChatPanel({
         )}
 
         {/* Main Content with optional Context Inspector slide-out */}
-        <div className="flex-1 flex min-h-0 overflow-hidden">
+        <div className="flex-1 flex min-h-0 overflow-hidden relative">
           {/* Main panel */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             {activeTab === 'browser' ? (
@@ -208,9 +209,9 @@ export function ChatPanel({
             )}
           </div>
 
-          {/* Context Inspector slide-out */}
+          {/* Context Inspector slide-out — overlay when narrow */}
           {showContext && (
-            <div className={`flex-shrink-0 overflow-hidden transition-all duration-200 ${isMobile ? 'absolute inset-0 z-40' : 'w-[320px]'}`}>
+            <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0'}`}>
               <Suspense fallback={LazySpinner}>
                 <ContextInspector
                   topic={topic}

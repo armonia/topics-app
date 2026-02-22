@@ -31,6 +31,7 @@ interface StandaloneChatGroupProps {
   onNewChat?: () => void;
   // Grid item drag (for reordering in PanelGrid)
   onGroupDragStart?: (e: React.DragEvent) => void;
+  stopSession: (sessionKey: string) => void;
   // Cross-panel-type: accept topic drops from project windows
   onAcceptProjectTopicDrop?: (topicId: string) => void;
 }
@@ -41,7 +42,7 @@ export function StandaloneChatGroup({
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
-  onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop,
+  onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop, stopSession,
 }: StandaloneChatGroupProps) {
   // Track order locally for tab reordering
   const [orderedIds, setOrderedIds] = useState<string[]>(topicIds);
@@ -77,6 +78,15 @@ export function StandaloneChatGroup({
   const handleReorderPanes = useCallback((newPaneIds: string[]) => {
     setOrderedIds(newPaneIds);
   }, []);
+
+  // Cross-group drop: accept a tab dragged from a project tab bar
+  const handleCrossGroupDrop = useCallback((sourcePaneId: string, _sourceGroupId: string, _insertIdx: number) => {
+    if (!onAcceptProjectTopicDrop) return;
+    // sourcePaneId from project is "chat:<topicId>" — extract topicId
+    const topicId = sourcePaneId.startsWith('chat:') ? sourcePaneId.slice(5) : sourcePaneId;
+    if (topicIds.includes(topicId)) return; // already here
+    onAcceptProjectTopicDrop(topicId);
+  }, [onAcceptProjectTopicDrop, topicIds]);
 
   // Handle drops from project tabs (cross-panel-type)
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
@@ -128,6 +138,15 @@ export function StandaloneChatGroup({
     return ids;
   }, [orderedIds, topics, isSessionStreaming]);
 
+  // Stop streaming for a pane (paneId = topicId in standalone)
+  const handleStopStreaming = useCallback((paneId: string) => {
+    const topic = topics[paneId];
+    if (topic) {
+      const isFirst = stopSession(topic.sessionKey);
+      if (isFirst) onClosePanel(paneId);
+    }
+  }, [topics, stopSession, onClosePanel]);
+
   const handleToggleContext = useCallback(() => {
     setContextOpen(prev => !prev);
   }, []);
@@ -151,20 +170,23 @@ export function StandaloneChatGroup({
   // Tab bar rendered inline in ChatPanel's header (replaces icon/name/drag)
   const tabBar = (
     <PaneTabBar
-      className="flex items-center p-1 gap-0.5 min-w-0"
+      className="flex items-center p-1 gap-0.5 min-w-0 overflow-x-auto"
       panes={panes}
       activePaneId={activeTopicId}
       onActivate={(paneId) => onFocusPanel(paneId)}
       onClose={(paneId) => onClosePanel(paneId)}
       onAddPane={() => {}}
       availableTypes={[]}
+      groupId="standalone"
       onNewChat={onNewChat}
       onReorderPanes={handleReorderPanes}
+      onCrossGroupDrop={onAcceptProjectTopicDrop ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
       streamingPaneIds={streamingPaneIds}
+      onStopStreaming={handleStopStreaming}
     />
   );
 

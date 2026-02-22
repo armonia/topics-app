@@ -17,6 +17,8 @@ const GitChanges = lazy(() => import('../Project/GitChanges').then(m => ({ defau
 const ActivityPane = lazy(() => import('../Sidebar/ActivityPane').then(m => ({ default: m.ActivityPane })));
 const JournalPane = lazy(() => import('../Journal/JournalPane').then(m => ({ default: m.JournalPane })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
+const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
+const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
 // --- Persistence helpers ---
 
@@ -120,6 +122,7 @@ interface ProjectWindowProps {
   getSessionMessages: (sk: string) => ChatMessage[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
+  stopSession: (sk: string) => void;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -143,13 +146,17 @@ interface ProjectWindowProps {
 export function ProjectWindow({
   projectPath, topicIds, topics, focusedPanelId,
   onFocusPanel, onClosePanel,
-  getSessionMessages, isSessionLoading, isSessionStreaming,
+  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
   onAcceptTopicDrop,
 }: ProjectWindowProps) {
   // Load persisted state
   const persisted = useRef(loadPersistedState(projectPath));
+
+  // Responsive: overlay context inspector when window is narrow
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
+  useEffect(() => { const h = () => setIsNarrow(window.innerWidth < 1024); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
   // --- Core state ---
   const [panes, setPanes] = useState<Pane[]>(() => persisted.current?.nonChatPanes || []);
@@ -161,6 +168,8 @@ export function ProjectWindow({
   const [showContext, setShowContext] = useState(() => {
     try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
   });
+  // Settings modal state (opened via right-click menu on tabs)
+  const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
 
   // Determine active topic for Context Inspector (from focused group)
   const focusedGroup = groups.find(g => g.id === focusedGroupId);
@@ -190,6 +199,18 @@ export function ProjectWindow({
     }
     return ids;
   }, [panes, topics, isSessionStreaming]);
+
+  // Stop streaming for a pane (by pane ID)
+  const handleStopStreaming = useCallback((paneId: string) => {
+    const pane = panes.find(p => p.id === paneId);
+    if (pane?.topicId) {
+      const topic = topics[pane.topicId];
+      if (topic) {
+        const isFirst = stopSession(topic.sessionKey);
+        if (isFirst) onClosePanel(pane.topicId);
+      }
+    }
+  }, [panes, topics, stopSession, onClosePanel]);
 
   // Persist context inspector state
   useEffect(() => {
@@ -528,6 +549,17 @@ export function ProjectWindow({
 
   // Move a pane tab from one group to another (cross-group tab drag)
   const handleMovePaneBetweenGroups = useCallback((sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => {
+    // External drop (e.g. from standalone): source group not in this project
+    const isExternal = !groups.some(g => g.id === sourceGroupId);
+    if (isExternal && onAcceptTopicDrop) {
+      // paneId from standalone is a topicId directly; from project tab bar is "chat:<topicId>"
+      const topicId = paneId.startsWith('chat:') ? paneId.slice(5) : paneId;
+      if (!topicIds.includes(topicId)) {
+        onAcceptTopicDrop(topicId);
+      }
+      return;
+    }
+
     setGroups(prev => {
       const sourceGroup = prev.find(g => g.id === sourceGroupId);
       const targetGroup = prev.find(g => g.id === targetGroupId);
@@ -552,7 +584,7 @@ export function ProjectWindow({
       }).filter(g => g.paneIds.length > 0);
     });
     setFocusedGroupId(targetGroupId);
-  }, []);
+  }, [groups, onAcceptTopicDrop, topicIds]);
 
   // Split a group by dropping a pane on an edge (creates new row or column)
   const handleSplitGroup = useCallback((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => {
@@ -639,6 +671,23 @@ export function ProjectWindow({
       return true;
     });
   }, [panes]);
+
+  // Right-click menu: Settings opens TopicSettingsModal (resolve paneId → topicId)
+  const handlePaneSettings = useCallback((paneId: string) => {
+    const pane = panes.find(p => p.id === paneId);
+    if (pane?.topicId) setSettingsTopicId(pane.topicId);
+  }, [panes]);
+
+  // Right-click menu: Pop Out opens chat topic in new window
+  const handlePanePopOut = useCallback((paneId: string) => {
+    const pane = panes.find(p => p.id === paneId);
+    if (!pane?.topicId) return;
+    const url = `${window.location.origin}?topic=${pane.topicId}`;
+    isNativeApp
+      ? window.open(url, `topic-${pane.topicId}`, 'width=900,height=700')
+      : window.open(url, `topic-${pane.topicId}`);
+    onClosePanel(pane.topicId);
+  }, [panes, onClosePanel]);
 
   // First topicId for sidebar context
   const primaryTopicId = topicIds[0];
@@ -774,7 +823,7 @@ export function ProjectWindow({
       </div>
 
       {/* Main content: sidebar + group layout + context inspector */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
         <ProjectSidebar
           projectPath={projectPath}
           topicId={primaryTopicId}
@@ -805,10 +854,13 @@ export function ProjectWindow({
             contextPercent={contextPercent}
             onContextRingClick={() => setShowContext(prev => !prev)}
             streamingPaneIds={streamingPaneIds}
+            onStopStreaming={handleStopStreaming}
+            onSettings={handlePaneSettings}
+            onPopOut={handlePanePopOut}
           />
         </div>
         {showContext && activeTopic && (
-          <div className="w-[320px] flex-shrink-0 border-l border-app-border overflow-hidden">
+          <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0 border-l border-app-border'}`}>
             <Suspense fallback={LazySpinner}>
               <ContextInspector
                 topic={activeTopic}
@@ -822,6 +874,16 @@ export function ProjectWindow({
           </div>
         )}
       </div>
+      {settingsTopicId && topics[settingsTopicId] && (
+        <Suspense fallback={null}>
+          <TopicSettingsModal
+            topic={topics[settingsTopicId]}
+            isOpen={!!settingsTopicId}
+            onClose={() => setSettingsTopicId(null)}
+            onUpdate={onUpdateTopic}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

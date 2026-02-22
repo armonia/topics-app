@@ -30,6 +30,7 @@ interface PaneTabBarProps {
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   streamingPaneIds?: Set<string>;
+  onStopStreaming?: (paneId: string) => void;
 }
 
 // Mini context ring SVG for chat tabs
@@ -60,7 +61,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -161,14 +162,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
-    <div
-      className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5"}
-      onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
-        e.preventDefault();
-      }}
-      onDrop={handleTabDrop}
-    >
+    <div className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5 min-w-0"}>
+      {/* Scrollable tab area */}
+      <div
+        className="flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1 scrollbar-none"
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
+          e.preventDefault();
+        }}
+        onDrop={handleTabDrop}
+      >
       {panes.map((pane, paneIdx) => {
         const config = PANE_CONFIG[pane.type];
         const Icon = ICONS[config.icon];
@@ -183,7 +186,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
-            className={`group flex items-center gap-1.5 px-2.5 h-7 text-[11px] font-medium transition-all relative cursor-pointer select-none min-w-0 rounded-md ${
+            style={{ minWidth: 140, flexShrink: 0 }}
+            className={`group flex items-center gap-1.5 px-2.5 h-7 text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md ${
               isActive
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
                 : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
@@ -203,20 +207,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             ) : Icon ? (
               <Icon size={13} className="flex-shrink-0" />
             ) : null}
-            <span className="truncate max-w-[100px]">{label}</span>
             {pane.type === 'chat' && contextPercent && (
               <ContextRing percent={paneContextPercent ?? 0} onClick={onContextRingClick ? () => onContextRingClick(pane.id) : undefined} />
             )}
+            <span className="truncate flex-1">{label}</span>
             {isPaneStreaming && (
-              <span className="flex-shrink-0 flex items-center gap-[2px]" title="Generating...">
-                <span className="w-[3px] h-[3px] rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
-                <span className="w-[3px] h-[3px] rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }} />
-                <span className="w-[3px] h-[3px] rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }} />
-              </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); onStopStreaming?.(pane.id); }}
+                className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer group/stop"
+                title="Stop generating"
+              >
+                <div className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
+                <div className="w-[7px] h-[7px] bg-primary rounded-[1px] hidden group-hover/stop:block" />
+              </button>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
-              className="w-4 h-4 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
+              className="ml-auto w-4 h-4 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
             >
               <X size={10} />
             </button>
@@ -226,8 +233,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
           </div>
         );
       })}
+      </div>
 
-      {/* Add pane button — hidden when no menu items */}
+      {/* Add pane button — pinned right, hidden when no menu items */}
       {hasMenuItems && (
         <div className="relative flex items-center" ref={menuRef}>
           <button
@@ -331,27 +339,36 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               <span>Rename</span>
             </button>
           )}
-          {(onSettings || onPopOut) && (
-            <div className="h-px bg-app-border my-1" />
-          )}
-          {onSettings && (
-            <button
-              onClick={() => { onSettings(ctxMenu.paneId); setCtxMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            >
-              <Settings size={13} />
-              <span>Settings</span>
-            </button>
-          )}
-          {onPopOut && (
-            <button
-              onClick={() => { onPopOut(ctxMenu.paneId); setCtxMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            >
-              <ExternalLink size={13} />
-              <span>Pop Out</span>
-            </button>
-          )}
+          {(() => {
+            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+            const isChat = ctxPane?.type === 'chat';
+            const showSettings = isChat && onSettings;
+            const showPopOut = isChat && onPopOut;
+            if (!showSettings && !showPopOut) return null;
+            return (
+              <>
+                <div className="h-px bg-app-border my-1" />
+                {showSettings && (
+                  <button
+                    onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    <Settings size={13} />
+                    <span>Settings</span>
+                  </button>
+                )}
+                {showPopOut && (
+                  <button
+                    onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                    <span>Pop Out</span>
+                  </button>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>
