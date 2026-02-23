@@ -31,6 +31,7 @@ interface TopicTreeProps {
   onAddProjectPane?: (projectPath: string, type: PaneType) => void;
   onProjectClick?: (projectPath: string) => void;
   isSessionStreaming?: (sessionKey: string) => boolean;
+  stopSession?: (sessionKey: string) => boolean;
 }
 
 export function TopicTree({
@@ -52,6 +53,7 @@ export function TopicTree({
   onAddProjectPane,
   onProjectClick,
   isSessionStreaming,
+  stopSession,
 }: TopicTreeProps) {
   const [showProjectsArchived, setShowProjectsArchived] = useState(false);
   const [showChatsArchived, setShowChatsArchived] = useState(false);
@@ -165,6 +167,10 @@ export function TopicTree({
           onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
           onContextMenu={(e) => onTopicContextMenu(e, topic)}
           onArchive={handleArchive}
+          onStopStreaming={stopSession ? () => {
+            const isFirst = stopSession(topic.sessionKey);
+            if (isFirst) onArchiveTopic(topic.id, true);
+          } : undefined}
           isArchived={topic.archived}
           isDragOver={dragOverId === topic.id}
           onSidebarDragStart={() => handleSidebarDragStart(topic.id)}
@@ -363,6 +369,10 @@ export function TopicTree({
                               onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
                               onContextMenu={(e) => onTopicContextMenu(e, topic)}
                               onArchive={handleArchive}
+                              onStopStreaming={stopSession ? () => {
+                                const isFirst = stopSession(topic.sessionKey);
+                                if (isFirst) onArchiveTopic(topic.id, true);
+                              } : undefined}
                               isArchived={topic.archived}
                             />
                           ))}

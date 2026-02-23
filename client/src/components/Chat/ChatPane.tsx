@@ -14,6 +14,10 @@ const SLASH_COMMANDS_HELP = [
   '/clear — Clear conversation',
   '/model — Change model (e.g. /model claude-opus-4-5)',
   '/reasoning — Toggle reasoning mode',
+  '/agents — List all agent profiles',
+  '/pause @name — Pause an agent',
+  '/resume @name — Resume a paused agent',
+  '/assign @name task — Create and assign a task to an agent',
   '/help — Show available commands',
 ];
 
@@ -106,9 +110,8 @@ export function ChatPane({
   const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming);
   const isUploading = uploading || voiceUploading;
 
-  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
-  useEffect(() => { if (!isUserScrolledUp) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [currentMessages, currentStreaming, isUserScrolledUp]);
-  useEffect(() => { const c = chatContainerRef.current; if (!c) return; const h = () => { setIsUserScrolledUp(c.scrollHeight - c.scrollTop - c.clientHeight > 200); }; c.addEventListener('scroll', h, { passive: true }); return () => c.removeEventListener('scroll', h); }, []);
+  // Scroll management is handled entirely by Virtuoso in MessageList
+  // (followOutput="smooth" for new items, explicit scrollToIndex for streaming updates)
   useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
   useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus(), 50); }, [isFocused]);

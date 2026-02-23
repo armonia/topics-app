@@ -73,22 +73,17 @@ export function MessageList({
     [currentMessages]
   );
 
-  // Detect scroll position
+  // Auto-scroll during streaming: Virtuoso's followOutput handles new items,
+  // but during streaming the last message content grows (no new item added).
+  // We explicitly scroll to bottom on each content update while streaming.
   useEffect(() => {
-    const container = chatContainerRef.current;
-    if (!container) return;
-    const handleScroll = () => {
-      const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      const scrolledUp = distFromBottom > 200;
-      setIsScrolledUp(scrolledUp);
-      if (!scrolledUp) {
-        setNewMsgCount(0);
-        setShowNewBanner(false);
-      }
-    };
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [chatContainerRef]);
+    if (_currentStreaming && !isScrolledUp) {
+      // Use requestAnimationFrame to let Virtuoso measure the new content first
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+      });
+    }
+  }, [filteredMessages, _currentStreaming, isScrolledUp]);
 
   // Detect new messages while scrolled up
   useEffect(() => {
@@ -112,7 +107,7 @@ export function MessageList({
       role="log"
       aria-live="polite"
       aria-label={`Messages for ${topic.name}`}
-      className={`flex-1 overflow-y-auto ${isMobile ? 'px-2 pt-1.5' : 'px-4 pt-3'} relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
+      className={`flex-1 overflow-y-auto ${isMobile ? 'px-2' : 'px-4'} relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}

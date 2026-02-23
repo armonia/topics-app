@@ -21,6 +21,7 @@ interface TopicItemProps {
   onDoubleClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onArchive?: (topicId: string, archive: boolean) => void;
+  onStopStreaming?: () => void;
   isDragOver?: boolean;
   onSidebarDragStart?: () => void;
   onSidebarDragOver?: () => void;
@@ -45,6 +46,7 @@ export const TopicItem = memo(function TopicItem({
   onDoubleClick,
   onContextMenu,
   onArchive,
+  onStopStreaming,
   isDragOver,
   onSidebarDragStart,
   onSidebarDragOver,
@@ -188,17 +190,18 @@ export const TopicItem = memo(function TopicItem({
         {topic.name}
       </span>
 
-      {/* Streaming indicator */}
-      {isStreaming && (
-        <span className="flex-shrink-0 flex items-center gap-[3px]" title="Generating...">
-          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
-          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }} />
-          <span className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }} />
-        </span>
-      )}
-
-      {/* Archive/Unarchive button - show on hover */}
-      {onArchive && (
+      {/* Streaming spinner (replaces archive button) / Archive button */}
+      {isStreaming ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); onStopStreaming?.(); }}
+          className="group/stop flex-shrink-0 w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+          title="Stop generating"
+          aria-label="Stop generating"
+        >
+          <div className="w-3.5 h-3.5 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
+          <div className="w-2 h-2 bg-primary rounded-[1px] hidden group-hover/stop:block" />
+        </button>
+      ) : onArchive ? (
         <button
           onClick={handleArchiveClick}
           className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
@@ -211,7 +214,7 @@ export const TopicItem = memo(function TopicItem({
             <Archive size={12} className="text-app-text-tertiary" />
           )}
         </button>
-      )}
+      ) : null}
 
       {/* Unread badge */}
       {unreadCount > 0 && !isFocused && (

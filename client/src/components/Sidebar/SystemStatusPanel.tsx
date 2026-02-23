@@ -1,5 +1,7 @@
-import { Wifi, Server, HardDrive, RefreshCw, Clock, Users } from 'lucide-react';
+import { useState } from 'react';
+import { Wifi, Server, HardDrive, RefreshCw, Clock, Users, RotateCcw } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
+import { openclawControlApi } from '../../lib/api';
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -25,6 +27,7 @@ interface SystemStatusPanelProps {
 
 export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
+  const [restarting, setRestarting] = useState(false);
 
   const gatewayOnline = status?.gateway.online ?? false;
 
@@ -114,15 +117,33 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
         </div>
       )}
 
-      {/* Refresh button */}
-      <button
-        onClick={refresh}
-        disabled={loading}
-        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 mt-1 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
-      >
-        <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-        Refresh
-      </button>
+      {/* Action buttons */}
+      <div className="flex gap-1 mt-1">
+        <button
+          onClick={refresh}
+          disabled={loading}
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
+        >
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+        <button
+          onClick={async () => {
+            setRestarting(true);
+            try {
+              await openclawControlApi.restart();
+              // Wait a moment for the gateway to come back up, then refresh status
+              setTimeout(refresh, 3000);
+            } catch {}
+            setRestarting(false);
+          }}
+          disabled={restarting}
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-app-hover rounded transition-colors whitespace-nowrap"
+        >
+          <RotateCcw size={11} className={restarting ? 'animate-spin' : ''} />
+          {restarting ? 'Riavvio…' : 'Riavvia'}
+        </button>
+      </div>
     </div>
   );
 }
