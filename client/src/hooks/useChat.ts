@@ -66,7 +66,7 @@ export function useChat() {
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
   const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
   const [pendingQueue, setPendingQueue] = useState<QueuedMessage[]>(getOutboundQueue);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
@@ -351,6 +351,11 @@ export function useChat() {
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: { planMode?: boolean }): Promise<boolean> => {
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
+
+    // Create AbortController for this session
+    const abortController = new AbortController();
+    abortControllersRef.current[sessionKey] = abortController;
+
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
@@ -380,7 +385,7 @@ export function useChat() {
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
       if (options?.planMode) chatRequest.planMode = true;
 
-      const stream = await chatApi.sendMessage(chatRequest);
+      const stream = await chatApi.sendMessage(chatRequest, abortController.signal);
 
       if (!stream) {
         throw new Error('No stream received');
@@ -503,6 +508,12 @@ export function useChat() {
 
       return true;
     } catch (err) {
+      // User-initiated abort — just finalize, no error
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        updateLastMessage(sessionKey, { partial: false });
+        return true;
+      }
+
       console.error('Failed to send message:', err);
 
       // Only queue if the server never received the request (fetch itself failed).
@@ -549,7 +560,7 @@ export function useChat() {
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
-      abortControllerRef.current = null;
+      delete abortControllersRef.current[sessionKey];
     }
   }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage]);
 
@@ -568,6 +579,32 @@ export function useChat() {
   const isSessionThinking = useCallback((sessionKey: string): boolean => {
     return thinking[sessionKey] || false;
   }, [thinking]);
+
+  /** Stop streaming. Returns true if this was the first message (chat can be discarded). */
+  const stopSession = useCallback((sessionKey: string): boolean => {
+    const controller = abortControllersRef.current[sessionKey];
+    if (controller) {
+      controller.abort();
+    }
+
+    // Check if this is the first exchange (1 user + 1 partial assistant)
+    const msgs = messagesRef.current[sessionKey] || [];
+    const userMsgs = msgs.filter(m => m.role === 'user');
+    const isFirstMessage = userMsgs.length <= 1;
+
+    // Tell the server to abort — also clear server-side messages if first message
+    chatApi.abort(sessionKey, isFirstMessage).catch(() => {});
+
+    if (isFirstMessage) {
+      // Clear session entirely — the chat is brand new
+      setMessages(prev => ({ ...prev, [sessionKey]: [] }));
+      clearCachedMessages(sessionKey);
+    } else {
+      updateLastMessage(sessionKey, { partial: false });
+    }
+
+    return isFirstMessage;
+  }, [updateLastMessage]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
     try {
@@ -716,6 +753,7 @@ export function useChat() {
 
   return {
     sendMessage,
+    stopSession,
     getSessionMessages,
     isSessionLoading,
     isSessionStreaming,
