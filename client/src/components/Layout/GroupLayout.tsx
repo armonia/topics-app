@@ -25,6 +25,9 @@ interface GroupLayoutProps {
   contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
   streamingPaneIds?: Set<string>;
+  onStopStreaming?: (paneId: string) => void;
+  onSettings?: (paneId: string) => void;
+  onPopOut?: (paneId: string) => void;
 }
 
 type EdgeZone = 'left' | 'right' | 'top' | 'bottom' | null;
@@ -34,7 +37,8 @@ export function GroupLayout({
   onActivatePane, onClosePane, onAddPaneToGroup, onNewChatInGroup, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
-  renderPane, availableTypesForGroup, contextPercent, onContextRingClick, streamingPaneIds,
+  renderPane, availableTypesForGroup, contextPercent, onContextRingClick, streamingPaneIds, onStopStreaming,
+  onSettings, onPopOut,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -60,7 +64,23 @@ export function GroupLayout({
     },
   }), [rows, onUpdateRows, onUpdateRowHeights]);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, callbacks);
+  // DOM-direct resolvers: divider is INSIDE the group wrapper (same as PaneLayout)
+  const resizeOptions = useMemo(() => ({
+    resolveHorizontal: (divider: HTMLElement) => {
+      const left = divider.parentElement!;
+      const right = left.nextElementSibling as HTMLElement;
+      if (!right) return null;
+      return { apply: (l: number, r: number) => { left.style.width = `${l * 100}%`; right.style.width = `${r * 100}%`; } };
+    },
+    resolveVertical: (divider: HTMLElement) => {
+      const top = divider.previousElementSibling as HTMLElement;
+      const bottom = divider.parentElement?.nextElementSibling?.firstElementChild as HTMLElement;
+      if (!top || !bottom) return null;
+      return { apply: (t: number, b: number) => { top.style.flex = `${t} 1 0%`; bottom.style.flex = `${b} 1 0%`; } };
+    },
+  }), []);
+
+  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, callbacks, resizeOptions);
 
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
   const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone } | null>(null);
@@ -220,7 +240,7 @@ export function GroupLayout({
                 return (
                   <div
                     key={groupId}
-                    className="flex min-h-0"
+                    className="flex min-h-0 min-w-0 overflow-hidden"
                     style={{ width: `${row.widths[groupIdx] * 100}%` }}
                   >
                     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
@@ -250,6 +270,9 @@ export function GroupLayout({
                           contextPercent={contextPercent}
                           onContextRingClick={onContextRingClick}
                           streamingPaneIds={streamingPaneIds}
+                          onStopStreaming={onStopStreaming}
+                          onSettings={onSettings}
+                          onPopOut={onPopOut}
                         />
                       </div>
                       {/* Active pane content */}

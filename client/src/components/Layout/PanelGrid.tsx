@@ -46,6 +46,7 @@ interface PanelGridProps {
   getSessionMessages: (sessionKey: string) => ChatMessage[];
   isSessionLoading: (sessionKey: string) => boolean;
   isSessionStreaming: (sessionKey: string) => boolean;
+  stopSession: (sessionKey: string) => boolean;
   sendMessage: (sessionKey: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
   chatError: string | null;
@@ -90,6 +91,7 @@ export function PanelGrid({
   getSessionMessages,
   isSessionLoading,
   isSessionStreaming,
+  stopSession,
   sendMessage,
   loadHistory,
   chatError,
@@ -309,7 +311,34 @@ export function PanelGrid({
     },
   }), []);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, resizeCallbacks);
+  // DOM-direct resolvers: dividers are SIBLINGS of item wrappers (Fragment flattens)
+  // Item wrappers have transition-all (for drag opacity) which must be disabled during resize
+  const resizeOptions = useMemo(() => ({
+    resolveHorizontal: (divider: HTMLElement) => {
+      const left = divider.previousElementSibling as HTMLElement;
+      const right = divider.nextElementSibling as HTMLElement;
+      if (!left || !right) return null;
+      left.style.transition = 'none';
+      right.style.transition = 'none';
+      return {
+        apply: (l: number, r: number) => { left.style.flex = `${l} 1 0%`; right.style.flex = `${r} 1 0%`; },
+        cleanup: () => { left.style.transition = ''; right.style.transition = ''; },
+      };
+    },
+    resolveVertical: (divider: HTMLElement) => {
+      const top = divider.previousElementSibling as HTMLElement;
+      const bottom = divider.nextElementSibling as HTMLElement;
+      if (!top || !bottom) return null;
+      top.style.transition = 'none';
+      bottom.style.transition = 'none';
+      return {
+        apply: (t: number, b: number) => { top.style.flex = `${t} 1 0%`; bottom.style.flex = `${b} 1 0%`; },
+        cleanup: () => { top.style.transition = ''; bottom.style.transition = ''; },
+      };
+    },
+  }), []);
+
+  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -825,7 +854,7 @@ export function PanelGrid({
               return (
                 <Fragment key={key}>
                   <div
-                    className={`flex min-h-0 min-w-[200px] relative transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
+                    className={`flex min-h-0 min-w-0 overflow-hidden relative transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
                     style={{
                       flex: `${width} 1 0%`,
                       boxShadow: zone === 'center'
@@ -865,6 +894,7 @@ export function PanelGrid({
                         getSessionMessages={getSessionMessages}
                         isSessionLoading={isSessionLoading}
                         isSessionStreaming={isSessionStreaming}
+                        stopSession={stopSession}
                         sendMessage={sendMessage}
                         loadHistory={loadHistory}
                         chatError={chatError}
@@ -894,6 +924,7 @@ export function PanelGrid({
                         getSessionMessages={getSessionMessages}
                         isSessionLoading={isSessionLoading}
                         isSessionStreaming={isSessionStreaming}
+                        stopSession={stopSession}
                         sendMessage={sendMessage}
                         loadHistory={loadHistory}
                         chatError={chatError}

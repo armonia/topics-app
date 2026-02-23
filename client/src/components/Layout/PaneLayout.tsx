@@ -36,7 +36,23 @@ export function PaneLayout({
     },
   }), [rows, onUpdateRows, onUpdateRowHeights]);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, callbacks);
+  // DOM-direct resolvers: divider is INSIDE the pane wrapper
+  const resizeOptions = useMemo(() => ({
+    resolveHorizontal: (divider: HTMLElement) => {
+      const left = divider.parentElement!;
+      const right = left.nextElementSibling as HTMLElement;
+      if (!right) return null;
+      return { apply: (l: number, r: number) => { left.style.width = `${l * 100}%`; right.style.width = `${r * 100}%`; } };
+    },
+    resolveVertical: (divider: HTMLElement) => {
+      const top = divider.previousElementSibling as HTMLElement;
+      const bottom = divider.parentElement?.nextElementSibling?.firstElementChild as HTMLElement;
+      if (!top || !bottom) return null;
+      return { apply: (t: number, b: number) => { top.style.flex = `${t} 1 0%`; bottom.style.flex = `${b} 1 0%`; } };
+    },
+  }), []);
+
+  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, callbacks, resizeOptions);
 
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
