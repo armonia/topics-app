@@ -110,6 +110,25 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
   return async function statusRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
+    // Restart OpenClaw gateway
+    if (method === "POST" && pathname === "/api/openclaw/restart") {
+      try {
+        const proc = Bun.spawn(["openclaw", "gateway", "restart"], {
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env },
+        });
+        const stdout = await new Response(proc.stdout).text();
+        const stderr = await new Response(proc.stderr).text();
+        const exitCode = await proc.exited;
+        // Reset cached gateway status so next poll picks up fresh state
+        lastGatewayCheck = null;
+        return json({ ok: exitCode === 0, output: stdout || stderr, exitCode });
+      } catch (err: any) {
+        return json({ ok: false, error: err.message }, 500);
+      }
+    }
+
     if (method === "GET" && pathname === "/api/system/status") {
       const gateway = lastGatewayCheck || { status: "offline" as GatewayStatus, online: false, latencyMs: 0, checkedAt: null };
 

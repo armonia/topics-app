@@ -5,6 +5,7 @@ import type { AppContext, RouteHandler, ToolCall, Topic } from "../types";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
+import { parseMentions, resolveMentions } from "../mention-parser";
 
 export function createTopicsRouter(ctx: AppContext): RouteHandler {
   const {
@@ -16,7 +17,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, findNewMediaFiles, updateLastMessageWithMedia,
-    searchTranscripts, getMessagesPath, atomicWriteJSON,
+    searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,
   } = ctx;
 
@@ -137,17 +138,30 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
     return null;
   }
 
-  // --- Tasks helpers (initialized once, not per-request) ---
-  const TASKS_DIR = join(ctx.BASE_DIR, "tasks");
-  mkdirSync(TASKS_DIR, { recursive: true });
+  // --- Tasks helpers (SQLite-backed) ---
+  const { db } = ctx;
 
   function loadTasks(projectId: string): any[] {
-    const filepath = join(TASKS_DIR, projectId + ".json");
-    try { return JSON.parse(readFileSync(filepath, "utf-8")); } catch { return []; }
+    const rows = db.prepare("SELECT * FROM tasks WHERE project_id = ? ORDER BY kanban_order ASC").all(projectId) as any[];
+    return rows.map(r => ({
+      id: r.id, text: r.text, description: r.description || null,
+      status: r.status, priority: r.priority, kanbanOrder: r.kanban_order,
+      assignedTo: r.assigned_to || null, dueDate: r.due_date || null,
+      chatId: r.chat_id || null, createdAt: r.created_at, completedAt: r.completed_at || null,
+      updatedAt: r.updated_at,
+    }));
   }
 
-  function saveTasks(projectId: string, tasks: any[]) {
-    atomicWriteJSON(join(TASKS_DIR, projectId + ".json"), tasks);
+  function saveTask(projectId: string, task: any) {
+    db.prepare(`
+      INSERT OR REPLACE INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, due_date, chat_id, created_at, completed_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      task.id, projectId, task.text, task.description || null,
+      task.status, task.priority ?? 2, task.kanbanOrder ?? 0,
+      task.assignedTo || null, task.dueDate || null, task.chatId || null,
+      task.createdAt, task.completedAt || null, task.updatedAt || new Date().toISOString()
+    );
   }
 
   function getProjectIdForTopic(topicId: string): string | null {
@@ -453,9 +467,117 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
 
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
-        appendLocalMessage(sessionKey, "user", lastUserMsg.content);
+        const storedUserMsg = appendLocalMessage(sessionKey, "user", lastUserMsg.content);
         if (matchedTopic) {
           broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
+        }
+
+        // Parse and store mentions from user message
+        try {
+          const mentions = parseMentions(lastUserMsg.content);
+          if (mentions.length > 0) {
+            const resolved = resolveMentions(db, mentions);
+            const insertMention = db.prepare(
+              "INSERT INTO mentions (message_id, session_key, mentioned_entity, entity_type, created_at) VALUES (?, ?, ?, ?, ?)"
+            );
+            const now = new Date().toISOString();
+            for (const m of resolved) {
+              insertMention.run(storedUserMsg.id, sessionKey, m.entity, m.entityType, now);
+              if (m.entityType === "agent" && m.resolved && m.profileId) {
+                const agentRow = db.prepare("SELECT soul_template FROM agent_profiles WHERE id = ?").get(m.profileId) as any;
+                if (agentRow?.soul_template) {
+                  console.log(`[Mentions] Agent @${m.entity} has soul_template (profile ${m.profileId})`);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("[Mentions] Failed to parse/store mentions:", err);
+        }
+
+        // Handle board chat control commands (/ prefixed)
+        if (lastUserMsg.content.trim().startsWith("/")) {
+          const cmdText = lastUserMsg.content.trim();
+          const cmdMatch = cmdText.match(/^\/(\w+)\s*(.*)/);
+          if (cmdMatch) {
+            const [, cmd, rest] = cmdMatch;
+            let response: string | null = null;
+
+            try {
+              if (cmd === "pause") {
+                const agentName = rest.replace(/^@/, "").trim();
+                if (agentName) {
+                  const agent = db.prepare("SELECT id FROM agent_profiles WHERE LOWER(name) = LOWER(?)").get(agentName) as any;
+                  if (agent) {
+                    const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
+                    if (session) {
+                      try {
+                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/pause`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}` } });
+                        response = `Paused agent @${agentName}`;
+                      } catch { response = `Failed to pause @${agentName} — no reachable session`; }
+                    } else { response = `No active session found for @${agentName}`; }
+                  } else { response = `Agent "${agentName}" not found`; }
+                }
+              } else if (cmd === "resume") {
+                const agentName = rest.replace(/^@/, "").trim();
+                if (agentName) {
+                  const agent = db.prepare("SELECT id FROM agent_profiles WHERE LOWER(name) = LOWER(?)").get(agentName) as any;
+                  if (agent) {
+                    const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'paused' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
+                    if (session) {
+                      try {
+                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/resume`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}` } });
+                        response = `Resumed agent @${agentName}`;
+                      } catch { response = `Failed to resume @${agentName} — no reachable session`; }
+                    } else { response = `No paused session found for @${agentName}`; }
+                  } else { response = `Agent "${agentName}" not found`; }
+                }
+              } else if (cmd === "agents") {
+                const rows = db.prepare("SELECT name, role, avatar_emoji, status FROM agent_profiles ORDER BY name ASC").all() as any[];
+                if (rows.length === 0) {
+                  response = "No agent profiles configured.";
+                } else {
+                  const lines = rows.map((r: any) => `${r.avatar_emoji} **${r.name}** — ${r.role} (${r.status})`);
+                  response = `**Agent Profiles**\n\n${lines.join("\n")}`;
+                }
+              } else if (cmd === "assign") {
+                const assignMatch = rest.match(/^@(\S+)\s+(.+)/);
+                if (assignMatch) {
+                  const [, agentName, taskText] = assignMatch;
+                  const agent = db.prepare("SELECT id FROM agent_profiles WHERE LOWER(name) = LOWER(?)").get(agentName) as any;
+                  if (agent) {
+                    // Find project ID for this topic to create a task
+                    const projectId = matchedTopic ? getProjectIdForTopic(matchedTopic.id) : null;
+                    if (projectId) {
+                      const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(projectId) as any;
+                      const now = new Date().toISOString();
+                      const taskId = crypto.randomUUID();
+                      db.prepare(`INSERT INTO tasks (id, project_id, text, status, priority, kanban_order, assigned_to, created_at, updated_at) VALUES (?, ?, ?, 'todo', 2, ?, ?, ?, ?)`).run(
+                        taskId, projectId, taskText, (maxRow?.m ?? 0) + 1, agentName, now, now
+                      );
+                      response = `Created task and assigned to @${agentName}: "${taskText}"`;
+                    } else {
+                      response = `Cannot assign task — topic has no project. Set a project path first.`;
+                    }
+                  } else { response = `Agent "${agentName}" not found`; }
+                }
+              }
+            } catch (err: any) {
+              console.warn("[ChatCommand] Error handling command:", err);
+              response = `Command error: ${err.message}`;
+            }
+
+            // If a command produced a response, inject it as a synthetic assistant message
+            if (response) {
+              appendLocalMessage(sessionKey, "assistant", response);
+              if (matchedTopic) {
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", content: response, preview: response.slice(0, 100) });
+              }
+              // Return the response as an SSE payload so the client displays it
+              const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(response)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
+              return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
+            }
+          }
         }
       }
 
@@ -643,7 +765,7 @@ Wait for the user to approve the plan before executing any changes.` };
         let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
         let streamModel: string = "unknown";
         const partialMsg = createPartialMessage(sessionKey, "assistant");
-        startStream(sessionKey, partialMsg.id);
+        startStream(sessionKey, partialMsg.id, abortController);
         broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
         // Create a pass-through stream for the HTTP response
@@ -782,6 +904,38 @@ Wait for the user to approve the plan before executing any changes.` };
         if (err.name === "AbortError") return json({ error: "Request timeout (5 min)" }, 504);
         return json({ error: "Gateway unreachable: " + err.message }, 502);
       }
+    }
+
+    // --- Abort streaming ---
+    if (method === "POST" && pathname === "/api/chat/abort") {
+      const body = await readJSON(req);
+      const sessionKey = body?.sessionKey;
+      if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+
+      const stream = activeStreams.get(sessionKey);
+      if (!stream) return json({ ok: false, reason: "no_active_stream" });
+
+      // Abort the gateway request
+      if (stream.abortController) {
+        try { stream.abortController.abort(); } catch {}
+      }
+
+      const topicsData = loadTopics();
+      let topicId: string | undefined;
+      for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
+
+      if (body?.clearMessages) {
+        // First-message cancel — wipe server-side messages entirely
+        saveLocalMessages(sessionKey, []);
+      } else {
+        // Finalize whatever content we have
+        updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
+      }
+
+      endStream(sessionKey);
+      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort" });
+
+      return json({ ok: true, cleared: !!body?.clearMessages });
     }
 
     // --- History ---
@@ -1173,11 +1327,16 @@ Wait for the user to approve the plan before executing any changes.` };
       if (params && method === "POST") {
         const body = await readJSON(req);
         if (!body?.text) return json({ error: "text required" }, 400);
-        const tasks = loadTasks(params.projectId);
-        const maxOrder = tasks.reduce((max: number, t: any) => Math.max(max, t.kanbanOrder ?? 0), 0);
-        const task = { id: crypto.randomUUID(), text: body.text, status: body.status || "todo", kanbanOrder: maxOrder + 1, createdAt: new Date().toISOString(), completedAt: null, chatId: body.chatId || null };
-        tasks.push(task);
-        saveTasks(params.projectId, tasks);
+        const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(params.projectId) as any;
+        const now = new Date().toISOString();
+        const task = {
+          id: crypto.randomUUID(), text: body.text, description: body.description || null,
+          status: body.status || "todo", priority: body.priority ?? 2,
+          kanbanOrder: (maxRow?.m ?? 0) + 1,
+          assignedTo: null, dueDate: null,
+          chatId: body.chatId || null, createdAt: now, completedAt: null, updatedAt: now,
+        };
+        saveTask(params.projectId, task);
         broadcastToAll({ type: "task:created", projectId: params.projectId, task });
         return json(task, 201);
       }
@@ -1188,22 +1347,30 @@ Wait for the user to approve the plan before executing any changes.` };
       if (params && method === "PATCH") {
         const body = await readJSON(req);
         if (!body) return json({ error: "body required" }, 400);
-        const tasks = loadTasks(params.projectId);
-        const task = tasks.find((t: any) => t.id === params.taskId);
-        if (!task) return json({ error: "Task not found" }, 404);
+        const row = db.prepare("SELECT * FROM tasks WHERE id = ? AND project_id = ?").get(params.taskId, params.projectId) as any;
+        if (!row) return json({ error: "Task not found" }, 404);
+        const task = {
+          id: row.id, text: row.text, description: row.description,
+          status: row.status, priority: row.priority, kanbanOrder: row.kanban_order,
+          assignedTo: row.assigned_to, dueDate: row.due_date,
+          chatId: row.chat_id, createdAt: row.created_at, completedAt: row.completed_at,
+          updatedAt: new Date().toISOString(),
+        };
         if (body.text !== undefined) task.text = body.text;
+        if (body.description !== undefined) task.description = body.description;
         if (body.status !== undefined) { task.status = body.status; task.completedAt = body.status === "done" ? new Date().toISOString() : null; }
+        if (body.priority !== undefined) task.priority = body.priority;
         if (body.kanbanOrder !== undefined) task.kanbanOrder = body.kanbanOrder;
-        saveTasks(params.projectId, tasks);
+        if (body.assignedTo !== undefined) task.assignedTo = body.assignedTo;
+        if (body.dueDate !== undefined) task.dueDate = body.dueDate;
+        saveTask(params.projectId, task);
         broadcastToAll({ type: "task:updated", projectId: params.projectId, task });
         return json(task);
       }
       if (params && method === "DELETE") {
-        const tasks = loadTasks(params.projectId);
-        const idx = tasks.findIndex((t: any) => t.id === params.taskId);
-        if (idx === -1) return json({ error: "Task not found" }, 404);
-        tasks.splice(idx, 1);
-        saveTasks(params.projectId, tasks);
+        const row = db.prepare("SELECT id FROM tasks WHERE id = ? AND project_id = ?").get(params.taskId, params.projectId);
+        if (!row) return json({ error: "Task not found" }, 404);
+        db.prepare("DELETE FROM tasks WHERE id = ?").run(params.taskId);
         broadcastToAll({ type: "task:deleted", projectId: params.projectId, taskId: params.taskId });
         return json({ ok: true });
       }

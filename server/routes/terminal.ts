@@ -118,7 +118,6 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
   if (sessionType === 'claude-code') {
     file = 'claude';
     args = ['--dangerously-skip-permissions'];
-    if (cwd) args.push('--cwd', cwd);
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
