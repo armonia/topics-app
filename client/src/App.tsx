@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
-import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, Terminal } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, Terminal, ChevronDown, Cpu, Activity, BookOpen, Clock, Radio, Server, Globe, ExternalLink, ChevronRight } from 'lucide-react';
 import type { Topic, CreateTopicRequest, AppSettings, SidebarTab } from './types';
-import { SidebarToolsMenu } from './components/Sidebar/SidebarToolsMenu';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -24,6 +24,23 @@ const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings')
 const CommandPalette = lazy(() => import('./components/Shared/CommandPalette').then(m => ({ default: m.CommandPalette })));
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
+const CronJobsPanel = lazy(() => import('./components/Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
+const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
+const SystemStatusPanel = lazy(() => import('./components/Sidebar/SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
+const BrowserSidebarControl = lazy(() => import('./components/Browser/BrowserSidebarControl').then(m => ({ default: m.BrowserSidebarControl })));
+
+const TOPICS_MENU_PAGES = [
+  { id: 'activity' as const, icon: Activity, label: 'Activity' },
+  { id: 'journal' as const, icon: BookOpen, label: 'Journal' },
+  { id: 'agents' as const, icon: Cpu, label: 'Agents' },
+];
+
+const TOPICS_MENU_TOOLS: { id: SidebarTab; icon: typeof Clock; label: string }[] = [
+  { id: 'cron', icon: Clock, label: 'Cron Jobs' },
+  { id: 'remote', icon: Radio, label: 'Remote Access' },
+  { id: 'system', icon: Server, label: 'System Status' },
+  { id: 'browser', icon: Globe, label: 'Browser' },
+];
 
 // Generate unique window ID (persists across reloads via sessionStorage)
 const getWindowId = () => {
@@ -131,16 +148,41 @@ function App() {
   const [showFileSearch, setShowFileSearch] = useState(false);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newMenuRef = useRef<HTMLDivElement>(null);
+  const newMenuDropdownRef = useRef<HTMLDivElement>(null);
+  const [showTopicsMenu, setShowTopicsMenu] = useState(false);
+  const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
+  const topicsMenuRef = useRef<HTMLDivElement>(null);
+  const topicsDropdownRef = useRef<HTMLDivElement>(null);
+  const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [newMenuPos, setNewMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
 
   // Close new menu on outside click or Escape
   useEffect(() => {
     if (!showNewMenu) return;
-    const h = (e: MouseEvent) => { if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) setShowNewMenu(false); };
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (newMenuRef.current?.contains(t) || newMenuDropdownRef.current?.contains(t)) return;
+      setShowNewMenu(false);
+    };
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowNewMenu(false); e.stopPropagation(); } };
     document.addEventListener('mousedown', h);
     document.addEventListener('keydown', k, true);
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
   }, [showNewMenu]);
+
+  // Close topics menu on outside click or Escape
+  useEffect(() => {
+    if (!showTopicsMenu) return;
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (topicsMenuRef.current?.contains(t) || topicsDropdownRef.current?.contains(t)) return;
+      setShowTopicsMenu(false); setExpandedTool(null);
+    };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowTopicsMenu(false); setExpandedTool(null); e.stopPropagation(); } };
+    document.addEventListener('mousedown', h);
+    document.addEventListener('keydown', k, true);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
+  }, [showTopicsMenu]);
 
   // App settings
   const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);
@@ -160,6 +202,7 @@ function App() {
   const sidebarResizing = useRef(false);
   const sidebarStartX = useRef(0);
   const sidebarStartWidth = useRef(0);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Mobile swipe-to-dismiss sidebar
   const touchStartX = useRef<number | null>(null);
@@ -176,7 +219,7 @@ function App() {
     }
   }, []);
 
-  // Sidebar resize handlers
+  // Sidebar resize handlers — bypass React during drag for fluid resizing
   const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     sidebarResizing.current = true;
@@ -184,6 +227,10 @@ function App() {
     sidebarStartWidth.current = sidebarCollapsed ? 0 : sidebarWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    // Disable CSS transition during drag for instant feedback
+    if (sidebarRef.current) {
+      sidebarRef.current.style.transition = 'none';
+    }
   }, [sidebarWidth, sidebarCollapsed]);
 
   const handleSidebarDoubleClick = useCallback(() => {
@@ -203,21 +250,30 @@ function App() {
       if (!sidebarResizing.current) return;
       const delta = e.clientX - sidebarStartX.current;
       const newWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
-      setSidebarWidth(newWidth);
-      if (newWidth <= 180 && delta < -20) {
-        setSidebarCollapsed(true);
-      } else {
-        setSidebarCollapsed(false);
+      // Update DOM directly — no React re-render per pixel
+      if (sidebarRef.current) {
+        sidebarRef.current.style.width = `${newWidth}px`;
+        sidebarRef.current.style.opacity = '';
       }
     };
-    const onUp = () => {
+    const onUp = (e: MouseEvent) => {
       if (!sidebarResizing.current) return;
       sidebarResizing.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      // Re-enable CSS transition
+      if (sidebarRef.current) {
+        sidebarRef.current.style.transition = '';
+      }
+      // Sync final width to React state
+      const delta = e.clientX - sidebarStartX.current;
+      const finalWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
+      const collapsed = finalWidth <= 180 && delta < -20;
+      setSidebarWidth(collapsed ? 180 : finalWidth);
+      setSidebarCollapsed(collapsed);
       // Persist (but not from detached windows — they'd overwrite main window's sidebar state)
       if (!isDetached) {
-        const newSettings = { ...appSettings, sidebarWidth, sidebarCollapsed };
+        const newSettings = { ...loadSettings(), sidebarWidth: collapsed ? 180 : finalWidth, sidebarCollapsed: collapsed };
         saveSettings(newSettings);
         setAppSettings(newSettings);
       }
@@ -228,7 +284,7 @@ function App() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [appSettings, sidebarWidth, sidebarCollapsed, isDetached]);
+  }, [isDetached]);
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(prev => {
@@ -267,6 +323,7 @@ function App() {
 
   const {
     sendMessage,
+    stopSession,
     getSessionMessages,
     addMessageFromWS,
     isSessionLoading,
@@ -307,7 +364,7 @@ function App() {
   }, []);
 
   // Open a utility page (Activity/Journal/Agents) as a pane in the main panel
-  const handleOpenAsPage = useCallback((type: 'activity' | 'journal' | 'agents') => {
+  const handleOpenAsPage = useCallback((type: 'activity' | 'journal' | 'agents' | 'dashboard') => {
     const id = utilityPanelId(type);
     if (!openPanels.includes(id)) {
       setOpenPanels(prev => [...prev, id]);
@@ -721,6 +778,7 @@ function App() {
       
       {/* Sidebar */}
       <div
+        ref={sidebarRef}
         onTouchStart={isMobile ? handleSidebarTouchStart : undefined}
         onTouchEnd={isMobile ? handleSidebarTouchEnd : undefined}
         role="navigation"
@@ -749,29 +807,43 @@ function App() {
                 <X size={20} aria-hidden="true" />
               </button>
             )}
-            <span className={`font-semibold text-app-text tracking-[-0.01em] app-no-drag ${isMobile ? 'text-[17px]' : 'text-[15px]'}`}>Topics</span>
+            {/* Topics button - opens combined settings & tools menu */}
+            <div className="app-no-drag" ref={topicsMenuRef}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!showTopicsMenu) {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setTopicsMenuPos({ top: rect.bottom + 4, left: rect.left });
+                  }
+                  setShowTopicsMenu(!showTopicsMenu);
+                }}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
+                  showTopicsMenu ? 'bg-app-hover' : 'hover:bg-app-hover'
+                }`}
+                style={{ pointerEvents: 'auto' }}
+                title="Settings & Tools"
+              >
+                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'}`}>Topics</span>
+                <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
             <ConnectionStatusBadge status={wsStatus} />
             {topicsLoading && (
               <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
             )}
           </div>
           <div className="flex items-center gap-1 relative z-50 app-no-drag" style={{ pointerEvents: 'auto' }}>
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowSettings(true); }}
-              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
-              style={{ pointerEvents: 'auto' }}
-              title="Settings"
-              aria-label="Settings"
-            >
-              <SettingsIcon size={14} />
-            </button>
-            <SidebarToolsMenu
-              onOpenAsPage={handleOpenAsPage}
-              agentsBadge={sidebarBadges.agents}
-            />
-            <div className="relative" ref={newMenuRef}>
+            <div ref={newMenuRef}>
               <button
-                onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!showNewMenu) {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setNewMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                  }
+                  setShowNewMenu(!showNewMenu);
+                }}
                 className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
                 style={{ pointerEvents: 'auto' }}
                 title="New chat or terminal (⌘N)"
@@ -779,16 +851,6 @@ function App() {
               >
                 <Plus size={15} strokeWidth={1.5} />
               </button>
-              {showNewMenu && (
-                <div className="absolute top-full right-0 mt-1 bg-surface border border-app-border rounded-lg shadow-lg py-1 z-50 min-w-[150px]">
-                  <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                    <MessageSquare size={14} /><span>New Chat</span>
-                  </button>
-                  <button onClick={() => { handleQuickCreateTerminal(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                    <Terminal size={14} /><span>New Terminal</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -833,6 +895,7 @@ function App() {
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             isSessionStreaming={isSessionStreaming}
+            stopSession={stopSession}
           />
           )}
           </ErrorBoundary>
@@ -841,7 +904,7 @@ function App() {
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
         <SidebarStatusBar onOpenTab={(tab) => {
-          if (tab === 'agents' || tab === 'activity' || tab === 'journal') {
+          if (tab === 'agents' || tab === 'activity' || tab === 'journal' || tab === 'dashboard') {
             handleOpenAsPage(tab);
           }
         }} onBadgeData={handleSidebarBadgeData} />
@@ -913,6 +976,7 @@ function App() {
           getSessionMessages={getSessionMessages}
           isSessionLoading={isSessionLoading}
           isSessionStreaming={isSessionStreaming}
+          stopSession={stopSession}
           sendMessage={sendMessage}
           loadHistory={loadHistory}
           chatError={chatError}
@@ -935,6 +999,102 @@ function App() {
         />
         </ErrorBoundary>
       </div>
+
+      {/* Portal dropdowns (rendered outside sidebar to escape overflow-hidden) */}
+      {showTopicsMenu && createPortal(
+        <div
+          ref={topicsDropdownRef}
+          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
+          style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
+        >
+          {/* Settings */}
+          <button
+            onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
+          >
+            <SettingsIcon size={14} strokeWidth={1.5} />
+            <span className="flex-1 text-left">Settings</span>
+          </button>
+
+          <div className="border-t border-app-border my-1" />
+
+          {/* Pages section */}
+          <div className="px-2 pt-1 pb-1">
+            <span className="text-[10px] font-medium text-app-text-muted uppercase tracking-wider">Pages</span>
+          </div>
+          {TOPICS_MENU_PAGES.map(({ id, icon: Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Icon size={14} strokeWidth={1.5} />
+              <span className="flex-1 text-left">{label}</span>
+              {id === 'agents' && sidebarBadges.agents !== undefined && sidebarBadges.agents !== false && sidebarBadges.agents !== 0 && typeof sidebarBadges.agents === 'number' && (
+                <span className="text-[9px] text-white bg-primary px-1 rounded-full min-w-[14px] text-center leading-[14px]">
+                  {sidebarBadges.agents > 99 ? '99+' : sidebarBadges.agents}
+                </span>
+              )}
+              <ExternalLink size={10} className="text-app-text-muted flex-shrink-0" />
+            </button>
+          ))}
+
+          <div className="border-t border-app-border my-1" />
+
+          {/* Tools section */}
+          <div className="px-2 pt-1 pb-1">
+            <span className="text-[10px] font-medium text-app-text-muted uppercase tracking-wider">Tools</span>
+          </div>
+          {TOPICS_MENU_TOOLS.map(({ id, icon: Icon, label }) => {
+            const isToolExpanded = expandedTool === id;
+            return (
+              <div
+                key={id}
+                className="relative"
+                onMouseEnter={() => setExpandedTool(id)}
+                onMouseLeave={() => setExpandedTool(null)}
+              >
+                <button
+                  onClick={() => setExpandedTool(isToolExpanded ? null : id)}
+                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors ${isToolExpanded ? 'bg-app-hover' : ''}`}
+                >
+                  <Icon size={14} strokeWidth={1.5} />
+                  <span className="flex-1 text-left">{label}</span>
+                  <ChevronRight size={12} className="text-app-text-muted" />
+                </button>
+                {isToolExpanded && (
+                  <div className="absolute left-full top-0 ml-1 bg-surface border border-app-border rounded-lg shadow-lg min-w-[260px] max-h-[350px] overflow-y-auto" style={{ zIndex: 10000 }}>
+                    <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
+                      {id === 'cron' && <CronJobsPanel enabled />}
+                      {id === 'remote' && <RemoteAccessPanel enabled />}
+                      {id === 'system' && <SystemStatusPanel enabled />}
+                      {id === 'browser' && <BrowserSidebarControl enabled />}
+                    </Suspense>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="h-1" />
+        </div>,
+        document.body
+      )}
+
+      {showNewMenu && createPortal(
+        <div
+          ref={newMenuDropdownRef}
+          className="bg-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[150px]"
+          style={{ position: 'fixed', top: newMenuPos.top, right: newMenuPos.right, zIndex: 9999 }}
+        >
+          <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+            <MessageSquare size={14} /><span>New Chat</span>
+          </button>
+          <button onClick={() => { handleQuickCreateTerminal(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+            <Terminal size={14} /><span>New Terminal</span>
+          </button>
+        </div>,
+        document.body
+      )}
 
       {/* Context menu */}
       {contextMenu && (
