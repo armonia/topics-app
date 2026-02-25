@@ -28,36 +28,32 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for API, cache-first for static
+// Fetch: network-first, cache as offline fallback
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  
-  // Skip non-GET requests
+
+  // Skip non-GET requests and non-http(s) schemes (e.g. chrome-extension://)
   if (event.request.method !== 'GET') return;
-  
+  if (!url.protocol.startsWith('http')) return;
+
   // Skip WebSocket and API calls - always network
-  if (url.pathname.startsWith('/api/') || 
+  if (url.pathname.startsWith('/api/') ||
       url.pathname.startsWith('/ws') ||
       url.pathname.startsWith('/chat/')) {
     return;
   }
-  
-  // For static assets: try cache first, then network
+
+  // Network-first: always try network, fall back to cache when offline
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((response) => {
-        // Cache successful responses
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, clone);
-          });
-        }
-        return response;
-      }).catch(() => cached); // Fallback to cache on network error
-      
-      return cached || fetchPromise;
-    })
+    fetch(event.request).then((response) => {
+      if (response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, clone);
+        });
+      }
+      return response;
+    }).catch(() => caches.match(event.request))
   );
 });
 
