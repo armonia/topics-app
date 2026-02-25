@@ -4,7 +4,7 @@ export function SkeletonTopicList({ count = 5 }: { count?: number }) {
   return (
     <div className="px-2 py-1 space-y-1">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex items-center gap-2 h-8 px-2 animate-pulse">
+        <div key={i} className="flex items-center gap-2 min-h-[44px] h-11 md:min-h-8 md:h-8 pl-3 pr-2 animate-pulse">
           <div className="w-5 h-5 rounded bg-black/8 dark:bg-white/8 flex-shrink-0" />
           <div
             className="h-3 rounded bg-black/8 dark:bg-white/8"

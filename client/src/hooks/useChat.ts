@@ -57,8 +57,28 @@ function clearOutboundQueue() {
   try { localStorage.removeItem(QUEUE_KEY); } catch {}
 }
 
+function getInitialMessages(): Record<string, ChatMessage[]> {
+  try {
+    const result: Record<string, ChatMessage[]> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(CACHE_PREFIX)) {
+        const sessionKey = key.slice(CACHE_PREFIX.length);
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) result[sessionKey] = parsed;
+        }
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 export function useChat() {
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(getInitialMessages);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [streaming, setStreaming] = useState<Record<string, boolean>>({});
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
@@ -104,6 +124,8 @@ export function useChat() {
 
   // Strip {{BROWSER:...}} markers from visible content (processed server-side for navigation)
   const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
+  // Strip {{TOPIC_SWITCH:...}} and {{TOPIC_NEW:...}} markers from visible content (processed server-side for topic switching)
+  const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}/g, '').trimStart();
 
   // Filter out internal gateway context messages
   const isContextMessage = (content: string): boolean => {
@@ -250,7 +272,7 @@ export function useChat() {
 
       case 'stream:content_chunk':
         if (event.content) {
-          const cleanedChunk = stripBrowserMarker(event.content);
+          const cleanedChunk = stripTopicSwitchMarker(stripBrowserMarker(event.content));
           if (cleanedChunk) appendToLastMessage(sessionKey, cleanedChunk, undefined);
           resetStreamTimeout(sessionKey); // Reset watchdog on each chunk
         }
@@ -270,9 +292,9 @@ export function useChat() {
         setMessages(prev => {
           const msgs = prev[sessionKey] || [];
           const last = msgs[msgs.length - 1];
-          if (last?.role === 'assistant' && last.content.includes('{{BROWSER:')) {
+          if (last?.role === 'assistant' && (last.content.includes('{{BROWSER:') || last.content.includes('{{TOPIC_SWITCH:'))) {
             const updated = [...msgs];
-            updated[msgs.length - 1] = { ...last, content: stripBrowserMarker(last.content), partial: false };
+            updated[msgs.length - 1] = { ...last, content: stripTopicSwitchMarker(stripBrowserMarker(last.content)), partial: false };
             // Cache after stream finishes
             cacheMessages(sessionKey, updated);
             return { ...prev, [sessionKey]: updated };
@@ -419,8 +441,8 @@ export function useChat() {
             if (data === '[DONE]') {
               // Finalize message — strip any remaining browser markers from accumulated content
               if (assistantMessageCreated) {
-                if (currentContent.includes('{{BROWSER:')) {
-                  currentContent = stripBrowserMarker(currentContent);
+                if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:')) {
+                  currentContent = stripTopicSwitchMarker(stripBrowserMarker(currentContent));
                   updateLastMessage(sessionKey, { content: currentContent, partial: false });
                 } else {
                   updateLastMessage(sessionKey, { partial: false });
@@ -448,8 +470,8 @@ export function useChat() {
                   chunk = chunk.replace('</thinking>', '');
                 }
 
-                // Strip browser markers from visible content
-                if (!isInThinking) chunk = stripBrowserMarker(chunk);
+                // Strip browser and topic switch markers from visible content
+                if (!isInThinking) chunk = stripTopicSwitchMarker(stripBrowserMarker(chunk));
 
                 // Create assistant message on first content chunk
                 if (!assistantMessageCreated) {
@@ -618,7 +640,7 @@ export function useChat() {
         .map(msg => ({
           ...msg,
           id: msg.id || generateMessageId(),
-          content: stripBrowserMarker(msg.content || ''),
+          content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 

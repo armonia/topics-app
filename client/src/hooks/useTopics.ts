@@ -2,23 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Topic, CreateTopicRequest, UpdateTopicRequest } from '../types';
 import { topicsApi } from '../lib/api';
 
+function getInitialTopics(): Record<string, Topic> {
+  try {
+    const cached = localStorage.getItem('topics-cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch {}
+  return {};
+}
+
 export function useTopics() {
-  const [topics, setTopics] = useState<Record<string, Topic>>({});
+  const [topics, setTopics] = useState<Record<string, Topic>>(getInitialTopics);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Load cached topics from localStorage on init
-  useEffect(() => {
-    try {
-      const cached = localStorage.getItem('topics-cache');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && typeof parsed === 'object') {
-          setTopics(parsed);
-        }
-      }
-    } catch {}
-  }, []);
 
   const loadTopics = useCallback(async () => {
     try {
@@ -97,6 +95,48 @@ export function useTopics() {
     }
   }, []);
 
+  const archiveProject = useCallback(async (projectPath: string, archived: boolean = true): Promise<boolean> => {
+    try {
+      setError(null);
+      // Optimistic update: immediately set archived flag on all matching topics
+      const affectedIds: string[] = [];
+      setTopics(prev => {
+        const next = { ...prev };
+        for (const [id, topic] of Object.entries(next)) {
+          if (topic.projectPath === projectPath) {
+            next[id] = { ...topic, archived, updatedAt: new Date().toISOString() };
+            affectedIds.push(id);
+          }
+        }
+        return next;
+      });
+      const result = await topicsApi.bulkArchive(projectPath, archived);
+      // Reconcile with server response
+      setTopics(prev => {
+        const next = { ...prev };
+        for (const topic of result.topics) {
+          next[topic.id] = topic;
+        }
+        return next;
+      });
+      return true;
+    } catch (err) {
+      console.error('Failed to archive project:', err);
+      // Rollback optimistic update
+      setTopics(prev => {
+        const next = { ...prev };
+        for (const [id, topic] of Object.entries(next)) {
+          if (topic.projectPath === projectPath) {
+            next[id] = { ...topic, archived: !archived };
+          }
+        }
+        return next;
+      });
+      setError(err instanceof Error ? err.message : 'Failed to archive project');
+      return false;
+    }
+  }, []);
+
   const linkTopics = useCallback(async (id: string, targetId: string): Promise<boolean> => {
     try {
       setError(null);
@@ -147,6 +187,7 @@ export function useTopics() {
     createTopic,
     updateTopic,
     archiveTopic,
+    archiveProject,
     applyTopicFromWS,
     linkTopics,
     unlinkTopics,
