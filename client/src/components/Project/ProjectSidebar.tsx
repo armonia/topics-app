@@ -1,15 +1,12 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, PanelLeft, RefreshCw } from 'lucide-react';
 import { ScriptRunner } from './ScriptRunner';
+import { FileExplorer } from './FileExplorer';
+import { TaskBoard } from './TaskBoard';
 import type { WSMessage } from '../../types';
 
-// Lazy-load heavy project components
-const FileExplorer = lazy(() => import('./FileExplorer').then(m => ({ default: m.FileExplorer })));
+// Git is heavy (diff rendering) — keep lazy
 const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.GitChanges })));
-const TaskBoard = lazy(() => import('./TaskBoard').then(m => ({ default: m.TaskBoard })));
-
-// Invisible fallback — avoids layout shift while lazy components load
-const Noop = () => null;
 
 interface ProjectSidebarProps {
   projectPath: string;
@@ -225,9 +222,7 @@ export function ProjectSidebar({
           {/* Fixed content at top */}
           <div className="flex-shrink-0">
             {projectId && onWSMessage && (
-              <Suspense fallback={<Noop />}>
-                <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
-              </Suspense>
+              <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
             )}
           </div>
 
@@ -243,9 +238,7 @@ export function ProjectSidebar({
             </button>
             {expandedSections.files && (
               <div className="flex-1 min-h-0 overflow-y-auto">
-                <Suspense fallback={<Noop />}>
-                  <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
-                </Suspense>
+                <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
               </div>
             )}
           </div>
