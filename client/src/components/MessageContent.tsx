@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Check, CheckCheck } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download } from 'lucide-react';
+import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { ThinkingBlock, ToolCallsList, PartialIndicator } from './MessageParts';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
@@ -34,15 +35,10 @@ function getFileName(path: string): string {
   return path.split('/').pop() || path;
 }
 
-function getFileIcon(path: string): string {
-  const ext = getExtension(path);
-  if (['pdf'].includes(ext)) return '📄';
-  if (['zip'].includes(ext)) return '📦';
-  if (['doc', 'docx'].includes(ext)) return '📝';
-  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
-  if (['json'].includes(ext)) return '🔧';
-  if (['txt', 'md'].includes(ext)) return '📃';
-  return '📎';
+function FileIcon({ path, size = 24 }: { path: string; size?: number }) {
+  const def = getFileIconDef(getFileName(path));
+  const I = def.icon;
+  return <I size={size} style={{ color: def.color }} />;
 }
 
 function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[] } {
@@ -119,12 +115,12 @@ function MediaFile({ path }: { path: string }) {
       download={getFileName(path)}
       className="my-1 flex items-center gap-3 bg-elevated hover:bg-app-hover rounded-lg p-3 border border-app-border-light transition-colors no-underline text-inherit"
     >
-      <span className="text-2xl">{getFileIcon(path)}</span>
+      <FileIcon path={path} size={24} />
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{getFileName(path)}</div>
         <div className="text-xs text-app-text-muted uppercase">{getExtension(path)} file</div>
       </div>
-      <span className="text-app-text-muted text-sm">⬇️</span>
+      <Download size={16} className="text-app-text-muted flex-shrink-0" />
     </a>
   );
 }
@@ -237,7 +233,35 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
 });
 
 // Shared markdown components config (exported for reuse in PlanView)
+/**
+ * Process React children to highlight @mentions in text nodes.
+ */
+function highlightMentionsInChildren(children: React.ReactNode): React.ReactNode {
+  if (typeof children === 'string') {
+    const parts = highlightMentions(children);
+    if (parts.length === 1 && typeof parts[0] === 'string') return children;
+    return <>{parts}</>;
+  }
+  if (Array.isArray(children)) {
+    return children.map((child, i) => {
+      if (typeof child === 'string') {
+        const parts = highlightMentions(child);
+        if (parts.length === 1 && typeof parts[0] === 'string') return child;
+        return <span key={i}>{parts}</span>;
+      }
+      return child;
+    });
+  }
+  return children;
+}
+
 export const markdownComponents = {
+  p: ({ children }: any) => (
+    <p>{highlightMentionsInChildren(children)}</p>
+  ),
+  li: ({ children, ...rest }: any) => (
+    <li {...rest}>{highlightMentionsInChildren(children)}</li>
+  ),
   img: ({ src, alt }: any) => {
     if (!src) return null;
     const isAbsolute = src.startsWith('/');
@@ -371,6 +395,35 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
   );
 }
 
+/**
+ * Highlight @mentions in text by wrapping them in styled spans.
+ * Returns an array of string and JSX elements.
+ */
+function highlightMentions(text: string): (string | JSX.Element)[] {
+  // Match @name at start of string or after whitespace (without lookbehind for Safari compat)
+  const mentionRegex = /(^|\s)(@[a-zA-Z][a-zA-Z0-9_-]*)/gm;
+  const parts: (string | JSX.Element)[] = [];
+  let lastIdx = 0;
+  let match;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    const prefix = match[1]; // whitespace or empty at start
+    const mention = match[2]; // the @name
+    const beforeText = text.slice(lastIdx, match.index);
+    if (beforeText) parts.push(beforeText);
+    if (prefix) parts.push(prefix);
+    parts.push(
+      <span key={match.index} className="text-primary font-medium">{mention}</span>
+    );
+    lastIdx = match.index + match[0].length;
+  }
+
+  const remaining = text.slice(lastIdx);
+  if (remaining) parts.push(remaining);
+
+  return parts.length > 0 ? parts : [text];
+}
+
 interface MessageContentProps {
   content: string;
   role: 'user' | 'assistant' | 'system';
@@ -428,7 +481,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             </div>
           );
         }
-        return <div key={i} className="whitespace-pre-wrap">{block.content}</div>;
+        return <div key={i} className="whitespace-pre-wrap">{highlightMentions(block.content)}</div>;
       });
     };
 

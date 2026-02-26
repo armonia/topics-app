@@ -19,7 +19,7 @@ export interface Topic {
   sortOrder?: number;
   autonomyLevel?: AutonomyLevel;
   disabledContextSources?: string[];
-  disabledContextTemplates?: string[];
+  assignedAgents?: { id: string; name: string; role: string }[];
 }
 
 export interface TopicsData {
@@ -73,7 +73,6 @@ export interface UpdateTopicRequest {
   projectPath?: string;
   autonomyLevel?: AutonomyLevel;
   disabledContextSources?: string[];
-  disabledContextTemplates?: string[];
 }
 
 export interface LinkTopicRequest {
@@ -199,7 +198,7 @@ export interface GitLogEntry {
 export type PanelTab = 'chat' | 'files' | 'changes' | 'processes' | 'browser' | 'terminal';
 
 // Pane types for ProjectWindow layout
-export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents';
+export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project';
 
 export interface Pane {
   id: string;            // e.g. "chat:topicId123", "browser:1707840000", "file:1707840000"
@@ -207,6 +206,10 @@ export interface Pane {
   topicId?: string;      // only for type='chat'
   filePath?: string;     // only for type='file'
   title?: string;
+  diff?: boolean;        // true when pane shows a git diff view
+  diffProjectPath?: string; // project path for resolving git show
+  preview?: boolean;     // true = transient tab (replaced on next open, italic text)
+  color?: string;        // accent color for the tab (used by project tabs)
 }
 
 export interface PaneLayoutRow {
@@ -243,7 +246,7 @@ export interface ProjectWindowState {
   sidebarCollapsed: boolean;
 }
 
-export type SidebarTab = 'agents' | 'activity' | 'journal' | 'cron' | 'remote' | 'system' | 'browser' | 'terminal';
+export type SidebarTab = 'agents' | 'activity' | 'journal' | 'cron' | 'remote' | 'system' | 'browser' | 'terminal' | 'webhooks';
 
 export interface AppSettings {
   fontSize: number;       // 12-18

@@ -10,9 +10,10 @@ interface BrowserContext {
 
 interface BrowserSidebarControlProps {
   enabled?: boolean;
+  onContextCount?: (count: number) => void;
 }
 
-export function BrowserSidebarControl({ enabled = true }: BrowserSidebarControlProps) {
+export function BrowserSidebarControl({ enabled = true, onContextCount }: BrowserSidebarControlProps) {
   const [contexts, setContexts] = useState<BrowserContext[]>([]);
   const [serviceRunning, setServiceRunning] = useState(false);
 
@@ -25,18 +26,21 @@ export function BrowserSidebarControl({ enabled = true }: BrowserSidebarControlP
         if (resp.ok) {
           const data = await resp.json();
           setServiceRunning(data.running);
-          setContexts(data.details || []);
+          const details = data.details || [];
+          setContexts(details);
+          onContextCount?.(details.length);
         }
       } catch {
         setServiceRunning(false);
         setContexts([]);
+        onContextCount?.(0);
       }
     };
 
     loadContexts();
     const interval = setInterval(loadContexts, 3000);
     return () => clearInterval(interval);
-  }, [enabled]);
+  }, [enabled, onContextCount]);
 
   const closeContext = useCallback(async (id: string) => {
     try {

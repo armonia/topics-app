@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "fs";
-import { join } from "path";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync, rmdirSync, renameSync } from "fs";
+import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 
 // Backup store persisted to disk for undo support
@@ -322,6 +322,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
+        // Check if path is a git repo
+        const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await checkProc.exited;
+        if (checkProc.exitCode !== 0) {
+          return json({ error: "Not a git repository", notGit: true }, 400);
+        }
         const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statusText = await new Response(statusProc.stdout).text();
         const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
@@ -387,6 +393,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           }
           branches.push({ name, current: isCurrent, isRemote, ahead, behind });
         }
+        // Fresh repo (git init, no commits) — git branch returns nothing but HEAD exists
+        if (branches.length === 0) {
+          try {
+            const headProc = Bun.spawn(["git", "symbolic-ref", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            const headName = (await new Response(headProc.stdout).text()).trim();
+            if (headName) branches.push({ name: headName, current: true, isRemote: false, ahead: 0, behind: 0 });
+          } catch {}
+        }
         return json(branches);
       } catch (err: any) { return json({ error: "Git branches error: " + err.message }, 500); }
     }
@@ -436,6 +450,64 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try { const proc = Bun.spawn(["git", "add", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Stage error: " + err.message }, 500); }
     }
 
+    // --- Git stage all ---
+    if (method === "POST" && pathname === "/api/git/stage-all") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try { const proc = Bun.spawn(["git", "add", "-A"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Stage-all error: " + err.message }, 500); }
+    }
+
+    // --- Git diff summary (auto commit message) ---
+    if (method === "GET" && pathname === "/api/git/diff-summary") {
+      const dirPath = url.searchParams.get("path");
+      if (!dirPath) return json({ error: "path parameter required" }, 400);
+      const resolvedDir = resolveProjectPath(dirPath);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        // Get diff stat for staged + unstaged
+        const statProc = Bun.spawn(["git", "diff", "--stat", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statText = (await new Response(statProc.stdout).text()).trim();
+        // Also get untracked files
+        const untrackedProc = Bun.spawn(["git", "ls-files", "--others", "--exclude-standard"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const untrackedText = (await new Response(untrackedProc.stdout).text()).trim();
+        // Get status porcelain for changed files
+        const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statusText = (await new Response(statusProc.stdout).text()).trim();
+        const lines = statusText.split("\n").filter(Boolean);
+        const added: string[] = [];
+        const modified: string[] = [];
+        const deleted: string[] = [];
+        const untracked: string[] = [];
+        for (const line of lines) {
+          const status = line.substring(0, 2).trim();
+          const file = line.substring(3);
+          const basename = file.split("/").pop() || file;
+          if (status === "??") untracked.push(basename);
+          else if (status === "A" || status === "AM") added.push(basename);
+          else if (status === "D") deleted.push(basename);
+          else modified.push(basename);
+        }
+        // Build a concise message
+        const parts: string[] = [];
+        if (modified.length > 0) {
+          parts.push(modified.length <= 3 ? `update ${modified.join(", ")}` : `update ${modified.length} files`);
+        }
+        if (added.length > 0) {
+          parts.push(added.length <= 3 ? `add ${added.join(", ")}` : `add ${added.length} files`);
+        }
+        if (deleted.length > 0) {
+          parts.push(deleted.length <= 3 ? `remove ${deleted.join(", ")}` : `remove ${deleted.length} files`);
+        }
+        if (untracked.length > 0) {
+          parts.push(untracked.length <= 3 ? `add ${untracked.join(", ")}` : `add ${untracked.length} new files`);
+        }
+        const message = parts.length > 0 ? parts.join("; ") : "chore: minor changes";
+        return json({ message, stat: statText, files: { added, modified, deleted, untracked } });
+      } catch (err: any) { return json({ error: "Diff summary error: " + err.message }, 500); }
+    }
+
     // --- Git unstage ---
     if (method === "POST" && pathname === "/api/git/unstage") {
       const body = await readJSON(req);
@@ -443,6 +515,38 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try { const proc = Bun.spawn(["git", "reset", "HEAD", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage error: " + err.message }, 500); }
+    }
+
+    // --- Git unstage all ---
+    if (method === "POST" && pathname === "/api/git/unstage-all") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try { const proc = Bun.spawn(["git", "reset", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage-all error: " + err.message }, 500); }
+    }
+
+    // --- Git discard file changes (restore working tree) ---
+    if (method === "POST" && pathname === "/api/git/discard") {
+      const body = await readJSON(req);
+      if (!body?.path || !body?.file) return json({ error: "path and file required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        // For untracked files, remove them; for tracked files, restore from HEAD
+        const statusProc = Bun.spawn(["git", "status", "--porcelain", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const statusOut = (await new Response(statusProc.stdout).text()).trim();
+        if (statusOut.startsWith("??")) {
+          // Untracked: remove file
+          const rmProc = Bun.spawn(["rm", "-rf", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          await rmProc.exited;
+        } else {
+          // Tracked: restore from HEAD
+          const proc = Bun.spawn(["git", "checkout", "--", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          await proc.exited;
+        }
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Discard error: " + err.message }, 500); }
     }
 
     // --- Git commit ---
@@ -514,6 +618,366 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         if (proc.exitCode !== 0) return new Response("", { headers: { "Content-Type": "text/plain; charset=utf-8" } });
         return new Response(content, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (err: any) { return json({ error: "Git show error: " + err.message }, 500); }
+    }
+
+    // --- File create (new file or dir) ---
+    if (method === "POST" && pathname === "/api/files/create") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedFile = resolveProjectPath(body.path);
+      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      if (existsSync(resolvedFile)) return json({ error: "Path already exists" }, 409);
+      try {
+        if (body.type === "dir") {
+          mkdirSync(resolvedFile, { recursive: true });
+        } else {
+          // Ensure parent dir exists
+          const parentDir = resolvedFile.substring(0, resolvedFile.lastIndexOf("/"));
+          if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true });
+          writeFileSync(resolvedFile, "", "utf-8");
+        }
+        return json({ ok: true, path: resolvedFile });
+      } catch (err: any) {
+        return json({ error: "Failed to create: " + err.message }, 500);
+      }
+    }
+
+    // --- File rename ---
+    if (method === "POST" && pathname === "/api/files/rename") {
+      const body = await readJSON(req);
+      if (!body?.oldPath || !body?.newPath) return json({ error: "oldPath and newPath required" }, 400);
+      const resolvedOld = resolveProjectPath(body.oldPath);
+      const resolvedNew = resolveProjectPath(body.newPath);
+      if (!resolvedOld || !resolvedNew) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedOld)) return json({ error: "Source path not found" }, 404);
+      if (existsSync(resolvedNew)) return json({ error: "Destination already exists" }, 409);
+      try {
+        renameSync(resolvedOld, resolvedNew);
+        return json({ ok: true, path: resolvedNew });
+      } catch (err: any) {
+        return json({ error: "Failed to rename: " + err.message }, 500);
+      }
+    }
+
+    // --- File delete ---
+    if (method === "DELETE" && pathname === "/api/files/delete") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedFile = resolveProjectPath(body.path);
+      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
+      try {
+        const stat = statSync(resolvedFile);
+        if (stat.isDirectory()) {
+          // Recursive delete for directories
+          const rmProc = Bun.spawn(["rm", "-rf", resolvedFile], { stdout: "pipe", stderr: "pipe" });
+          await rmProc.exited;
+        } else {
+          unlinkSync(resolvedFile);
+        }
+        return json({ ok: true });
+      } catch (err: any) {
+        return json({ error: "Failed to delete: " + err.message }, 500);
+      }
+    }
+
+    // --- Flat file list (for quick open) ---
+    if (method === "GET" && pathname === "/api/files/flat") {
+      const dirPath = url.searchParams.get("path");
+      const maxFiles = parseInt(url.searchParams.get("maxFiles") || "2000", 10);
+      if (!dirPath) return json({ error: "path parameter required" }, 400);
+      const resolvedPath = resolveProjectPath(dirPath);
+      if (!resolvedPath) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedPath)) return json({ error: "directory not found" }, 404);
+
+      const DEFAULT_EXCLUDES = new Set(["node_modules", ".git", ".next", "dist", "build", ".DS_Store", "__pycache__", ".cache", ".turbo", ".vercel", ".output", "coverage", ".nyc_output", ".parcel-cache", "target", ".backups"]);
+      function parseGitignoreFlat(dir: string): Set<string> {
+        const patterns = new Set<string>();
+        try {
+          const gitignorePath = join(dir, ".gitignore");
+          if (existsSync(gitignorePath)) {
+            const content = readFileSync(gitignorePath, "utf-8");
+            for (const line of content.split("\n")) { const trimmed = line.trim(); if (trimmed && !trimmed.startsWith("#")) { const clean = trimmed.replace(/\/$/, "").replace(/^\//, ""); if (clean) patterns.add(clean); } }
+          }
+        } catch {}
+        return patterns;
+      }
+      const gitignorePatterns = parseGitignoreFlat(resolvedPath);
+      const allExcludes = new Set([...DEFAULT_EXCLUDES, ...gitignorePatterns]);
+
+      const files: string[] = [];
+      function walkFlat(dir: string) {
+        if (files.length >= maxFiles) return;
+        try {
+          const entries = readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (files.length >= maxFiles) return;
+            if (allExcludes.has(entry.name)) continue;
+            // Check glob-style excludes
+            let skip = false;
+            for (const pattern of allExcludes) {
+              if (pattern.startsWith("*.") && entry.name.endsWith(pattern.slice(1))) { skip = true; break; }
+              if (pattern.endsWith("*") && entry.name.startsWith(pattern.slice(0, -1))) { skip = true; break; }
+            }
+            if (skip) continue;
+            const fullPath = join(dir, entry.name);
+            if (entry.isDirectory()) {
+              walkFlat(fullPath);
+            } else if (entry.isFile()) {
+              files.push(relative(resolvedPath, fullPath));
+            }
+          }
+        } catch {}
+      }
+      walkFlat(resolvedPath);
+      return json({ files });
+    }
+
+    // --- Package.json scripts ---
+    if (method === "GET" && pathname === "/api/files/package-scripts") {
+      const dirPath = url.searchParams.get("path");
+      if (!dirPath) return json({ error: "path parameter required" }, 400);
+      const resolvedPath = resolveProjectPath(dirPath);
+      if (!resolvedPath) return errorResponse(400, "Invalid path");
+      const pkgPath = join(resolvedPath, "package.json");
+      if (!existsSync(pkgPath)) return json({ scripts: {}, engines: {} });
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+        return json({ scripts: pkg.scripts || {}, engines: pkg.engines || {} });
+      } catch (err: any) {
+        return json({ error: "Failed to parse package.json: " + err.message }, 500);
+      }
+    }
+
+    // --- Active ports ---
+    if (method === "GET" && pathname === "/api/processes/ports") {
+      try {
+        const proc = Bun.spawn(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "pipe" });
+        const output = await new Response(proc.stdout).text();
+        await proc.exited;
+        const ports: { port: number; pid: number; command: string }[] = [];
+        const seen = new Set<number>();
+        for (const line of output.split("\n").slice(1)) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 9) continue;
+          const command = parts[0];
+          const pid = parseInt(parts[1], 10);
+          const nameField = parts[8] || "";
+          const portMatch = nameField.match(/:(\d+)$/);
+          if (!portMatch) continue;
+          const port = parseInt(portMatch[1], 10);
+          if (seen.has(port)) continue;
+          seen.add(port);
+          ports.push({ port, pid, command });
+        }
+        ports.sort((a, b) => a.port - b.port);
+        return json({ ports });
+      } catch (err: any) {
+        return json({ ports: [] });
+      }
+    }
+
+    // --- AI commit message (via Gateway LLM) ---
+    if (method === "POST" && pathname === "/api/git/ai-commit-message") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        // Check if path is a git repo
+        const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await checkProc.exited;
+        if (checkProc.exitCode !== 0) {
+          return json({ error: "Not a git repository" }, 400);
+        }
+
+        // Get ONLY staged diff and staged files (--cached = index vs HEAD)
+        const diffProc = Bun.spawn(["git", "diff", "--cached"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        let diffText = await new Response(diffProc.stdout).text();
+        if (diffText.length > 4000) diffText = diffText.slice(0, 4000) + "\n... (truncated)";
+        const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const fullStatus = (await new Response(statusProc.stdout).text()).trim();
+        // Filter to only staged files (first char is not ' ' and not '?')
+        const statusText = fullStatus.split('\n').filter(l => l.length >= 2 && l[0] !== ' ' && l[0] !== '?').join('\n');
+
+        if (!statusText && !diffText.trim()) {
+          return json({ error: "No staged changes to describe" }, 400);
+        }
+
+        if (!GATEWAY_URL || !GATEWAY_TOKEN) {
+          return json({ error: "Gateway not configured" }, 503);
+        }
+
+        const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+          body: JSON.stringify({
+            model: "fast",
+            stream: false,
+            messages: [
+              { role: "system", content: "Generate a concise git commit message in conventional commit format based on the STAGED changes only. First line max 72 chars. If multiple changes, use bullet points. Be specific about what changed. Reply with ONLY the commit message, no explanation." },
+              { role: "user", content: `Staged files:\n${statusText || '(no staged files)'}\n\nStaged diff:\n${diffText || '(no staged diff)'}` },
+            ],
+          }),
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          return json({ error: `Gateway error: ${resp.status} ${errText.slice(0, 200)}` }, 502);
+        }
+
+        const data = await resp.json() as any;
+        const message = data.choices?.[0]?.message?.content?.trim() || "chore: update files";
+        return json({ message });
+      } catch (err: any) {
+        return json({ error: "AI commit message error: " + err.message }, 500);
+      }
+    }
+
+    // --- Git init ---
+    if (method === "POST" && pathname === "/api/git/init") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedDir)) return json({ error: "directory not found" }, 404);
+      try {
+        const proc = Bun.spawn(["git", "init"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        const stderr = await new Response(proc.stderr).text();
+        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "git init failed" }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Git init error: " + err.message }, 500); }
+    }
+
+    // --- Git create branch ---
+    if (method === "POST" && pathname === "/api/git/create-branch") {
+      const body = await readJSON(req);
+      if (!body?.path || !body?.name) return json({ error: "path and name required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const checkout = body.checkout !== false; // default true
+        const args = checkout ? ["git", "checkout", "-b", body.name] : ["git", "branch", body.name];
+        const proc = Bun.spawn(args, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        const stderr = await new Response(proc.stderr).text();
+        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Create branch failed" }, 400);
+        return json({ ok: true, branch: body.name });
+      } catch (err: any) { return json({ error: "Create branch error: " + err.message }, 500); }
+    }
+
+    // --- Git delete branch ---
+    if (method === "POST" && pathname === "/api/git/delete-branch") {
+      const body = await readJSON(req);
+      if (!body?.path || !body?.name) return json({ error: "path and name required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const flag = body.force ? "-D" : "-d";
+        const proc = Bun.spawn(["git", "branch", flag, body.name], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        const stderr = await new Response(proc.stderr).text();
+        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Delete branch failed" }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Delete branch error: " + err.message }, 500); }
+    }
+
+    // --- Git remotes ---
+    if (method === "GET" && pathname === "/api/git/remotes") {
+      const dirPath = url.searchParams.get("path");
+      if (!dirPath) return json({ error: "path parameter required" }, 400);
+      const resolvedDir = resolveProjectPath(dirPath);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const proc = Bun.spawn(["git", "remote", "-v"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const output = (await new Response(proc.stdout).text()).trim();
+        await proc.exited;
+        const remotes: { name: string; fetchUrl: string; pushUrl: string }[] = [];
+        const seen = new Map<string, { fetchUrl: string; pushUrl: string }>();
+        for (const line of output.split("\n").filter(Boolean)) {
+          const parts = line.split(/\s+/);
+          if (parts.length < 3) continue;
+          const name = parts[0];
+          const url = parts[1];
+          const type = parts[2]; // (fetch) or (push)
+          if (!seen.has(name)) seen.set(name, { fetchUrl: "", pushUrl: "" });
+          const entry = seen.get(name)!;
+          if (type === "(fetch)") entry.fetchUrl = url;
+          if (type === "(push)") entry.pushUrl = url;
+        }
+        for (const [name, urls] of seen) remotes.push({ name, ...urls });
+        return json(remotes);
+      } catch (err: any) { return json({ error: "Git remotes error: " + err.message }, 500); }
+    }
+
+    // --- Git remote add ---
+    if (method === "POST" && pathname === "/api/git/remote-add") {
+      const body = await readJSON(req);
+      if (!body?.path || !body?.name || !body?.url) return json({ error: "path, name, and url required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const proc = Bun.spawn(["git", "remote", "add", body.name, body.url], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        const stderr = await new Response(proc.stderr).text();
+        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Remote add failed" }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Remote add error: " + err.message }, 500); }
+    }
+
+    // --- Git remote remove ---
+    if (method === "POST" && pathname === "/api/git/remote-remove") {
+      const body = await readJSON(req);
+      if (!body?.path || !body?.name) return json({ error: "path and name required" }, 400);
+      const resolvedDir = resolveProjectPath(body.path);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const proc = Bun.spawn(["git", "remote", "remove", body.name], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        const stderr = await new Response(proc.stderr).text();
+        if (proc.exitCode !== 0) return json({ error: stderr.trim() || "Remote remove failed" }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Remote remove error: " + err.message }, 500); }
+    }
+
+    // --- Git line changes (for gutter decorations) ---
+    if (method === "GET" && pathname === "/api/git/line-changes") {
+      const dirPath = url.searchParams.get("path");
+      const filePath = url.searchParams.get("file");
+      if (!dirPath || !filePath) return json({ error: "path and file parameters required" }, 400);
+      const resolvedDir = resolveProjectPath(dirPath);
+      if (!resolvedDir) return errorResponse(400, "Invalid path");
+      try {
+        const proc = Bun.spawn(["git", "diff", "HEAD", "--", filePath], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const diff = await new Response(proc.stdout).text();
+        await proc.exited;
+
+        const changes: { from: number; to: number; type: "added" | "modified" | "deleted" }[] = [];
+        // Parse unified diff hunks
+        const hunkRegex = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
+        let match;
+        while ((match = hunkRegex.exec(diff)) !== null) {
+          const oldStart = parseInt(match[1], 10);
+          const oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
+          const newStart = parseInt(match[3], 10);
+          const newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;
+
+          if (oldCount === 0 && newCount > 0) {
+            // Pure addition
+            changes.push({ from: newStart, to: newStart + newCount - 1, type: "added" });
+          } else if (newCount === 0 && oldCount > 0) {
+            // Pure deletion
+            changes.push({ from: newStart, to: newStart, type: "deleted" });
+          } else {
+            // Modification
+            changes.push({ from: newStart, to: newStart + newCount - 1, type: "modified" });
+          }
+        }
+        return json({ changes });
+      } catch (err: any) {
+        return json({ changes: [] });
+      }
     }
 
     return null;

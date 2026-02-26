@@ -10,7 +10,7 @@ import { parseMentions, resolveMentions } from "../mention-parser";
 export function createTopicsRouter(ctx: AppContext): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR,
-    broadcastToAll, broadcast,
+    broadcastToAll, broadcast, isTopicFocused,
     loadTopics, saveTopics, loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, addToolCallToLastMessage,
@@ -62,6 +62,64 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
     }
 
     return content;
+  }
+
+  function buildTopicDirectory(currentTopicId: string): string {
+    const data = loadTopics();
+    const lines: string[] = [];
+    for (const t of Object.values(data.topics)) {
+      if (t.id === currentTopicId || t.archived) continue;
+      const project = t.projectPath ? ` (project: ${t.projectPath.split('/').pop()})` : '';
+      lines.push(`- [id:${t.id}] ${t.name}${project}`);
+    }
+    return lines.join('\n');
+  }
+
+  function detectAndBroadcastTopicSwitch(content: string, currentTopic: Topic | null): { content: string; switchedToTopicId: string | null } {
+    if (!currentTopic) return { content, switchedToTopicId: null };
+
+    // Check for TOPIC_NEW first (create a new topic on the fly)
+    const newMatch = content.match(/\{\{TOPIC_NEW:([^}]+)\}\}/);
+    if (newMatch) {
+      const topicName = newMatch[1].trim();
+      if (topicName) {
+        const data = loadTopics();
+        const id = crypto.randomUUID();
+        const slug = slugify(topicName);
+        const newTopic: Topic = {
+          id, name: topicName, slug, parentId: null, links: [],
+          sessionKey: "topic:" + id.slice(0, 8), color: "#5865f2", icon: "MessageSquare",
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          archived: false, systemPrompt: "",
+          contextFiles: [], pinnedMessages: [],
+          sortOrder: Object.keys(data.topics).length,
+        };
+        // Inherit projectPath from current topic if it has one
+        if (currentTopic.projectPath) {
+          (newTopic as any).projectPath = currentTopic.projectPath;
+        }
+        data.topics[id] = newTopic;
+        saveTopics(data);
+        broadcastToAll({ type: "topic:created", topic: newTopic });
+        console.log(`[TopicSwitch] Created new topic "${topicName}" and switching from "${currentTopic.name}"`);
+        broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
+        const cleaned = content.replace(/\{\{TOPIC_NEW:[^}]+\}\}/g, '');
+        return { content: cleaned, switchedToTopicId: newTopic.id };
+      }
+    }
+
+    // Check for TOPIC_SWITCH (switch to existing topic)
+    const match = content.match(/\{\{TOPIC_SWITCH:([\w-]+)\}\}/);
+    if (!match) return { content, switchedToTopicId: null };
+    const targetId = match[1];
+    const data = loadTopics();
+    const target = data.topics[targetId];
+    if (!target || target.archived) {
+      return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: null };
+    }
+    console.log(`[TopicSwitch] Switching from "${currentTopic.name}" to "${target.name}"`);
+    broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, toTopicId: target.id, toSessionKey: target.sessionKey });
+    return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: target.id };
   }
 
   /**
@@ -202,7 +260,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
       const parentId = body.parentId || null;
       const topic: Topic = {
         id, name: body.name, slug, parentId, links: [],
-        sessionKey: "", color: body.color || "#5865f2", icon: body.icon || "💬",
+        sessionKey: "", color: body.color || "#5865f2", icon: body.icon || "MessageSquare",
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         archived: false, systemPrompt: body.systemPrompt || "",
         contextFiles: [], pinnedMessages: [],
@@ -242,7 +300,6 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
           topic.autonomyLevel = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
         }
         if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
-        if (body.disabledContextTemplates !== undefined) topic.disabledContextTemplates = body.disabledContextTemplates;
         topic.updatedAt = new Date().toISOString();
         saveTopics(data);
         broadcastToAll({ type: "topic:updated", topic });
@@ -259,8 +316,48 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         topic.updatedAt = new Date().toISOString();
         saveTopics(data);
         broadcastToAll({ type: "topic:archived", topic });
+        // Reset unread when archiving
+        if (archive) {
+          const unread = loadUnread();
+          unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+          saveUnread(unread);
+          broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });
+        }
         return json(topic);
       }
+    }
+
+    // POST /api/topics/bulk-archive
+    if (method === "POST" && pathname === "/api/topics/bulk-archive") {
+      const body = await readJSON(req);
+      if (!body || !body.projectPath || typeof body.archived !== 'boolean') {
+        return json({ error: "projectPath and archived (boolean) required" }, 400);
+      }
+      const { projectPath, archived } = body;
+      const data = loadTopics();
+      const unread = loadUnread();
+      const updatedTopics: Topic[] = [];
+      const now = new Date().toISOString();
+      for (const topic of Object.values(data.topics)) {
+        if (topic.projectPath === projectPath) {
+          topic.archived = archived;
+          topic.updatedAt = now;
+          updatedTopics.push(topic);
+          if (archived) {
+            unread[topic.id] = { lastReadAt: now, unreadCount: 0 };
+          }
+        }
+      }
+      if (updatedTopics.length === 0) return json({ error: "no topics found for projectPath" }, 404);
+      saveTopics(data);
+      if (archived) saveUnread(unread);
+      for (const topic of updatedTopics) {
+        broadcastToAll({ type: "topic:archived", topic });
+        if (archived) {
+          broadcastToAll({ type: "unread:updated", topicId: topic.id, unreadCount: 0 });
+        }
+      }
+      return json({ ok: true, count: updatedTopics.length, topics: updatedTopics });
     }
 
     // POST /api/topics/:id/link
@@ -363,6 +460,28 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
         saveLocalMessages(topic.sessionKey, messages);
         broadcastToAll({ type: "message:plan-status", topicId: params.id, messageId: params.msgId, planStatus: body.status });
         return json({ ok: true, planStatus: body.status });
+      }
+    }
+
+    // GET /api/topics/:id/messages - fetch conversation messages for a topic
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/messages");
+      if (params && method === "GET") {
+        const data = loadTopics();
+        const topic = data.topics[params.id];
+        if (!topic) return json({ error: "Topic not found" }, 404);
+
+        const urlParams = new URL(req.url, `http://localhost`).searchParams;
+        const limit = parseInt(urlParams.get("limit") || "200");
+        const offset = parseInt(urlParams.get("offset") || "0");
+
+        const localMsgs = loadLocalMessages(topic.sessionKey);
+        const completeMsgs = localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
+        const total = completeMsgs.length;
+        const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
+        const result = sliced.slice(-limit);
+
+        return json({ messages: result, total, topicName: topic.name });
       }
     }
 
@@ -483,12 +602,6 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
             const now = new Date().toISOString();
             for (const m of resolved) {
               insertMention.run(storedUserMsg.id, sessionKey, m.entity, m.entityType, now);
-              if (m.entityType === "agent" && m.resolved && m.profileId) {
-                const agentRow = db.prepare("SELECT soul_template FROM agent_profiles WHERE id = ?").get(m.profileId) as any;
-                if (agentRow?.soul_template) {
-                  console.log(`[Mentions] Agent @${m.entity} has soul_template (profile ${m.profileId})`);
-                }
-              }
             }
           }
         } catch (err) {
@@ -611,10 +724,8 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
           const projectDir = resolveProjectPath(matchedTopic.projectPath);
           if (projectDir && existsSync(projectDir)) {
             const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-            const disabledFiles = matchedTopic.disabledContextTemplates || [];
             const templateParts: string[] = [];
             for (const name of TEMPLATE_FILES) {
-              if (disabledFiles.includes(name)) continue;
               let filePath = join(projectDir, name);
               let displayName = name;
               if (!existsSync(filePath) && name === "CLAUDE.md") {
@@ -625,7 +736,7 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
                 try {
                   const content = readFileSync(filePath, "utf-8");
                   templateParts.push(`--- Project file: ${displayName} ---\n${content}`);
-                } catch (err) { console.warn(`[ContextTemplates] Failed to read ${filePath}:`, err); }
+                } catch (err) { console.warn(`[Context] Failed to read ${filePath}:`, err); }
               }
             }
             if (templateParts.length > 0) {
@@ -643,6 +754,15 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
 The marker will be automatically processed and removed from the visible output. Do not mention the marker to the user.` };
         const browserInsertIdx = finalMessages.findIndex(m => m.role !== "system");
         finalMessages.splice(browserInsertIdx >= 0 ? browserInsertIdx : finalMessages.length, 0, browserInstruction);
+
+        // Topic auto-switch: inject directory of available topics
+        const topicDirectory = buildTopicDirectory(matchedTopic.id);
+        {
+          const directorySection = topicDirectory ? `Here are the available topics:\n${topicDirectory}\n\nIf the user's message CLEARLY belongs to a different topic (not just a casual reference), include the marker {{TOPIC_SWITCH:topicId}} at the VERY BEGINNING of your response, using the target topic's id. Then respond normally to the user's message after the marker.\n` : '';
+          const topicSwitchInstruction = { role: "system", content: `You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when it is VERY clear the user wants to talk about a different subject\n- Never switch for casual mentions or comparisons\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches` };
+          const switchInsertIdx = finalMessages.findIndex(m => m.role !== "system");
+          finalMessages.splice(switchInsertIdx >= 0 ? switchInsertIdx : finalMessages.length, 0, topicSwitchInstruction);
+        }
 
         // Inject memory content into system prompt (respect disabled sources)
         if (isSourceEnabled("memory:global") || isSourceEnabled("memory:topic")) {
@@ -730,11 +850,13 @@ Wait for the user to approve the plan before executing any changes.` };
           if (content) appendLocalMessage(sessionKey, "assistant", content);
           if (matchedTopic) {
             broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
-            const unread = loadUnread();
-            if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-            unread[matchedTopic.id].unreadCount += 1;
-            saveUnread(unread);
-            broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
+            if (!isTopicFocused(matchedTopic.id)) {
+              const unread = loadUnread();
+              if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+              unread[matchedTopic.id].unreadCount += 1;
+              saveUnread(unread);
+              broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
+            }
           }
           setTimeout(() => {
             try {
@@ -764,6 +886,8 @@ Wait for the user to approve the plan before executing any changes.` };
         const SAVE_INTERVAL = 10;
         let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
         let streamModel: string = "unknown";
+        let topicSwitchDetected = false;
+        let switchTargetTopicId: string | null = null;
         const partialMsg = createPartialMessage(sessionKey, "assistant");
         startStream(sessionKey, partialMsg.id, abortController);
         broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -802,11 +926,46 @@ Wait for the user to approve the plan before executing any changes.` };
             if (matchedTopic) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-              const unread = loadUnread();
-              if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-              unread[matchedTopic.id].unreadCount += 1;
-              saveUnread(unread);
-              broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
+              if (!isTopicFocused(matchedTopic.id)) {
+                const unread = loadUnread();
+                if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+                unread[matchedTopic.id].unreadCount += 1;
+                saveUnread(unread);
+                broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
+              }
+            }
+            // Move messages to target topic if topic switch was detected
+            if (topicSwitchDetected && switchTargetTopicId) {
+              const targetData = loadTopics();
+              const targetTopic = targetData.topics[switchTargetTopicId];
+              if (targetTopic) {
+                // Find and copy the user message
+                const currentMsgs = loadLocalMessages(sessionKey);
+                const lastUserMsg = [...currentMsgs].reverse().find(m => m.role === 'user');
+                let userContent = '';
+                if (lastUserMsg) {
+                  userContent = lastUserMsg.content;
+                  appendLocalMessage(targetTopic.sessionKey, 'user', userContent);
+                }
+                appendLocalMessage(targetTopic.sessionKey, 'assistant', fullContent);
+
+                // Remove user msg + assistant response from source session
+                const sourceMsgs = loadLocalMessages(sessionKey);
+                // Remove last 2 messages (user + assistant that were just added)
+                const trimmed = sourceMsgs.slice(0, -2);
+                saveLocalMessages(sessionKey, trimmed);
+
+                // Broadcast complete event so client can update both sessions in-memory
+                broadcastToAll({
+                  type: "topic:switch:complete",
+                  fromTopicId: matchedTopic!.id,
+                  fromSessionKey: sessionKey,
+                  toTopicId: switchTargetTopicId,
+                  toSessionKey: targetTopic.sessionKey,
+                  userContent,
+                  assistantContent: fullContent,
+                });
+              }
             }
             setTimeout(() => {
               try {
@@ -850,6 +1009,14 @@ Wait for the user to approve the plan before executing any changes.` };
                   fullContent += cleaned;
                   broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
                   fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
+                  if (!topicSwitchDetected && (fullContent.includes('{{TOPIC_SWITCH:') || fullContent.includes('{{TOPIC_NEW:'))) {
+                    const result = detectAndBroadcastTopicSwitch(fullContent, matchedTopic);
+                    fullContent = result.content;
+                    if (result.switchedToTopicId) {
+                      topicSwitchDetected = true;
+                      switchTargetTopicId = result.switchedToTopicId;
+                    }
+                  }
                 }
               }
               chunkCount++;
@@ -1280,44 +1447,6 @@ Wait for the user to approve the plan before executing any changes.` };
         const processes = sessions.filter((s: any) => s.sessionKey?.includes("subagent")).map((s: any) => ({ sessionKey: s.sessionKey, label: s.label || s.sessionKey.split(":").pop() || "Sub-agent", status: s.status === "active" ? "running" : "done", startedAt: s.createdAt || new Date().toISOString(), completedAt: s.status !== "active" ? (s.updatedAt || new Date().toISOString()) : undefined }));
         return json(processes);
       } catch { return json([]); }
-    }
-
-    // --- Projects: context templates ---
-    {
-      const params = matchRoute(pathname, "/api/projects/:topicId/context-templates");
-      if (params && method === "GET") {
-        const data = loadTopics();
-        const topic = data.topics[params.topicId];
-        if (!topic) return json({ error: "Topic not found" }, 404);
-        if (!topic.projectPath) return json({ error: "Topic has no project" }, 400);
-        const projectDir = resolveProjectPath(topic.projectPath);
-        if (!projectDir || !existsSync(projectDir)) return json({ error: "Project directory not found" }, 404);
-        const CONTEXT_FILE_NAMES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-        const contextFiles: any[] = [];
-        for (const name of CONTEXT_FILE_NAMES) {
-          let filePath = join(projectDir, name);
-          let displayName = name;
-          if (!existsSync(filePath) && name === "CLAUDE.md") { const altPath = join(projectDir, ".claude", "CLAUDE.md"); if (existsSync(altPath)) { filePath = altPath; displayName = ".claude/CLAUDE.md"; } }
-          if (existsSync(filePath)) {
-            try { const stat = statSync(filePath); const content = readFileSync(filePath, "utf-8"); contextFiles.push({ name: displayName, path: filePath, size: stat.size, tokenEstimate: Math.round(content.length / 4), content }); } catch (err) { console.warn(`[ContextTemplates] Failed to read ${filePath}:`, err); }
-          }
-        }
-        return json({ projectPath: topic.projectPath, files: contextFiles, totalTokenEstimate: contextFiles.reduce((sum, f) => sum + f.tokenEstimate, 0) });
-      }
-    }
-
-    // PUT /api/projects/:topicId/context-templates/disabled
-    {
-      const params = matchRoute(pathname, "/api/projects/:topicId/context-templates/disabled");
-      if (params && method === "PUT") {
-        const data = loadTopics();
-        const topic = data.topics[params.topicId];
-        if (!topic) return json({ error: "Topic not found" }, 404);
-        const body = await req.json() as { disabledFiles?: string[] };
-        topic.disabledContextTemplates = body.disabledFiles || [];
-        saveTopics(data);
-        return json({ ok: true, disabledFiles: topic.disabledContextTemplates });
-      }
     }
 
     // --- Tasks ---

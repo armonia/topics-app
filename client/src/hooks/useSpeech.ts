@@ -241,52 +241,41 @@ export function useVoiceCall(
 
   // Start recording
   const startRecording = useCallback(async () => {
-    console.log('[VoiceCall] startRecording called, isCallActive:', isCallActive);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      console.log('[VoiceCall] Got microphone stream');
-      
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-        ? 'audio/webm;codecs=opus' 
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
         : 'audio/webm';
-      console.log('[VoiceCall] Using mimeType:', mimeType);
       
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       
       audioChunksRef.current = [];
       
       mediaRecorder.ondataavailable = (e) => {
-        console.log('[VoiceCall] ondataavailable, size:', e.data.size);
         if (e.data.size > 0) {
           audioChunksRef.current.push(e.data);
         }
       };
       
       mediaRecorder.onstop = async () => {
-        console.log('[VoiceCall] onstop, chunks:', audioChunksRef.current.length);
         if (audioChunksRef.current.length === 0) {
-          console.log('[VoiceCall] No audio chunks, restarting');
           setCallStatus('listening');
           setTimeout(() => startRecording(), 500);
           return;
         }
         
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        console.log('[VoiceCall] Audio blob size:', audioBlob.size);
         audioChunksRef.current = [];
         
         setCallStatus('processing');
         
         try {
-          console.log('[VoiceCall] Calling transcribeAudio...');
           const transcript = await transcribeAudio(audioBlob);
-          console.log('[VoiceCall] Transcript:', transcript);
           if (transcript.trim()) {
             await sendMessage(transcript.trim());
           } else {
-            // No speech detected, resume listening
-            console.log('[VoiceCall] Empty transcript, resuming');
             setCallStatus('listening');
             setTimeout(() => startRecording(), 500);
           }
@@ -299,11 +288,9 @@ export function useVoiceCall(
       
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(1000); // Request data every second
-      console.log('[VoiceCall] MediaRecorder started');
-      
+
       // Auto-stop after 5 seconds of recording
       silenceTimeoutRef.current = setTimeout(() => {
-        console.log('[VoiceCall] 5s timeout, stopping recorder');
         if (mediaRecorder.state === 'recording') {
           mediaRecorder.stop();
           if (streamRef.current) {

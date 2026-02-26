@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, crosshairCursor, gutter, GutterMarker } from '@codemirror/view';
+import { EditorState, Compartment, StateField, StateEffect, type Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, indentOnInput } from '@codemirror/language';
+import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { javascript } from '@codemirror/lang-javascript';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
@@ -11,6 +13,12 @@ import { markdown } from '@codemirror/lang-markdown';
 import { python } from '@codemirror/lang-python';
 import { oneDark } from '@codemirror/theme-one-dark';
 
+interface LineChange {
+  from: number;
+  to: number;
+  type: 'added' | 'modified' | 'deleted';
+}
+
 interface CodeEditorProps {
   content: string;
   filename: string;
@@ -18,6 +26,63 @@ interface CodeEditorProps {
   onSave?: (content: string) => void;
   onChange?: (content: string) => void;
   darkMode?: boolean;
+  initialLine?: number;
+  gitChanges?: LineChange[];
+}
+
+// Git gutter decorations
+const setGitChanges = StateEffect.define<LineChange[]>();
+
+class GitMarker extends GutterMarker {
+  constructor(public type: 'added' | 'modified' | 'deleted') { super(); }
+  toDOM() {
+    const el = document.createElement('div');
+    el.style.width = '3px';
+    el.style.height = '100%';
+    el.style.borderRadius = '1px';
+    if (this.type === 'added') el.style.backgroundColor = '#22c55e';
+    else if (this.type === 'modified') el.style.backgroundColor = '#3b82f6';
+    else el.style.backgroundColor = '#ef4444';
+    return el;
+  }
+}
+
+const addedMarker = new GitMarker('added');
+const modifiedMarker = new GitMarker('modified');
+const deletedMarker = new GitMarker('deleted');
+
+const gitChangesField = StateField.define<LineChange[]>({
+  create() { return []; },
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setGitChanges)) return e.value;
+    }
+    return value;
+  },
+});
+
+function gitGutterExtension(): Extension {
+  return [
+    gitChangesField,
+    gutter({
+      class: 'cm-git-gutter',
+      lineMarker(view, line) {
+        const changes = view.state.field(gitChangesField);
+        const lineNo = view.state.doc.lineAt(line.from).number;
+        for (const c of changes) {
+          if (lineNo >= c.from && lineNo <= c.to) {
+            if (c.type === 'added') return addedMarker;
+            if (c.type === 'modified') return modifiedMarker;
+            return deletedMarker;
+          }
+        }
+        return null;
+      },
+      lineMarkerChange(update) {
+        return update.transactions.some(tr => tr.effects.some(e => e.is(setGitChanges)));
+      },
+    }),
+  ];
 }
 
 // Detect language extension from filename
@@ -90,6 +155,13 @@ const lightTheme = EditorView.theme({
   '.cm-foldGutter': {
     width: '14px',
   },
+  '.cm-git-gutter': {
+    width: '4px',
+    minWidth: '4px',
+  },
+  '.cm-git-gutter .cm-gutterElement': {
+    padding: '0 !important',
+  },
 });
 
 const darkThemeOverrides = EditorView.theme({
@@ -103,9 +175,16 @@ const darkThemeOverrides = EditorView.theme({
   '.cm-foldGutter': {
     width: '14px',
   },
+  '.cm-git-gutter': {
+    width: '4px',
+    minWidth: '4px',
+  },
+  '.cm-git-gutter .cm-gutterElement': {
+    padding: '0 !important',
+  },
 });
 
-export function CodeEditor({ content, filename, readOnly = true, onSave, onChange, darkMode = false }: CodeEditorProps) {
+export function CodeEditor({ content, filename, readOnly = true, onSave, onChange, darkMode = false, initialLine, gitChanges }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
@@ -144,14 +223,24 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
       highlightActiveLineGutter(),
       foldGutter(),
       bracketMatching(),
+      closeBrackets(),
       indentOnInput(),
       history(),
+      search(),
+      highlightSelectionMatches(),
+      autocompletion(),
+      drawSelection(),
+      rectangularSelection(),
+      crosshairCursor(),
+      gitGutterExtension(),
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
       themeCompartment.current.of(themeExts),
       langCompartment.current.of(langExt ? [langExt] : []),
       keymap.of([
+        ...closeBracketsKeymap,
         ...defaultKeymap,
         ...historyKeymap,
+        ...searchKeymap,
         indentWithTab,
         {
           key: 'Mod-s',
@@ -168,8 +257,6 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
           onChange?.(text);
         }
       }),
-      // Dark mode: use default highlight style too for non-onedark themes
-      ...(darkMode ? [] : []),
     ];
 
     const state = EditorState.create({
@@ -228,6 +315,27 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
       });
     }
   }, [darkMode]);
+
+  // Update git gutter when changes arrive
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view && gitChanges) {
+      view.dispatch({ effects: setGitChanges.of(gitChanges) });
+    }
+  }, [gitChanges]);
+
+  // Scroll to line when initialLine changes
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view && initialLine && initialLine > 0) {
+      const lineCount = view.state.doc.lines;
+      const targetLine = Math.min(initialLine, lineCount);
+      const line = view.state.doc.line(targetLine);
+      view.dispatch({
+        effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+      });
+    }
+  }, [initialLine]);
 
   return (
     <div

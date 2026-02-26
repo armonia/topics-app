@@ -1,8 +1,21 @@
 import { useCallback, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, FolderGit2 } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { DND_TYPES } from '@/lib/dndTypes';
+import { TopicIcon } from '@/lib/topicIcons';
+
+function relativeTime(dateStr: string): string {
+  const diffS = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (diffS < 60) return 'now';
+  const diffM = Math.floor(diffS / 60);
+  if (diffM < 60) return `${diffM}m`;
+  const diffH = Math.floor(diffM / 60);
+  if (diffH < 24) return `${diffH}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 30) return `${diffD}d`;
+  return `${Math.floor(diffD / 30)}mo`;
+}
 
 interface TopicItemProps {
   topic: Topic;
@@ -16,6 +29,7 @@ interface TopicItemProps {
   isProject?: boolean;
   isStreaming?: boolean;
   unreadCount?: number;
+  assignedAgentCount?: number;
   onToggle: () => void;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
@@ -23,6 +37,7 @@ interface TopicItemProps {
   onArchive?: (topicId: string, archive: boolean) => void;
   onStopStreaming?: () => void;
   isDragOver?: boolean;
+  hideIcon?: boolean;
   onSidebarDragStart?: () => void;
   onSidebarDragOver?: () => void;
   onSidebarDrop?: () => void;
@@ -41,19 +56,21 @@ export const TopicItem = memo(function TopicItem({
   isProject,
   isStreaming,
   unreadCount = 0,
+  assignedAgentCount = 0,
   onToggle,
   onClick,
   onDoubleClick,
   onContextMenu,
   onArchive,
   onStopStreaming,
+  hideIcon,
   isDragOver,
   onSidebarDragStart,
   onSidebarDragOver,
   onSidebarDrop,
   onSidebarDragEnd,
 }: TopicItemProps) {
-  const paddingLeft = 8 + depth * 16;
+  const paddingLeft = 12 + depth * 16;
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
@@ -71,7 +88,7 @@ export const TopicItem = memo(function TopicItem({
       box-shadow:0 4px 12px rgba(0,0,0,0.15);
       white-space:nowrap; pointer-events:none;
     `;
-    ghost.textContent = `${topic.icon || '💬'} ${topic.name}`;
+    ghost.textContent = topic.name;
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
     requestAnimationFrame(() => document.body.removeChild(ghost));
@@ -131,7 +148,7 @@ export const TopicItem = memo(function TopicItem({
         }
       }}
       className={cn(
-        'group flex items-center gap-1.5 min-h-[44px] h-11 pr-2 cursor-pointer text-[13px] font-medium transition-colors duration-100 select-none relative md:min-h-9 md:h-9',
+        'group flex items-center gap-2 min-h-[44px] h-11 pr-2 cursor-pointer text-[13px] font-medium transition-colors duration-100 select-none relative md:min-h-8 md:h-8',
         // Focused (panel open and focused): accent bg + left border
         isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
         // Open but not focused
@@ -172,15 +189,15 @@ export const TopicItem = memo(function TopicItem({
       )}
 
       {/* Icon */}
-      <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5 text-[15px]">
-        {isArchived ? (
-          <Archive size={14} className="text-app-text-tertiary" />
-        ) : isProject ? (
-          <FolderGit2 size={14} className="text-blue-500" />
-        ) : (
-          topic.icon || '💬'
-        )}
-      </span>
+      {!hideIcon && (
+        <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5">
+          {isArchived ? (
+            <Archive size={14} className="text-app-text-tertiary" />
+          ) : (
+            <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />
+          )}
+        </span>
+      )}
 
       {/* Name */}
       <span className={cn(
@@ -189,6 +206,16 @@ export const TopicItem = memo(function TopicItem({
       )}>
         {topic.name}
       </span>
+
+      {/* Relative time — hidden on hover when action buttons appear */}
+      {!isStreaming && topic.updatedAt && (
+        <span
+          className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
+          title={new Date(topic.updatedAt).toLocaleString()}
+        >
+          {relativeTime(topic.updatedAt)}
+        </span>
+      )}
 
       {/* Streaming spinner (replaces archive button) / Archive button */}
       {isStreaming ? (
@@ -215,6 +242,17 @@ export const TopicItem = memo(function TopicItem({
           )}
         </button>
       ) : null}
+
+      {/* Assigned agents badge */}
+      {assignedAgentCount > 0 && (
+        <span
+          className="flex-shrink-0 flex items-center gap-0.5 text-[10px] text-purple-500 dark:text-purple-400"
+          title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
+        >
+          <Bot size={11} />
+          {assignedAgentCount > 1 && <span className="font-medium">{assignedAgentCount}</span>}
+        </span>
+      )}
 
       {/* Unread badge */}
       {unreadCount > 0 && !isFocused && (

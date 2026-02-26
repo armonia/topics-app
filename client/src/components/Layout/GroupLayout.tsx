@@ -28,6 +28,7 @@ interface GroupLayoutProps {
   onStopStreaming?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
+  onPinPane?: (groupId: string, paneId: string) => void;
 }
 
 type EdgeZone = 'left' | 'right' | 'top' | 'bottom' | null;
@@ -38,7 +39,7 @@ export function GroupLayout({
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, contextPercent, onContextRingClick, streamingPaneIds, onStopStreaming,
-  onSettings, onPopOut,
+  onSettings, onPopOut, onPinPane,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -273,6 +274,7 @@ export function GroupLayout({
                           onStopStreaming={onStopStreaming}
                           onSettings={onSettings}
                           onPopOut={onPopOut}
+                          onPinPane={onPinPane ? (paneId) => onPinPane(groupId, paneId) : undefined}
                         />
                       </div>
                       {/* Active pane content */}

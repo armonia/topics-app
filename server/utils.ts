@@ -41,7 +41,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicContextFiles: db.prepare(`SELECT file_path FROM topic_context_files WHERE topic_id = ?`),
     getTopicPinnedMessages: db.prepare(`SELECT message_id FROM topic_pinned_messages WHERE topic_id = ?`),
     getTopicDisabledSources: db.prepare(`SELECT source_id FROM topic_disabled_sources WHERE topic_id = ?`),
-    getTopicDisabledTemplates: db.prepare(`SELECT template_name FROM topic_disabled_templates WHERE topic_id = ?`),
+    getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
 
     insertTopic: db.prepare(`
       INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, archived, created_at, updated_at)
@@ -58,9 +58,6 @@ export function createAppContext(baseDir: string): AppContext {
     insertTopicPinnedMessage: db.prepare(`INSERT OR IGNORE INTO topic_pinned_messages (topic_id, message_id) VALUES (?, ?)`),
     deleteTopicDisabledSources: db.prepare(`DELETE FROM topic_disabled_sources WHERE topic_id = ?`),
     insertTopicDisabledSource: db.prepare(`INSERT OR IGNORE INTO topic_disabled_sources (topic_id, source_id) VALUES (?, ?)`),
-    deleteTopicDisabledTemplates: db.prepare(`DELETE FROM topic_disabled_templates WHERE topic_id = ?`),
-    insertTopicDisabledTemplate: db.prepare(`INSERT OR IGNORE INTO topic_disabled_templates (topic_id, template_name) VALUES (?, ?)`),
-
     // Unread
     getAllUnread: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread`),
     upsertUnread: db.prepare(`INSERT OR REPLACE INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, ?)`),
@@ -81,14 +78,6 @@ export function createAppContext(baseDir: string): AppContext {
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
 
-    // Search messages in SQLite
-    searchMessages: db.prepare(`
-      SELECT m.id, m.session_key, m.role, m.content, m.timestamp
-      FROM messages m
-      WHERE m.content LIKE ?
-      ORDER BY m.timestamp DESC
-      LIMIT ?
-    `),
   };
 
   // --- Helper: Convert SQLite topic row to Topic object ---
@@ -120,8 +109,12 @@ export function createAppContext(baseDir: string): AppContext {
     const disabledSources = (stmts.getTopicDisabledSources.all(row.id) as any[]).map(r => r.source_id);
     if (disabledSources.length > 0) topic.disabledContextSources = disabledSources;
 
-    const disabledTemplates = (stmts.getTopicDisabledTemplates.all(row.id) as any[]).map(r => r.template_name);
-    if (disabledTemplates.length > 0) topic.disabledContextTemplates = disabledTemplates;
+    const assignedAgents = (stmts.getTopicAssignedAgents.all(row.id) as any[]).map(r => ({
+      id: r.agent_id,
+      name: r.name || r.agent_id,
+      role: r.role,
+    }));
+    if (assignedAgents.length > 0) topic.assignedAgents = assignedAgents;
 
     return topic;
   }
@@ -169,11 +162,6 @@ export function createAppContext(baseDir: string): AppContext {
       for (const src of topic.disabledContextSources) stmts.insertTopicDisabledSource.run(topic.id, src);
     }
 
-    // Disabled templates
-    stmts.deleteTopicDisabledTemplates.run(topic.id);
-    if (topic.disabledContextTemplates?.length) {
-      for (const tmpl of topic.disabledContextTemplates) stmts.insertTopicDisabledTemplate.run(topic.id, tmpl);
-    }
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
@@ -229,6 +217,13 @@ export function createAppContext(baseDir: string): AppContext {
         }
       }
     }
+  }
+
+  function isTopicFocused(topicId: string): boolean {
+    for (const ws of wsClients) {
+      if (ws.data.focusedTopicId === topicId && ws.readyState === 1) return true;
+    }
+    return false;
   }
 
   // --- Atomic write (kept for backward compat with non-DB file writes) ---
@@ -699,7 +694,7 @@ export function createAppContext(baseDir: string): AppContext {
                     if (typeof msg.content === "string") text = msg.content;
                     else if (Array.isArray(msg.content)) text = msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
                     if (text.toLowerCase().includes(lowerQuery)) {
-                      results.push({ sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "💬", role: msg.role, content: text, timestamp: d.timestamp || null });
+                      results.push({ sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
                       if (results.length >= limit) return results;
                     }
                   }
@@ -729,7 +724,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic,
+    broadcast, broadcastToAll, broadcastToTopic, isTopicFocused,
     loadTopics, saveTopics, loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, appendToLastMessage,

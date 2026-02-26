@@ -1,11 +1,12 @@
 import { lazy, Suspense } from 'react';
-import { X, Activity, BookOpen, Cpu } from 'lucide-react';
+import { X, Activity, Cpu, BarChart3, LayoutGrid } from 'lucide-react';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
-const JournalPanel = lazy(() => import('../Journal/JournalPanel').then(m => ({ default: m.JournalPanel })));
-const AgentPanel = lazy(() => import('../Agents/AgentPanel').then(m => ({ default: m.AgentPanel })));
+const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
+const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
+const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
 
-export type UtilityPanelType = 'activity' | 'journal' | 'agents';
+export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'all-boards';
 
 export const UTILITY_PREFIX = '__';
 
@@ -23,9 +24,10 @@ export function parseUtilityPanelType(id: string): UtilityPanelType | null {
 }
 
 const CONFIG: Record<UtilityPanelType, { icon: typeof Activity; label: string; color: string }> = {
-  activity: { icon: Activity, label: 'Activity', color: '#06b6d4' },
-  journal:  { icon: BookOpen, label: 'Journal',  color: '#f97316' },
-  agents:   { icon: Cpu,      label: 'Agents',   color: '#8b5cf6' },
+  activity:      { icon: Activity,   label: 'Activity',    color: '#06b6d4' },
+  agents:        { icon: Cpu,        label: 'Agents',      color: '#8b5cf6' },
+  dashboard:     { icon: BarChart3,  label: 'Statistics',   color: '#10b981' },
+  'all-boards':  { icon: LayoutGrid, label: 'Board',       color: '#10b981' },
 };
 
 const Spinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
@@ -69,8 +71,9 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
       <div className="flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={Spinner}>
           {type === 'activity' && <ActivityFeedPanel enabled />}
-          {type === 'journal' && <JournalPanel enabled />}
-          {type === 'agents' && <AgentPanel enabled onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
+          {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
+          {type === 'dashboard' && <DashboardPane />}
+          {type === 'all-boards' && <AllBoardsPane onMessage={onMessage} />}
         </Suspense>
       </div>
     </div>

@@ -43,20 +43,6 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
     setTimeout(reload, 300);
   }, [topic.id, topic.disabledContextSources, onUpdateTopic, reload]);
 
-  const handleToggleTemplate = useCallback(async (sourceId: string, enabled: boolean) => {
-    // sourceId format: template:CLAUDE.md
-    const fileName = sourceId.replace('template:', '');
-    const current = topic.disabledContextTemplates || [];
-    let newDisabled: string[];
-    if (enabled) {
-      newDisabled = current.filter(f => f !== fileName);
-    } else {
-      newDisabled = [...current, fileName];
-    }
-    await onUpdateTopic(topic.id, { disabledContextTemplates: newDisabled });
-    setTimeout(reload, 300);
-  }, [topic.id, topic.disabledContextTemplates, onUpdateTopic, reload]);
-
   const handleEditSource = useCallback(async (sourceId: string, content: string) => {
     if (sourceId === 'memory:topic') {
       await saveTopicMemory(content);
@@ -111,7 +97,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           <ContextSourceRow
             key={source.id}
             source={source}
-            onToggle={source.category === 'template' ? handleToggleTemplate : handleToggleSource}
+            onToggle={source.category === 'template' ? undefined : handleToggleSource}
             onEdit={source.editable ? handleEditSource : undefined}
             onBrowseMemory={source.id === 'openclaw:memory-tree' ? handleBrowseMemory : undefined}
           />

@@ -1,10 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow } from '../../types';
-import { X, AlertTriangle } from 'lucide-react';
-import { ProjectWindow } from './ProjectWindow';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
-import { getProjectName, hashToColor } from './ProjectHeader';
-import { UtilityPanel, isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
 
@@ -17,20 +13,9 @@ const STORAGE_KEY = 'topics-panel-grid-layout';
 /*  Layout model                                                       */
 /* ------------------------------------------------------------------ */
 
-interface ProjectGroup {
-  projectPath: string | null;
-  panels: string[];
-}
-
-type GridItemKind = 'utility' | 'project' | 'standalone';
-
 interface GridItem {
-  kind: GridItemKind;
   key: string;
-  utilityId?: string;
-  projectPath?: string;
-  topicIds?: string[];
-  groupIdx?: number;
+  panelIds: string[];
 }
 
 interface PanelGridProps {
@@ -59,14 +44,9 @@ interface PanelGridProps {
   onExternalDrop?: () => void;
   // Mobile sidebar toggle
   onToggleSidebar?: () => void;
-  // WebSocket connection status
-  wsStatus?: import('../../types').ConnectionStatus;
   // Initial tab overrides for standalone panels
   panelInitialTab?: Record<string, import('../../types').PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
-  // Projects opened without a chat (project-only view)
-  openProjects?: string[];
-  onCloseProject?: (projectPath: string) => void;
   // Pending pane request for project windows
   pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType } | null;
   onPendingProjectPaneConsumed?: () => void;
@@ -74,6 +54,9 @@ interface PanelGridProps {
   onNewChatInProject?: (projectPath: string) => void;
   // Create new standalone chat
   onNewChat?: () => void;
+  // Pending focus for project tabs (navigate to a topic inside a project)
+  pendingProjectFocus?: { projectPath: string; topicId: string } | null;
+  onPendingProjectFocusConsumed?: () => void;
 }
 
 /* ================================================================== */
@@ -104,62 +87,17 @@ export function PanelGrid({
   onToggleSidebar,
   panelInitialTab,
   onPanelInitialTabConsumed,
-  openProjects,
-  onCloseProject,
   pendingProjectPane,
   onPendingProjectPaneConsumed,
   onNewChatInProject,
   onNewChat,
+  pendingProjectFocus,
+  onPendingProjectFocusConsumed,
 }: PanelGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  /* ---- Separate utility panels from topic panels ---- */
-  const { topicPanels, utilityPanelIds } = useMemo(() => {
-    const topic: string[] = [];
-    const utility: string[] = [];
-    for (const id of openPanels) {
-      if (isUtilityPanelId(id)) utility.push(id);
-      else topic.push(id);
-    }
-    return { topicPanels: topic, utilityPanelIds: utility };
-  }, [openPanels]);
-
-  /* ---- Group panels by project ---- */
-  const groupsByProject = useMemo(() => {
-    const byProject = new Map<string | null, string[]>();
-
-    // Include standalone open projects (no topics yet)
-    if (openProjects) {
-      for (const pp of openProjects) {
-        if (!byProject.has(pp)) byProject.set(pp, []);
-      }
-    }
-
-    for (const panelId of topicPanels) {
-      const topic = topics[panelId];
-      const projectPath = topic?.projectPath || null;
-
-      if (!byProject.has(projectPath)) {
-        byProject.set(projectPath, []);
-      }
-      byProject.get(projectPath)!.push(panelId);
-    }
-    return byProject;
-  }, [topicPanels, topics, openProjects]);
-
-  const groups = useMemo<ProjectGroup[]>(() => {
-    const keys = [...groupsByProject.keys()].sort((a, b) => {
-      if (a === null) return 1;
-      if (b === null) return -1;
-      return a.localeCompare(b);
-    });
-    return keys.map(projectPath => ({
-      projectPath,
-      panels: groupsByProject.get(projectPath)!,
-    }));
-  }, [groupsByProject]);
-
-  /* ---- Solo topic IDs (topics placed independently in the grid) ---- */
+  /* ---- All panels are treated flat (no project grouping) ---- */
+  /* Solo topic IDs = panels placed independently in the grid */
   const [soloTopicIds, setSoloTopicIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -171,45 +109,35 @@ export function PanelGrid({
     return [];
   });
 
-  // Cleanup: remove soloTopicIds for topics no longer in standalone (null-project) group
+  // Cleanup: remove soloTopicIds for panels no longer open
   useEffect(() => {
-    const standaloneGroup = groups.find(g => g.projectPath === null);
-    const standaloneSet = new Set(standaloneGroup?.panels || []);
+    const openSet = new Set(openPanels);
     setSoloTopicIds(prev => {
-      const filtered = prev.filter(id => standaloneSet.has(id));
+      const filtered = prev.filter(id => openSet.has(id));
       return filtered.length === prev.length ? prev : filtered;
     });
-  }, [groups]);
+  }, [openPanels]);
 
-  /* ---- Build natural grid items (unordered) ---- */
+  /* ---- Build natural grid items (flat) ---- */
   const naturalGridItems = useMemo<GridItem[]>(() => {
     const items: GridItem[] = [];
+    const soloSet = new Set(soloTopicIds);
 
-    for (const id of utilityPanelIds) {
-      items.push({ kind: 'utility', key: `util:${id}`, utilityId: id });
+    // Non-solo panels go into main standalone group
+    const regularPanels = openPanels.filter(id => !soloSet.has(id));
+    if (regularPanels.length > 0) {
+      items.push({ key: 'standalone', panelIds: regularPanels });
     }
 
-    for (let i = 0; i < groups.length; i++) {
-      const group = groups[i];
-      if (group.projectPath) {
-        items.push({ kind: 'project', key: `proj:${group.projectPath}`, projectPath: group.projectPath, topicIds: group.panels, groupIdx: i });
-      } else if (group.panels.length > 0) {
-        // Split into regular standalone group and solo (independently placed) items
-        const soloSet = new Set(soloTopicIds);
-        const regularPanels = group.panels.filter(id => !soloSet.has(id));
-        if (regularPanels.length > 0) {
-          items.push({ kind: 'standalone', key: 'standalone', topicIds: regularPanels, groupIdx: i });
-        }
-        for (const id of group.panels) {
-          if (soloSet.has(id)) {
-            items.push({ kind: 'standalone', key: `solo:${id}`, topicIds: [id], groupIdx: i });
-          }
-        }
+    // Solo panels get their own grid items
+    for (const id of openPanels) {
+      if (soloSet.has(id)) {
+        items.push({ key: `solo:${id}`, panelIds: [id] });
       }
     }
 
     return items;
-  }, [utilityPanelIds, groups, soloTopicIds]);
+  }, [openPanels, soloTopicIds]);
 
   /* ---- Item lookup map ---- */
   const itemMap = useMemo(() => {
@@ -393,11 +321,6 @@ export function PanelGrid({
     }
   }, [draggingId, onClosePanel, windowId, sendWS]);
 
-  const handleOpenInFinder = useCallback((projectPath: string) => () => {
-    const msg = { type: 'exec', command: `open "${projectPath}"` };
-    sendWS(msg);
-  }, [sendWS]);
-
   /* ---- Grid item drag & edge-drop ---- */
   const [draggingGridKey, setDraggingGridKey] = useState<string | null>(null);
   const [gridDropTarget, setGridDropTarget] = useState<{
@@ -411,25 +334,12 @@ export function PanelGrid({
   const gridDropTargetRef = useRef(gridDropTarget);
   gridDropTargetRef.current = gridDropTarget;
 
-  // Pending project-detach confirmation dialog
-  const [pendingDetach, setPendingDetach] = useState<{
-    topicId: string;
-    topicName: string;
-    projectName: string;
-    gridTarget: typeof gridDropTarget;
-  } | null>(null);
-
   const handleGridItemDragStart = useCallback((item: GridItem) => (e: React.DragEvent) => {
     setDraggingGridKey(item.key);
     e.dataTransfer.setData(DND_TYPES.GRID_ITEM, item.key);
     e.dataTransfer.effectAllowed = 'move';
 
-    // Also set legacy type for backward compatibility
-    if (item.kind === 'project' && item.projectPath) {
-      e.dataTransfer.setData(DND_TYPES.PROJECT_GROUP, item.projectPath);
-    }
-
-    // Ghost image based on item kind
+    // Ghost image
     const ghost = document.createElement('div');
     ghost.style.cssText = `
       position:fixed;left:-9999px;top:-9999px;
@@ -438,27 +348,16 @@ export function PanelGrid({
       font:500 13px/1 Inter,system-ui,sans-serif;
       box-shadow:0 4px 12px rgba(0,0,0,0.15);
       white-space:nowrap;pointer-events:none;
+      background:color-mix(in srgb, var(--primary) 90%, transparent);color:#fff;
     `;
-    if (item.kind === 'project' && item.projectPath) {
-      ghost.style.background = hashToColor(item.projectPath);
-      ghost.style.color = '#fff';
-      ghost.textContent = getProjectName(item.projectPath);
-    } else if (item.kind === 'standalone') {
-      ghost.style.background = 'color-mix(in srgb, var(--primary) 90%, transparent)';
-      ghost.style.color = '#fff';
-      ghost.textContent = `\uD83D\uDCAC Chats`;
-    } else if (item.kind === 'utility') {
-      ghost.style.background = 'color-mix(in srgb, var(--primary) 90%, transparent)';
-      ghost.style.color = '#fff';
-      ghost.textContent = `\uD83D\uDD27 ${item.utilityId ? parseUtilityPanelType(item.utilityId) || 'Panel' : 'Panel'}`;
-    }
+    ghost.textContent = `\uD83D\uDCAC Chats`;
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
     requestAnimationFrame(() => document.body.removeChild(ghost));
   }, []);
 
   // Capture phase: fires BEFORE children, so we can intercept edge drags
-  // even when ProjectWindow/GroupLayout/StandaloneChatGroup consume bubble-phase events
+  // even when StandaloneChatGroup/GroupLayout consume bubble-phase events
   const handleGridItemDragOverCapture = useCallback((rowIdx: number, colIdx: number) => (e: React.DragEvent) => {
     const isGridDrag = e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM);
     const isTabDrag = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB);
@@ -525,23 +424,7 @@ export function PanelGrid({
         // Already a solo item — reorder via the grid path below
         effectiveKey = soloKey;
       } else {
-        const topic = topics[sourceTopicId];
-
-        // If topic belongs to a project, show confirmation dialog
-        if (topic?.projectPath) {
-          setPendingDetach({
-            topicId: sourceTopicId,
-            topicName: topic.name || 'Chat',
-            projectName: getProjectName(topic.projectPath),
-            gridTarget: { ...dropTarget },
-          });
-          setDraggingGridKey(null);
-          setGridDropTarget(null);
-          gridDropTargetRef.current = null;
-          return;
-        }
-
-        // Standalone topic: just make it solo
+        // Make it solo
         setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
 
         const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
@@ -655,61 +538,7 @@ export function PanelGrid({
     setDraggingGridKey(null);
     setGridDropTarget(null);
     gridDropTargetRef.current = null;
-  }, [itemMap, topics, onUpdateTopic]);
-
-  /* ---- Detach confirmation handlers ---- */
-  const executeSoloPlacement = useCallback((topicId: string, target: typeof gridDropTarget) => {
-    if (!target) return;
-    const soloKey = `solo:${topicId}`;
-    onUpdateTopic(topicId, { projectPath: '' });
-    setSoloTopicIds(prev => prev.includes(topicId) ? prev : [...prev, topicId]);
-
-    const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = target;
-    setGridRows(prev => {
-      const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
-      if (!targetKey) return prev;
-
-      let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
-      for (const row of rows) {
-        const idx = row.itemKeys.indexOf(soloKey);
-        if (idx >= 0) { row.itemKeys.splice(idx, 1); row.widths.splice(idx, 1); }
-      }
-      rows = rows.filter(r => r.itemKeys.length > 0);
-
-      let tRow = -1, tCol = -1;
-      for (let r = 0; r < rows.length; r++) {
-        const c = rows[r].itemKeys.indexOf(targetKey);
-        if (c >= 0) { tRow = r; tCol = c; break; }
-      }
-      if (tRow === -1) return rows;
-
-      if (zone === 'top' || zone === 'bottom') {
-        rows.splice(zone === 'top' ? tRow : tRow + 1, 0, { itemKeys: [soloKey], widths: [1] });
-      } else {
-        const row = rows[tRow];
-        const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right')) ? tCol + 1 : tCol;
-        row.itemKeys.splice(insertAt, 0, soloKey);
-        row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
-      }
-      return rows;
-    });
-  }, [onUpdateTopic]);
-
-  const handleConfirmDetach = useCallback(() => {
-    if (!pendingDetach) return;
-    if (pendingDetach.gridTarget) {
-      // Edge-drop: place as solo item at the specified grid position
-      executeSoloPlacement(pendingDetach.topicId, pendingDetach.gridTarget);
-    } else {
-      // Center-drop onto standalone group: just clear projectPath
-      onUpdateTopic(pendingDetach.topicId, { projectPath: '' });
-    }
-    setPendingDetach(null);
-  }, [pendingDetach, executeSoloPlacement, onUpdateTopic]);
-
-  const handleCancelDetach = useCallback(() => {
-    setPendingDetach(null);
-  }, []);
+  }, [itemMap]);
 
   /* ---- External drop zone (cross-window drag) ---- */
   const [showExternalDropZone, setShowExternalDropZone] = useState(false);
@@ -734,27 +563,6 @@ export function PanelGrid({
       }
     };
   }, [externalDragTopicId]);
-
-  /* ---- Cross-panel-type topic reassignment ---- */
-  const handleAssignTopicToProject = useCallback((projectPath: string) => (topicId: string) => {
-    onUpdateTopic(topicId, { projectPath });
-  }, [onUpdateTopic]);
-
-  const handleRemoveTopicFromProject = useCallback((topicId: string) => {
-    const topic = topics[topicId];
-    // If topic belongs to a project, show confirmation dialog
-    if (topic?.projectPath) {
-      setPendingDetach({
-        topicId,
-        topicName: topic.name || 'Chat',
-        projectName: getProjectName(topic.projectPath),
-        gridTarget: null, // No grid placement needed — stays in standalone group
-      });
-      return;
-    }
-    // No project association, just clear
-    onUpdateTopic(topicId, { projectPath: '' });
-  }, [onUpdateTopic, topics]);
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
@@ -864,80 +672,35 @@ export function PanelGrid({
                     onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
                     onDropCapture={handleGridItemDropCapture}
                   >
-                    {/* Utility panel */}
-                    {item.kind === 'utility' && (() => {
-                      const panelType = parseUtilityPanelType(item.utilityId!);
-                      if (!panelType) return null;
-                      return (
-                        <div className="flex-1 min-h-0">
-                          <UtilityPanel
-                            type={panelType}
-                            isFocused={focusedPanelId === item.utilityId}
-                            onFocus={() => onFocusPanel(item.utilityId!)}
-                            onClose={() => onClosePanel(item.utilityId!)}
-                            onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
-                            onMessage={onWSMessage}
-                          />
-                        </div>
-                      );
-                    })()}
-
-                    {/* Project window */}
-                    {item.kind === 'project' && (
-                      <ProjectWindow
-                        projectPath={item.projectPath!}
-                        topicIds={item.topicIds!}
-                        topics={topics}
-                        focusedPanelId={focusedPanelId}
-                        onFocusPanel={onFocusPanel}
-                        onClosePanel={onClosePanel}
-                        getSessionMessages={getSessionMessages}
-                        isSessionLoading={isSessionLoading}
-                        isSessionStreaming={isSessionStreaming}
-                        stopSession={stopSession}
-                        sendMessage={sendMessage}
-                        loadHistory={loadHistory}
-                        chatError={chatError}
-                        sendWS={sendWS}
-                        onWSMessage={onWSMessage}
-                        onUpdateTopic={onUpdateTopic}
-                        onOpenInFinder={handleOpenInFinder(item.projectPath!)}
-                        onGroupDragStart={handleGridItemDragStart(item)}
-                        onCloseProject={onCloseProject ? () => onCloseProject(item.projectPath!) : undefined}
-                        pendingPane={pendingProjectPane && pendingProjectPane.projectPath === item.projectPath ? pendingProjectPane.type : undefined}
-                        onPendingPaneConsumed={onPendingProjectPaneConsumed}
-                        onNewChat={onNewChatInProject ? () => onNewChatInProject(item.projectPath!) : undefined}
-                        onAcceptTopicDrop={handleAssignTopicToProject(item.projectPath!)}
-                      />
-                    )}
-
-                    {/* Standalone chats (tabbed) */}
-                    {item.kind === 'standalone' && (
-                      <StandaloneChatGroup
-                        topicIds={item.topicIds!}
-                        topics={topics}
-                        focusedPanelId={focusedPanelId}
-                        onFocusPanel={onFocusPanel}
-                        onClosePanel={onClosePanel}
-                        onDragStart={handleDragStart}
-                        onGroupDragStart={handleGridItemDragStart(item)}
-                        getSessionMessages={getSessionMessages}
-                        isSessionLoading={isSessionLoading}
-                        isSessionStreaming={isSessionStreaming}
-                        stopSession={stopSession}
-                        sendMessage={sendMessage}
-                        loadHistory={loadHistory}
-                        chatError={chatError}
-                        sendWS={sendWS}
-                        onWSMessage={onWSMessage}
-                        onUpdateTopic={onUpdateTopic}
-                        onToggleSidebar={onToggleSidebar}
-                        panelInitialTab={panelInitialTab}
-                        onPanelInitialTabConsumed={onPanelInitialTabConsumed}
-                        onNewChat={onNewChat}
-                        onAcceptProjectTopicDrop={handleRemoveTopicFromProject}
-                      />
-                    )}
+                    {/* Unified standalone group (handles chat, utility, and project tabs) */}
+                    <StandaloneChatGroup
+                      topicIds={item.panelIds}
+                      topics={topics}
+                      focusedPanelId={focusedPanelId}
+                      onFocusPanel={onFocusPanel}
+                      onClosePanel={onClosePanel}
+                      onDragStart={handleDragStart}
+                      onGroupDragStart={handleGridItemDragStart(item)}
+                      getSessionMessages={getSessionMessages}
+                      isSessionLoading={isSessionLoading}
+                      isSessionStreaming={isSessionStreaming}
+                      stopSession={stopSession}
+                      sendMessage={sendMessage}
+                      loadHistory={loadHistory}
+                      chatError={chatError}
+                      sendWS={sendWS}
+                      onWSMessage={onWSMessage}
+                      onUpdateTopic={onUpdateTopic}
+                      onToggleSidebar={onToggleSidebar}
+                      panelInitialTab={panelInitialTab}
+                      onPanelInitialTabConsumed={onPanelInitialTabConsumed}
+                      onNewChat={onNewChat}
+                      pendingProjectPane={pendingProjectPane}
+                      onPendingProjectPaneConsumed={onPendingProjectPaneConsumed}
+                      onNewChatInProject={onNewChatInProject}
+                      pendingProjectFocus={pendingProjectFocus}
+                      onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
+                    />
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}
                     {zone && zone !== 'center' && (
@@ -982,45 +745,6 @@ export function PanelGrid({
         </Fragment>
       ))}
 
-      {/* Detach from project confirmation dialog */}
-      {pendingDetach && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={handleCancelDetach}>
-          <div
-            className="bg-surface dark:bg-app-panel rounded-lg shadow-xl w-[400px] flex flex-col border border-app-border-input"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
-              <div className="flex items-center gap-2">
-                <AlertTriangle size={16} className="text-amber-500" />
-                <span className="text-[14px] font-semibold text-app-text-heading">Remove from project?</span>
-              </div>
-              <button onClick={handleCancelDetach} className="p-1 rounded hover:bg-app-hover text-app-text-tertiary">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="px-4 py-4">
-              <p className="text-[13px] text-app-text leading-relaxed">
-                <strong>{pendingDetach.topicName}</strong> belongs to project <strong>{pendingDetach.projectName}</strong>.
-                Moving it out will remove it from the project and it will lose access to project files, git, and tools.
-              </p>
-            </div>
-            <div className="flex justify-end gap-2 px-4 py-3 border-t border-app-border">
-              <button
-                onClick={handleCancelDetach}
-                className="px-3 py-1.5 text-[12px] font-medium rounded-md border border-app-border text-app-text hover:bg-app-hover transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmDetach}
-                className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
-              >
-                Remove from project
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -120,7 +120,11 @@ export function useWebSocket(): UseWebSocketReturn {
       clearOfflineTimer();
       if (wsRef.current) {
         wsRef.current.onclose = null; // prevent reconnect on cleanup
-        wsRef.current.close();
+        // Only close if past the CONNECTING state to avoid
+        // "WebSocket is closed before the connection is established" in Strict Mode
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.close();
+        }
       }
     };
   }, [connect, clearOfflineTimer]);

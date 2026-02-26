@@ -68,9 +68,9 @@ export function ChatPane({
   const [fileDragOver, setFileDragOver] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
-  const [showPinned, _setShowPinned] = useState(false);
+  const [showPinned] = useState(false);
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
-  const [_commandLoading, setCommandLoading] = useState(false);
+  const [, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [messageQueue, setMessageQueue] = useState<string[]>(() => {
     try { const s = localStorage.getItem(queueKey); return s ? JSON.parse(s) : []; } catch { return []; }
@@ -134,7 +134,7 @@ export function ChatPane({
   const sendTyping = useCallback((text?: string) => sendWS({ type: 'typing', topicId: topic.id, text: text || '' }), [sendWS, topic.id]);
 
   useEffect(() => {
-    const unsub = onWSMessage((msg: any) => {
+    const unsub = onWSMessage((msg: WSMessage) => {
       if (msg.type === 'typing' && msg.topicId === topic.id) {
         setOthersTyping(true); setOthersTypingText(msg.text || '');
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);

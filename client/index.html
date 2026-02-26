@@ -11,6 +11,15 @@
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
     <title>Topics</title>
+    <script>
+      // Apply theme immediately to prevent FOUC (flash of light borders on dark theme)
+      (function() {
+        var theme = 'system';
+        try { theme = localStorage.getItem('theme') || 'system'; } catch(e) {}
+        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

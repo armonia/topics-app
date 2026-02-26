@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, FolderOpen } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, AutonomyLevel } from '../../types';
+import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -17,6 +18,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [topicColor, setTopicColor] = useState(topic.color);
   const [saved, setSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [showIconPicker, setShowIconPicker] = useState(false);
 
   useEffect(() => {
     setProjectPath(topic.projectPath || '');
@@ -96,7 +98,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
-            <span className="text-lg">{topic.icon}</span>
+            <TopicIcon name={topic.icon} size={18} color={topic.color || undefined} />
             <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
           </div>
           <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
@@ -111,14 +113,16 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             <label className="block text-[13px] font-medium text-app-text mb-2">
               Name & Icon
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={topicIcon}
-                onChange={e => setTopicIcon(e.target.value)}
-                className="w-12 px-2 py-2 border border-app-border-light rounded-lg text-[16px] text-center bg-surface dark:bg-elevated focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
-                maxLength={4}
-              />
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setShowIconPicker(v => !v)}
+                className={`w-12 h-10 flex items-center justify-center border rounded-lg transition-colors ${
+                  showIconPicker ? 'border-primary bg-primary/10' : 'border-app-border-light bg-surface dark:bg-elevated hover:bg-app-hover'
+                }`}
+              >
+                <TopicIcon name={topicIcon} size={18} color={topicColor || undefined} />
+              </button>
               <input
                 type="text"
                 value={topicName}
@@ -126,6 +130,25 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
               />
             </div>
+            {showIconPicker && (
+              <div className="grid grid-cols-6 gap-1 p-3 border border-app-border-light rounded-lg bg-surface dark:bg-elevated">
+                {TOPIC_ICONS.map((name) => {
+                  const Icon = getTopicIcon(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => { setTopicIcon(name); setShowIconPicker(false); }}
+                      className={`w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-app-hover transition-colors ${
+                        topicIcon === name ? 'bg-primary/10 ring-2 ring-primary/50' : ''
+                      }`}
+                    >
+                      <Icon size={16} style={{ color: topicColor || undefined }} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Color */}

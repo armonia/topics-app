@@ -1,8 +1,8 @@
-import { readFileSync, existsSync, readdirSync } from "fs";
 import { join, resolve } from "path";
 import type { ServerWebSocket } from "bun";
-import type { WSData, StoredMessage } from "./server/types";
+import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
+import { closeDatabase } from "./server/db";
 import { createTopicsRouter } from "./server/routes/topics";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
@@ -22,6 +22,14 @@ import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
 import { createJournalRouter } from "./server/routes/journal";
+import { createBoardsRouter } from "./server/routes/boards";
+import { createTagsRouter } from "./server/routes/tags";
+import { createApprovalsRouter } from "./server/routes/approvals";
+import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
+import { createWebhooksRouter } from "./server/routes/webhooks";
+import { createDashboardRouter } from "./server/routes/dashboard";
+import { createAgentApiRouter } from "./server/routes/agent-api";
+import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
 // Validate required environment variables
 if (!process.env.GATEWAY_TOKEN) {
@@ -29,15 +37,16 @@ if (!process.env.GATEWAY_TOKEN) {
   process.exit(1);
 }
 
+// Create app context (initializes SQLite database)
 const ctx = createAppContext(import.meta.dir);
-const { PORT, PUBLIC_DIR, MESSAGES_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
+const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
   loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
-  isStreaming, activeStreams, getMimeType, atomicWriteJSON, logRequest } = ctx;
+  isStreaming, activeStreams, getMimeType, logRequest, db } = ctx;
 
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService();
 
-// Init usage tracking
+// Init usage tracking (still uses JSON files — will be migrated in a future phase)
 initUsageStore(import.meta.dir);
 rebuildSummary();
 
@@ -55,6 +64,15 @@ const agentsRouter = createAgentsRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const spacesRouter = createSpacesRouter(ctx);
 const openclawContextRouter = createOpenClawContextRouter(ctx);
+const boardsRouter = createBoardsRouter(ctx);
+const tagsRouter = createTagsRouter(ctx);
+const approvalsRouter = createApprovalsRouter(ctx);
+const agentProfilesRouter = createAgentProfilesRouter(ctx);
+const webhooksRouter = createWebhooksRouter(ctx);
+const dashboardRouter = createDashboardRouter(ctx);
+const agentApiRouter = createAgentApiRouter(ctx);
+// Start agent heartbeat checker
+startHeartbeatChecker(db);
 
 // Init activity monitor (watches gateway log files)
 const activityMonitor = new ActivityMonitor();
@@ -93,6 +111,16 @@ setInterval(() => {
   if (cleaned) { saveUnread(unreadData); console.log("[Startup] Cleaned orphaned unread entries"); }
 }
 
+// Startup: reset stale partial messages (via SQLite)
+{
+  console.log("[Startup] Checking for stale partial messages...");
+  const result = db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE partial = 1");
+  if (result.changes > 0) {
+    console.log(`[Startup] Reset ${result.changes} stale partial messages`);
+  } else {
+    console.log("[Startup] No stale partial messages found");
+  }
+}
 
 const server = Bun.serve<WSData>({
   port: PORT,
@@ -157,7 +185,8 @@ const server = Bun.serve<WSData>({
 
     // Route through handlers
     if (isApiRequest) {
-      const response = await topicsRouter(req, url, pathname, method)
+      const response = await agentApiRouter(req, url, pathname, method)
+        || await topicsRouter(req, url, pathname, method)
         || await filesRouter(req, url, pathname, method)
         || await browserRouter(req, url, pathname, method)
         || await cronRouter(req, url, pathname, method)
@@ -171,7 +200,14 @@ const server = Bun.serve<WSData>({
         || await checkpointsRouter(req, url, pathname, method)
         || await journalRouter(req, url, pathname, method)
         || await spacesRouter(req, url, pathname, method)
-        || await openclawContextRouter(req, url, pathname, method);
+        || await openclawContextRouter(req, url, pathname, method)
+        || await boardsRouter(req, url, pathname, method)
+        || await approvalsRouter(req, url, pathname, method)
+        || await tagsRouter(req, url, pathname, method)
+        || await agentProfilesRouter(req, url, pathname, method)
+        || await webhooksRouter(req, url, pathname, method)
+        || await dashboardRouter(req, url, pathname, method)
+;
 
       if (response) return response;
       logRequest(method, pathname, 404, startTime);
@@ -244,8 +280,8 @@ setInterval(() => {
     const lastActivity = new Date(stream.lastActivity).getTime();
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
-      const msgs = loadLocalMessages(sessionKey);
-      if (msgs.length > 0) { const lastMsg = msgs[msgs.length - 1]; if (lastMsg.partial) { lastMsg.partial = false; delete lastMsg.streamedAt; saveLocalMessages(sessionKey, msgs); } }
+      // Finalize partial messages via SQLite
+      db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", sessionKey);
       const topicsData = loadTopics();
       let topicId: string | undefined;
       for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
@@ -255,28 +291,6 @@ setInterval(() => {
   }
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
-// Startup: reset stale partial messages
-(() => {
-  console.log("[Startup] Checking for stale partial messages...");
-  try {
-    if (!existsSync(MESSAGES_DIR)) return;
-    const files = readdirSync(MESSAGES_DIR);
-    let resetCount = 0;
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      const filepath = join(MESSAGES_DIR, file);
-      try {
-        const msgs: StoredMessage[] = JSON.parse(readFileSync(filepath, "utf-8"));
-        let changed = false;
-        for (const msg of msgs) { if (msg.partial) { msg.partial = false; delete msg.streamedAt; changed = true; resetCount++; } }
-        if (changed) atomicWriteJSON(filepath, msgs);
-      } catch {}
-    }
-    if (resetCount > 0) console.log(`[Startup] Reset ${resetCount} stale partial messages`);
-    else console.log("[Startup] No stale partial messages found");
-  } catch (err) { console.error("[Startup] Error checking partial messages:", err); }
-})();
-
 console.log(`🚀 Topics App running at http://localhost:${PORT}`);
 console.log(`📡 WebSocket available at ws://localhost:${PORT}/ws`);
 console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/browser/:id)`);
@@ -285,5 +299,6 @@ console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/brow
 process.on("SIGINT", async () => {
   console.log("\n[Shutdown] Closing browser service...");
   await browserService.close();
+  closeDatabase();
   process.exit(0);
 });

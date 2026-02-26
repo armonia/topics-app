@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X } from 'lucide-react';
 import { searchApi } from '../../lib/api';
 import type { SearchResult } from '../../types';
+import { TopicIcon } from '@/lib/topicIcons';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -126,7 +127,7 @@ export function SearchModal({ isOpen, onClose, onSelectResult }: SearchModalProp
             return (
               <div key={key} className="border-b border-app-border last:border-b-0">
                 <div className="px-4 py-2 bg-app-hover flex items-center gap-2">
-                  <span>{first.topicIcon}</span>
+                  <TopicIcon name={first.topicIcon} size={14} className="text-app-text-secondary" />
                   <span className="text-[11px] font-semibold text-app-text-secondary">{first.topicName}</span>
                   <span className="text-[11px] text-app-text-muted">({groupResults.length})</span>
                 </div>

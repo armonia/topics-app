@@ -6,6 +6,7 @@ import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
 import { createPaneId, createGroupId, PANE_CONFIG } from '../../lib/paneConfig';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
@@ -17,6 +18,9 @@ const GitChanges = lazy(() => import('../Project/GitChanges').then(m => ({ defau
 const ActivityPane = lazy(() => import('../Sidebar/ActivityPane').then(m => ({ default: m.ActivityPane })));
 const JournalPane = lazy(() => import('../Journal/JournalPane').then(m => ({ default: m.JournalPane })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
+const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
+const KanbanBoard = lazy(() => import('../Board/KanbanBoard').then(m => ({ default: m.KanbanBoard })));
+const BoardMemoryPanel = lazy(() => import('../Board/BoardMemoryPanel').then(m => ({ default: m.BoardMemoryPanel })));
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
@@ -61,96 +65,68 @@ function paneTypeToGroupType(type: PaneType): PaneGroupType {
 }
 
 // Build default groups from a flat list of panes (migration from old format)
+// All panes go into a single group — only explicit user splits create additional groups.
 function buildDefaultGroups(panes: Pane[]): { groups: PaneGroup[]; rows: GroupLayoutRow[] } {
-  const chatPanes = panes.filter(p => p.type === 'chat');
-  const filePanes = panes.filter(p => p.type === 'file' || p.type === 'files');
-  const utilPanes = panes.filter(p => p.type !== 'chat' && p.type !== 'file' && p.type !== 'files');
+  if (panes.length === 0) return { groups: [], rows: [] };
 
-  const groups: PaneGroup[] = [];
-  const rowGroupIds: string[] = [];
+  const g: PaneGroup = {
+    id: createGroupId(),
+    paneIds: panes.map(p => p.id),
+    activePaneId: panes[0].id,
+    type: 'chat', // primary type; the group accepts any pane type
+  };
 
-  if (chatPanes.length > 0) {
-    const g: PaneGroup = {
-      id: createGroupId(),
-      paneIds: chatPanes.map(p => p.id),
-      activePaneId: chatPanes[0].id,
-      type: 'chat',
-    };
-    groups.push(g);
-    rowGroupIds.push(g.id);
-  }
-
-  if (filePanes.length > 0) {
-    const g: PaneGroup = {
-      id: createGroupId(),
-      paneIds: filePanes.map(p => p.id),
-      activePaneId: filePanes[0].id,
-      type: 'file',
-    };
-    groups.push(g);
-    rowGroupIds.push(g.id);
-  }
-
-  if (utilPanes.length > 0) {
-    const g: PaneGroup = {
-      id: createGroupId(),
-      paneIds: utilPanes.map(p => p.id),
-      activePaneId: utilPanes[0].id,
-      type: 'utility',
-    };
-    groups.push(g);
-    rowGroupIds.push(g.id);
-  }
-
-  const rows: GroupLayoutRow[] = rowGroupIds.length > 0
-    ? [{ groupIds: rowGroupIds, widths: rowGroupIds.map(() => 1 / rowGroupIds.length) }]
-    : [];
-
-  return { groups, rows };
+  return {
+    groups: [g],
+    rows: [{ groupIds: [g.id], widths: [1] }],
+  };
 }
 
 const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
-interface ProjectWindowProps {
+// --- ProjectWindowPane: self-contained project content (no header/chrome) ---
+
+export interface ProjectWindowPaneProps {
   projectPath: string;
-  topicIds: string[];
   topics: Record<string, Topic>;
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
   onClosePanel: (topicId: string) => void;
-  // Chat props pass-through
   getSessionMessages: (sk: string) => ChatMessage[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
-  stopSession: (sk: string) => void;
+  stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-  onOpenInFinder?: () => void;
-  // Group drag
-  onGroupDragStart?: (e: React.DragEvent) => void;
-  // Close entire project
-  onCloseProject?: () => void;
-  // Pending pane from sidebar (e.g. terminal)
   pendingPane?: PaneType;
   onPendingPaneConsumed?: () => void;
-  // Create new chat in this project
   onNewChat?: () => void;
-  // Accept topic drop from standalone (cross-panel-type)
-  onAcceptTopicDrop?: (topicId: string) => void;
+  // Navigate to a specific topic inside the project (from external focus)
+  pendingFocusTopicId?: string | null;
+  onPendingFocusConsumed?: () => void;
 }
 
-export function ProjectWindow({
-  projectPath, topicIds, topics, focusedPanelId,
+export function ProjectWindowPane({
+  projectPath, topics, focusedPanelId,
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
-  onAcceptTopicDrop,
-}: ProjectWindowProps) {
+  pendingPane, onPendingPaneConsumed, onNewChat,
+  pendingFocusTopicId, onPendingFocusConsumed,
+}: ProjectWindowPaneProps) {
+  // Compute topicIds from topics that belong to this project
+  const topicIds = useMemo(() =>
+    Object.values(topics)
+      .filter(t => t.projectPath === projectPath && !t.archived)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.createdAt.localeCompare(b.createdAt))
+      .map(t => t.id),
+    [topics, projectPath]
+  );
+
   // Load persisted state
   const persisted = useRef(loadPersistedState(projectPath));
 
@@ -161,6 +137,9 @@ export function ProjectWindow({
   // --- Core state ---
   const [panes, setPanes] = useState<Pane[]>(() => persisted.current?.nonChatPanes || []);
   const [groups, setGroups] = useState<PaneGroup[]>(() => persisted.current?.groups || []);
+  const pendingPreviewCloseRef = useRef<string | null>(null);
+  // Track topic IDs manually closed by the user (so the sync effect doesn't re-add them)
+  const closedTopicIdsRef = useRef<Set<string>>(new Set());
   const [rows, setRows] = useState<GroupLayoutRow[]>(() => persisted.current?.rows || []);
   const [rowHeights, setRowHeights] = useState<number[]>(() => persisted.current?.rowHeights || [1]);
   const [focusedGroupId, setFocusedGroupId] = useState<string | null>(null);
@@ -168,15 +147,13 @@ export function ProjectWindow({
   const [showContext, setShowContext] = useState(() => {
     try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
   });
-  // Settings modal state (opened via right-click menu on tabs)
   const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
 
-  // Determine active topic for Context Inspector (from focused group)
+  // Determine active topic for Context Inspector
   const focusedGroup = groups.find(g => g.id === focusedGroupId);
   const focusedPane = focusedGroup ? panes.find(p => p.id === focusedGroup.activePaneId) : null;
   const activeTopicId = focusedPane?.type === 'chat' ? focusedPane.topicId || null : null;
   const activeTopic = activeTopicId ? topics[activeTopicId] : null;
-  // Build paneId → topicId map for context rings on chat tabs
   const paneToTopicMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const p of panes) {
@@ -186,7 +163,6 @@ export function ProjectWindow({
   }, [panes]);
   const contextPercent = useMultiContextPercent(paneToTopicMap);
 
-  // Build set of pane IDs that are currently streaming
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const p of panes) {
@@ -200,27 +176,28 @@ export function ProjectWindow({
     return ids;
   }, [panes, topics, isSessionStreaming]);
 
-  // Stop streaming for a pane (by pane ID)
   const handleStopStreaming = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
     if (pane?.topicId) {
       const topic = topics[pane.topicId];
       if (topic) {
         const isFirst = stopSession(topic.sessionKey);
-        if (isFirst) onClosePanel(pane.topicId);
+        if (isFirst) {
+          // First message stopped — close the tab locally
+          closedTopicIdsRef.current.add(pane.topicId);
+          setPanes(prev => prev.filter(p => p.id !== paneId));
+        }
       }
     }
-  }, [panes, topics, stopSession, onClosePanel]);
+  }, [panes, topics, stopSession]);
 
-  // Persist context inspector state
   useEffect(() => {
     try { localStorage.setItem('topics-context-inspector-open', String(showContext)); } catch {}
   }, [showContext]);
 
   // Persist non-chat panes, groups, rows
   useEffect(() => {
-    const nonChatPanes = panes.filter(p => p.type !== 'chat');
-    // Filter groups to exclude chat groups (they're rebuilt from topicIds)
+    const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
     const nonChatGroups = groups.filter(g => g.type !== 'chat').map(g => ({
       ...g,
       paneIds: g.paneIds.filter(id => nonChatPanes.some(p => p.id === id)),
@@ -236,28 +213,29 @@ export function ProjectWindow({
 
   // --- Sync chat panes with topicIds ---
   useEffect(() => {
+    // Clean up closedTopicIds for topics that no longer exist in the project
+    const currentSet = new Set(topicIds);
+    for (const id of closedTopicIdsRef.current) {
+      if (!currentSet.has(id)) closedTopicIdsRef.current.delete(id);
+    }
+
     setPanes(prev => {
       const chatPaneIds = new Set(prev.filter(p => p.type === 'chat').map(p => p.topicId));
-      const currentTopicIds = new Set(topicIds);
-
-      // Remove chat panes for topics that are no longer open
-      let updated = prev.filter(p => p.type !== 'chat' || (p.topicId && currentTopicIds.has(p.topicId)));
-
-      // Add chat panes for new topics
+      let updated = prev.filter(p => p.type !== 'chat' || (p.topicId && currentSet.has(p.topicId)));
       const newChatPanes: Pane[] = [];
       for (const tid of topicIds) {
-        if (!chatPaneIds.has(tid)) {
+        if (!chatPaneIds.has(tid) && !closedTopicIdsRef.current.has(tid)) {
           const topic = topics[tid];
           newChatPanes.push({
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,
             topicId: tid,
             title: topic?.name || 'Chat',
+            preview: true,
           });
         }
       }
       if (newChatPanes.length > 0) updated = [...updated, ...newChatPanes];
-
       return updated;
     });
   }, [topicIds, topics]);
@@ -279,8 +257,6 @@ export function ProjectWindow({
   useEffect(() => {
     setGroups(prev => {
       const allPaneIds = new Set(panes.map(p => p.id));
-
-      // Clean stale paneIds from existing groups
       let updated = prev.map(g => {
         const filtered = g.paneIds.filter(id => allPaneIds.has(id));
         if (filtered.length === g.paneIds.length) return g;
@@ -290,11 +266,8 @@ export function ProjectWindow({
         return { ...g, paneIds: filtered, activePaneId };
       }).filter(g => g.paneIds.length > 0);
 
-      // Find panes not yet in any group
       const usedAfterClean = new Set(updated.flatMap(g => g.paneIds));
       const orphanPanes = panes.filter(p => !usedAfterClean.has(p.id));
-
-      // Group orphans by group type
       const orphansByType = new Map<PaneGroupType, Pane[]>();
       for (const p of orphanPanes) {
         const gt = paneTypeToGroupType(p.type);
@@ -302,12 +275,36 @@ export function ProjectWindow({
         orphansByType.get(gt)!.push(p);
       }
 
-      // Add orphans to existing groups of matching type, or create new groups
       for (const [gt, orphans] of orphansByType) {
-        const existingGroup = updated.find(g => g.type === gt);
-        if (existingGroup) {
-          existingGroup.paneIds = [...existingGroup.paneIds, ...orphans.map(p => p.id)];
+        // Always add orphans to an existing group — prefer same-type, then focused, then first.
+        // Never create a new group automatically; only explicit user splits do that.
+        const targetGroup = updated.find(g => g.type === gt)
+          || (focusedGroupId ? updated.find(g => g.id === focusedGroupId) : null)
+          || updated[0];
+
+        if (targetGroup) {
+          const previewOrphan = orphans.find(o => o.preview);
+          if (previewOrphan) {
+            const existingPreview = findPreviewPane(
+              targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p),
+              previewOrphan.id
+            );
+            if (existingPreview) {
+              targetGroup.paneIds = replacePaneInGroup(targetGroup.paneIds, existingPreview.id, previewOrphan.id);
+              targetGroup.activePaneId = previewOrphan.id;
+              const otherOrphans = orphans.filter(o => o !== previewOrphan);
+              if (otherOrphans.length > 0) {
+                targetGroup.paneIds = [...targetGroup.paneIds, ...otherOrphans.map(p => p.id)];
+              }
+              if (gt === 'chat' && existingPreview.topicId) {
+                pendingPreviewCloseRef.current = existingPreview.topicId;
+              }
+              continue;
+            }
+          }
+          targetGroup.paneIds = [...targetGroup.paneIds, ...orphans.map(p => p.id)];
         } else {
+          // No groups at all — create the first one
           const newGroup: PaneGroup = {
             id: createGroupId(),
             paneIds: orphans.map(p => p.id),
@@ -326,8 +323,6 @@ export function ProjectWindow({
   useEffect(() => {
     setRows(prev => {
       const allGroupIds = new Set(groups.map(g => g.id));
-
-      // Remove groups from rows that no longer exist
       let newRows = prev.map(r => {
         const filtered = r.groupIds.filter(id => allGroupIds.has(id));
         if (filtered.length === r.groupIds.length) return r;
@@ -335,7 +330,6 @@ export function ProjectWindow({
         return { groupIds: filtered, widths };
       }).filter(r => r.groupIds.length > 0);
 
-      // Add new groups to first row
       const usedAfterClean = new Set(newRows.flatMap(r => r.groupIds));
       const newGroupIds = groups.filter(g => !usedAfterClean.has(g.id)).map(g => g.id);
       if (newGroupIds.length > 0) {
@@ -357,7 +351,6 @@ export function ProjectWindow({
     });
   }, [groups]);
 
-  // Sync rowHeights
   useEffect(() => {
     setRowHeights(prev => {
       if (prev.length === rows.length) return prev;
@@ -377,9 +370,30 @@ export function ProjectWindow({
     }
   }, [groups.length, panes]);
 
+  // Reopen a closed topic (remove from closedTopicIds so sync effect re-creates the pane)
+  const reopenTopic = useCallback((topicId: string) => {
+    if (closedTopicIdsRef.current.has(topicId)) {
+      closedTopicIdsRef.current.delete(topicId);
+      // Manually add the pane back since the sync effect may not re-run
+      const topic = topics[topicId];
+      const paneId = createPaneId('chat', topicId);
+      setPanes(prev => {
+        if (prev.some(p => p.id === paneId)) return prev;
+        return [...prev, {
+          id: paneId,
+          type: 'chat' as PaneType,
+          topicId,
+          title: topic?.name || 'Chat',
+          preview: false,
+        }];
+      });
+    }
+  }, [topics]);
+
   // Set focused group when focusedPanelId changes (external focus)
   useEffect(() => {
     if (focusedPanelId) {
+      reopenTopic(focusedPanelId);
       const chatPane = panes.find(p => p.type === 'chat' && p.topicId === focusedPanelId);
       if (chatPane) {
         const g = groups.find(g => g.paneIds.includes(chatPane.id));
@@ -393,7 +407,27 @@ export function ProjectWindow({
         }
       }
     }
-  }, [focusedPanelId, panes, groups]);
+  }, [focusedPanelId, panes, groups, reopenTopic]);
+
+  // Handle pending focus from external navigation (e.g. search → topic in project)
+  useEffect(() => {
+    if (pendingFocusTopicId) {
+      reopenTopic(pendingFocusTopicId);
+      const chatPane = panes.find(p => p.type === 'chat' && p.topicId === pendingFocusTopicId);
+      if (chatPane) {
+        const g = groups.find(g => g.paneIds.includes(chatPane.id));
+        if (g) {
+          setFocusedGroupId(g.id);
+          setGroups(prev => prev.map(gg =>
+            gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg
+          ));
+        }
+        // Consume only after successfully finding the pane
+        onPendingFocusConsumed?.();
+      }
+      // If pane not found yet (just reopened via setPanes), effect will re-run
+    }
+  }, [pendingFocusTopicId, panes, groups, onPendingFocusConsumed, reopenTopic]);
 
   // If no focused group, set first one
   useEffect(() => {
@@ -419,38 +453,31 @@ export function ProjectWindow({
     const pane = panes.find(p => p.id === paneId);
 
     if (pane?.type === 'chat' && pane.topicId) {
-      // Check if this is the last chat pane — if so, auto-close the project
-      const chatPanes = panes.filter(p => p.type === 'chat');
-      if (chatPanes.length <= 1 && onCloseProject) {
-        onCloseProject();
-        return;
-      }
-      onClosePanel(pane.topicId);
-    } else {
-      setPanes(prev => prev.filter(p => p.id !== paneId));
+      // Track as manually closed so the sync effect doesn't re-add it
+      closedTopicIdsRef.current.add(pane.topicId);
     }
 
-    // Update group: remove pane, pick new active if needed
+    // Remove the pane from local state
+    setPanes(prev => prev.filter(p => p.id !== paneId));
+
     setGroups(prev => {
       return prev.map(g => {
         if (g.id !== groupId) return g;
         const remaining = g.paneIds.filter(id => id !== paneId);
-        if (remaining.length === 0) return g; // will be cleaned by sync
+        if (remaining.length === 0) return g;
         const newActive = g.activePaneId === paneId
           ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
           : g.activePaneId;
         return { ...g, paneIds: remaining, activePaneId: newActive };
       }).filter(g => g.paneIds.length > 0);
     });
-  }, [panes, onClosePanel, onCloseProject]);
+  }, [panes]);
 
   const handleAddPaneToGroup = useCallback((groupId: string, type: PaneType) => {
-    // Singleton check
     const config = PANE_CONFIG[type];
     if (config.singleton) {
       const existing = panes.find(p => p.type === type);
       if (existing) {
-        // Focus the group containing this singleton
         const g = groups.find(g => g.paneIds.includes(existing.id));
         if (g) {
           setFocusedGroupId(g.id);
@@ -466,22 +493,35 @@ export function ProjectWindow({
       id: createPaneId(type),
       type,
       title: PANE_CONFIG[type].label,
+      preview: true,
     };
-    setPanes(prev => [...prev, newPane]);
-    setGroups(prev => prev.map(g =>
-      g.id === groupId
-        ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-        : g
-    ));
+
+    const targetGroup = groups.find(g => g.id === groupId);
+    const groupPanes = targetGroup?.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p) || [];
+    const existingPreview = findPreviewPane(groupPanes, newPane.id);
+
+    if (existingPreview) {
+      setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
+      setGroups(prev => prev.map(g =>
+        g.id === groupId
+          ? { ...g, paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id), activePaneId: newPane.id }
+          : g
+      ));
+    } else {
+      setPanes(prev => [...prev, newPane]);
+      setGroups(prev => prev.map(g =>
+        g.id === groupId
+          ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
+          : g
+      ));
+    }
     setFocusedGroupId(groupId);
   }, [panes, groups]);
 
-  // Handle pending pane request from sidebar
+  // Handle pending pane request from sidebar — always add to focused/first group
   useEffect(() => {
     if (pendingPane) {
-      // Find a utility group, or the focused group, to add to
-      const utilGroup = groups.find(g => g.type === 'utility');
-      const targetGroupId = utilGroup?.id || focusedGroupId || groups[0]?.id;
+      const targetGroupId = focusedGroupId || groups[0]?.id;
       if (targetGroupId) {
         handleAddPaneToGroup(targetGroupId, pendingPane);
       }
@@ -490,10 +530,8 @@ export function ProjectWindow({
   }, [pendingPane, groups, focusedGroupId, handleAddPaneToGroup, onPendingPaneConsumed]);
 
   const handleOpenFile = useCallback((path: string) => {
-    // Check if a file pane for this path already exists
     const existing = panes.find(p => p.type === 'file' && p.filePath === path);
     if (existing) {
-      // Focus the group containing it
       const g = groups.find(g => g.paneIds.includes(existing.id));
       if (g) {
         setFocusedGroupId(g.id);
@@ -504,42 +542,138 @@ export function ProjectWindow({
       return;
     }
 
-    // Create new file pane
     const filename = path.split('/').pop() || path;
     const newPane: Pane = {
       id: createPaneId('file'),
       type: 'file',
       filePath: path,
       title: filename,
+      preview: true,
     };
 
-    // Find file group or create one
-    const fileGroup = groups.find(g => g.type === 'file');
-    if (fileGroup) {
+    // Add to focused group (or first group) — never create a new group for files
+    const targetGroup = (focusedGroupId ? groups.find(g => g.id === focusedGroupId) : null) || groups[0];
+    if (!targetGroup) {
+      // No groups at all — add pane and let orphan sync create a group
+      setPanes(prev => [...prev, newPane]);
+      return;
+    }
+
+    const groupPanes = targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p);
+    const existingPreview = findPreviewPane(groupPanes, newPane.id);
+
+    if (existingPreview) {
+      setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
+      setGroups(prev => prev.map(g =>
+        g.id === targetGroup.id
+          ? { ...g, paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id), activePaneId: newPane.id }
+          : g
+      ));
+    } else {
       setPanes(prev => [...prev, newPane]);
       setGroups(prev => prev.map(g =>
-        g.id === fileGroup.id
+        g.id === targetGroup.id
           ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
           : g
       ));
-      setFocusedGroupId(fileGroup.id);
-    } else {
-      // Create new file group — sync effects will place it in rows
-      const newGroup: PaneGroup = {
-        id: createGroupId(),
-        paneIds: [newPane.id],
-        activePaneId: newPane.id,
-        type: 'file',
-      };
-      setPanes(prev => [...prev, newPane]);
-      setGroups(prev => [...prev, newGroup]);
-      setFocusedGroupId(newGroup.id);
     }
-  }, [panes, groups]);
+    setFocusedGroupId(targetGroup.id);
+  }, [panes, groups, focusedGroupId]);
+
+  const handleOpenDiff = useCallback((filePath: string, diffProjectPath: string) => {
+    const diffKey = `diff:${filePath}`;
+    const existing = panes.find(p => p.type === 'file' && p.id === diffKey);
+    if (existing) {
+      const g = groups.find(g => g.paneIds.includes(existing.id));
+      if (g) {
+        setFocusedGroupId(g.id);
+        setGroups(prev => prev.map(gg =>
+          gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg
+        ));
+      }
+      return;
+    }
+
+    const filename = filePath.split('/').pop() || filePath;
+    const fullPath = `${diffProjectPath}/${filePath}`;
+    const newPane: Pane = {
+      id: diffKey,
+      type: 'file',
+      filePath: fullPath,
+      title: `${filename} (diff)`,
+      diff: true,
+      diffProjectPath,
+      preview: true,
+    };
+
+    // Add to focused group (or first group) — never create a new group for diffs
+    const targetGroup = (focusedGroupId ? groups.find(g => g.id === focusedGroupId) : null) || groups[0];
+    if (!targetGroup) {
+      setPanes(prev => [...prev, newPane]);
+      return;
+    }
+
+    const groupPanes = targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p);
+    const existingPreview = findPreviewPane(groupPanes, newPane.id);
+
+    if (existingPreview) {
+      setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
+      setGroups(prev => prev.map(g =>
+        g.id === targetGroup.id
+          ? { ...g, paneIds: replacePaneInGroup(g.paneIds, existingPreview.id, newPane.id), activePaneId: newPane.id }
+          : g
+      ));
+    } else {
+      setPanes(prev => [...prev, newPane]);
+      setGroups(prev => prev.map(g =>
+        g.id === targetGroup.id
+          ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
+          : g
+      ));
+    }
+    setFocusedGroupId(targetGroup.id);
+  }, [panes, groups, focusedGroupId]);
+
+  // Listen for open-file-diff events from GitChanges sidebar
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { filePath, projectPath: pp } = (e as CustomEvent).detail;
+      handleOpenDiff(filePath, pp);
+    };
+    window.addEventListener('open-file-diff', handler);
+    return () => window.removeEventListener('open-file-diff', handler);
+  }, [handleOpenDiff]);
+
+  // Listen for pin-file-pane events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { path } = (e as CustomEvent).detail;
+      setPanes(prev => prev.map(p =>
+        p.type === 'file' && p.filePath === path ? { ...p, preview: false } : p
+      ));
+    };
+    window.addEventListener('pin-file-pane', handler);
+    return () => window.removeEventListener('pin-file-pane', handler);
+  }, []);
+
+  // Close replaced preview pane
+  useEffect(() => {
+    if (pendingPreviewCloseRef.current) {
+      const id = pendingPreviewCloseRef.current;
+      pendingPreviewCloseRef.current = null;
+      // Mark as closed so the sync effect doesn't re-add the replaced preview
+      closedTopicIdsRef.current.add(id);
+      setPanes(prev => prev.filter(p => !(p.type === 'chat' && p.topicId === id)));
+    }
+  });
 
   const handleNewChatInGroup = useCallback((_groupId: string) => {
     onNewChat?.();
   }, [onNewChat]);
+
+  const handlePinPane = useCallback((_groupId: string, paneId: string) => {
+    setPanes(prev => prev.map(p => p.id === paneId ? { ...p, preview: false } : p));
+  }, []);
 
   const handleReorderGroupPanes = useCallback((groupId: string, newPaneIds: string[]) => {
     setGroups(prev => prev.map(g =>
@@ -547,19 +681,7 @@ export function ProjectWindow({
     ));
   }, []);
 
-  // Move a pane tab from one group to another (cross-group tab drag)
   const handleMovePaneBetweenGroups = useCallback((sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => {
-    // External drop (e.g. from standalone): source group not in this project
-    const isExternal = !groups.some(g => g.id === sourceGroupId);
-    if (isExternal && onAcceptTopicDrop) {
-      // paneId from standalone is a topicId directly; from project tab bar is "chat:<topicId>"
-      const topicId = paneId.startsWith('chat:') ? paneId.slice(5) : paneId;
-      if (!topicIds.includes(topicId)) {
-        onAcceptTopicDrop(topicId);
-      }
-      return;
-    }
-
     setGroups(prev => {
       const sourceGroup = prev.find(g => g.id === sourceGroupId);
       const targetGroup = prev.find(g => g.id === targetGroupId);
@@ -569,7 +691,7 @@ export function ProjectWindow({
       return prev.map(g => {
         if (g.id === sourceGroupId) {
           const remaining = g.paneIds.filter(id => id !== paneId);
-          if (remaining.length === 0) return g; // will be cleaned by sync
+          if (remaining.length === 0) return g;
           const newActive = g.activePaneId === paneId
             ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
             : g.activePaneId;
@@ -584,11 +706,9 @@ export function ProjectWindow({
       }).filter(g => g.paneIds.length > 0);
     });
     setFocusedGroupId(targetGroupId);
-  }, [groups, onAcceptTopicDrop, topicIds]);
+  }, []);
 
-  // Split a group by dropping a pane on an edge (creates new row or column)
   const handleSplitGroup = useCallback((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => {
-    // Create a new group containing just the dragged pane
     const pane = panes.find(p => p.id === paneId);
     if (!pane) return;
 
@@ -600,7 +720,6 @@ export function ProjectWindow({
       type: paneTypeToGroupType(pane.type),
     };
 
-    // Remove pane from source group
     setGroups(prev => {
       const updated = prev.map(g => {
         if (g.id === sourceGroupId) {
@@ -617,14 +736,11 @@ export function ProjectWindow({
       return [...updated, newGroup];
     });
 
-    // Update rows to place the new group
     setRows(prev => {
       if (edge === 'left' || edge === 'right') {
-        // Insert new group in the same row as target, left or right of it
         return prev.map(row => {
           const targetIdx = row.groupIds.indexOf(targetGroupId);
           if (targetIdx === -1) return row;
-
           const newGroupIds = [...row.groupIds];
           const insertAt = edge === 'left' ? targetIdx : targetIdx + 1;
           newGroupIds.splice(insertAt, 0, newGroupId);
@@ -632,10 +748,8 @@ export function ProjectWindow({
           return { groupIds: newGroupIds, widths: newWidths };
         });
       } else {
-        // top/bottom: create a new row above or below the row containing the target
         const targetRowIdx = prev.findIndex(row => row.groupIds.includes(targetGroupId));
         if (targetRowIdx === -1) return prev;
-
         const newRow = { groupIds: [newGroupId], widths: [1] };
         const newRows = [...prev];
         const insertAt = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
@@ -647,7 +761,6 @@ export function ProjectWindow({
     setFocusedGroupId(newGroupId);
   }, [panes]);
 
-  // Reorder rows within the group layout
   const handleReorderRows = useCallback((newRowOrder: number[]) => {
     setRows(prev => {
       const newRows = newRowOrder.map(i => prev[i]).filter(Boolean);
@@ -659,26 +772,24 @@ export function ProjectWindow({
     });
   }, []);
 
-  // Available types for the "+" menu, based on group type
   const availableTypesForGroup = useCallback((groupType: PaneGroupType): PaneType[] => {
-    const types: PaneType[] = ['browser', 'terminal', 'git', 'activity', 'journal', 'agents'];
+    const types: PaneType[] = ['browser', 'terminal', 'git'];
     if (groupType === 'file') {
       types.unshift('files');
     }
     return types.filter(t => {
       const config = PANE_CONFIG[t];
+      if (config.fixed) return false;
       if (config.singleton && panes.some(p => p.type === t)) return false;
       return true;
     });
   }, [panes]);
 
-  // Right-click menu: Settings opens TopicSettingsModal (resolve paneId → topicId)
   const handlePaneSettings = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
     if (pane?.topicId) setSettingsTopicId(pane.topicId);
   }, [panes]);
 
-  // Right-click menu: Pop Out opens chat topic in new window
   const handlePanePopOut = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
     if (!pane?.topicId) return;
@@ -686,10 +797,11 @@ export function ProjectWindow({
     isNativeApp
       ? window.open(url, `topic-${pane.topicId}`, 'width=900,height=700')
       : window.open(url, `topic-${pane.topicId}`);
-    onClosePanel(pane.topicId);
-  }, [panes, onClosePanel]);
+    // Close the tab locally
+    closedTopicIdsRef.current.add(pane.topicId);
+    setPanes(prev => prev.filter(p => p.id !== paneId));
+  }, [panes]);
 
-  // First topicId for sidebar context
   const primaryTopicId = topicIds[0];
 
   const renderPane = useCallback((pane: Pane, isFocused: boolean) => {
@@ -697,14 +809,20 @@ export function ProjectWindow({
       case 'chat': {
         const topic = pane.topicId ? topics[pane.topicId] : null;
         if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">Topic not found</div>;
+        const wrappedSendMessage = pane.preview
+          ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
+              setPanes(prev => prev.map(p => p.id === pane.id ? { ...p, preview: false } : p));
+              return sendMessage(sk, content, options);
+            }
+          : sendMessage;
         return (
           <ChatPane
             topic={topic}
-            isFocused={isFocused && focusedPanelId === pane.topicId}
+            isFocused={isFocused && focusedPanelId === createPaneId('project', projectPath)}
             getSessionMessages={getSessionMessages}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
-            sendMessage={sendMessage}
+            sendMessage={wrappedSendMessage}
             loadHistory={loadHistory}
             chatError={chatError}
             sendWS={sendWS}
@@ -729,7 +847,13 @@ export function ProjectWindow({
       case 'file':
         return pane.filePath ? (
           <Suspense fallback={LazySpinner}>
-            <FilePane filePath={pane.filePath} projectPath={projectPath} />
+            <FilePane
+              filePath={pane.filePath}
+              projectPath={projectPath}
+              diff={pane.diff}
+              diffProjectPath={pane.diffProjectPath}
+              onPin={pane.preview ? () => setPanes(prev => prev.map(p => p.id === pane.id ? { ...p, preview: false } : p)) : undefined}
+            />
           </Suspense>
         ) : null;
       case 'files':
@@ -762,6 +886,24 @@ export function ProjectWindow({
             <AgentsPane onNavigateToTopic={(topicId) => onFocusPanel(topicId)} onMessage={onWSMessage} />
           </Suspense>
         );
+      case 'board':
+        return (
+          <Suspense fallback={LazySpinner}>
+            <KanbanBoard projectId={encodeURIComponent(projectPath)} topicId={primaryTopicId} onWSMessage={onWSMessage} />
+          </Suspense>
+        );
+      case 'board-memory':
+        return (
+          <Suspense fallback={LazySpinner}>
+            <BoardMemoryPanel projectId={encodeURIComponent(projectPath)} onWSMessage={onWSMessage} />
+          </Suspense>
+        );
+      case 'dashboard':
+        return (
+          <Suspense fallback={LazySpinner}>
+            <DashboardPane />
+          </Suspense>
+        );
       default:
         return null;
     }
@@ -772,13 +914,120 @@ export function ProjectWindow({
     handleOpenFile,
   ]);
 
+  return (
+    <>
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+        <ProjectSidebar
+          projectPath={projectPath}
+          topicId={primaryTopicId}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onOpenFile={handleOpenFile}
+          onWSMessage={onWSMessage}
+          onOpenBoard={() => {
+            const targetGroupId = focusedGroupId || groups[0]?.id;
+            if (targetGroupId) handleAddPaneToGroup(targetGroupId, 'board');
+          }}
+        />
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+          <GroupLayout
+            panes={panes}
+            groups={groups}
+            rows={rows}
+            rowHeights={rowHeights}
+            focusedGroupId={focusedGroupId}
+            onActivatePane={handleActivatePane}
+            onClosePane={handleClosePane}
+            onAddPaneToGroup={handleAddPaneToGroup}
+            onNewChatInGroup={onNewChat ? handleNewChatInGroup : undefined}
+            onReorderGroupPanes={handleReorderGroupPanes}
+            onMovePaneBetweenGroups={handleMovePaneBetweenGroups}
+            onSplitGroup={handleSplitGroup}
+            onReorderRows={handleReorderRows}
+            onUpdateRows={setRows}
+            onUpdateRowHeights={setRowHeights}
+            renderPane={renderPane}
+            availableTypesForGroup={availableTypesForGroup}
+            contextPercent={contextPercent}
+            onContextRingClick={() => setShowContext(prev => !prev)}
+            streamingPaneIds={streamingPaneIds}
+            onStopStreaming={handleStopStreaming}
+            onSettings={handlePaneSettings}
+            onPopOut={handlePanePopOut}
+            onPinPane={handlePinPane}
+          />
+        </div>
+        {showContext && activeTopic && (
+          <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0 border-l border-app-border'}`}>
+            <Suspense fallback={LazySpinner}>
+              <ContextInspector
+                topic={activeTopic}
+                isOpen={showContext}
+                onClose={() => setShowContext(false)}
+                onUpdateTopic={onUpdateTopic}
+                onMessage={onWSMessage}
+                onOpenFile={handleOpenFile}
+              />
+            </Suspense>
+          </div>
+        )}
+      </div>
+      {settingsTopicId && topics[settingsTopicId] && (
+        <Suspense fallback={null}>
+          <TopicSettingsModal
+            topic={topics[settingsTopicId]}
+            isOpen={!!settingsTopicId}
+            onClose={() => setSettingsTopicId(null)}
+            onUpdate={onUpdateTopic}
+          />
+        </Suspense>
+      )}
+    </>
+  );
+}
+
+// --- Original ProjectWindow: thin wrapper with header ---
+
+interface ProjectWindowProps {
+  projectPath: string;
+  topicIds: string[];
+  topics: Record<string, Topic>;
+  focusedPanelId: string | null;
+  onFocusPanel: (topicId: string) => void;
+  onClosePanel: (topicId: string) => void;
+  getSessionMessages: (sk: string) => ChatMessage[];
+  isSessionLoading: (sk: string) => boolean;
+  isSessionStreaming: (sk: string) => boolean;
+  stopSession: (sk: string) => boolean;
+  sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  loadHistory: (sk: string) => Promise<boolean>;
+  chatError: string | null;
+  sendWS: (msg: WSMessage) => void;
+  onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
+  onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
+  onOpenInFinder?: () => void;
+  onGroupDragStart?: (e: React.DragEvent) => void;
+  onCloseProject?: () => void;
+  pendingPane?: PaneType;
+  onPendingPaneConsumed?: () => void;
+  onNewChat?: () => void;
+  onAcceptTopicDrop?: (topicId: string) => void;
+}
+
+export function ProjectWindow({
+  projectPath, topicIds, topics, focusedPanelId,
+  onFocusPanel, onClosePanel,
+  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
+  sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
+  onAcceptTopicDrop,
+}: ProjectWindowProps) {
   // Cross-panel-type drop: accept standalone chat drops
   const [panelDragOver, setPanelDragOver] = useState(false);
 
   const handleProjectDragOver = useCallback((e: React.DragEvent) => {
     if (!onAcceptTopicDrop) return;
     if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
-    // Don't accept if it's a grid item drag (handled by PanelGrid)
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     setPanelDragOver(true);
@@ -792,7 +1041,6 @@ export function ProjectWindow({
     if (!onAcceptTopicDrop) return;
     const topicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
     if (!topicId) return;
-    // Don't accept topics already in this project
     if (topicIds.includes(topicId)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -822,68 +1070,27 @@ export function ProjectWindow({
         />
       </div>
 
-      {/* Main content: sidebar + group layout + context inspector */}
-      <div className="flex-1 flex min-h-0 overflow-hidden relative">
-        <ProjectSidebar
-          projectPath={projectPath}
-          topicId={primaryTopicId}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onOpenFile={handleOpenFile}
-          onWSMessage={onWSMessage}
-        />
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-          <GroupLayout
-            panes={panes}
-            groups={groups}
-            rows={rows}
-            rowHeights={rowHeights}
-            focusedGroupId={focusedGroupId}
-            onActivatePane={handleActivatePane}
-            onClosePane={handleClosePane}
-            onAddPaneToGroup={handleAddPaneToGroup}
-            onNewChatInGroup={onNewChat ? handleNewChatInGroup : undefined}
-            onReorderGroupPanes={handleReorderGroupPanes}
-            onMovePaneBetweenGroups={handleMovePaneBetweenGroups}
-            onSplitGroup={handleSplitGroup}
-            onReorderRows={handleReorderRows}
-            onUpdateRows={setRows}
-            onUpdateRowHeights={setRowHeights}
-            renderPane={renderPane}
-            availableTypesForGroup={availableTypesForGroup}
-            contextPercent={contextPercent}
-            onContextRingClick={() => setShowContext(prev => !prev)}
-            streamingPaneIds={streamingPaneIds}
-            onStopStreaming={handleStopStreaming}
-            onSettings={handlePaneSettings}
-            onPopOut={handlePanePopOut}
-          />
-        </div>
-        {showContext && activeTopic && (
-          <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0 border-l border-app-border'}`}>
-            <Suspense fallback={LazySpinner}>
-              <ContextInspector
-                topic={activeTopic}
-                isOpen={showContext}
-                onClose={() => setShowContext(false)}
-                onUpdateTopic={onUpdateTopic}
-                onMessage={onWSMessage}
-                onOpenFile={handleOpenFile}
-              />
-            </Suspense>
-          </div>
-        )}
-      </div>
-      {settingsTopicId && topics[settingsTopicId] && (
-        <Suspense fallback={null}>
-          <TopicSettingsModal
-            topic={topics[settingsTopicId]}
-            isOpen={!!settingsTopicId}
-            onClose={() => setSettingsTopicId(null)}
-            onUpdate={onUpdateTopic}
-          />
-        </Suspense>
-      )}
+      {/* Main content: delegates to ProjectWindowPane */}
+      <ProjectWindowPane
+        projectPath={projectPath}
+        topics={topics}
+        focusedPanelId={focusedPanelId}
+        onFocusPanel={onFocusPanel}
+        onClosePanel={onClosePanel}
+        getSessionMessages={getSessionMessages}
+        isSessionLoading={isSessionLoading}
+        isSessionStreaming={isSessionStreaming}
+        stopSession={stopSession}
+        sendMessage={sendMessage}
+        loadHistory={loadHistory}
+        chatError={chatError}
+        sendWS={sendWS}
+        onWSMessage={onWSMessage}
+        onUpdateTopic={onUpdateTopic}
+        pendingPane={pendingPane}
+        onPendingPaneConsumed={onPendingPaneConsumed}
+        onNewChat={onNewChat}
+      />
     </div>
   );
 }

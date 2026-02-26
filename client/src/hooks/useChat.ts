@@ -125,7 +125,7 @@ export function useChat() {
   // Strip {{BROWSER:...}} markers from visible content (processed server-side for navigation)
   const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
   // Strip {{TOPIC_SWITCH:...}} and {{TOPIC_NEW:...}} markers from visible content (processed server-side for topic switching)
-  const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}/g, '').trimStart();
+  const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}\s*/g, '');
 
   // Filter out internal gateway context messages
   const isContextMessage = (content: string): boolean => {
@@ -659,7 +659,6 @@ export function useChat() {
 
       // Restore streaming state from server (for cross-device sync)
       if (response.isStreaming) {
-        console.log(`[loadHistory] Restoring streaming state for ${sessionKey}`);
         setStreaming(prev => ({ ...prev, [sessionKey]: true }));
         if (response.streamState?.isThinking) {
           setThinking(prev => ({ ...prev, [sessionKey]: true }));
@@ -742,7 +741,6 @@ export function useChat() {
     for (const item of queue) {
       const age = now - new Date(item.timestamp).getTime();
       if (age > MAX_QUEUE_AGE_MS) {
-        console.log(`[useChat] Discarding stale queued message (${Math.round(age / 1000)}s old) for ${item.sessionKey}`);
         continue;
       }
       // Un-mark the queued user message

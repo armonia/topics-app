@@ -1,32 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import type { CreateTopicRequest, TopicTemplate } from '../../types';
+import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
 
 const TEMPLATES: TopicTemplate[] = [
   {
     name: 'Code Review',
-    icon: '🔍',
+    icon: 'Search',
     color: '#7c3aed',
     systemPrompt: 'You are an expert code reviewer. Focus on code quality, best practices, potential bugs, performance issues, and security concerns. Provide specific, actionable feedback.',
     description: 'Get expert code review feedback',
   },
   {
     name: 'Brainstorming',
-    icon: '💡',
+    icon: 'Lightbulb',
     color: '#eab308',
     systemPrompt: 'You are a creative brainstorming partner. Help generate ideas, explore possibilities, and think outside the box. Build on ideas and suggest creative combinations.',
     description: 'Generate and explore ideas',
   },
   {
     name: 'Debug Helper',
-    icon: '🐛',
+    icon: 'Bug',
     color: '#dc2626',
     systemPrompt: 'You are a debugging expert. Help identify root causes, suggest debugging strategies, and provide solutions. Ask clarifying questions when needed to narrow down the issue.',
     description: 'Diagnose and fix issues',
   },
   {
     name: 'Writing',
-    icon: '✍️',
+    icon: 'PenLine',
     color: '#059669',
     systemPrompt: 'You are a writing assistant. Help with drafting, editing, and improving text. Focus on clarity, tone, and structure. Suggest improvements while maintaining the author\'s voice.',
     description: 'Draft and improve text',
@@ -59,7 +60,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
     const finalName = name.trim() || selectedTemplate?.name || 'New Chat';
     const data: CreateTopicRequest = {
       name: finalName,
-      icon: selectedTemplate?.icon || '💬',
+      icon: selectedTemplate?.icon || DEFAULT_TOPIC_ICON,
       color: selectedTemplate?.color || '#0066ff',
       systemPrompt: selectedTemplate?.systemPrompt,
       projectPath,
@@ -132,7 +133,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg">{template.icon}</span>
+                      <TopicIcon name={template.icon} size={18} color={template.color} />
                       <span className="text-[13px] font-medium text-app-text">{template.name}</span>
                     </div>
                     <p className="text-[11px] text-app-text-muted">{template.description}</p>
@@ -147,7 +148,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
             <div className="bg-app-hover rounded-lg p-3 border border-app-border-light">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
-                  <span>{selectedTemplate.icon}</span>
+                  <TopicIcon name={selectedTemplate.icon} size={16} color={selectedTemplate.color} />
                   <span className="text-[13px] font-medium text-app-text">
                     {selectedTemplate.name} Template
                   </span>

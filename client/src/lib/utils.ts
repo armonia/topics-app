@@ -45,13 +45,7 @@ export function getRandomColor(): string {
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
-export function getRandomEmoji(): string {
-  const emojis = [
-    '💬', '💡', '🚀', '🔥', '⭐', '🎯', '💎', '🎨',
-    '🔧', '📚', '🌟', '💫', '🎪', '🎭', '🎪', '🎨'
-  ];
-  return emojis[Math.floor(Math.random() * emojis.length)];
-}
+export { getRandomTopicIcon } from './topicIcons';
 
 export function formatTimestamp(dateString: string): string {
   const date = new Date(dateString);

@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
 import { ContextPills, useContextFileTokens } from './ContextPills';
+import { MentionAutocomplete } from './MentionAutocomplete';
+import { ShortcutHint } from '../Shared/KeyboardShortcuts';
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -12,6 +14,10 @@ const SLASH_COMMANDS = [
   { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
   { cmd: '/model', label: 'Model', description: 'Change model', icon: Cpu },
   { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning mode', icon: Brain },
+  { cmd: '/agents', label: 'Agents', description: 'List agent profiles', icon: Users },
+  { cmd: '/pause', label: 'Pause', description: 'Pause agent (@name)', icon: Pause },
+  { cmd: '/resume', label: 'Resume', description: 'Resume agent (@name)', icon: Play },
+  { cmd: '/assign', label: 'Assign', description: 'Assign task (@name task)', icon: UserPlus },
   { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
 ];
 
@@ -250,6 +256,12 @@ export function ChatInput({
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
   const [mentionStartPos, setMentionStartPos] = useState<number>(-1);
 
+  // Agent @mention state
+  const [showAgentMention, setShowAgentMention] = useState(false);
+  const [agentMentionQuery, setAgentMentionQuery] = useState('');
+  const [agentMentionPos, setAgentMentionPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [agentMentionStartPos, setAgentMentionStartPos] = useState<number>(-1);
+
   // Speech-to-text and TTS hooks
   const { isListening, transcript, isSupported: sttSupported, toggleListening, clearTranscript } = useSpeechToText();
   const { speak, stop: stopSpeaking, isSpeaking } = useTextToSpeech();
@@ -347,7 +359,8 @@ export function ChatInput({
       setSlashFilter('');
     }
 
-    if (topic.projectPath) {
+    // Detect @ trigger for mentions (agent or file)
+    {
       let atPos = -1;
       for (let i = cursorPos - 1; i >= 0; i--) {
         if (value[i] === '@') {
@@ -358,23 +371,76 @@ export function ChatInput({
         }
         if (/\s/.test(value[i])) break;
       }
-      
+
       if (atPos >= 0) {
         const query = value.substring(atPos + 1, cursorPos);
-        setShowMentionMenu(true);
-        setMentionFilter(query);
-        setMentionMenuIndex(0);
-        setMentionStartPos(atPos);
+
+        // Show file mention menu if project path exists
+        if (topic.projectPath) {
+          setShowMentionMenu(true);
+          setMentionFilter(query);
+          setMentionMenuIndex(0);
+          setMentionStartPos(atPos);
+        }
+
+        // Show agent @mention autocomplete
+        const ta = textareaRef.current;
+        if (ta) {
+          const rect = ta.getBoundingClientRect();
+          setAgentMentionPos({ top: rect.top - 4, left: rect.left + 12 });
+        }
+        setShowAgentMention(true);
+        setAgentMentionQuery(query);
+        setAgentMentionStartPos(atPos);
       } else {
-        setShowMentionMenu(false);
-        setMentionFilter('');
-        setMentionStartPos(-1);
+        if (topic.projectPath) {
+          setShowMentionMenu(false);
+          setMentionFilter('');
+          setMentionStartPos(-1);
+        }
+        setShowAgentMention(false);
+        setAgentMentionQuery('');
+        setAgentMentionStartPos(-1);
       }
     }
   };
 
+  const handleAgentMentionSelect = useCallback((name: string) => {
+    if (agentMentionStartPos >= 0) {
+      const before = message.substring(0, agentMentionStartPos);
+      const afterAt = message.substring(agentMentionStartPos);
+      const spaceIdx = afterAt.indexOf(' ', 1);
+      const after = spaceIdx >= 0 ? afterAt.substring(spaceIdx) : '';
+      setMessage(before + '@' + name + ' ' + after.trimStart());
+    }
+    setShowAgentMention(false);
+    setAgentMentionQuery('');
+    setAgentMentionStartPos(-1);
+    // Also dismiss file mention if open
+    setShowMentionMenu(false);
+    setMentionStartPos(-1);
+    textareaRef.current?.focus();
+  }, [agentMentionStartPos, message, setMessage, textareaRef]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Handle @-mention menu navigation
+    // Handle agent @-mention autocomplete navigation
+    // MentionAutocomplete uses a document-level keydown capture listener,
+    // so we just need to prevent defaults here to avoid conflicts.
+    if (showAgentMention) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowAgentMention(false);
+        setAgentMentionStartPos(-1);
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        // MentionAutocomplete handles these via its document-level capture listener
+        return;
+      }
+    }
+
+    // Handle file @-mention menu navigation
     if (showMentionMenu) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionMenuIndex(i => i + 1); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionMenuIndex(i => Math.max(0, i - 1)); return; }
@@ -573,11 +639,12 @@ export function ChatInput({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
-                  title="Attach file (⌘U)"
+                  title="Attach file"
                   aria-label="Attach file"
                   disabled={currentStreaming}
                 >
                   <Paperclip size={16} />
+                  {!isMobile && <ShortcutHint keys="⌘U" className="opacity-50 ml-0.5" />}
                 </button>
                 <button
                   type="button"
@@ -680,6 +747,15 @@ export function ChatInput({
                 onSelect={handleMentionSelect}
                 selectedIndex={mentionMenuIndex}
                 onIndexChange={setMentionMenuIndex}
+              />
+            )}
+
+            {showAgentMention && (
+              <MentionAutocomplete
+                query={agentMentionQuery}
+                onSelect={handleAgentMentionSelect}
+                onClose={() => { setShowAgentMention(false); setAgentMentionStartPos(-1); }}
+                position={agentMentionPos}
               />
             )}
 

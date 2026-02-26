@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings } from 'lucide-react';
+import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { PANE_CONFIG } from '../../lib/paneConfig';
-import { getFileIcon } from '../../lib/fileIcons';
+import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string }>> = {
-  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode,
+  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
 };
 
 interface PaneTabBarProps {
@@ -31,6 +31,7 @@ interface PaneTabBarProps {
   onPopOut?: (paneId: string) => void;
   streamingPaneIds?: Set<string>;
   onStopStreaming?: (paneId: string) => void;
+  onPinPane?: (paneId: string) => void;
 }
 
 // Mini context ring SVG for chat tabs
@@ -61,7 +62,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -159,13 +160,34 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     setDragOverIdx(null);
   }, []);
 
+  // Keyboard shortcut: Cmd/Ctrl+1-9 to select tabs
+  useEffect(() => {
+    if (!panes.length) return;
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 9) {
+        const idx = n - 1;
+        if (idx < panes.length) {
+          e.preventDefault();
+          onActivate(panes[idx].id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [panes, onActivate]);
+
+  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
     <div className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5 min-w-0"}>
       {/* Scrollable tab area */}
       <div
-        className="flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1 scrollbar-none"
+        className="flex items-center gap-0.5 min-w-0 overflow-x-auto shrink scrollbar-none p-px"
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           e.preventDefault();
@@ -193,6 +215,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => onActivate(pane.id)}
+            onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
             draggable={!!onReorderPanes}
             onDragStart={handleTabDragStart(pane.id)}
@@ -202,15 +225,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             {showLeftIndicator && (
               <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
             )}
+            {isActive && pane.color && (
+              <div className="absolute inset-0 rounded-md pointer-events-none" style={{ backgroundColor: pane.color, opacity: 0.10 }} />
+            )}
             {pane.type === 'file' && pane.title ? (
-              <span className="text-[12px] leading-none flex-shrink-0">{getFileIcon(pane.title)}</span>
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={13} style={{ color: d.color }} />; })()}</span>
             ) : Icon ? (
-              <Icon size={13} className="flex-shrink-0" />
+              <Icon size={13} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
             ) : null}
             {pane.type === 'chat' && contextPercent && (
               <ContextRing percent={paneContextPercent ?? 0} onClick={onContextRingClick ? () => onContextRingClick(pane.id) : undefined} />
             )}
-            <span className="truncate flex-1">{label}</span>
+            <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
             {isPaneStreaming && (
               <button
                 onClick={(e) => { e.stopPropagation(); onStopStreaming?.(pane.id); }}
@@ -223,9 +249,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
-              className="ml-auto w-4 h-4 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
             >
-              <X size={10} />
+              {paneIdx < 9 ? (
+                <>
+                  <span className="text-[10px] text-app-text-muted/50 tabular-nums group-hover:hidden">{isMac ? '⌘' : '⌃'}{paneIdx + 1}</span>
+                  <X size={12} className="hidden group-hover:block" />
+                </>
+              ) : (
+                <X size={12} className="opacity-0 group-hover:opacity-100" />
+              )}
             </button>
             {showRightIndicator && (
               <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />

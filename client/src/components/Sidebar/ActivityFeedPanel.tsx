@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Pause, Play, Search, X, ArrowDown } from 'lucide-react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { useActivity } from '../../hooks/useActivity';
@@ -6,11 +6,16 @@ import { ActivityItem, CATEGORY_CONFIG } from './ActivityItem';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
 import type { ActivityCategory } from '../../hooks/useActivity';
 
+const JournalPanel = lazy(() => import('../Journal/JournalPanel').then(m => ({ default: m.JournalPanel })));
+
+type ActivityTab = 'live' | 'digest';
+
 interface ActivityFeedPanelProps {
   enabled?: boolean;
 }
 
 export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
+  const [activeTab, setActiveTab] = useState<ActivityTab>('live');
   const {
     events,
     connected,
@@ -73,6 +78,31 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
 
   return (
     <div className="flex flex-col h-full relative">
+      {/* Tab bar */}
+      <div className="flex items-center border-b border-app-border flex-shrink-0">
+        {(['live', 'digest'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              activeTab === tab
+                ? 'text-primary border-b-2 border-primary'
+                : 'text-app-text-muted hover:text-app-text-secondary'
+            }`}
+          >
+            {tab === 'live' ? 'Live' : 'Digest'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'digest' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>}>
+            <JournalPanel enabled={enabled} />
+          </Suspense>
+        </div>
+      ) : (
+      <>
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-app-border flex-shrink-0">
         {/* Pause/Resume */}
@@ -210,6 +240,8 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
           <ArrowDown size={10} />
           Latest
         </button>
+      )}
+      </>
       )}
     </div>
   );

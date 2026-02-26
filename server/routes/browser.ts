@@ -151,24 +151,7 @@ export function createBrowserRouter(ctx: AppContext, browserService: BrowserServ
     if (method === "GET" && a11yMatch) {
       try {
         const snap = await browserService.accessibilitySnapshot(a11yMatch.id);
-        // Return compact text representation for LLM consumption
-        function formatNode(node: any, depth = 0): string {
-          if (!node) return "";
-          const indent = "  ".repeat(depth);
-          let line = `${indent}[${node.role}]`;
-          if (node.name) line += ` "${node.name}"`;
-          if (node.value) line += ` value="${node.value}"`;
-          if (node.description) line += ` (${node.description})`;
-          const lines = [line];
-          if (node.children) {
-            for (const child of node.children) {
-              lines.push(formatNode(child, depth + 1));
-            }
-          }
-          return lines.join("\n");
-        }
-        const treeText = snap.tree ? formatNode(snap.tree) : "(empty page)";
-        const text = `URL: ${snap.url}\nTitle: ${snap.title}\n\n${treeText}`;
+        const text = `URL: ${snap.url}\nTitle: ${snap.title}\n\n${snap.ariaSnapshot}`;
         return new Response(text, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (err: any) {
         return errorResponse(500, `A11y snapshot failed: ${err.message}`);

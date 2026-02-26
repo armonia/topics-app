@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { PenLine, Smile, Palette, Bot, Kanban, Trash2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
+import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
 
 interface ContextMenuProps {
   x: number;
@@ -8,13 +10,9 @@ interface ContextMenuProps {
   onClose: () => void;
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onDelete: (id: string) => Promise<boolean>;
+  onAssignAgents?: (topicId: string, topicName: string) => void;
+  onOpenBoard?: (projectPath: string) => void;
 }
-
-const EMOJI_OPTIONS = [
-  '💬', '💡', '🚀', '🔥', '⭐', '🎯', '💎', '🎨',
-  '🔧', '📚', '🌟', '📝', '🎵', '🏠', '❤️', '🔒',
-  '📊', '🌍', '🎮', '🍕', '🐱', '🌺', '⚡', '🎪',
-];
 
 const COLOR_OPTIONS = [
   '#0066cc', '#059669', '#dc2626', '#7c3aed',
@@ -24,7 +22,7 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'icon' | 'color';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, onOpenBoard }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -85,11 +83,20 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
     >
       {subMenu === 'none' && (
         <>
-          <MenuItem label="✏️ Rename" onClick={() => setSubMenu('rename')} />
-          <MenuItem label="😀 Change icon" onClick={() => setSubMenu('icon')} />
-          <MenuItem label="🎨 Change color" onClick={() => setSubMenu('color')} />
+          <MenuItem icon={PenLine} label="Rename" onClick={() => setSubMenu('rename')} />
+          <MenuItem icon={Smile} label="Change icon" onClick={() => setSubMenu('icon')} />
+          <MenuItem icon={Palette} label="Change color" onClick={() => setSubMenu('color')} />
+          {onAssignAgents && (
+            <>
+              <div className="border-t border-app-border my-1" />
+              <MenuItem icon={Bot} label="Assign Agents" onClick={() => { onAssignAgents(topic.id, topic.name); onClose(); }} />
+            </>
+          )}
+          {onOpenBoard && topic.projectPath && (
+            <MenuItem icon={Kanban} label="Open Board" onClick={() => { onOpenBoard(topic.projectPath!); onClose(); }} />
+          )}
           <div className="border-t border-app-border my-1" />
-          <MenuItem label="🗑️ Archive / Delete" onClick={handleDelete} danger />
+          <MenuItem icon={Trash2} label="Archive / Delete" onClick={handleDelete} danger />
         </>
       )}
 
@@ -115,16 +122,21 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
         <div className="p-3">
           <div className="text-[11px] font-semibold text-app-text-muted mb-2">Choose icon</div>
           <div className="grid grid-cols-6 gap-1">
-            {EMOJI_OPTIONS.map((emoji) => (
-              <button
-                key={emoji}
-                onClick={() => handleIconChange(emoji)}
-                aria-label={`Icon ${emoji}`}
-                className={`w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-app-hover text-lg transition-colors ${
-                  topic.icon === emoji ? 'bg-primary/10 ring-2 ring-primary/50' : ''
-                }`}
-              >{emoji}</button>
-            ))}
+            {TOPIC_ICONS.map((name) => {
+              const Icon = getTopicIcon(name);
+              return (
+                <button
+                  key={name}
+                  onClick={() => handleIconChange(name)}
+                  aria-label={`Icon ${name}`}
+                  className={`w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-app-hover transition-colors ${
+                    topic.icon === name ? 'bg-primary/10 ring-2 ring-primary/50' : ''
+                  }`}
+                >
+                  <Icon size={16} className="text-app-text-secondary" />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -152,14 +164,17 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete }: Contex
   );
 }
 
-function MenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+function MenuItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
   return (
     <button
       role="menuitem"
       onClick={onClick}
-      className={`w-full text-left px-4 py-2.5 text-[13px] hover:bg-app-hover transition-colors ${
+      className={`w-full text-left px-4 py-2.5 text-[13px] flex items-center gap-2.5 hover:bg-app-hover transition-colors ${
         danger ? 'text-red-600 hover:bg-red-600/10' : 'text-app-text'
       }`}
-    >{label}</button>
+    >
+      <Icon size={14} className={danger ? 'text-red-500' : 'text-app-text-tertiary'} />
+      {label}
+    </button>
   );
 }

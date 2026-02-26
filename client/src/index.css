@@ -44,9 +44,7 @@
   --blockquote-border: #d1d5db;
   --blockquote-text: #6b7280;
   --kbd-text: #6b7280;
-  --kbd-bg-from: #ffffff;
-  --kbd-bg-to: #f3f4f6;
-  --kbd-border: #d1d5db;
+  --kbd-bg: rgba(0,0,0,0.06);
   --disabled-bg: #cccccc;
   
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -130,9 +128,7 @@
   --blockquote-border: #4b5563;
   --blockquote-text: #9ca3af;
   --kbd-text: #9ca3af;
-  --kbd-bg-from: #374151;
-  --kbd-bg-to: #1f2937;
-  --kbd-border: #4b5563;
+  --kbd-bg: rgba(255,255,255,0.08);
   --disabled-bg: #444444;
 }
 
@@ -671,17 +667,14 @@ input[type="range"]::-webkit-slider-thumb {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.05rem 0.35rem;
-  font-size: 0.65rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.6rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.3;
   color: var(--kbd-text);
-  background: linear-gradient(180deg, var(--kbd-bg-from) 0%, var(--kbd-bg-to) 100%);
-  border: 1px solid var(--kbd-border);
-  border-radius: 0.25rem;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.08);
-  min-width: 1.2rem;
+  background: var(--kbd-bg);
+  border-radius: 3px;
   white-space: nowrap;
 }
 

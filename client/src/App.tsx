@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, Terminal, ChevronDown, Cpu, Activity, BookOpen, Clock, Radio, Server, Globe, ExternalLink, ChevronRight } from 'lucide-react';
+import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, Terminal, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe, ExternalLink } from 'lucide-react';
 import type { Topic, CreateTopicRequest, AppSettings, SidebarTab } from './types';
+import { DEFAULT_TOPIC_ICON } from './lib/topicIcons';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -9,14 +10,17 @@ import { useTheme } from './hooks/useTheme';
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
-import { ConnectionStatusBadge, ConnectionStatusBar } from './components/Layout/ConnectionStatus';
+import { ConnectionStatusBadge } from './components/Layout/ConnectionStatus';
 import { loadSettings, saveSettings } from './lib/settings';
 import { ToastProvider } from './components/Shared/Toast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
+import { ShortcutHint } from './components/Shared/KeyboardShortcuts';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
+import { createPaneId, isProjectPaneId } from './lib/paneConfig';
 import { generateUUID } from './utils/uuid';
+import { globalBoardApi } from './lib/api';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -24,22 +28,12 @@ const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings')
 const CommandPalette = lazy(() => import('./components/Shared/CommandPalette').then(m => ({ default: m.CommandPalette })));
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
-const CronJobsPanel = lazy(() => import('./components/Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
 const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
-const SystemStatusPanel = lazy(() => import('./components/Sidebar/SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 const BrowserSidebarControl = lazy(() => import('./components/Browser/BrowserSidebarControl').then(m => ({ default: m.BrowserSidebarControl })));
+const AgentAssignPanel = lazy(() => import('./components/Agents/AgentAssignPanel').then(m => ({ default: m.AgentAssignPanel })));
 
 const TOPICS_MENU_PAGES = [
-  { id: 'activity' as const, icon: Activity, label: 'Activity' },
-  { id: 'journal' as const, icon: BookOpen, label: 'Journal' },
-  { id: 'agents' as const, icon: Cpu, label: 'Agents' },
-];
-
-const TOPICS_MENU_TOOLS: { id: SidebarTab; icon: typeof Clock; label: string }[] = [
-  { id: 'cron', icon: Clock, label: 'Cron Jobs' },
-  { id: 'remote', icon: Radio, label: 'Remote Access' },
-  { id: 'system', icon: Server, label: 'System Status' },
-  { id: 'browser', icon: Globe, label: 'Browser' },
+  { id: 'dashboard' as const, icon: BarChart3, label: 'Statistics' },
 ];
 
 // Generate unique window ID (persists across reloads via sessionStorage)
@@ -128,8 +122,8 @@ function App() {
     }
   }, [openPanels, focusedPanelId, isDetached]);
 
-  // Projects opened standalone (without a chat topic)
-  const [openProjects, setOpenProjects] = useState<string[]>([]);
+  // Pending focus for a topic inside a project tab
+  const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectPath: string; topicId: string } | null>(null);
 
   // Cross-window drag state
   const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
@@ -146,9 +140,12 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState(false);
+  const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const newMenuRef = useRef<HTMLDivElement>(null);
   const newMenuDropdownRef = useRef<HTMLDivElement>(null);
+  const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
+  const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
@@ -183,6 +180,20 @@ function App() {
     document.addEventListener('keydown', k, true);
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
   }, [showTopicsMenu]);
+
+  // Close remote access dropdown on outside click or Escape
+  useEffect(() => {
+    if (expandedTool !== 'remote') return;
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (remoteAccessBtnRef.current?.contains(t) || remoteAccessDropdownRef.current?.contains(t)) return;
+      setExpandedTool(null);
+    };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setExpandedTool(null); e.stopPropagation(); } };
+    document.addEventListener('mousedown', h);
+    document.addEventListener('keydown', k, true);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
+  }, [expandedTool]);
 
   // App settings
   const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);
@@ -305,13 +316,14 @@ function App() {
     createTopic,
     updateTopic,
     archiveTopic,
+    archiveProject,
     applyTopicFromWS,
   } = useTopics();
 
   // Validate saved panels exist (remove deleted topics)
   useEffect(() => {
     if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
-      const validPanels = openPanels.filter(id => isUtilityPanelId(id) || (topics[id] && !topics[id].archived));
+      const validPanels = openPanels.filter(id => isUtilityPanelId(id) || isProjectPaneId(id) || (topics[id] && !topics[id].archived));
       if (validPanels.length !== openPanels.length) {
         setOpenPanels(validPanels);
         if (focusedPanelId && !validPanels.includes(focusedPanelId)) {
@@ -336,7 +348,7 @@ function App() {
     error: chatError,
   } = useChat();
 
-  const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage, reconnect: wsReconnect, lastConnectedAt: wsLastConnectedAt } = useWebSocket();
+  const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage } = useWebSocket();
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {
@@ -353,9 +365,9 @@ function App() {
   }, [wsStatus, drainQueue]);
   const { themeMode, toggleTheme, setTheme } = useTheme();
 
-  // Badge data from SidebarStatusBar (agent count)
-  const [sidebarBadges, setSidebarBadges] = useState<Partial<Record<SidebarTab, number | boolean>>>({});
-  const handleSidebarBadgeData = useCallback((badges: Partial<Record<SidebarTab, number | boolean>>) => {
+  // Badge data from SidebarStatusBar (agent count etc.)
+  const [sidebarBadges, setSidebarBadges] = useState<Partial<Record<SidebarTab, number | boolean | string>>>({});
+  const handleSidebarBadgeData = useCallback((badges: Partial<Record<SidebarTab, number | boolean | string>>) => {
     setSidebarBadges(prev => {
       const keys = Object.keys(badges) as SidebarTab[];
       const changed = keys.some(k => prev[k] !== badges[k]);
@@ -363,8 +375,47 @@ function App() {
     });
   }, []);
 
-  // Open a utility page (Activity/Journal/Agents) as a pane in the main panel
-  const handleOpenAsPage = useCallback((type: 'activity' | 'journal' | 'agents' | 'dashboard') => {
+  // Board task counts per project (for sidebar badges)
+  const [boardTaskCounts, setBoardTaskCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    globalBoardApi.listTasks().then(data => {
+      const counts: Record<string, number> = {};
+      for (const t of data.tasks) {
+        if (t.status !== 'done') counts[t.projectId] = (counts[t.projectId] || 0) + 1;
+      }
+      setBoardTaskCounts(counts);
+    }).catch(() => {});
+  }, []);
+  // Keep board task counts in sync via WS
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type === 'task:created' || msg.type === 'task:moved' || msg.type === 'task:updated' || msg.type === 'task:deleted') {
+        // Re-fetch counts on any task change
+        globalBoardApi.listTasks().then(data => {
+          const counts: Record<string, number> = {};
+          for (const t of data.tasks) {
+            if (t.status !== 'done') counts[t.projectId] = (counts[t.projectId] || 0) + 1;
+          }
+          setBoardTaskCounts(counts);
+        }).catch(() => {});
+      }
+    });
+  }, [onWSMessage]);
+
+  // Browser sidebar section state
+  const [browserContextCount, setBrowserContextCount] = useState(0);
+  const [browserExpanded, setBrowserExpanded] = useState(false);
+  useEffect(() => {
+    fetch('/api/browser/status').then(r => r.ok ? r.json() : null).then(data => {
+      if (data?.details?.length) {
+        setBrowserContextCount(data.details.length);
+        setBrowserExpanded(true);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Open a utility page (Activity/Journal/Agents/Dashboard/All Boards) as a pane in the main panel
+  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards') => {
     const id = utilityPanelId(type);
     if (!openPanels.includes(id)) {
       setOpenPanels(prev => [...prev, id]);
@@ -408,12 +459,45 @@ function App() {
         if ('Notification' in window && Notification.permission === 'granted') {
           const topic = topics[msg.topicId];
           if (topic) {
-            new Notification(`${topic.icon} ${topic.name}`, {
+            new Notification(topic.name, {
               body: msg.preview || 'New message',
               tag: `topic-${msg.topicId}`,
             });
           }
         }
+      }
+      // Handle topic auto-switch: open target panel (messages move happens on :complete)
+      if (msg.type === 'topic:switch' && msg.toTopicId) {
+        const toId = msg.toTopicId as string;
+        // Open target panel immediately (source stays until :complete removes messages)
+        if (!openPanels.includes(toId)) {
+          setOpenPanels(prev => [...prev, toId]);
+        }
+        setFocusedPanelId(toId);
+      }
+      // Handle topic switch complete: move messages between sessions and close source
+      if (msg.type === 'topic:switch:complete' && msg.fromSessionKey && msg.toSessionKey) {
+        const fromId = msg.fromTopicId as string;
+        const fromSK = msg.fromSessionKey as string;
+        const toSK = msg.toSessionKey as string;
+        const userContent = msg.userContent as string;
+        const assistantContent = msg.assistantContent as string;
+        // Remove last 2 messages (user + assistant) from source session in-memory
+        clearSession(fromSK);
+        // Re-load source session from server (now without the moved messages)
+        loadHistory(fromSK);
+        // Add messages to target session in-memory
+        if (userContent) {
+          addMessageFromWS(toSK, { role: 'user', content: userContent, timestamp: new Date().toISOString() });
+        }
+        if (assistantContent) {
+          addMessageFromWS(toSK, { role: 'assistant', content: assistantContent, timestamp: new Date().toISOString() });
+        }
+        // Close source panel
+        setOpenPanels(prev => prev.filter(id => id !== fromId));
+        // Focus target
+        const toId = msg.toTopicId as string;
+        setFocusedPanelId(toId);
       }
       // Handle media files detected after a chat response
       if (msg.type === 'message:media' && msg.sessionKey && msg.media) {
@@ -426,7 +510,7 @@ function App() {
     });
 
     return unsub;
-  }, [onWSMessage, focusedPanelId, topics, appendMediaToLastAssistant, clearSession, addMessageFromWS, getSessionMessages, applyTopicFromWS]);
+  }, [onWSMessage, focusedPanelId, topics, appendMediaToLastAssistant, clearSession, loadHistory, addMessageFromWS, getSessionMessages, applyTopicFromWS, openPanels]);
 
   // Listen for cross-window drag messages
   useEffect(() => {
@@ -520,11 +604,17 @@ function App() {
   }, [openPanels, previewPanelId, isMobile]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
-    // If this topic belongs to a project, remove standalone project entry
-    // (the project window will show via the topic's projectPath grouping)
     const topic = topics[topicId];
+    // If this topic belongs to a project, open/focus the project tab instead
     if (topic?.projectPath) {
-      setOpenProjects(prev => prev.filter(p => p !== topic.projectPath));
+      const projectPaneId = createPaneId('project', topic.projectPath);
+      if (!openPanels.includes(projectPaneId)) {
+        setOpenPanels(prev => [...prev, projectPaneId]);
+      }
+      setFocusedPanelId(projectPaneId);
+      setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
+      if (isMobile) setSidebarCollapsed(true);
+      return;
     }
     if (e && (e.metaKey || e.ctrlKey)) {
       openPanel(topicId, 'below');
@@ -535,7 +625,7 @@ function App() {
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-  }, [openPanel, isMobile, topics]);
+  }, [openPanel, isMobile, topics, openPanels]);
 
   const handleTopicDoubleClick = useCallback((topicId: string, _e?: React.MouseEvent) => {
     openPanel(topicId, 'permanent');
@@ -552,28 +642,23 @@ function App() {
   }, [focusedPanelId]);
 
   const handleProjectClick = useCallback((projectPath: string) => {
-    // If a topic from this project is already open, no need for standalone entry
-    const hasOpenTopic = openPanels.some(id => topics[id]?.projectPath === projectPath);
-    if (hasOpenTopic) return;
-    // Replace any previous preview project with this one
-    setOpenProjects([projectPath]);
-  }, [openPanels, topics]);
+    const paneId = createPaneId('project', projectPath);
+    if (!openPanels.includes(paneId)) {
+      setOpenPanels(prev => [...prev, paneId]);
+    }
+    setFocusedPanelId(paneId);
+  }, [openPanels]);
 
   const handleCloseProject = useCallback((projectPath: string) => {
-    // Remove ALL topics belonging to this project from openPanels
-    const projectTopicIds = openPanels.filter(id => topics[id]?.projectPath === projectPath);
-    if (projectTopicIds.length > 0) {
-      setOpenPanels(prev => {
-        const next = prev.filter(id => !projectTopicIds.includes(id));
-        if (focusedPanelId && projectTopicIds.includes(focusedPanelId)) {
-          setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
-        }
-        return next;
-      });
-    }
-    // Also remove from standalone open projects
-    setOpenProjects(prev => prev.filter(p => p !== projectPath));
-  }, [openPanels, topics, focusedPanelId]);
+    const paneId = createPaneId('project', projectPath);
+    setOpenPanels(prev => {
+      const next = prev.filter(id => id !== paneId);
+      if (focusedPanelId === paneId) {
+        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
+      }
+      return next;
+    });
+  }, [focusedPanelId]);
 
   const handleFocusPanel = useCallback((topicId: string) => {
     setFocusedPanelId(topicId);
@@ -598,7 +683,17 @@ function App() {
   const handleCreateTopic = async (data: CreateTopicRequest) => {
     const topic = await createTopic(data);
     if (topic) {
-      openPanel(topic.id, 'permanent', false);
+      if (data.projectPath) {
+        // Topic belongs to a project — focus the project pane
+        const projectPaneId = createPaneId('project', data.projectPath);
+        if (!openPanels.includes(projectPaneId)) {
+          setOpenPanels(prev => [...prev, projectPaneId]);
+        }
+        setFocusedPanelId(projectPaneId);
+        setPendingProjectFocus({ projectPath: data.projectPath, topicId: topic.id });
+      } else {
+        openPanel(topic.id, 'permanent', false);
+      }
     }
     return topic;
   };
@@ -608,12 +703,23 @@ function App() {
   const handleQuickCreateTopic = async (projectPath?: string) => {
     const topic = await createTopic({
       name: 'New Chat',
-      icon: '💬',
+      icon: DEFAULT_TOPIC_ICON,
       color: '#0066ff',
       projectPath: projectPath || undefined,
     });
     if (topic) {
-      openPanel(topic.id, 'permanent', true);
+      if (projectPath) {
+        // Topic belongs to a project — keep focus on the project pane
+        // and navigate to the new topic inside the project window
+        const projectPaneId = createPaneId('project', projectPath);
+        if (!openPanels.includes(projectPaneId)) {
+          setOpenPanels(prev => [...prev, projectPaneId]);
+        }
+        setFocusedPanelId(projectPaneId);
+        setPendingProjectFocus({ projectPath, topicId: topic.id });
+      } else {
+        openPanel(topic.id, 'permanent', true);
+      }
     }
     return topic;
   };
@@ -634,17 +740,27 @@ function App() {
 
   // Add a non-chat pane (terminal, browser) to a project window
   const handleAddProjectPane = useCallback((projectPath: string, type: import('./types').PaneType) => {
-    // If no topic of this project is open, open the first available topic first
-    const hasOpenTopic = openPanels.some(id => topics[id]?.projectPath === projectPath);
-    if (!hasOpenTopic) {
-      const projectTopic = Object.values(topics).find(t => t.projectPath === projectPath && !t.archived);
-      if (projectTopic) {
-        setOpenPanels(prev => [...prev, projectTopic.id]);
-        setFocusedPanelId(projectTopic.id);
-      }
+    // Ensure the project pane is open
+    const projectPaneId = createPaneId('project', projectPath);
+    if (!openPanels.includes(projectPaneId)) {
+      setOpenPanels(prev => [...prev, projectPaneId]);
     }
+    setFocusedPanelId(projectPaneId);
     setPendingProjectPane({ projectPath, type });
-  }, [openPanels, topics]);
+  }, [openPanels]);
+
+  // Open the board pane for a project (from sidebar or context menu)
+  const handleOpenProjectBoard = useCallback((projectPath: string) => {
+    handleAddProjectPane(projectPath, 'board');
+  }, [handleAddProjectPane]);
+
+  const handleArchiveProject = useCallback(async (projectPath: string, archive: boolean) => {
+    const success = await archiveProject(projectPath, archive);
+    if (success && archive) {
+      handleCloseProject(projectPath);
+    }
+    return success;
+  }, [archiveProject, handleCloseProject]);
 
   const handleTopicContextMenu = useCallback((e: React.MouseEvent, topic: Topic) => {
     e.preventDefault();
@@ -696,6 +812,12 @@ function App() {
         return;
       }
 
+      if (isMod && e.key === 'p') {
+        e.preventDefault();
+        setShowSearch(prev => !prev);
+        return;
+      }
+
       if (isMod && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         setShowFileSearch(prev => !prev);
@@ -743,6 +865,13 @@ function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [focusedPanelId, openPanels, handleClosePanel, showSearch, showNewTopic, showFileSearch, toggleSidebar]);
+
+  // Listen for "open-all-boards" custom event from sidebar
+  useEffect(() => {
+    const handler = () => handleOpenAsPage('all-boards');
+    window.addEventListener('open-all-boards', handler);
+    return () => window.removeEventListener('open-all-boards', handler);
+  }, [handleOpenAsPage]);
 
   // Close window if all panels are gone (for detached windows)
   useEffect(() => {
@@ -828,13 +957,55 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            <ConnectionStatusBadge status={wsStatus} />
-            {topicsLoading && (
-              <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
+            {wsStatus !== 'connected' ? (
+              <span className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 animate-pulse">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
+              </span>
+            ) : (
+              <>
+                <ConnectionStatusBadge status={wsStatus} />
+                {topicsLoading && (
+                  <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
+                )}
+              </>
             )}
           </div>
           <div className="flex items-center gap-1 relative z-50 app-no-drag" style={{ pointerEvents: 'auto' }}>
-            <div ref={newMenuRef}>
+            <button
+              onClick={() => handleOpenAsPage('activity')}
+              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
+              style={{ pointerEvents: 'auto' }}
+              title="Activity"
+              aria-label="Activity"
+            >
+              <Activity size={14} strokeWidth={1.5} />
+            </button>
+            <button
+              onClick={() => handleOpenAsPage('agents')}
+              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative"
+              style={{ pointerEvents: 'auto' }}
+              title="Agents"
+              aria-label="Agents"
+            >
+              <Cpu size={14} strokeWidth={1.5} />
+              {sidebarBadges.agents && sidebarBadges.agents !== true && (
+                <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
+                  {sidebarBadges.agents}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
+              className={`w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
+              style={{ pointerEvents: 'auto' }}
+              title="Remote Access"
+              aria-label="Remote Access"
+              ref={remoteAccessBtnRef}
+            >
+              <Radio size={14} strokeWidth={1.5} />
+            </button>
+            <div ref={newMenuRef} className="flex items-center gap-1">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -846,11 +1017,12 @@ function App() {
                 }}
                 className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
                 style={{ pointerEvents: 'auto' }}
-                title="New chat or terminal (⌘N)"
+                title="New chat or terminal"
                 aria-label="New"
               >
                 <Plus size={15} strokeWidth={1.5} />
               </button>
+              {!isMobile && <ShortcutHint keys="⌘N" className="text-app-text-muted/50" />}
             </div>
           </div>
         </div>
@@ -891,20 +1063,57 @@ function App() {
             getArchivedTopics={getArchivedTopics}
             unreadData={unreadData}
             onArchiveTopic={archiveTopic}
+            onArchiveProject={handleArchiveProject}
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             isSessionStreaming={isSessionStreaming}
             stopSession={stopSession}
+            onOpenProjectBoard={handleOpenProjectBoard}
+            boardTaskCounts={boardTaskCounts}
           />
           )}
           </ErrorBoundary>
         </div>
-        
+
+        {/* Browser section — anchored at bottom, above status bar */}
+        <div className="border-t border-app-border flex-shrink-0">
+          <div className="group flex items-center h-8 hover:bg-app-hover transition-colors">
+            <button
+              onClick={() => setBrowserExpanded(!browserExpanded)}
+              aria-expanded={browserExpanded}
+              aria-label="Browser section"
+              className="flex items-center gap-2 flex-1 h-full text-left"
+              style={{ paddingLeft: 12 }}
+            >
+              <Globe size={14} strokeWidth={1.5} className="text-app-text-secondary flex-shrink-0" />
+              <span className="text-[13px] text-app-text">Browser</span>
+              <ChevronRight
+                size={12}
+                strokeWidth={1.5}
+                aria-hidden="true"
+                className={`transition-transform duration-150 text-app-text-tertiary ${browserExpanded ? 'rotate-90' : ''}`}
+              />
+            </button>
+            <div className="flex items-center gap-1 pr-3">
+              {browserContextCount > 0 && (
+                <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center leading-[14px]">
+                  {browserContextCount}
+                </span>
+              )}
+            </div>
+          </div>
+          {browserExpanded && (
+            <Suspense fallback={<div className="px-3 py-2 text-[10px] text-app-text-muted">Loading...</div>}>
+              <BrowserSidebarControl enabled onContextCount={setBrowserContextCount} />
+            </Suspense>
+          )}
+        </div>
+
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
         <SidebarStatusBar onOpenTab={(tab) => {
-          if (tab === 'agents' || tab === 'activity' || tab === 'journal' || tab === 'dashboard') {
+          if (tab === 'agents' || tab === 'activity' || tab === 'dashboard' || tab === 'all-boards') {
             handleOpenAsPage(tab);
           }
         }} onBadgeData={handleSidebarBadgeData} />
@@ -924,17 +1133,22 @@ function App() {
 
       {/* Collapsed sidebar expand button - only when no panels (mobile has button in chat header) */}
       {sidebarCollapsed && (!isMobile || openPanels.length === 0) && (
-        <button
-          onClick={toggleSidebar}
-          className={`absolute left-2 z-30 bg-surface border border-app-border-light rounded-lg flex items-center justify-center text-app-text-secondary hover:bg-app-hover shadow-sm transition-colors ${
-            isMobile ? 'w-10 h-10' : 'w-8 h-8'
-          }`}
+        <div
+          className="absolute left-2 z-30 flex items-center gap-1"
           style={{ top: isMobile && isPWA ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
-          title="Expand sidebar (⌘B)"
-          aria-label="Expand sidebar"
         >
-          <PanelLeft size={isMobile ? 20 : 16} />
-        </button>
+          <button
+            onClick={toggleSidebar}
+            className={`bg-surface border border-app-border-light rounded-lg flex items-center justify-center text-app-text-secondary hover:bg-app-hover shadow-sm transition-colors ${
+              isMobile ? 'w-10 h-10' : 'w-8 h-8'
+            }`}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+          >
+            <PanelLeft size={isMobile ? 20 : 16} />
+          </button>
+          {!isMobile && <ShortcutHint keys="⌘B" className="text-app-text-muted/50" />}
+        </div>
       )}
 
       {/* Window close button (top-right) - only in Electron and when no panels open */}
@@ -951,9 +1165,10 @@ function App() {
           }}
           className="absolute right-2 z-30 w-7 h-7 bg-transparent hover:bg-red-500/10 dark:hover:bg-red-500/20 rounded-md flex items-center justify-center text-app-text-secondary hover:text-red-500 transition-colors"
           style={{ top: '0.5rem' }}
-          title="Close window (⌘W)"
+          title="Close window"
         >
           <X size={16} strokeWidth={2} />
+          <ShortcutHint keys="⌘W" className="opacity-50 ml-0.5" />
         </button>
       )}
 
@@ -961,7 +1176,7 @@ function App() {
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* Safe area spacer for PWA notch when sidebar is closed */}
         {isPWA && sidebarCollapsed && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0, background: 'inherit' }} />}
-        <ConnectionStatusBar status={wsStatus} onRetry={wsReconnect} lastConnectedAt={wsLastConnectedAt} />
+        {/* Connection status is now shown inline in the sidebar top line */}
         <ErrorBoundary fallbackMessage="Panel error">
         <PanelGrid
           openPanels={openPanels}
@@ -983,19 +1198,18 @@ function App() {
           sendWS={sendWS}
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}
-          openProjects={openProjects}
-          onCloseProject={handleCloseProject}
           windowId={windowId}
           externalDragTopicId={externalDragTopicId}
           onExternalDrop={handleExternalDrop}
           onToggleSidebar={isMobile ? toggleSidebar : undefined}
-          wsStatus={wsStatus}
           panelInitialTab={panelInitialTab}
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab(prev => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
           onPendingProjectPaneConsumed={() => setPendingProjectPane(null)}
           onNewChatInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
           onNewChat={() => handleQuickCreateTopic()}
+          pendingProjectFocus={pendingProjectFocus}
+          onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
         />
         </ErrorBoundary>
       </div>
@@ -1007,74 +1221,23 @@ function App() {
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
           style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
         >
-          {/* Settings */}
-          <button
-            onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
-          >
-            <SettingsIcon size={14} strokeWidth={1.5} />
-            <span className="flex-1 text-left">Settings</span>
-          </button>
-
-          <div className="border-t border-app-border my-1" />
-
-          {/* Pages section */}
-          <div className="px-2 pt-1 pb-1">
-            <span className="text-[10px] font-medium text-app-text-muted uppercase tracking-wider">Pages</span>
-          </div>
           {TOPICS_MENU_PAGES.map(({ id, icon: Icon, label }) => (
             <button
               key={id}
               onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
             >
               <Icon size={14} strokeWidth={1.5} />
               <span className="flex-1 text-left">{label}</span>
-              {id === 'agents' && sidebarBadges.agents !== undefined && sidebarBadges.agents !== false && sidebarBadges.agents !== 0 && typeof sidebarBadges.agents === 'number' && (
-                <span className="text-[9px] text-white bg-primary px-1 rounded-full min-w-[14px] text-center leading-[14px]">
-                  {sidebarBadges.agents > 99 ? '99+' : sidebarBadges.agents}
-                </span>
-              )}
-              <ExternalLink size={10} className="text-app-text-muted flex-shrink-0" />
             </button>
           ))}
-
-          <div className="border-t border-app-border my-1" />
-
-          {/* Tools section */}
-          <div className="px-2 pt-1 pb-1">
-            <span className="text-[10px] font-medium text-app-text-muted uppercase tracking-wider">Tools</span>
-          </div>
-          {TOPICS_MENU_TOOLS.map(({ id, icon: Icon, label }) => {
-            const isToolExpanded = expandedTool === id;
-            return (
-              <div
-                key={id}
-                className="relative"
-                onMouseEnter={() => setExpandedTool(id)}
-                onMouseLeave={() => setExpandedTool(null)}
-              >
-                <button
-                  onClick={() => setExpandedTool(isToolExpanded ? null : id)}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors ${isToolExpanded ? 'bg-app-hover' : ''}`}
-                >
-                  <Icon size={14} strokeWidth={1.5} />
-                  <span className="flex-1 text-left">{label}</span>
-                  <ChevronRight size={12} className="text-app-text-muted" />
-                </button>
-                {isToolExpanded && (
-                  <div className="absolute left-full top-0 ml-1 bg-surface border border-app-border rounded-lg shadow-lg min-w-[260px] max-h-[350px] overflow-y-auto" style={{ zIndex: 10000 }}>
-                    <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
-                      {id === 'cron' && <CronJobsPanel enabled />}
-                      {id === 'remote' && <RemoteAccessPanel enabled />}
-                      {id === 'system' && <SystemStatusPanel enabled />}
-                      {id === 'browser' && <BrowserSidebarControl enabled />}
-                    </Suspense>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <button
+            onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            <SettingsIcon size={14} strokeWidth={1.5} />
+            <span className="flex-1 text-left">Settings</span>
+          </button>
           <div className="h-1" />
         </div>,
         document.body
@@ -1096,6 +1259,24 @@ function App() {
         document.body
       )}
 
+      {expandedTool === 'remote' && !showTopicsMenu && remoteAccessBtnRef.current && createPortal(
+        <div
+          ref={remoteAccessDropdownRef}
+          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
+          style={{
+            position: 'fixed',
+            top: remoteAccessBtnRef.current.getBoundingClientRect().bottom + 4,
+            right: window.innerWidth - remoteAccessBtnRef.current.getBoundingClientRect().right,
+            zIndex: 9999,
+          }}
+        >
+          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
+            <RemoteAccessPanel enabled />
+          </Suspense>
+        </div>,
+        document.body
+      )}
+
       {/* Context menu */}
       {contextMenu && (
         <ContextMenu
@@ -1105,6 +1286,8 @@ function App() {
           onClose={() => setContextMenu(null)}
           onUpdate={updateTopic}
           onDelete={archiveTopic}
+          onAssignAgents={(topicId, topicName) => setAssignAgentsTarget({ topicId, topicName })}
+          onOpenBoard={handleOpenProjectBoard}
         />
       )}
 
@@ -1134,7 +1317,18 @@ function App() {
         </Suspense>
       )}
 
-      {/* Command Palette (⌘K) */}
+      {/* Agent Assign Panel */}
+      {assignAgentsTarget && (
+        <Suspense fallback={null}>
+          <AgentAssignPanel
+            topicId={assignAgentsTarget.topicId}
+            topicName={assignAgentsTarget.topicName}
+            onClose={() => setAssignAgentsTarget(null)}
+          />
+        </Suspense>
+      )}
+
+      {/* Command Palette (⌘K / ⌘P) */}
       {showSearch && (
         <Suspense fallback={null}>
           <CommandPalette
@@ -1146,6 +1340,11 @@ function App() {
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
             themeMode={themeMode}
+            projectPath={focusedPanelId ? topics[focusedPanelId]?.projectPath || undefined : undefined}
+            onOpenFile={(path) => {
+              window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId: focusedPanelId } }));
+              setShowSearch(false);
+            }}
           />
         </Suspense>
       )}

@@ -8,11 +8,11 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/cron/jobs") {
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }) });
-        if (!resp.ok) { const errText = await resp.text(); return json({ error: `Gateway error: ${resp.status} - ${errText}` }, resp.status); }
+        if (!resp.ok) { const errText = await resp.text(); return json({ jobs: [], warning: `Gateway error: ${resp.status} - ${errText}` }); }
         const data = await resp.json() as any;
         const jobs = data.result?.details?.jobs || data.result?.jobs || data.jobs || [];
         return json({ jobs });
-      } catch (err: any) { return json({ error: err.message }, 500); }
+      } catch (err: any) { return json({ jobs: [], warning: `Gateway unavailable: ${err.message}` }); }
     }
 
     const cronJobMatch = matchRoute(pathname, "/api/cron/jobs/:jobId");

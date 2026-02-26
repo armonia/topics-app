@@ -68,3 +68,14 @@ research/
 competitor-screenshots/
 backups/
 tasks/
+
+# Reference repos (local only)
+.reference/
+
+# Dev/audit artifacts
+*.png
+*.migrated
+.playwright-mcp/
+package-lock.json
+test-browser.js
+BACKLOG.md

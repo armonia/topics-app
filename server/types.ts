@@ -49,8 +49,8 @@ export interface Topic {
   projectPath?: string;
   sortOrder?: number;
   autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
-  disabledContextTemplates?: string[];
   disabledContextSources?: string[];
+  assignedAgents?: { id: string; name: string; role: string }[];
 }
 
 export interface TopicsData {
@@ -106,6 +106,7 @@ export interface AppContext {
   broadcast: (message: object, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToAll: (message: object) => void;
   broadcastToTopic: (topicId: string, message: object, exclude?: ServerWebSocket<WSData>) => void;
+  isTopicFocused: (topicId: string) => boolean;
   loadTopics: () => TopicsData;
   saveTopics: (data: TopicsData) => void;
   loadUnread: () => UnreadData;
@@ -146,3 +147,40 @@ export interface AppContext {
 }
 
 export type RouteHandler = (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
+
+// --- Agent Autonomy Types ---
+
+export interface AgentAuthResult {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+    status: string;
+    avatarEmoji: string;
+    maxConcurrentTasks: number;
+    isBoardLead: boolean;
+    gatewaySessionId: string | null;
+  };
+  isLead: boolean;
+}
+
+export interface BoardMemory {
+  id: string;
+  projectId: string;
+  content: string;
+  tags: string[];
+  isChat: boolean;
+  source: string | null;
+  agentId: string | null;
+  createdAt: string;
+}
+
+export interface AgentActionLog {
+  id: string;
+  agentId: string;
+  actionType: string;
+  entityType: string | null;
+  entityId: string | null;
+  detail: any;
+  createdAt: string;
+}

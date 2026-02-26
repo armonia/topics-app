@@ -1,6 +1,5 @@
-// @ts-nocheck — Phase 2 component, APIs not yet implemented
-import { useState, useEffect, useCallback } from 'react';
-import { GitBranch, Check, RefreshCw, Globe, Monitor } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { GitBranch, Check, RefreshCw, Globe, Monitor, Plus, Trash2 } from 'lucide-react';
 import { gitApi } from '../../lib/api';
 
 interface Branch {
@@ -21,6 +20,11 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showNewInput, setShowNewInput] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const newInputRef = useRef<HTMLInputElement>(null);
 
   const loadBranches = useCallback(async () => {
     try {
@@ -39,6 +43,12 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
     loadBranches();
   }, [loadBranches]);
 
+  useEffect(() => {
+    if (showNewInput && newInputRef.current) {
+      newInputRef.current.focus();
+    }
+  }, [showNewInput]);
+
   const handleCheckout = async (branchName: string) => {
     try {
       setSwitching(branchName);
@@ -49,6 +59,44 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
       setError(err.message);
     } finally {
       setSwitching(null);
+    }
+  };
+
+  const handleCreateBranch = async () => {
+    const name = newBranchName.trim();
+    if (!name) return;
+    try {
+      setCreating(true);
+      setError(null);
+      await gitApi.createBranch(projectPath, name, true);
+      setNewBranchName('');
+      setShowNewInput(false);
+      await loadBranches();
+      onBranchSwitch?.();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteBranch = async (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      setDeleting(name);
+      setError(null);
+      await gitApi.deleteBranch(projectPath, name);
+      await loadBranches();
+    } catch (err: any) {
+      // If normal delete fails, try force
+      try {
+        await gitApi.deleteBranch(projectPath, name, true);
+        await loadBranches();
+      } catch (err2: any) {
+        setError(err2.message);
+      }
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -69,25 +117,60 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
       {error && (
         <div className="px-3 py-1 text-red-500 text-[11px]">{error}</div>
       )}
-      
+
+      {/* New branch input */}
+      {showNewInput && (
+        <div className="px-2 py-1.5 border-b border-app-border flex items-center gap-1">
+          <input
+            ref={newInputRef}
+            type="text"
+            value={newBranchName}
+            onChange={e => setNewBranchName(e.target.value)}
+            placeholder="branch-name"
+            className="flex-1 min-w-0 h-[22px] px-1.5 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); handleCreateBranch(); }
+              if (e.key === 'Escape') { setShowNewInput(false); setNewBranchName(''); }
+            }}
+            disabled={creating}
+          />
+          <button
+            onClick={handleCreateBranch}
+            disabled={creating || !newBranchName.trim()}
+            className="px-1.5 h-[22px] text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+          >
+            {creating ? <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" /> : 'Create'}
+          </button>
+        </div>
+      )}
+
       {/* Local branches */}
       <div className="px-2 py-1 flex items-center justify-between">
         <div className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
           <Monitor size={10} />
           Local ({localBranches.length})
         </div>
-        <button
-          onClick={loadBranches}
-          className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary"
-          title="Refresh branches"
-        >
-          <RefreshCw size={10} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setShowNewInput(!showNewInput)}
+            className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors"
+            title="New branch"
+          >
+            <Plus size={10} />
+          </button>
+          <button
+            onClick={loadBranches}
+            className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary"
+            title="Refresh branches"
+          >
+            <RefreshCw size={10} />
+          </button>
+        </div>
       </div>
       {localBranches.map(branch => (
         <div
           key={branch.name}
-          className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer transition-colors ${
+          className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer transition-colors group ${
             branch.current
               ? 'bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary-dark'
               : 'hover:bg-app-hover text-app-text-body'
@@ -107,6 +190,20 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
           )}
           {(branch.behind !== undefined && branch.behind > 0) && (
             <span className={`${branch.ahead ? '' : 'ml-auto'} text-[10px] text-red-600 dark:text-red-400 flex-shrink-0`}>↓{branch.behind}</span>
+          )}
+          {/* Delete button — only on non-current branches */}
+          {!branch.current && (
+            <button
+              onClick={(e) => handleDeleteBranch(branch.name, e)}
+              className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 flex-shrink-0"
+              title={`Delete ${branch.name}`}
+            >
+              {deleting === branch.name ? (
+                <div className="w-2.5 h-2.5 border border-app-spinner border-t-red-500 rounded-full animate-spin" />
+              ) : (
+                <Trash2 size={10} />
+              )}
+            </button>
           )}
         </div>
       ))}

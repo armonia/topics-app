@@ -70,6 +70,13 @@ export const topicsApi = {
     });
   },
 
+  async bulkArchive(projectPath: string, archived: boolean): Promise<{ ok: boolean; count: number; topics: Topic[] }> {
+    return request<{ ok: boolean; count: number; topics: Topic[] }>('/topics/bulk-archive', {
+      method: 'POST',
+      body: JSON.stringify({ projectPath, archived }),
+    });
+  },
+
   async link(id: string, data: LinkTopicRequest): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/topics/${id}/link`, {
       method: 'POST',
@@ -239,6 +246,35 @@ export const filesApi = {
       body: JSON.stringify({ filePath }),
     });
   },
+
+  async create(path: string, type: 'file' | 'dir' = 'file'): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/files/create', {
+      method: 'POST',
+      body: JSON.stringify({ path, type }),
+    });
+  },
+
+  async rename(oldPath: string, newPath: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/files/rename', {
+      method: 'POST',
+      body: JSON.stringify({ oldPath, newPath }),
+    });
+  },
+
+  async remove(path: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/files/delete', {
+      method: 'DELETE',
+      body: JSON.stringify({ path }),
+    });
+  },
+
+  async flatList(path: string, maxFiles = 2000): Promise<{ files: string[] }> {
+    return request<{ files: string[] }>(`/files/flat?path=${encodeURIComponent(path)}&maxFiles=${maxFiles}`);
+  },
+
+  async packageScripts(path: string): Promise<{ scripts: Record<string, string>; engines?: Record<string, string> }> {
+    return request<{ scripts: Record<string, string>; engines?: Record<string, string> }>(`/files/package-scripts?path=${encodeURIComponent(path)}`);
+  },
 };
 
 // Git API
@@ -318,6 +354,81 @@ export const gitApi = {
     }
     return response.text();
   },
+
+  async lineChanges(path: string, file: string): Promise<{ changes: { from: number; to: number; type: 'added' | 'modified' | 'deleted' }[] }> {
+    return request<{ changes: { from: number; to: number; type: 'added' | 'modified' | 'deleted' }[] }>(`/git/line-changes?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}`);
+  },
+
+  async stageAll(path: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/stage-all', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  },
+
+  async unstageAll(path: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/unstage-all', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  },
+
+  async discard(path: string, file: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/discard', {
+      method: 'POST',
+      body: JSON.stringify({ path, file }),
+    });
+  },
+
+  async diffSummary(path: string): Promise<{ message: string; stat: string; files: { added: string[]; modified: string[]; deleted: string[]; untracked: string[] } }> {
+    return request<{ message: string; stat: string; files: { added: string[]; modified: string[]; deleted: string[]; untracked: string[] } }>(`/git/diff-summary?path=${encodeURIComponent(path)}`);
+  },
+
+  async aiCommitMessage(path: string): Promise<{ message: string }> {
+    return request<{ message: string }>('/git/ai-commit-message', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  },
+
+  async init(path: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/init', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  },
+
+  async createBranch(path: string, name: string, checkout = true): Promise<{ ok: boolean; branch: string }> {
+    return request<{ ok: boolean; branch: string }>('/git/create-branch', {
+      method: 'POST',
+      body: JSON.stringify({ path, name, checkout }),
+    });
+  },
+
+  async deleteBranch(path: string, name: string, force = false): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/delete-branch', {
+      method: 'POST',
+      body: JSON.stringify({ path, name, force }),
+    });
+  },
+
+  async remotes(path: string): Promise<{ name: string; fetchUrl: string; pushUrl: string }[]> {
+    return request<{ name: string; fetchUrl: string; pushUrl: string }[]>(`/git/remotes?path=${encodeURIComponent(path)}`);
+  },
+
+  async addRemote(path: string, name: string, url: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/remote-add', {
+      method: 'POST',
+      body: JSON.stringify({ path, name, url }),
+    });
+  },
+
+  async removeRemote(path: string, name: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/remote-remove', {
+      method: 'POST',
+      body: JSON.stringify({ path, name }),
+    });
+  },
 };
 
 // Auto-name API
@@ -334,33 +445,6 @@ export const openclawControlApi = {
   async restart(): Promise<{ ok: boolean; output?: string; error?: string }> {
     return request<{ ok: boolean; output?: string; error?: string }>('/openclaw/restart', {
       method: 'POST',
-    });
-  },
-};
-
-// Context Templates API (Feature 1)
-export interface ContextTemplateFile {
-  name: string;
-  path: string;
-  size: number;
-  tokenEstimate: number;
-  content: string;
-}
-
-export interface ContextTemplatesResponse {
-  projectPath: string;
-  files: ContextTemplateFile[];
-  totalTokenEstimate: number;
-}
-
-export const contextTemplatesApi = {
-  async getForTopic(topicId: string): Promise<ContextTemplatesResponse> {
-    return request<ContextTemplatesResponse>(`/projects/${topicId}/context-templates`);
-  },
-  async setDisabled(topicId: string, disabledFiles: string[]): Promise<void> {
-    await request(`/projects/${topicId}/context-templates/disabled`, {
-      method: 'PUT',
-      body: JSON.stringify({ disabledFiles }),
     });
   },
 };
@@ -383,9 +467,12 @@ export interface BoardTask extends Task {
   description: string | null;
   priority: number;       // 0-4
   assignedTo: string | null;
+  assignedAgentId: string | null;
   fingerprint: string | null;
   dueDate: string | null;
+  inProgressAt: string | null;
   updatedAt: string;
+  archived: boolean;
   blocks: string[];       // task IDs this blocks
   blockedBy: string[];    // task IDs blocking this
   tags: Tag[];
@@ -484,6 +571,23 @@ export const boardsApi = {
     });
   },
 
+  // Archive
+  async archiveTask(projectId: string, taskId: string): Promise<{ ok: boolean }> {
+    return request(`/boards/${projectId}/tasks/${taskId}/archive`, { method: 'POST' });
+  },
+
+  async unarchiveTask(projectId: string, taskId: string): Promise<BoardTask> {
+    return request(`/boards/${projectId}/tasks/${taskId}/unarchive`, { method: 'POST' });
+  },
+
+  async archiveAllForProject(projectId: string): Promise<{ ok: boolean; archivedCount: number }> {
+    return request(`/boards/${projectId}/archive-all`, { method: 'POST' });
+  },
+
+  async getArchivedCount(projectId: string): Promise<{ count: number }> {
+    return request(`/boards/${projectId}/archived-count`);
+  },
+
   // Dependencies
   async getDependencies(projectId: string, taskId: string): Promise<{ blockers: string[]; blocking: string[] }> {
     return request(`/boards/${projectId}/tasks/${taskId}/dependencies`);
@@ -532,6 +636,46 @@ export const boardsApi = {
   },
 };
 
+// Approvals API
+export interface Approval {
+  id: string;
+  taskId: string;
+  taskText?: string;
+  taskStatus?: string;
+  approvalType: string;
+  fromStatus: string | null;
+  toStatus: string | null;
+  confidenceScore: number | null;
+  rubricScores: Record<string, number> | null;
+  justification: string | null;
+  requestedBy: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  reviewedBy: string | null;
+  reviewComment: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  expiresAt: string | null;
+}
+
+export const approvalsApi = {
+  async list(projectId: string, status?: string): Promise<{ approvals: Approval[] }> {
+    const qs = status ? `?status=${status}` : '';
+    return request(`/boards/${projectId}/approvals${qs}`);
+  },
+
+  async create(projectId: string, data: { taskId: string; approvalType: string; fromStatus?: string; toStatus?: string; confidenceScore?: number; rubricScores?: Record<string, number>; justification?: string; requestedBy?: string }): Promise<Approval> {
+    return request(`/boards/${projectId}/approvals`, { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  async approve(approvalId: string, comment?: string): Promise<{ ok: boolean }> {
+    return request(`/approvals/${approvalId}/approve`, { method: 'POST', body: JSON.stringify({ comment }) });
+  },
+
+  async reject(approvalId: string, comment?: string): Promise<{ ok: boolean }> {
+    return request(`/approvals/${approvalId}/reject`, { method: 'POST', body: JSON.stringify({ comment }) });
+  },
+};
+
 // Tags API
 export const tagsApi = {
   async list(): Promise<{ tags: Tag[] }> {
@@ -561,6 +705,10 @@ export const tagsApi = {
 export const processesApi = {
   async list(topicId: string): Promise<ProcessInfo[]> {
     return request<ProcessInfo[]>(`/processes?topicId=${encodeURIComponent(topicId)}`);
+  },
+
+  async ports(): Promise<{ ports: { port: number; pid: number; command: string }[] }> {
+    return request<{ ports: { port: number; pid: number; command: string }[] }>('/processes/ports');
   },
 };
 
@@ -766,12 +914,17 @@ export interface AgentProfile {
   id: string;
   name: string;
   role: 'lead' | 'worker' | 'specialist';
-  soulTemplate: string | null;
   modelPreference: string | null;
   maxConcurrentTasks: number;
   capabilities: string[];
   avatarEmoji: string;
   status: 'available' | 'busy' | 'paused' | 'offline';
+  hasToken?: boolean;
+  isBoardLead?: boolean;
+  identityTemplate?: string | null;
+  soulTemplate?: string | null;
+  lastSeenAt?: string | null;
+  gatewaySessionId?: string | null;
   assignments?: AgentAssignment[];
   createdAt: string;
   updatedAt: string;
@@ -796,6 +949,53 @@ export interface AgentSession {
   completedAt: string | null;
   totalTokens: number;
   errorMessage: string | null;
+}
+
+export interface SessionHistoryItem extends AgentSession {
+  agentName: string | null;
+  agentAvatar: string | null;
+  agentRole: string | null;
+  topicName: string | null;
+}
+
+export interface TopicMessagesResponse {
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+    thinking?: string;
+    toolCalls?: any[];
+    media?: string[];
+  }>;
+  total: number;
+  topicName: string;
+}
+
+export const topicMessagesApi = {
+  async get(topicId: string, limit = 200): Promise<TopicMessagesResponse> {
+    return request<TopicMessagesResponse>(`/topics/${topicId}/messages?limit=${limit}`);
+  },
+};
+
+export interface TimelineEvent {
+  type: 'session_start' | 'session_end' | 'heartbeat' | 'action';
+  timestamp: string;
+  data: Record<string, any>;
+}
+
+export interface SessionTimelineResponse {
+  session: AgentSession | null;
+  events: TimelineEvent[];
+  heartbeatCount: number;
+  actionCount: number;
+}
+
+export interface SessionHistoryResponse {
+  sessions: SessionHistoryItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export const agentProfilesApi = {
@@ -833,6 +1033,19 @@ export const agentProfilesApi = {
   },
   async resume(sessionKey: string): Promise<void> {
     await request(`/agents/sessions/${encodeURIComponent(sessionKey)}/resume`, { method: 'POST' });
+  },
+  async timeline(sessionKey: string): Promise<SessionTimelineResponse> {
+    return request<SessionTimelineResponse>(`/agents/sessions/${encodeURIComponent(sessionKey)}/timeline`);
+  },
+  async history(params: { status?: string; agentId?: string; search?: string; limit?: number; offset?: number } = {}): Promise<SessionHistoryResponse> {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.agentId) qs.set('agentId', params.agentId);
+    if (params.search) qs.set('search', params.search);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.offset) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return request<SessionHistoryResponse>(`/agents/sessions/history${q ? `?${q}` : ''}`);
   },
 };
 
@@ -915,64 +1128,64 @@ export const dashboardApi = {
   },
 };
 
-// ── Skills & Souls (Phase 8) ─────────────────────────────────────────────────
+// ── Board Memory ─────────────────────────────────────────────────────────────
 
-export interface SkillPack {
+export interface BoardMemory {
   id: string;
-  name: string;
-  description: string | null;
-  version: string | null;
-  sourceUrl: string | null;
-  status: 'installed' | 'updating' | 'error' | 'disabled';
-  manifest: any;
-  installedAt: string;
-}
-
-export interface SoulTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  personality: string | null;
-  capabilities: string[];
-  author: string | null;
-  isBuiltin: boolean;
+  projectId: string;
+  content: string;
+  tags: string[];
+  isChat: boolean;
+  source: string | null;
+  agentId: string | null;
   createdAt: string;
 }
 
-export const skillsApi = {
-  async list(): Promise<SkillPack[]> {
-    const data = await request<{ skills: SkillPack[] }>('/skills');
-    return data.skills;
+export interface AgentActionLog {
+  id: string;
+  agentId: string;
+  actionType: string;
+  entityType: string | null;
+  entityId: string | null;
+  detail: any;
+  createdAt: string;
+}
+
+export const boardMemoryApi = {
+  async list(projectId: string, opts?: { isChat?: boolean; limit?: number }): Promise<BoardMemory[]> {
+    const params = new URLSearchParams();
+    if (opts?.isChat !== undefined) params.set('is_chat', String(opts.isChat));
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    const data = await request<{ memory: BoardMemory[] }>(`/boards/${projectId}/memory${qs ? '?' + qs : ''}`);
+    return data.memory;
   },
-  async get(id: string): Promise<SkillPack> {
-    return request<SkillPack>(`/skills/${id}`);
-  },
-  async install(body: { name: string; description?: string; sourceUrl?: string; manifest?: any }): Promise<SkillPack> {
-    return request<SkillPack>('/skills', { method: 'POST', body: JSON.stringify(body) });
-  },
-  async update(id: string, body: { name?: string; description?: string; status?: string }): Promise<SkillPack> {
-    return request<SkillPack>(`/skills/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-  },
-  async uninstall(id: string): Promise<void> {
-    await request(`/skills/${id}`, { method: 'DELETE' });
+  async create(projectId: string, data: { content: string; tags?: string[]; isChat?: boolean; source?: string }): Promise<BoardMemory> {
+    return request<BoardMemory>(`/boards/${projectId}/memory`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 };
 
-export const soulsApi = {
-  async list(): Promise<SoulTemplate[]> {
-    const data = await request<{ souls: SoulTemplate[] }>('/souls');
-    return data.souls;
-  },
-  async get(id: string): Promise<SoulTemplate> {
-    return request<SoulTemplate>(`/souls/${id}`);
-  },
-  async create(body: { name: string; description?: string; personality?: string; capabilities?: string[]; author?: string }): Promise<SoulTemplate> {
-    return request<SoulTemplate>('/souls', { method: 'POST', body: JSON.stringify(body) });
-  },
-  async update(id: string, body: Partial<{ name: string; description: string; personality: string; capabilities: string[]; author: string }>): Promise<SoulTemplate> {
-    return request<SoulTemplate>(`/souls/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
-  },
-  async remove(id: string): Promise<void> {
-    await request(`/souls/${id}`, { method: 'DELETE' });
+export const agentActionsApi = {
+  async list(projectId: string, opts?: { agentId?: string; limit?: number }): Promise<AgentActionLog[]> {
+    const params = new URLSearchParams();
+    if (opts?.agentId) params.set('agent_id', opts.agentId);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    const data = await request<{ actions: AgentActionLog[] }>(`/agent/boards/${projectId}/actions${qs ? '?' + qs : ''}`);
+    return data.actions;
   },
 };
+
+// Global board tasks API (across all projects)
+export const globalBoardApi = {
+  async listTasks(filters?: { status?: string }): Promise<{ tasks: BoardTask[] }> {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    const qs = params.toString();
+    return request<{ tasks: BoardTask[] }>(`/boards/tasks${qs ? '?' + qs : ''}`);
+  },
+};
+

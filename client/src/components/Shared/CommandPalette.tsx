@@ -1,15 +1,24 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, MessageSquare, Plus, Settings, Moon, Sun } from 'lucide-react';
+import { Search, MessageSquare, Plus, Settings, Moon, Sun, File } from 'lucide-react';
 import type { Topic } from '../../types';
+import { TopicIcon } from '@/lib/topicIcons';
 
 export interface CommandAction {
   id: string;
   label: string;
   description?: string;
   icon: React.ReactNode;
-  category: 'topic' | 'action' | 'command';
+  category: 'topic' | 'action' | 'command' | 'file';
   shortcut?: string;
   action: () => void;
+}
+
+function fuzzyMatch(query: string, target: string): boolean {
+  let qi = 0;
+  for (let i = 0; i < target.length && qi < query.length; i++) {
+    if (target[i] === query[qi]) qi++;
+  }
+  return qi === query.length;
 }
 
 interface CommandPaletteProps {
@@ -21,6 +30,8 @@ interface CommandPaletteProps {
   onToggleTheme: () => void;
   onOpenSettings: () => void;
   themeMode: string;
+  projectPath?: string;
+  onOpenFile?: (path: string, lineNumber?: number) => void;
 }
 
 export function CommandPalette({
@@ -32,11 +43,23 @@ export function CommandPalette({
   onToggleTheme,
   onOpenSettings,
   themeMode,
+  projectPath,
+  onOpenFile,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const [fileList, setFileList] = useState<string[]>([]);
+
+  // Fetch flat file list when palette opens with a project path
+  useEffect(() => {
+    if (projectPath && isOpen) {
+      import('../../lib/api').then(({ filesApi }) => {
+        filesApi.flatList(projectPath).then(data => setFileList(data.files)).catch(() => {});
+      });
+    }
+  }, [projectPath, isOpen]);
 
   // Build actions list
   const actions = useMemo((): CommandAction[] => {
@@ -76,22 +99,71 @@ export function CommandPalette({
       .forEach(topic => {
         items.push({
           id: `topic-${topic.id}`,
-          label: `${topic.icon} ${topic.name}`,
+          label: topic.name,
           description: topic.projectPath ? topic.projectPath.split('/').pop() : undefined,
-          icon: <MessageSquare size={14} />,
+          icon: <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />,
           category: 'topic',
           action: () => { onOpenTopic(topic.id); onClose(); },
         });
       });
 
-    return items;
-  }, [topics, themeMode, onNewTopic, onOpenSettings, onToggleTheme, onOpenTopic, onClose]);
+    // Recent files (show when query is empty and projectPath exists)
+    if (projectPath && !query.trim()) {
+      try {
+        const key = `recent-files-${projectPath}`;
+        const recent: { path: string; name: string; timestamp: number }[] = JSON.parse(localStorage.getItem(key) || '[]');
+        recent.forEach(r => {
+          items.push({
+            id: `recent-${r.path}`,
+            label: r.name,
+            description: r.path,
+            icon: <File size={14} />,
+            category: 'file',
+            action: () => {
+              onOpenFile?.(projectPath + '/' + r.path);
+              onClose();
+            },
+          });
+        });
+      } catch {}
+    }
 
-  // Filter actions
+    // File search (show when query has text)
+    if (projectPath && query.trim() && onOpenFile) {
+      const q = query.toLowerCase();
+      const matchingFiles = fileList
+        .filter(f => {
+          const name = f.split('/').pop()?.toLowerCase() || '';
+          const path = f.toLowerCase();
+          return name.includes(q) || path.includes(q) || fuzzyMatch(q, path);
+        })
+        .slice(0, 20);
+
+      matchingFiles.forEach(f => {
+        const name = f.split('/').pop() || f;
+        items.push({
+          id: `file-${f}`,
+          label: name,
+          description: f,
+          icon: <File size={14} />,
+          category: 'file',
+          action: () => {
+            onOpenFile(projectPath + '/' + f);
+            onClose();
+          },
+        });
+      });
+    }
+
+    return items;
+  }, [topics, themeMode, onNewTopic, onOpenSettings, onToggleTheme, onOpenTopic, onClose, projectPath, query, fileList, onOpenFile]);
+
+  // Filter actions (file items are already pre-filtered in the actions builder)
   const filtered = useMemo(() => {
     if (!query.trim()) return actions;
     const q = query.toLowerCase();
     return actions.filter(a =>
+      a.category === 'file' ||
       a.label.toLowerCase().includes(q) ||
       (a.description && a.description.toLowerCase().includes(q))
     );
@@ -147,6 +219,7 @@ export function CommandPalette({
 
   const categoryLabels: Record<string, string> = {
     action: 'Actions',
+    file: 'Files',
     topic: 'Topics',
     command: 'Commands',
   };
@@ -169,7 +242,7 @@ export function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search topics, actions..."
+            placeholder={projectPath ? "Search files, topics, actions..." : "Search topics, actions..."}
             className="flex-1 bg-transparent text-[14px] text-app-text placeholder-app-placeholder outline-none"
           />
           <kbd className="kbd">ESC</kbd>

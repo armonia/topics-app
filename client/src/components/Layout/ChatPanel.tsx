@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Settings, Pin, X, ExternalLink, Menu, MessageSquare, Globe, TerminalSquare, Layers } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
+import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
@@ -120,10 +121,10 @@ export function ChatPanel({
         <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
           {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><Menu size={18} /></button>}
           {headerLeft ? (
-            <div className="flex-1 flex items-center min-w-0 overflow-x-auto app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
+            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
-              <span className="text-[16px] leading-none flex items-center justify-center w-6 h-6 flex-shrink-0">{topic.icon}</span>
+              <span className="leading-none flex items-center justify-center w-6 h-6 flex-shrink-0"><TopicIcon name={topic.icon} size={16} color={topic.color || undefined} /></span>
               <span className="text-[14px] font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
               {currentMessages.length > 0 && (
                 <span className="text-[10px] text-app-text-muted tabular-nums ml-1">{currentMessages.length} msg</span>

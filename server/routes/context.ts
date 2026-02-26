@@ -45,7 +45,7 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
           const assistantTokens = localMsgs.filter(m => m.role === "assistant").reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
           const toolTokens = localMsgs.reduce((sum, m) => sum + ((m.toolCalls?.length || 0) * 500), 0);
 
-          breakdown.push({ label: "Base system", tokens: baseSystemTokens, color: "#3b82f6", description: "SOUL.md, AGENTS.md, TOOLS.md, skill files" });
+          breakdown.push({ label: "Base system", tokens: baseSystemTokens, color: "#3b82f6", description: "SOUL.md, AGENTS.md, TOOLS.md and workspace files" });
           if (systemPromptTokens > 0) breakdown.push({ label: "System prompt", tokens: systemPromptTokens, color: "#06b6d4", description: "Custom topic system prompt" });
           if (contextFilesTokens > 0) breakdown.push({ label: "Context files", tokens: contextFilesTokens, color: "#ef4444", description: contextFileDetails.join(", ") });
           if (userTokens > 0) breakdown.push({ label: "User messages", tokens: Math.round(userTokens), color: "#f59e0b", description: `${localMsgs.filter(m => m.role === "user").length} messages` });

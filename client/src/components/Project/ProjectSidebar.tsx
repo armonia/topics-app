@@ -1,8 +1,7 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
-import { ChevronDown, ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, PanelLeft, RefreshCw } from 'lucide-react';
 import { ProcessList } from './ProcessList';
-import { ContextTemplates } from './ContextTemplates';
-import { tasksApi } from '../../lib/api';
+import { ScriptRunner } from './ScriptRunner';
 import type { WSMessage } from '../../types';
 
 // Lazy-load heavy project components
@@ -23,17 +22,19 @@ interface ProjectSidebarProps {
   onToggleCollapse: () => void;
   onOpenFile?: (path: string) => void;
   onWSMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  onOpenBoard?: () => void;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
 
-export function ProjectSidebar({ 
-  projectPath, 
-  topicId, 
-  collapsed, 
+export function ProjectSidebar({
+  projectPath,
+  topicId,
+  collapsed,
   onToggleCollapse,
   onOpenFile,
   onWSMessage,
+  onOpenBoard,
 }: ProjectSidebarProps) {
   // Auto-collapse on mobile
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -51,13 +52,8 @@ export function ProjectSidebar({
     processes: false,
   });
 
-  // Resolve projectId for task board
-  const [projectId, setProjectId] = useState<string | null>(null);
-  useEffect(() => {
-    tasksApi.getProjectId(topicId)
-      .then(data => setProjectId(data.projectId))
-      .catch(() => setProjectId(null));
-  }, [topicId]);
+  // Use same projectId as KanbanBoard (encodeURIComponent of projectPath)
+  const projectId = projectPath ? encodeURIComponent(projectPath) : null;
 
   const toggleSection = (section: SectionId) => {
     setExpandedSections(prev => ({
@@ -66,13 +62,85 @@ export function ProjectSidebar({
     }));
   };
 
+  // ── Bottom sections (Git, Processes) pixel-height drag-resize ──
+  // Files fills remaining space (flex-1). Git/Processes are anchored to bottom with fixed heights.
+  const [bottomHeights, setBottomHeights] = useState({ git: 200, processes: 150 });
+  const bottomRefs = useRef<{ git: HTMLDivElement | null; processes: HTMLDivElement | null }>({ git: null, processes: null });
+  const resizeRef = useRef<{
+    section: 'git' | 'processes';
+    startY: number;
+    startHeight: number;
+    // For git↔processes resize: also adjust the other section
+    otherSection?: 'git' | 'processes';
+    otherStartHeight?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const MIN_H = 32; // minimum = just the header
+    const onMove = (e: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const delta = e.clientY - r.startY;
+      if (r.otherSection) {
+        // Redistributing between git ↔ processes
+        const newTop = r.startHeight - delta;
+        const newBottom = (r.otherStartHeight || 0) + delta;
+        if (newTop >= MIN_H && newBottom >= MIN_H) {
+          const topEl = bottomRefs.current[r.section];
+          const bottomEl = bottomRefs.current[r.otherSection];
+          if (topEl) topEl.style.height = `${newTop}px`;
+          if (bottomEl) bottomEl.style.height = `${newBottom}px`;
+        }
+      } else {
+        // Resizing files ↔ bottom section (only adjust bottom section height)
+        const newH = r.startHeight - delta;
+        if (newH >= MIN_H) {
+          const el = bottomRefs.current[r.section];
+          if (el) el.style.height = `${newH}px`;
+        }
+      }
+    };
+    const onUp = (e: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const delta = e.clientY - r.startY;
+      if (r.otherSection) {
+        const newTop = Math.max(MIN_H, r.startHeight - delta);
+        const newBottom = Math.max(MIN_H, (r.otherStartHeight || 0) + delta);
+        setBottomHeights(prev => ({ ...prev, [r.section]: newTop, [r.otherSection!]: newBottom }));
+      } else {
+        const newH = Math.max(MIN_H, r.startHeight - delta);
+        setBottomHeights(prev => ({ ...prev, [r.section]: newH }));
+      }
+      resizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  const startBottomResize = useCallback((section: 'git' | 'processes', otherSection?: 'git' | 'processes') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizeRef.current = {
+      section,
+      startY: e.clientY,
+      startHeight: bottomHeights[section],
+      otherSection,
+      otherStartHeight: otherSection ? bottomHeights[otherSection] : undefined,
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, [bottomHeights]);
+
   if (effectiveCollapsed) {
     return (
       <div className="w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
         <button
           onClick={onToggleCollapse}
           className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
-          title="Espandi sidebar"
+          title="Expand sidebar"
         >
           <PanelLeft size={16} />
         </button>
@@ -122,68 +190,119 @@ export function ProjectSidebar({
         </button>
       </div>
 
-      {/* Sections */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Context Templates (Feature 1) */}
-        <ContextTemplates topicId={topicId} projectPath={projectPath} />
-
-        {/* Task Board (Feature 3) */}
-        {projectId && onWSMessage && (
-          <Suspense fallback={<SectionSpinner />}>
-            <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} />
-          </Suspense>
-        )}
-
-        {/* Files Section */}
-        <div className="border-b border-app-border">
-          <button
-            onClick={() => toggleSection('files')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-          >
-            {expandedSections.files ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <FolderTree size={13} />
-            <span>Files</span>
-          </button>
-          {expandedSections.files && (
-            <div className="max-h-64 overflow-y-auto">
+      {/* Sections — Files fills top (flex-1), Git/Processes anchored to bottom */}
+      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+        {/* ── Top area: fixed content + Files (fills remaining space) ── */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {/* Fixed content at top */}
+          <div className="flex-shrink-0">
+            {projectId && onWSMessage && (
               <Suspense fallback={<SectionSpinner />}>
-                <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
+                <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
               </Suspense>
-            </div>
-          )}
+            )}
+          </div>
+
+          {/* Files Section — fills remaining top space */}
+          <div className={expandedSections.files ? 'flex-1 min-h-0 flex flex-col' : 'flex-shrink-0'}>
+            <button
+              onClick={() => toggleSection('files')}
+              className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+            >
+              <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.files ? 'rotate-90' : ''}`} />
+              <FolderTree size={14} />
+              <span>Files</span>
+            </button>
+            {expandedSections.files && (
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <Suspense fallback={<SectionSpinner />}>
+                  <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
+                </Suspense>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* ── Resize handle: Files ↔ first expanded bottom section ── */}
+        {(() => {
+          const firstBottom: 'git' | 'processes' | null = expandedSections.git ? 'git' : expandedSections.processes ? 'processes' : null;
+          const active = expandedSections.files && firstBottom;
+          return (
+            <div
+              className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${active ? 'cursor-row-resize hover:bg-primary' : ''}`}
+              onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
+            >
+              {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+            </div>
+          );
+        })()}
+
+        {/* ── Bottom area: Git + Processes (anchored, fixed pixel heights) ── */}
 
         {/* Git Section */}
-        <div className="border-b border-app-border">
-          <button
-            onClick={() => toggleSection('git')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-          >
-            {expandedSections.git ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <GitBranch size={13} />
-            <span>Git Changes</span>
-          </button>
-          {expandedSections.git && (
-            <div className="max-h-64 overflow-y-auto">
-              <Suspense fallback={<SectionSpinner />}>
-                <GitChanges projectPath={projectPath} compact />
-              </Suspense>
+        <div
+          ref={el => { bottomRefs.current.git = el; }}
+          className={expandedSections.git ? 'flex-shrink-0 flex flex-col min-h-0 overflow-hidden' : 'flex-shrink-0'}
+          style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+        >
+          <Suspense fallback={
+            <div
+              onClick={() => toggleSection('git')}
+              className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
+            >
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expandedSections.git ? 'rotate-90' : ''}`} />
+                <GitBranch size={14} className="text-primary flex-shrink-0" />
+                <span>Git</span>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0 ml-1 text-app-text-tertiary">
+                <span className="w-4 h-4 inline-flex items-center justify-center">
+                  <span className="inline-flex items-center justify-center w-[10px] h-[10px] animate-spin">
+                    <RefreshCw size={10} />
+                  </span>
+                </span>
+              </div>
             </div>
-          )}
+          }>
+            <GitChanges
+              projectPath={projectPath}
+              compact
+              expanded={expandedSections.git}
+              onToggle={() => toggleSection('git')}
+            />
+          </Suspense>
         </div>
 
-        {/* Processes Section */}
-        <div>
+        {/* Resize handle: Git ↔ Processes */}
+        {(() => {
+          const active = expandedSections.git && expandedSections.processes;
+          return (
+            <div
+              className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${active ? 'cursor-row-resize hover:bg-primary' : ''}`}
+              onMouseDown={active ? startBottomResize('git', 'processes') : undefined}
+            >
+              {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+            </div>
+          );
+        })()}
+
+        {/* Processes & Scripts Section */}
+        <div
+          ref={el => { bottomRefs.current.processes = el; }}
+          className={expandedSections.processes ? 'flex-shrink-0 flex flex-col min-h-0 overflow-hidden' : 'flex-shrink-0'}
+          style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+        >
           <button
             onClick={() => toggleSection('processes')}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
           >
-            {expandedSections.processes ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <Zap size={13} />
+            <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.processes ? 'rotate-90' : ''}`} />
+            <Zap size={14} />
             <span>Processes</span>
           </button>
           {expandedSections.processes && (
-            <div className="max-h-48 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <ScriptRunner projectPath={projectPath} />
               <ProcessList topicId={topicId} />
             </div>
           )}

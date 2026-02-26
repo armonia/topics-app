@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, lazy, Suspense } from 'react';
-import { X, File } from 'lucide-react';
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, lazy, Suspense, Fragment } from 'react';
+import { X, File, ChevronRight } from 'lucide-react';
 import { filesApi } from '../../lib/api';
-import { getFileIcon } from '../../lib/fileIcons';
+import { getFileIconDef } from '../../lib/fileIcons';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -11,6 +11,8 @@ export interface TabInfo {
   content: string;
   originalContent: string;
   loading?: boolean;
+  preview?: boolean;
+  lineNumber?: number;
 }
 
 interface EditorTabsProps {
@@ -31,26 +33,56 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
     return () => obs.disconnect();
   }, []);
 
-  const openFile = useCallback((path: string, name: string) => {
+  const openFile = useCallback((path: string, name: string, lineNumber?: number, preview: boolean = true) => {
+    // Save to recent files
+    try {
+      const key = `recent-files-${projectPath}`;
+      const recent: { path: string; name: string; timestamp: number }[] = JSON.parse(localStorage.getItem(key) || '[]');
+      const filtered = recent.filter(r => r.path !== path);
+      filtered.unshift({ path, name, timestamp: Date.now() });
+      localStorage.setItem(key, JSON.stringify(filtered.slice(0, 20)));
+    } catch {}
+
     setTabs(prev => {
       const existing = prev.findIndex(t => t.path === path);
       if (existing >= 0) {
         setActiveIndex(existing);
+        // Update lineNumber if provided
+        if (lineNumber !== undefined) {
+          return prev.map((t, i) => i === existing ? { ...t, lineNumber } : t);
+        }
         return prev;
       }
-      const newTab: TabInfo = { path, name, content: '', originalContent: '', loading: true };
-      setActiveIndex(prev.length);
+
+      // If there's an existing preview tab, replace it
+      const previewIndex = prev.findIndex(t => t.preview);
+      const newTab: TabInfo = { path, name, content: '', originalContent: '', loading: true, preview, lineNumber };
+
       // Load content async
       filesApi.content(path).then(content => {
         setTabs(t => t.map(tab => tab.path === path ? { ...tab, content, originalContent: content, loading: false } : tab));
       }).catch((err: any) => {
         setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: `Error: ${err.message}`, originalContent: '', loading: false } : tab));
       });
+
+      if (previewIndex >= 0 && preview) {
+        // Replace the existing preview tab
+        const next = [...prev];
+        next[previewIndex] = newTab;
+        setActiveIndex(previewIndex);
+        return next;
+      }
+
+      setActiveIndex(prev.length);
       return [...prev, newTab];
     });
+  }, [projectPath]);
+
+  const pinTab = useCallback((path: string) => {
+    setTabs(prev => prev.map(t => t.path === path ? { ...t, preview: false } : t));
   }, []);
 
-  useImperativeHandle(ref, () => ({ openFile }), [openFile]);
+  useImperativeHandle(ref, () => ({ openFile, pinTab }), [openFile, pinTab]);
 
   const closeTab = useCallback((index: number, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -66,7 +98,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   }, []);
 
   const handleContentChange = useCallback((path: string, newContent: string) => {
-    setTabs(prev => prev.map(t => t.path === path ? { ...t, content: newContent } : t));
+    setTabs(prev => prev.map(t => t.path === path ? { ...t, content: newContent, preview: false } : t));
   }, []);
 
   const handleSave = useCallback(async (content: string) => {
@@ -107,14 +139,16 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
             <div
               key={tab.path}
               onClick={() => setActiveIndex(i)}
+              onDoubleClick={() => { if (tab.preview) pinTab(tab.path); }}
+              onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } }}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] cursor-pointer border-r border-app-border max-w-[180px] group select-none ${
                 isActive
                   ? 'bg-surface text-app-text border-b-2 border-b-primary'
                   : 'text-app-text-muted hover:bg-app-hover'
               }`}
             >
-              <span className="text-[11px] flex-shrink-0">{getFileIcon(tab.name)}</span>
-              <span className="truncate">{tab.name}</span>
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(tab.name); const I = d.icon; return <I size={12} style={{ color: d.color }} />; })()}</span>
+              <span className={`truncate ${tab.preview ? 'italic' : ''}`}>{tab.name}</span>
               {isModified && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Unsaved changes" />}
               {status === 'saved' && <span className="text-[10px] text-green-500 flex-shrink-0">✓</span>}
               {status === 'error' && <span className="text-[10px] text-red-500 flex-shrink-0">!</span>}
@@ -129,12 +163,29 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
         })}
       </div>
 
-      {/* File path bar */}
+      {/* Breadcrumb path bar */}
       {activeTab && (
-        <div className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0">
-          <span className="text-[11px] text-app-text-muted truncate">
-            {activeTab.path.replace(projectPath, '').replace(/^\//, '')}
-          </span>
+        <div className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 overflow-hidden">
+          {(() => {
+            const relativePath = activeTab.path.replace(projectPath, '').replace(/^\//, '');
+            const segments = relativePath.split('/');
+            return segments.map((seg, i) => (
+              <Fragment key={i}>
+                {i > 0 && <ChevronRight size={10} className="text-app-text-faint mx-0.5 flex-shrink-0" />}
+                <button
+                  onClick={() => {
+                    const dirPath = projectPath + '/' + segments.slice(0, i + 1).join('/');
+                    window.dispatchEvent(new CustomEvent('navigate-explorer', { detail: { path: dirPath } }));
+                  }}
+                  className={`text-[11px] hover:text-primary hover:underline transition-colors flex-shrink-0 ${
+                    i === segments.length - 1 ? 'text-app-text-secondary' : 'text-app-text-muted'
+                  }`}
+                >
+                  {seg}
+                </button>
+              </Fragment>
+            ));
+          })()}
         </div>
       )}
 
@@ -153,6 +204,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               darkMode={darkMode}
               onSave={handleSave}
               onChange={(c) => handleContentChange(activeTab.path, c)}
+              initialLine={activeTab.lineNumber}
             />
           </Suspense>
         ) : null}
@@ -163,5 +215,6 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
 // Expose imperative open method via ref-like pattern
 export type EditorTabsHandle = {
-  openFile: (path: string, name: string) => void;
+  openFile: (path: string, name: string, lineNumber?: number, preview?: boolean) => void;
+  pinTab: (path: string) => void;
 };

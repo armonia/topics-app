@@ -245,7 +245,6 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
         const projectDir = ctx.resolveProjectPath(topic.projectPath);
         if (projectDir && existsSync(projectDir)) {
           const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-          const disabledTemplates = topic.disabledContextTemplates || [];
           for (const name of TEMPLATE_FILES) {
             let filePath = join(projectDir, name);
             let displayName = name;
@@ -261,7 +260,7 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
                   label: displayName,
                   category: "template",
                   tokens: estimateTokens(content),
-                  enabled: !disabledTemplates.includes(name),
+                  enabled: true,
                   editable: false,
                   preview: content.slice(0, 200),
                   countInBudget: true,

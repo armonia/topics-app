@@ -31,7 +31,6 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
   const [usage, setUsage] = useState<ContextUsage | null>(null);
   const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
-  const [_tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
   const fetchContext = useCallback(async () => {
@@ -52,16 +51,6 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
     const interval = setInterval(fetchContext, 30000);
     return () => clearInterval(interval);
   }, [fetchContext]);
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setTooltipPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-    }
-  };
 
   if (!usage) return null;
   if (usage.total === 0 && usage.breakdown.length === 0) return null;
@@ -131,7 +120,6 @@ export function ContextPieChart({ sessionKey, compact = false }: ContextPieChart
         className="relative group cursor-pointer app-no-drag"
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => { setShowTooltip(false); setHoveredSegment(null); }}
-        onMouseMove={handleMouseMove}
       >
         <svg width="28" height="28" className="transform -rotate-90">
           {/* Background ring */}

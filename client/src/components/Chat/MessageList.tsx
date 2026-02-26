@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
+import { TopicIcon } from '@/lib/topicIcons';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { loadSettings } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
@@ -56,6 +57,8 @@ export function MessageList({
   const [newMsgCount, setNewMsgCount] = useState(0);
   const [showNewBanner, setShowNewBanner] = useState(false);
   const prevMsgCountRef = useRef(currentMessages.length);
+  const prevTopicIdRef = useRef(topic.id);
+  const needsScrollRef = useRef(false);
   const settings = loadSettings();
   const isCompact = settings.messageDensity === 'compact';
 
@@ -72,6 +75,29 @@ export function MessageList({
     }),
     [currentMessages]
   );
+
+  // Reset scroll state on topic switch
+  useEffect(() => {
+    if (prevTopicIdRef.current !== topic.id) {
+      prevTopicIdRef.current = topic.id;
+      needsScrollRef.current = true;
+      setIsScrolledUp(false);
+      setNewMsgCount(0);
+      setShowNewBanner(false);
+      prevMsgCountRef.current = 0;
+    }
+  }, [topic.id]);
+
+  // Scroll to bottom after messages load for a new topic
+  useEffect(() => {
+    if (needsScrollRef.current && filteredMessages.length > 0 && !currentLoading) {
+      needsScrollRef.current = false;
+      const timer = setTimeout(() => {
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [filteredMessages.length, currentLoading]);
 
   // Auto-scroll during streaming: Virtuoso's followOutput handles new items,
   // but during streaming the last message content grows (no new item added).
@@ -107,7 +133,7 @@ export function MessageList({
       role="log"
       aria-live="polite"
       aria-label={`Messages for ${topic.name}`}
-      className={`flex-1 overflow-y-auto ${isMobile ? 'px-2' : 'px-4'} relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
+      className={`flex-1 overflow-y-auto relative min-h-0 ${fileDragOver ? 'bg-primary/3' : ''}`}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
       onDrop={onFileDrop}
@@ -124,7 +150,7 @@ export function MessageList({
       <NewMessageBanner show={showNewBanner} onClick={scrollToBottom} />
 
       {currentLoading && currentMessages.length === 0 ? (
-        <div className={isCompact ? 'space-y-1' : 'space-y-2'}>
+        <div className={`${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'}`}>
           {[1,2,3].map(i => (
             <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
               <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
@@ -141,7 +167,7 @@ export function MessageList({
       ) : filteredMessages.length === 0 ? (
         <div className={`text-center ${isMobile ? 'py-4 px-3' : 'py-8 px-4'}`}>
           <div className="float-icon inline-block mb-3">
-            <span className="text-3xl">{topic.icon}</span>
+            <TopicIcon name={topic.icon} size={36} color={topic.color || undefined} />
           </div>
           <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
           {topic.systemPrompt && (
@@ -180,6 +206,7 @@ export function MessageList({
         </div>
       ) : (
         <Virtuoso
+          key={topic.id}
           ref={virtuosoRef}
           data={filteredMessages}
           initialTopMostItemIndex={filteredMessages.length - 1}
@@ -197,22 +224,24 @@ export function MessageList({
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
             return (
-              <MessageBubble
-                msg={msg}
-                prev={prev}
-                idx={idx}
-                topic={topic}
-                copiedMsgId={copiedMsgId}
-                isCompact={isCompact}
-                fontSize={settings.fontSize}
-                isMobile={isMobile}
-                onReply={onReply}
-                onCopy={onCopy}
-                onTogglePin={onTogglePin}
-                onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
-                onPlanReject={isLastAssistant ? onPlanReject : undefined}
-                onRemember={onRemember}
-              />
+              <div className={isMobile ? 'px-2' : 'px-4'}>
+                <MessageBubble
+                  msg={msg}
+                  prev={prev}
+                  idx={idx}
+                  topic={topic}
+                  copiedMsgId={copiedMsgId}
+                  isCompact={isCompact}
+                  fontSize={settings.fontSize}
+                  isMobile={isMobile}
+                  onReply={onReply}
+                  onCopy={onCopy}
+                  onTogglePin={onTogglePin}
+                  onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
+                  onPlanReject={isLastAssistant ? onPlanReject : undefined}
+                  onRemember={onRemember}
+                />
+              </div>
             );
           }}
           style={{ height: '100%' }}

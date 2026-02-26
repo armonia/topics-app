@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { ChevronRight, FolderGit2, FolderClock, MessageCircle, Archive, Plus, MessageSquare, Terminal } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, Terminal, Globe, LayoutGrid, FolderOpen } from 'lucide-react';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
 import type { Topic, UnreadData, PaneType } from '@/types';
@@ -27,11 +27,14 @@ interface TopicTreeProps {
   getArchivedTopics: () => Topic[];
   unreadData: UnreadData;
   onArchiveTopic: (topicId: string, archive: boolean) => Promise<boolean>;
+  onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType) => void;
   onProjectClick?: (projectPath: string) => void;
   isSessionStreaming?: (sessionKey: string) => boolean;
   stopSession?: (sessionKey: string) => boolean;
+  boardTaskCounts?: Record<string, number>;
+  onOpenProjectBoard?: (projectPath: string) => void;
 }
 
 export function TopicTree({
@@ -49,11 +52,14 @@ export function TopicTree({
   getArchivedTopics,
   unreadData,
   onArchiveTopic,
+  onArchiveProject,
   onNewTopicInProject,
   onAddProjectPane,
   onProjectClick,
   isSessionStreaming,
   stopSession,
+  boardTaskCounts,
+  onOpenProjectBoard,
 }: TopicTreeProps) {
   const [showProjectsArchived, setShowProjectsArchived] = useState(false);
   const [showChatsArchived, setShowChatsArchived] = useState(false);
@@ -61,6 +67,7 @@ export function TopicTree({
   const [showChats, setShowChats] = useState(true);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [expandedProjectChats, setExpandedProjectChats] = useState<Set<string>>(new Set());
   const [projectAddMenu, setProjectAddMenu] = useState<string | null>(null); // projectPath of open menu
   const addMenuRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +77,16 @@ export function TopicTree({
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [projectAddMenu]);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean } | null>(null);
+
+  // Close project context menu on outside click
+  useEffect(() => {
+    if (!projectContextMenu) return;
+    const h = () => setProjectContextMenu(null);
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [projectContextMenu]);
+
   const [draggedId, setDraggedId] = useState<string | null>(null);
 
   const handleSidebarDragStart = useCallback((topicId: string) => {
@@ -130,7 +147,7 @@ export function TopicTree({
     await onArchiveTopic(topicId, archive);
   };
 
-  const renderLevel = (parentId: string | null, depth = 0, includeArchived = false): React.ReactNode[] => {
+  const renderLevel = (parentId: string | null, depth = 0, includeArchived = false, hideIcon = false): React.ReactNode[] => {
     const children = getChildren(parentId).sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
     const result: React.ReactNode[] = [];
 
@@ -162,6 +179,7 @@ export function TopicTree({
           isPreview={previewPanelId === topic.id}
           isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
           unreadCount={unread}
+          assignedAgentCount={topic.assignedAgents?.length || 0}
           onToggle={() => onToggleNode(topic.id)}
           onClick={(e) => onTopicClick(topic.id, e)}
           onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
@@ -172,6 +190,7 @@ export function TopicTree({
             if (isFirst) onArchiveTopic(topic.id, true);
           } : undefined}
           isArchived={topic.archived}
+          hideIcon={hideIcon}
           isDragOver={dragOverId === topic.id}
           onSidebarDragStart={() => handleSidebarDragStart(topic.id)}
           onSidebarDragOver={() => handleSidebarDragOver(topic.id)}
@@ -181,7 +200,7 @@ export function TopicTree({
       );
 
       if (hasChildren && isExpanded) {
-        result.push(...renderLevel(topic.id, depth + 1, includeArchived));
+        result.push(...renderLevel(topic.id, depth + 1, includeArchived, hideIcon));
       }
     }
 
@@ -231,8 +250,40 @@ export function TopicTree({
   // Count archived for display
   const totalProjectArchived = Object.values(projectGroups).reduce((sum, g) => sum + g.archivedTopics.length, 0);
 
+  // Count actively streaming sessions across all topics
+  const activeStreamingCount = isSessionStreaming
+    ? Object.values(topics).filter(t => isSessionStreaming(t.sessionKey)).length
+    : 0;
+
   return (
     <div role="tree" aria-label="Topics">
+      {/* Board — always visible above Projects */}
+      {!searchQuery && onOpenProjectBoard && (
+        <>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
+            className="group/ab flex items-center gap-2 w-full h-8 text-left text-[13px] text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
+            style={{ paddingLeft: 12 }}
+            title="View all project boards"
+          >
+            <LayoutGrid size={14} strokeWidth={1.5} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
+            <span className="flex-1 truncate text-app-text">Board</span>
+            {activeStreamingCount > 0 && (
+              <span className="flex items-center gap-1 pr-3">
+                <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-[10px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
+              </span>
+            )}
+            {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
+              <span className="text-[10px] text-app-text-muted tabular-nums pr-3">
+                {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
+              </span>
+            )}
+          </button>
+          <div className="border-t border-app-border" />
+        </>
+      )}
+
       {/* Projects section */}
       {Object.keys(projectGroups).length > 0 && !searchQuery && (
         <>
@@ -246,22 +297,22 @@ export function TopicTree({
                 className="flex items-center gap-2 flex-1 h-full text-left"
                 style={{ paddingLeft: 12 }}
               >
+                <FolderOpen size={14} strokeWidth={1.5} className="text-app-text-secondary flex-shrink-0" />
+                <span className="text-[13px] text-app-text">Projects</span>
                 <ChevronRight
-                  size={14}
+                  size={12}
                   strokeWidth={1.5}
                   aria-hidden="true"
-                  className={`transition-transform duration-150 text-app-text-secondary ${showProjects ? 'rotate-90' : ''}`}
+                  className={`transition-transform duration-150 text-app-text-tertiary ${showProjects ? 'rotate-90' : ''}`}
                 />
-                <FolderGit2 size={14} strokeWidth={1.5} className="text-app-text-muted" aria-hidden="true" />
-                <span className="text-[13px] text-app-text">Projects</span>
               </button>
-              <div className="flex items-center pr-3">
+              <div className="flex items-center gap-1 pr-3">
                 {totalProjectArchived > 0 && (
                   <button
                     onClick={() => setShowProjectsArchived(!showProjectsArchived)}
                     aria-pressed={showProjectsArchived}
                     aria-label={showProjectsArchived ? `Hide ${totalProjectArchived} archived` : `Show ${totalProjectArchived} archived`}
-                    className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all mr-1.5 ${
+                    className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all ${
                       showProjectsArchived
                         ? 'text-primary opacity-100'
                         : 'text-app-text-tertiary opacity-0 md:group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10'
@@ -271,7 +322,6 @@ export function TopicTree({
                     <Archive size={12} />
                   </button>
                 )}
-                <span className="text-[11px] text-app-text-muted opacity-0 md:group-hover:opacity-100 transition-opacity tabular-nums">{Object.keys(projectGroups).length}</span>
               </div>
             </div>
 
@@ -279,6 +329,10 @@ export function TopicTree({
               <div>
                 {sortedProjectEntries.map(([projectName, { path, activeTopics, archivedTopics: projectArchived, isTemp }]) => {
                   const isExpanded = expandedProjects.has(projectName);
+                  const allArchived = activeTopics.length === 0 && projectArchived.length > 0;
+
+                  // Hide fully-archived projects unless "show archived" is on
+                  if (allArchived && !showProjectsArchived) return null;
                   // Combine active and archived (if showing) and sort by name
                   const allChats = showProjectsArchived
                     ? [...activeTopics, ...projectArchived].sort((a, b) => a.name.localeCompare(b.name))
@@ -286,12 +340,17 @@ export function TopicTree({
 
                   // Sum unread counts for all topics in this project group
                   const groupUnread = allChats.reduce((sum, t) => sum + (unreadData[t.id]?.unreadCount || 0), 0);
-                  const FolderIcon = isTemp ? FolderClock : FolderGit2;
-
                   return (
                     <div key={projectName}>
                       {/* Project folder item */}
-                      <div className="group/proj flex items-center h-8 hover:bg-app-hover transition-colors">
+                      <div
+                        className="group/proj flex items-center h-8 hover:bg-app-hover transition-colors"
+                        onContextMenu={(e) => {
+                          if (!onArchiveProject) return;
+                          e.preventDefault();
+                          setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: path, projectName, allArchived });
+                        }}
+                      >
                         <button
                           onClick={() => {
                             const wasExpanded = expandedProjects.has(projectName);
@@ -300,82 +359,134 @@ export function TopicTree({
                               onProjectClick(path);
                             }
                           }}
-                          className="flex items-center gap-1.5 h-full flex-1 min-w-0 text-left text-[12px] font-medium text-app-text-secondary hover:text-app-text transition-colors"
-                          style={{ paddingLeft: 24 }}
+                          className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
+                            allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+                          }`}
+                          style={{ paddingLeft: 28 }}
                           title={path}
                         >
                           <ChevronRight
-                            size={11}
+                            size={12}
                             strokeWidth={1.5}
-                            className={`transition-transform duration-150 flex-shrink-0 text-app-text-secondary ${isExpanded ? 'rotate-90' : ''}`}
+                            className={`transition-transform duration-150 flex-shrink-0 ${isTemp ? 'text-amber-500' : 'text-app-text-secondary'} ${isExpanded ? 'rotate-90' : ''}`}
                           />
-                          <FolderIcon size={14} strokeWidth={1.5} className={isTemp ? 'text-amber-500 flex-shrink-0' : 'text-blue-500 flex-shrink-0'} />
                           <span className="truncate flex-1">{projectName}</span>
+                        </button>
+                        {/* Right side: count (default) / action buttons (hover) */}
+                        <div className="flex items-center pr-2 flex-shrink-0">
+                          {/* Count — visible by default, hidden on hover */}
                           {groupUnread > 0 ? (
-                            <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center flex-shrink-0">
+                            <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center group-hover/proj:hidden">
                               {groupUnread}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-app-placeholder flex-shrink-0">
+                            <span className="text-[10px] text-app-placeholder group-hover/proj:hidden">
                               {allChats.length}
                             </span>
                           )}
-                        </button>
-                        {(onNewTopicInProject || onAddProjectPane) && (
-                          <div className="relative" ref={projectAddMenu === path ? addMenuRef : undefined}>
+                          {/* Action buttons — hidden by default, visible on hover */}
+                          {onOpenProjectBoard && (
                             <button
-                              onClick={(e) => { e.stopPropagation(); setProjectAddMenu(projectAddMenu === path ? null : path); }}
-                              className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover/proj:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-all mr-1"
-                              title="Add to project"
-                              aria-label={`Add to ${projectName}`}
+                              onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(path); }}
+                              className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-500 hover:text-emerald-400 transition-colors"
+                              title="Open Board"
+                              aria-label={`Board for ${projectName}`}
                             >
-                              <Plus size={12} />
+                              <LayoutGrid size={12} />
                             </button>
-                            {projectAddMenu === path && (
-                              <div className="absolute top-full right-0 mt-1 bg-surface border border-app-border rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
-                                {onNewTopicInProject && (
-                                  <button onClick={() => { onNewTopicInProject(path); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                    <MessageSquare size={13} /><span>New Chat</span>
-                                  </button>
-                                )}
-                                {onAddProjectPane && (
-                                  <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                    <Terminal size={13} /><span>New Terminal</span>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                          )}
+                          {onArchiveProject && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onArchiveProject(path, !allArchived); }}
+                              className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+                              title={allArchived ? 'Restore Project' : 'Archive Project'}
+                              aria-label={allArchived ? `Restore ${projectName}` : `Archive ${projectName}`}
+                            >
+                              {allArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                            </button>
+                          )}
+                          {(onNewTopicInProject || onAddProjectPane) && (
+                            <div className="relative hidden group-hover/proj:block" ref={projectAddMenu === path ? addMenuRef : undefined}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setProjectAddMenu(projectAddMenu === path ? null : path); }}
+                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+                                title="Add to project"
+                                aria-label={`Add to ${projectName}`}
+                              >
+                                <Plus size={12} />
+                              </button>
+                              {projectAddMenu === path && (
+                                <div className="absolute top-full right-0 mt-1 bg-surface border border-app-border rounded-lg shadow-lg py-1 z-50 min-w-[140px]">
+                                  {onNewTopicInProject && (
+                                    <button onClick={() => { onNewTopicInProject(path); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                                      <MessageSquare size={13} /><span>New Chat</span>
+                                    </button>
+                                  )}
+                                  {onAddProjectPane && (
+                                    <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                                      <Terminal size={13} /><span>New Terminal</span>
+                                    </button>
+                                  )}
+                                  {onAddProjectPane && (
+                                    <button onClick={() => { onAddProjectPane(path, 'browser'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                                      <Globe size={13} /><span>New Browser</span>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       
                       {/* Chats under this project - all inline */}
                       {isExpanded && (
                         <div>
-                          {allChats.map(topic => (
-                            <TopicItem
-                              key={`project-${topic.id}`}
-                              topic={topic}
-                              depth={2}
-                              hasChildren={false}
-                              isExpanded={false}
-                              isOpen={openPanels.includes(topic.id)}
-                              isFocused={focusedTopicId === topic.id}
-                              isPreview={previewPanelId === topic.id}
-                              isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
-                              unreadCount={unreadData[topic.id]?.unreadCount || 0}
-                              onToggle={() => {}}
-                              onClick={(e) => onTopicClick(topic.id, e)}
-                              onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
-                              onContextMenu={(e) => onTopicContextMenu(e, topic)}
-                              onArchive={handleArchive}
-                              onStopStreaming={stopSession ? () => {
-                                const isFirst = stopSession(topic.sessionKey);
-                                if (isFirst) onArchiveTopic(topic.id, true);
-                              } : undefined}
-                              isArchived={topic.archived}
-                            />
-                          ))}
+                          {(() => {
+                            const PROJECT_CHAT_LIMIT = 100;
+                            const showAll = expandedProjectChats.has(projectName);
+                            const visible = showAll ? allChats : allChats.slice(0, PROJECT_CHAT_LIMIT);
+                            const remaining = allChats.length - PROJECT_CHAT_LIMIT;
+                            return (
+                              <>
+                                {visible.map(topic => (
+                                  <TopicItem
+                                    key={`project-${topic.id}`}
+                                    topic={topic}
+                                    depth={2}
+                                    hasChildren={false}
+                                    isExpanded={false}
+                                    isOpen={openPanels.includes(topic.id)}
+                                    isFocused={focusedTopicId === topic.id}
+                                    isPreview={previewPanelId === topic.id}
+                                    isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
+                                    unreadCount={unreadData[topic.id]?.unreadCount || 0}
+                                    assignedAgentCount={topic.assignedAgents?.length || 0}
+                                    onToggle={() => {}}
+                                    onClick={(e) => onTopicClick(topic.id, e)}
+                                    onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
+                                    onContextMenu={(e) => onTopicContextMenu(e, topic)}
+                                    onArchive={handleArchive}
+                                    onStopStreaming={stopSession ? () => {
+                                      const isFirst = stopSession(topic.sessionKey);
+                                      if (isFirst) onArchiveTopic(topic.id, true);
+                                    } : undefined}
+                                    isArchived={topic.archived}
+                                    hideIcon
+                                  />
+                                ))}
+                                {!showAll && remaining > 0 && (
+                                  <button
+                                    onClick={() => setExpandedProjectChats(prev => { const next = new Set(prev); next.add(projectName); return next; })}
+                                    className="w-full py-1 text-[11px] text-primary hover:bg-primary/5 transition-colors text-center"
+                                    style={{ paddingLeft: 44 }}
+                                  >
+                                    Show {remaining} more chats...
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
@@ -399,23 +510,23 @@ export function TopicTree({
             className="flex items-center gap-2 flex-1 h-full text-left"
             style={{ paddingLeft: 12 }}
           >
+            <MessageSquare size={14} strokeWidth={1.5} className="text-app-text-secondary flex-shrink-0" />
+            <span className="text-[13px] text-app-text">Chats</span>
             <ChevronRight
-              size={14}
+              size={12}
               strokeWidth={1.5}
               aria-hidden="true"
-              className={`transition-transform duration-150 text-app-text-secondary ${showChats ? 'rotate-90' : ''}`}
+              className={`transition-transform duration-150 text-app-text-tertiary ${showChats ? 'rotate-90' : ''}`}
             />
-            <MessageCircle size={14} strokeWidth={1.5} className="text-app-text-muted" aria-hidden="true" />
-            <span className="text-[13px] text-app-text">Chats</span>
           </button>
-          {/* Right side: archive toggle button + count */}
-          <div className="flex items-center pr-3">
+          {/* Right side: archive toggle button + last update */}
+          <div className="flex items-center gap-1 pr-3">
             {archivedOutsideProjects.length > 0 && (
               <button
                 onClick={() => setShowChatsArchived(!showChatsArchived)}
                 aria-pressed={showChatsArchived}
                 aria-label={showChatsArchived ? `Hide ${archivedOutsideProjects.length} archived chats` : `Show ${archivedOutsideProjects.length} archived chats`}
-                className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all mr-1.5 ${
+                className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all ${
                   showChatsArchived
                     ? 'text-primary opacity-100'
                     : 'text-app-text-tertiary opacity-0 md:group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10'
@@ -425,9 +536,6 @@ export function TopicTree({
                 <Archive size={12} />
               </button>
             )}
-            <span className="text-[11px] text-app-text-muted opacity-0 md:group-hover:opacity-100 transition-opacity tabular-nums">
-              {allRegularTopics.length}
-            </span>
           </div>
         </div>
       )}
@@ -435,13 +543,13 @@ export function TopicTree({
       {/* Chats list */}
       {(showChats || searchQuery) && (
         <div>
-          {renderLevel(null, 0, showChatsArchived)}
+          {renderLevel(null, 1, showChatsArchived, true)}
         </div>
       )}
 
       {Object.keys(topics).length === 0 && (
         <div className="px-4 py-12 text-center">
-          <div className="text-4xl mb-3">💬</div>
+          <MessageSquare size={36} className="mx-auto mb-3 text-app-text-tertiary" />
           <p className="text-[14px] font-medium text-app-text-secondary mb-1">No topics yet</p>
           <p className="text-[12px] text-app-text-muted mb-4">Create your first topic to get started</p>
           <button
@@ -454,6 +562,26 @@ export function TopicTree({
             <span>+</span> Create Topic
           </button>
           <p className="text-[11px] text-app-placeholder mt-3">or press <kbd className="kbd">⌘N</kbd></p>
+        </div>
+      )}
+
+      {/* Project context menu */}
+      {projectContextMenu && onArchiveProject && (
+        <div
+          className="fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[100] min-w-[160px]"
+          style={{ top: projectContextMenu.y, left: projectContextMenu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              onArchiveProject(projectContextMenu.projectPath, !projectContextMenu.allArchived);
+              setProjectContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            {projectContextMenu.allArchived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+            <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>
+          </button>
         </div>
       )}
     </div>

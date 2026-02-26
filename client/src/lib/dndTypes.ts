@@ -7,8 +7,6 @@ export const DND_TYPES = {
   PANEL_ID: 'application/x-panel-id',
   /** Sidebar topic reordering */
   SIDEBAR_REORDER: 'application/x-sidebar-reorder',
-  /** Project group drag for reordering in PanelGrid */
-  PROJECT_GROUP: 'application/x-project-group',
   /** Pane tab reordering within a group */
   PANE_TAB: 'application/x-pane-tab',
   /** Source group ID for cross-group tab drags */

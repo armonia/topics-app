@@ -50,7 +50,7 @@ export interface BrowserService {
   scroll(id: string, x: number, y: number, deltaX: number, deltaY: number): Promise<void>;
   hover(id: string, x: number, y: number): Promise<void>;
   screenshot(id: string, opts?: { format?: "jpeg" | "png"; quality?: number; fullPage?: boolean }): Promise<Buffer>;
-  accessibilitySnapshot(id: string): Promise<{ url: string; title: string; tree: AccessibilityNode | null }>;
+  accessibilitySnapshot(id: string): Promise<{ url: string; title: string; ariaSnapshot: string }>;
   evaluate(id: string, script: string): Promise<any>;
   getConsoleMessages(id: string): { level: string; text: string; timestamp: number }[];
   getUrl(id: string): { url: string; title: string } | null;
@@ -290,8 +290,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     async accessibilitySnapshot(id) {
       const entry = await service.getOrCreate(id);
       touchActivity(entry);
-      const tree = await entry.page.accessibility.snapshot() as AccessibilityNode | null;
-      return { url: entry.url, title: entry.title, tree };
+      try {
+        const ariaSnapshot = await entry.page.locator("body").ariaSnapshot();
+        return { url: entry.url, title: entry.title, ariaSnapshot };
+      } catch {
+        // Fallback: extract text content
+        const text = await entry.page.locator("body").innerText().catch(() => "");
+        return { url: entry.url, title: entry.title, ariaSnapshot: text };
+      }
     },
 
     async clickSelector(id, selector, opts) {
