@@ -37,6 +37,7 @@ export interface SystemStatus {
     total: number;
     byType: Record<string, number>;
   };
+  ports?: { port: number; pid: number; command: string }[];
 }
 
 export function useSystemStatus(enabled = true, intervalMs = 30000) {

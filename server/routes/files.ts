@@ -749,34 +749,6 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    // --- Active ports ---
-    if (method === "GET" && pathname === "/api/processes/ports") {
-      try {
-        const proc = Bun.spawn(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "pipe" });
-        const output = await new Response(proc.stdout).text();
-        await proc.exited;
-        const ports: { port: number; pid: number; command: string }[] = [];
-        const seen = new Set<number>();
-        for (const line of output.split("\n").slice(1)) {
-          const parts = line.trim().split(/\s+/);
-          if (parts.length < 9) continue;
-          const command = parts[0];
-          const pid = parseInt(parts[1], 10);
-          const nameField = parts[8] || "";
-          const portMatch = nameField.match(/:(\d+)$/);
-          if (!portMatch) continue;
-          const port = parseInt(portMatch[1], 10);
-          if (seen.has(port)) continue;
-          seen.add(port);
-          ports.push({ port, pid, command });
-        }
-        ports.sort((a, b) => a.port - b.port);
-        return json({ ports });
-      } catch (err: any) {
-        return json({ ports: [] });
-      }
-    }
-
     // --- AI commit message (via Gateway LLM) ---
     if (method === "POST" && pathname === "/api/git/ai-commit-message") {
       const body = await readJSON(req);

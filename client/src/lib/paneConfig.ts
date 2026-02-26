@@ -23,6 +23,7 @@ export const PANE_CONFIG: Record<PaneType, PaneConfig> = {
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
   'all-boards':  { icon: 'LayoutGrid',   label: 'Board',         color: '#10b981', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
+  'process-log': { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
 };
 
 export function createPaneId(type: PaneType, key?: string): string {

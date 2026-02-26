@@ -51,6 +51,11 @@ export interface ChatMessage extends Message {
   media?: string[];               // Media file paths
   partial?: boolean;              // True if message is still streaming
   streamedAt?: string;            // When streaming started (for recovery)
+  // Branching support
+  parentId?: string | null;       // ID of parent message in tree
+  branchIndex?: number;           // Index among siblings (0-based)
+  siblingCount?: number;          // Total siblings at this branch point
+  activeBranchIndex?: number;     // Currently active sibling index
 }
 
 export interface CreateTopicRequest {
@@ -198,7 +203,7 @@ export interface GitLogEntry {
 export type PanelTab = 'chat' | 'files' | 'changes' | 'processes' | 'browser' | 'terminal';
 
 // Pane types for ProjectWindow layout
-export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project';
+export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project' | 'process-log';
 
 export interface Pane {
   id: string;            // e.g. "chat:topicId123", "browser:1707840000", "file:1707840000"
@@ -210,6 +215,7 @@ export interface Pane {
   diffProjectPath?: string; // project path for resolving git show
   preview?: boolean;     // true = transient tab (replaced on next open, italic text)
   color?: string;        // accent color for the tab (used by project tabs)
+  processId?: string;    // only for type='process-log'
 }
 
 export interface PaneLayoutRow {
@@ -261,6 +267,18 @@ export interface ProcessInfo {
   status: 'running' | 'done' | 'error';
   startedAt: string;
   completedAt?: string;
+}
+
+export interface ScriptProcess {
+  processId: string;
+  scriptName: string;
+  command: string;
+  projectPath: string;
+  status: 'running' | 'done' | 'error';
+  pid: number | null;
+  startedAt: string;
+  completedAt?: string;
+  exitCode?: number;
 }
 
 // Streaming events from server

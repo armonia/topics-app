@@ -140,6 +140,29 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
       const streamKeys = Array.from(activeStreams.keys());
 
+      // Gather active ports
+      let ports: { port: number; pid: number; command: string }[] = [];
+      try {
+        const proc = Bun.spawn(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "pipe" });
+        const lsofOutput = await new Response(proc.stdout).text();
+        await proc.exited;
+        const seen = new Set<number>();
+        for (const line of lsofOutput.split("\n").slice(1)) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 9) continue;
+          const cmd = parts[0];
+          const pid = parseInt(parts[1], 10);
+          const nameField = parts[8] || "";
+          const portMatch = nameField.match(/:(\d+)$/);
+          if (!portMatch) continue;
+          const port = parseInt(portMatch[1], 10);
+          if (seen.has(port)) continue;
+          seen.add(port);
+          ports.push({ port, pid, command: cmd });
+        }
+        ports.sort((a, b) => a.port - b.port);
+      } catch {}
+
       return json({
         timestamp: new Date().toISOString(),
         gateway: {
@@ -167,6 +190,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         },
         cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
         sessions: lastSessionsStatus || { total: 0, byType: {} },
+        ports,
       });
     }
 

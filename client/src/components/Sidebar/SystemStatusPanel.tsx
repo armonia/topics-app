@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wifi, Server, HardDrive, RefreshCw, Clock, Users, RotateCcw } from 'lucide-react';
+import { Wifi, Server, HardDrive, RefreshCw, Clock, Users, RotateCcw, Globe } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { openclawControlApi } from '../../lib/api';
 
@@ -107,6 +107,31 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               </span>
             </div>
           </div>
+
+          {/* Active Ports */}
+          {status.ports && status.ports.length > 0 && (
+            <div className="space-y-0.5">
+              <div className="px-2 py-1 text-[10px] font-medium text-app-text-muted uppercase tracking-wider">
+                Ports
+              </div>
+              {status.ports.map((p: { port: number; pid: number; command: string }) => (
+                <div key={p.port} className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-app-hover">
+                  <Globe size={10} className="text-green-500 flex-shrink-0" />
+                  <a
+                    href={`http://localhost:${p.port}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-primary hover:underline flex-shrink-0 font-medium"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    :{p.port}
+                  </a>
+                  <span className="text-[10px] text-app-text-muted truncate flex-1">{p.command}</span>
+                  <span className="text-[9px] text-app-text-faint flex-shrink-0">pid {p.pid}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Last checked */}
           {status.gateway.lastCheckedAt && (

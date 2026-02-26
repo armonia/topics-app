@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, PanelLeft, RefreshCw } from 'lucide-react';
-import { ProcessList } from './ProcessList';
 import { ScriptRunner } from './ScriptRunner';
 import type { WSMessage } from '../../types';
 
@@ -23,6 +22,7 @@ interface ProjectSidebarProps {
   onOpenFile?: (path: string) => void;
   onWSMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onOpenBoard?: () => void;
+  onOpenProcessLog?: (processId: string, scriptName: string) => void;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -35,6 +35,7 @@ export function ProjectSidebar({
   onOpenFile,
   onWSMessage,
   onOpenBoard,
+  onOpenProcessLog,
 }: ProjectSidebarProps) {
   // Auto-collapse on mobile
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -46,14 +47,34 @@ export function ProjectSidebar({
 
   // Force collapsed on mobile
   const effectiveCollapsed = isMobile ? true : collapsed;
-  const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>({
-    files: true,
-    git: false,
-    processes: false,
+  const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
+    try {
+      const saved = sessionStorage.getItem('sidebar-sections');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { files: true, git: false, processes: false };
   });
+
+  // Persist expanded sections across page refreshes
+  useEffect(() => {
+    try { sessionStorage.setItem('sidebar-sections', JSON.stringify(expandedSections)); } catch {}
+  }, [expandedSections]);
 
   // Use same projectId as KanbanBoard (encodeURIComponent of projectPath)
   const projectId = projectPath ? encodeURIComponent(projectPath) : null;
+
+  // Read cached git status for Suspense fallback (avoids flash without branch/changes)
+  const cachedGit = (() => {
+    try {
+      const raw = sessionStorage.getItem(`git-status-cache:${projectPath}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { status?: { branch?: string; files?: unknown[]; ahead?: number; behind?: number } };
+        const s = parsed?.status;
+        if (s?.branch) return { branch: s.branch, fileCount: s.files?.length ?? 0, ahead: s.ahead ?? 0, behind: s.behind ?? 0 };
+      }
+    } catch {}
+    return null;
+  })();
 
   const toggleSection = (section: SectionId) => {
     setExpandedSections(prev => ({
@@ -64,7 +85,17 @@ export function ProjectSidebar({
 
   // ── Bottom sections (Git, Processes) pixel-height drag-resize ──
   // Files fills remaining space (flex-1). Git/Processes are anchored to bottom with fixed heights.
-  const [bottomHeights, setBottomHeights] = useState({ git: 200, processes: 150 });
+  const [bottomHeights, setBottomHeights] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('sidebar-bottom-heights');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { git: 200, processes: 150 };
+  });
+
+  useEffect(() => {
+    try { sessionStorage.setItem('sidebar-bottom-heights', JSON.stringify(bottomHeights)); } catch {}
+  }, [bottomHeights]);
   const bottomRefs = useRef<{ git: HTMLDivElement | null; processes: HTMLDivElement | null }>({ git: null, processes: null });
   const resizeRef = useRef<{
     section: 'git' | 'processes';
@@ -252,11 +283,29 @@ export function ProjectSidebar({
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expandedSections.git ? 'rotate-90' : ''}`} />
-                <GitBranch size={14} className="text-primary flex-shrink-0" />
+                <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
                 <span>Git</span>
+                {cachedGit && (
+                  <span className="text-app-text-muted truncate">{cachedGit.branch}</span>
+                )}
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0 ml-1 text-app-text-tertiary">
-                <span className="w-4 h-4 inline-flex items-center justify-center">
+              <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
+                {cachedGit && cachedGit.fileCount > 0 && (
+                  <span className="text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
+                    {cachedGit.fileCount}
+                  </span>
+                )}
+                {cachedGit && cachedGit.behind > 0 && (
+                  <span className="text-[9px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
+                    ↓{cachedGit.behind}
+                  </span>
+                )}
+                {cachedGit && cachedGit.ahead > 0 && (
+                  <span className="text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
+                    ↑{cachedGit.ahead}
+                  </span>
+                )}
+                <span className="w-4 h-4 inline-flex items-center justify-center text-app-text-tertiary">
                   <span className="inline-flex items-center justify-center w-[10px] h-[10px] animate-spin">
                     <RefreshCw size={10} />
                   </span>
@@ -302,8 +351,7 @@ export function ProjectSidebar({
           </button>
           {expandedSections.processes && (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <ScriptRunner projectPath={projectPath} />
-              <ProcessList topicId={topicId} />
+              <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
             </div>
           )}
         </div>

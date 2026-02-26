@@ -137,6 +137,27 @@ export const chatApi = {
       body: JSON.stringify(data),
     });
   },
+
+  async editMessage(messageId: string, content: string, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
+    const response = await fetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+      signal,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(response.status, text || response.statusText);
+    }
+    return response.body;
+  },
+
+  async switchBranch(messageId: string, branchIndex: number): Promise<{ messages: any[] }> {
+    return request<{ messages: any[] }>(`/messages/${encodeURIComponent(messageId)}/switch-branch`, {
+      method: 'POST',
+      body: JSON.stringify({ branchIndex }),
+    });
+  },
 };
 
 // Search API
@@ -706,9 +727,41 @@ export const processesApi = {
   async list(topicId: string): Promise<ProcessInfo[]> {
     return request<ProcessInfo[]>(`/processes?topicId=${encodeURIComponent(topicId)}`);
   },
+};
 
-  async ports(): Promise<{ ports: { port: number; pid: number; command: string }[] }> {
-    return request<{ ports: { port: number; pid: number; command: string }[] }>('/processes/ports');
+// Scripts API (npm scripts run in background)
+export interface ScriptProcessInfo {
+  processId: string;
+  scriptName: string;
+  command: string;
+  projectPath: string;
+  status: 'running' | 'done' | 'error';
+  pid: number | null;
+  startedAt: string;
+  completedAt?: string;
+  exitCode?: number;
+}
+
+export const scriptsApi = {
+  async run(projectPath: string, scriptName: string): Promise<{ processId: string; scriptName: string; pid: number; startedAt: string }> {
+    return request<{ processId: string; scriptName: string; pid: number; startedAt: string }>('/scripts/run', {
+      method: 'POST',
+      body: JSON.stringify({ projectPath, scriptName }),
+    });
+  },
+
+  async list(): Promise<{ scripts: ScriptProcessInfo[] }> {
+    return request<{ scripts: ScriptProcessInfo[] }>('/scripts');
+  },
+
+  async output(processId: string, offset = 0): Promise<{ output: string; offset: number; done: boolean; status: string; exitCode?: number }> {
+    return request<{ output: string; offset: number; done: boolean; status: string; exitCode?: number }>(`/scripts/${processId}/output?offset=${offset}`);
+  },
+
+  async stop(processId: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/scripts/${processId}/stop`, {
+      method: 'POST',
+    });
   },
 };
 

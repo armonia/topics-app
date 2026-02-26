@@ -22,6 +22,7 @@ const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => 
 const KanbanBoard = lazy(() => import('../Board/KanbanBoard').then(m => ({ default: m.KanbanBoard })));
 const BoardMemoryPanel = lazy(() => import('../Board/BoardMemoryPanel').then(m => ({ default: m.BoardMemoryPanel })));
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
+const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => ({ default: m.ProcessLogPane })));
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
 // --- Persistence helpers ---
@@ -97,6 +98,8 @@ export interface ProjectWindowPaneProps {
   isSessionStreaming: (sk: string) => boolean;
   stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
   sendWS: (msg: WSMessage) => void;
@@ -114,7 +117,7 @@ export function ProjectWindowPane({
   projectPath, topics, focusedPanelId,
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
-  sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, onPendingFocusConsumed,
 }: ProjectWindowPaneProps) {
@@ -286,7 +289,7 @@ export function ProjectWindowPane({
           const previewOrphan = orphans.find(o => o.preview);
           if (previewOrphan) {
             const existingPreview = findPreviewPane(
-              targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p),
+              targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p && paneTypeToGroupType(p.type) === gt),
               previewOrphan.id
             );
             if (existingPreview) {
@@ -498,7 +501,7 @@ export function ProjectWindowPane({
 
     const targetGroup = groups.find(g => g.id === groupId);
     const groupPanes = targetGroup?.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p) || [];
-    const existingPreview = findPreviewPane(groupPanes, newPane.id);
+    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === type), newPane.id);
 
     if (existingPreview) {
       setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
@@ -560,7 +563,7 @@ export function ProjectWindowPane({
     }
 
     const groupPanes = targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p);
-    const existingPreview = findPreviewPane(groupPanes, newPane.id);
+    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
 
     if (existingPreview) {
       setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
@@ -577,6 +580,42 @@ export function ProjectWindowPane({
           : g
       ));
     }
+    setFocusedGroupId(targetGroup.id);
+  }, [panes, groups, focusedGroupId]);
+
+  const handleOpenProcessLog = useCallback((processId: string, scriptName: string) => {
+    const paneKey = `process-log:${processId}`;
+    const existing = panes.find(p => p.id === paneKey);
+    if (existing) {
+      const g = groups.find(g => g.paneIds.includes(existing.id));
+      if (g) {
+        setFocusedGroupId(g.id);
+        setGroups(prev => prev.map(gg =>
+          gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg
+        ));
+      }
+      return;
+    }
+
+    const newPane: Pane = {
+      id: paneKey,
+      type: 'process-log',
+      processId,
+      title: scriptName,
+    };
+
+    const targetGroup = (focusedGroupId ? groups.find(g => g.id === focusedGroupId) : null) || groups[0];
+    if (!targetGroup) {
+      setPanes(prev => [...prev, newPane]);
+      return;
+    }
+
+    setPanes(prev => [...prev, newPane]);
+    setGroups(prev => prev.map(g =>
+      g.id === targetGroup.id
+        ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
+        : g
+    ));
     setFocusedGroupId(targetGroup.id);
   }, [panes, groups, focusedGroupId]);
 
@@ -614,7 +653,7 @@ export function ProjectWindowPane({
     }
 
     const groupPanes = targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p);
-    const existingPreview = findPreviewPane(groupPanes, newPane.id);
+    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
 
     if (existingPreview) {
       setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
@@ -823,6 +862,8 @@ export function ProjectWindowPane({
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
             sendMessage={wrappedSendMessage}
+            editMessage={editMessage}
+            switchBranch={switchBranch}
             loadHistory={loadHistory}
             chatError={chatError}
             sendWS={sendWS}
@@ -904,6 +945,12 @@ export function ProjectWindowPane({
             <DashboardPane />
           </Suspense>
         );
+      case 'process-log':
+        return pane.processId ? (
+          <Suspense fallback={LazySpinner}>
+            <ProcessLogPane processId={pane.processId} scriptName={pane.title} />
+          </Suspense>
+        ) : null;
       default:
         return null;
     }
@@ -924,6 +971,7 @@ export function ProjectWindowPane({
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
           onOpenFile={handleOpenFile}
           onWSMessage={onWSMessage}
+          onOpenProcessLog={handleOpenProcessLog}
           onOpenBoard={() => {
             const targetGroupId = focusedGroupId || groups[0]?.id;
             if (targetGroupId) handleAddPaneToGroup(targetGroupId, 'board');
@@ -1000,6 +1048,8 @@ interface ProjectWindowProps {
   isSessionStreaming: (sk: string) => boolean;
   stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
   sendWS: (msg: WSMessage) => void;
@@ -1018,7 +1068,7 @@ export function ProjectWindow({
   projectPath, topicIds, topics, focusedPanelId,
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
-  sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
   onAcceptTopicDrop,
 }: ProjectWindowProps) {
@@ -1082,6 +1132,8 @@ export function ProjectWindow({
         isSessionStreaming={isSessionStreaming}
         stopSession={stopSession}
         sendMessage={sendMessage}
+        editMessage={editMessage}
+        switchBranch={switchBranch}
         loadHistory={loadHistory}
         chatError={chatError}
         sendWS={sendWS}
