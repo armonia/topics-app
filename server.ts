@@ -51,7 +51,7 @@ initUsageStore(import.meta.dir);
 rebuildSummary();
 
 // Create route handlers
-const topicsRouter = createTopicsRouter(ctx);
+const topicsRouter = createTopicsRouter(ctx, browserService);
 const filesRouter = createFilesRouter(ctx);
 const browserRouter = createBrowserRouter(ctx, browserService);
 const cronRouter = createCronRouter(ctx);

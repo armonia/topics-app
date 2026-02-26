@@ -19,6 +19,8 @@ interface BrowserServiceOptions {
   inactivityTimeoutMs?: number;
   defaultViewport?: { width: number; height: number };
   screenshotQuality?: number;
+  /** CDP remote debugging port (default: 19222 — matches OpenClaw 'topics' browser profile) */
+  cdpPort?: number;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
@@ -35,6 +37,8 @@ export interface AccessibilityNode {
 export interface BrowserService {
   launch(): Promise<void>;
   close(): Promise<void>;
+  /** Get the CDP target ID for a context's page (used for OpenClaw browser tool routing) */
+  getTargetId(id: string): Promise<string | null>;
   createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean }): Promise<void>;
   destroyContext(id: string): Promise<void>;
   getOrCreate(id: string): Promise<BrowserContextEntry>;
@@ -68,6 +72,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     inactivityTimeoutMs = 30 * 60 * 1000,
     defaultViewport = { width: 1280, height: 720 },
     screenshotQuality = 70,
+    cdpPort = 19222,
   } = opts;
 
   const cookieDir = join(process.env.HOME || "/tmp", ".openclaw", "workspace", "topics-app", ".browser-cookies");
@@ -94,9 +99,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     browser = await pw.chromium.launch({
       executablePath: chromiumPath,
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        `--remote-debugging-port=${cdpPort}`,
+      ],
     });
-    console.log("[BrowserService] Chromium launched");
+    console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
     return browser;
   }
 
@@ -374,6 +384,49 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
     isLaunched() {
       return browser !== null && browser.isConnected();
+    },
+
+    async getTargetId(id) {
+      const entry = contexts.get(id);
+      if (!entry) return null;
+      try {
+        // Navigate to a unique identifier page if still on about:blank
+        // so we can match it in CDP target list
+        const pageUrl = entry.page.url();
+        if (pageUrl === "about:blank") {
+          // Set a unique title to identify this page in CDP
+          await entry.page.evaluate((ctxId: string) => {
+            document.title = `__topics_ctx_${ctxId}`;
+          }, id);
+        }
+
+        // Get CDP target ID by querying Chrome's debugging endpoint
+        const resp = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+        const targets = await resp.json() as any[];
+
+        // Match by unique title marker
+        const markerTitle = `__topics_ctx_${id}`;
+        const byMarker = targets.find((t: any) => t.title === markerTitle && t.type === "page");
+        if (byMarker) return byMarker.id;
+
+        // Fallback: match by page URL (for pages that have navigated)
+        if (pageUrl !== "about:blank") {
+          const byUrl = targets.find((t: any) => t.url === pageUrl && t.type === "page");
+          if (byUrl) return byUrl.id;
+        }
+
+        // Last resort: match by title
+        const pageTitle = await entry.page.title().catch(() => "");
+        if (pageTitle) {
+          const byTitle = targets.find((t: any) => t.title === pageTitle && t.type === "page");
+          if (byTitle) return byTitle.id;
+        }
+
+        return null;
+      } catch (err) {
+        console.warn(`[BrowserService] Failed to get targetId for ${id}:`, err);
+        return null;
+      }
     },
   };
 

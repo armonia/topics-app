@@ -6,8 +6,9 @@ import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
+import type { BrowserService } from "../browser-service";
 
-export function createTopicsRouter(ctx: AppContext): RouteHandler {
+export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR,
     broadcastToAll, broadcast, isTopicFocused,
@@ -23,6 +24,9 @@ export function createTopicsRouter(ctx: AppContext): RouteHandler {
 
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
   const browserNavigatedTopics = new Set<string>();
+
+  // Cache browser targetIds per topic context to avoid repeated lookups
+  const browserTargetIdCache = new Map<string, string>();
 
   function detectAndBroadcastBrowserMarker(content: string, topic: Topic | null): string {
     if (!topic) return content;
@@ -755,6 +759,39 @@ The marker will be automatically processed and removed from the visible output. 
         const browserInsertIdx = finalMessages.findIndex(m => m.role !== "system");
         finalMessages.splice(browserInsertIdx >= 0 ? browserInsertIdx : finalMessages.length, 0, browserInstruction);
 
+        // Browser isolation: ensure topic sessions use the 'topics' browser profile
+        // This creates an isolated browser context per topic via BrowserService.
+        // The BrowserService launches Chromium on CDP port 19222 (matching OpenClaw's 'topics' profile).
+        // Each topic gets its own BrowserContext (isolated cookies, localStorage, sessions).
+        if (browserService) {
+          const topicId = matchedTopic.id;
+          const contextId = topicId.slice(0, 8); // Match sessionKey format: topic:446c8612
+          try {
+            let targetId = browserTargetIdCache.get(contextId);
+            if (!targetId) {
+              // Lazy launch: only start browser when a topic session actually runs
+              if (!browserService.isLaunched()) {
+                await browserService.launch();
+                console.log(`[BrowserIsolation] BrowserService launched (CDP port 19222)`);
+              }
+              await browserService.getOrCreate(contextId);
+              targetId = await browserService.getTargetId(contextId) || undefined;
+              if (targetId) {
+                browserTargetIdCache.set(contextId, targetId);
+                console.log(`[BrowserIsolation] Created context for topic ${contextId}, targetId: ${targetId}`);
+              }
+            }
+            if (targetId) {
+              const isolationInstruction = { role: "system", content: `BROWSER ISOLATION: This topic has its own isolated browser context. When using the browser tool, you MUST use profile="topics" and targetId="${targetId}". This ensures your browsing session is isolated from other topics. Never use the default browser profile in topic sessions.` };
+              const isoIdx = finalMessages.findIndex(m => m.role !== "system");
+              finalMessages.splice(isoIdx >= 0 ? isoIdx : finalMessages.length, 0, isolationInstruction);
+            }
+          } catch (err) {
+            console.warn(`[BrowserIsolation] Failed to setup browser context for topic ${contextId}:`, err);
+            // Don't block the chat — browser isolation is best-effort
+          }
+        }
+
         // Topic auto-switch: inject directory of available topics
         const topicDirectory = buildTopicDirectory(matchedTopic.id);
         {
@@ -992,6 +1029,16 @@ Wait for the user to approve the plan before executing any changes.` };
                   const toolCall: ToolCall = { id: tc.id || crypto.randomUUID(), name: tc.function.name, args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {}, status: 'pending' };
                   addToolCallToLastMessage(sessionKey, toolCall);
                   broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+
+                  // Browser isolation monitoring
+                  if (toolCall.name === 'browser' && matchedTopic) {
+                    const profile = toolCall.args?.profile;
+                    if (profile === 'topics') {
+                      console.log(`[BrowserIsolation] ✓ Topic ${matchedTopic.id.slice(0,8)} using isolated browser (action: ${toolCall.args?.action})`);
+                    } else {
+                      console.warn(`[BrowserIsolation] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
+                    }
+                  }
                 }
               }
             }
