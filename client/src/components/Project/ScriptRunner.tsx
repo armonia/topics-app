@@ -20,26 +20,34 @@ function getScriptColor(name: string): string {
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const [runningScripts, setRunningScripts] = useState<ScriptProcessInfo[]>([]);
+  const [ready, setReady] = useState(false);
   const [startingScript, setStartingScript] = useState<string | null>(null);
 
-  // Load package.json scripts
+  // Load both scripts and running state together before rendering
   useEffect(() => {
-    filesApi.packageScripts(projectPath)
-      .then(data => setScripts(data.scripts))
-      .catch(() => setScripts({}));
+    let active = true;
+    Promise.all([
+      filesApi.packageScripts(projectPath).catch(() => ({ scripts: {} })),
+      scriptsApi.list().catch(() => ({ scripts: [] as ScriptProcessInfo[] })),
+    ]).then(([pkgData, runData]) => {
+      if (!active) return;
+      setScripts(pkgData.scripts);
+      setRunningScripts((runData.scripts as ScriptProcessInfo[]).filter(s => s.projectPath === projectPath));
+      setReady(true);
+    });
+    return () => { active = false; };
   }, [projectPath]);
 
-  // Poll running scripts (includes per-process ports)
+  // Poll running scripts after initial load
   useEffect(() => {
-    const fetchRunning = () => {
+    if (!ready) return;
+    const interval = setInterval(() => {
       scriptsApi.list()
         .then(data => setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath)))
-        .catch(() => setRunningScripts([]));
-    };
-    fetchRunning();
-    const interval = setInterval(fetchRunning, 3000);
+        .catch(() => {});
+    }, 3000);
     return () => clearInterval(interval);
-  }, [projectPath]);
+  }, [projectPath, ready]);
 
   const handleRunScript = useCallback(async (name: string) => {
     setStartingScript(name);
@@ -75,7 +83,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     if (sp.status === 'running') runningMap.set(sp.scriptName, sp);
   }
 
-  if (scriptEntries.length === 0) return null;
+  if (!ready || scriptEntries.length === 0) return null;
 
   return (
     <div className="text-[12px] pb-1">
