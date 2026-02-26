@@ -8,11 +8,8 @@ const FileExplorer = lazy(() => import('./FileExplorer').then(m => ({ default: m
 const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.GitChanges })));
 const TaskBoard = lazy(() => import('./TaskBoard').then(m => ({ default: m.TaskBoard })));
 
-const SectionSpinner = () => (
-  <div className="flex items-center justify-center py-4">
-    <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
-  </div>
-);
+// Invisible fallback — avoids layout shift while lazy components load
+const Noop = () => null;
 
 interface ProjectSidebarProps {
   projectPath: string;
@@ -228,7 +225,7 @@ export function ProjectSidebar({
           {/* Fixed content at top */}
           <div className="flex-shrink-0">
             {projectId && onWSMessage && (
-              <Suspense fallback={<SectionSpinner />}>
+              <Suspense fallback={<Noop />}>
                 <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
               </Suspense>
             )}
@@ -246,7 +243,7 @@ export function ProjectSidebar({
             </button>
             {expandedSections.files && (
               <div className="flex-1 min-h-0 overflow-y-auto">
-                <Suspense fallback={<SectionSpinner />}>
+                <Suspense fallback={<Noop />}>
                   <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
                 </Suspense>
               </div>
