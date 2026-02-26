@@ -20,16 +20,13 @@ function getScriptColor(name: string): string {
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const [runningScripts, setRunningScripts] = useState<ScriptProcessInfo[]>([]);
-  const [loading, setLoading] = useState(true);
   const [startingScript, setStartingScript] = useState<string | null>(null);
 
   // Load package.json scripts
   useEffect(() => {
-    setLoading(true);
     filesApi.packageScripts(projectPath)
       .then(data => setScripts(data.scripts))
-      .catch(() => setScripts({}))
-      .finally(() => setLoading(false));
+      .catch(() => setScripts({}));
   }, [projectPath]);
 
   // Poll running scripts (includes per-process ports)
@@ -76,14 +73,6 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const runningMap = new Map<string, ScriptProcessInfo>();
   for (const sp of runningScripts) {
     if (sp.status === 'running') runningMap.set(sp.scriptName, sp);
-  }
-
-  if (loading) {
-    return (
-      <div className="px-2 py-2">
-        <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin mx-auto" />
-      </div>
-    );
   }
 
   if (scriptEntries.length === 0) return null;
