@@ -83,7 +83,15 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     if (sp.status === 'running') runningMap.set(sp.scriptName, sp);
   }
 
-  if (!ready || scriptEntries.length === 0) return null;
+  if (!ready) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-app-text-tertiary text-[11px]">
+        <div className="w-3 h-3 border-[1.5px] border-app-spinner border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (scriptEntries.length === 0) return null;
 
   return (
     <div className="text-[12px] pb-1">
