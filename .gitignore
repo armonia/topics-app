@@ -45,6 +45,8 @@ yarn-error.log*
 # Runtime data
 data/
 memory/
+.state/
+.backups/
 /journal/
 pids
 *.pid

@@ -740,6 +740,7 @@ export interface ScriptProcessInfo {
   startedAt: string;
   completedAt?: string;
   exitCode?: number;
+  ports: number[];
 }
 
 export const scriptsApi = {
