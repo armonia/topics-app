@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Square, ChevronDown, ChevronRight } from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
 import type { ScriptProcessInfo } from '../../lib/api';
 
@@ -9,7 +9,6 @@ interface ScriptRunnerProps {
   onOpenProcessLog?: (processId: string, scriptName: string) => void;
 }
 
-// Categorize scripts for better display
 function getScriptColor(name: string): string {
   if (name.match(/^(dev|start|serve)/)) return 'text-green-500';
   if (name.match(/^(build|compile)/)) return 'text-blue-500';
@@ -21,7 +20,6 @@ function getScriptColor(name: string): string {
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const [runningScripts, setRunningScripts] = useState<ScriptProcessInfo[]>([]);
-  const [showScripts, setShowScripts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [startingScript, setStartingScript] = useState<string | null>(null);
 
@@ -38,10 +36,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   useEffect(() => {
     const fetchRunning = () => {
       scriptsApi.list()
-        .then(data => {
-          // Filter to scripts for this project
-          setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath));
-        })
+        .then(data => setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath)))
         .catch(() => setRunningScripts([]));
     };
     fetchRunning();
@@ -49,38 +44,28 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     return () => clearInterval(interval);
   }, [projectPath]);
 
+  // Run a script — does NOT open the log tab
   const handleRunScript = useCallback(async (name: string) => {
-    // Check if already running
-    const alreadyRunning = runningScripts.find(s => s.scriptName === name && s.status === 'running');
-    if (alreadyRunning) {
-      // Focus existing log
-      onOpenProcessLog?.(alreadyRunning.processId, name);
-      return;
-    }
-
     setStartingScript(name);
     try {
-      const result = await scriptsApi.run(projectPath, name);
-      onOpenProcessLog?.(result.processId, name);
-      // Refresh the list
+      await scriptsApi.run(projectPath, name);
+      // Refresh the running list
       const data = await scriptsApi.list();
       setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath));
-    } catch (err) {
-      // Fallback to terminal if available
+    } catch {
+      // Fallback to terminal
       if (onRunScript) {
-        const fullCommand = `cd ${JSON.stringify(projectPath)} && npm run ${name}`;
-        onRunScript(fullCommand);
+        onRunScript(`cd ${JSON.stringify(projectPath)} && npm run ${name}`);
       }
     } finally {
       setStartingScript(null);
     }
-  }, [projectPath, runningScripts, onRunScript, onOpenProcessLog]);
+  }, [projectPath, onRunScript]);
 
   const handleStopScript = useCallback(async (processId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await scriptsApi.stop(processId);
-      // Refresh
       setTimeout(async () => {
         const data = await scriptsApi.list();
         setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath));
@@ -89,14 +74,11 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   }, [projectPath]);
 
   const scriptEntries = Object.entries(scripts);
-  const hasScripts = scriptEntries.length > 0;
 
   // Map script name → running process
   const runningMap = new Map<string, ScriptProcessInfo>();
   for (const sp of runningScripts) {
-    if (sp.status === 'running') {
-      runningMap.set(sp.scriptName, sp);
-    }
+    if (sp.status === 'running') runningMap.set(sp.scriptName, sp);
   }
 
   if (loading) {
@@ -107,69 +89,56 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     );
   }
 
-  return (
-    <div className="text-[12px]">
-      {/* Scripts Section */}
-      {hasScripts && (
-        <>
-          <button
-            onClick={() => setShowScripts(!showScripts)}
-            className="w-full flex items-center gap-2 px-3 py-1 text-[10px] font-medium text-app-text-muted uppercase tracking-wider hover:bg-app-hover transition-colors"
-          >
-            {showScripts ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-            Scripts
-            <span className="ml-auto text-app-text-faint">{scriptEntries.length}</span>
-          </button>
-          {showScripts && (
-            <div className="pb-1">
-              {scriptEntries.map(([name, cmd]) => {
-                const running = runningMap.get(name);
-                const isStarting = startingScript === name;
+  if (scriptEntries.length === 0) return null;
 
-                return (
-                  <div
-                    key={name}
-                    className="flex items-center gap-1.5 px-3 py-1 hover:bg-app-hover transition-colors group cursor-pointer"
-                    onClick={() => {
-                      if (running) {
-                        onOpenProcessLog?.(running.processId, name);
-                      } else {
-                        handleRunScript(name);
-                      }
-                    }}
-                    title={cmd}
-                  >
-                    {running ? (
-                      <div className="w-[10px] h-[10px] flex-shrink-0 relative">
-                        <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
-                      </div>
-                    ) : isStarting ? (
-                      <div className="w-[10px] h-[10px] border border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                    ) : (
-                      <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
-                    )}
-                    <span className={`flex-1 truncate ${running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>
-                      {name}
-                    </span>
-                    {running && (
-                      <button
-                        onClick={(e) => handleStopScript(running.processId, e)}
-                        className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                        title="Stop"
-                      >
-                        <Square size={9} />
-                      </button>
-                    )}
-                    {!running && (
-                      <span className="text-[10px] text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
+  return (
+    <div className="text-[12px] pb-1">
+      {scriptEntries.map(([name, cmd]) => {
+        const running = runningMap.get(name);
+        const isStarting = startingScript === name;
+
+        return (
+          <div
+            key={name}
+            className="flex items-center gap-1.5 px-3 py-1 hover:bg-app-hover transition-colors group cursor-pointer"
+            onClick={() => {
+              if (running) {
+                // Click on running script → open/focus the log pane
+                onOpenProcessLog?.(running.processId, name);
+              } else if (!isStarting) {
+                // Click on idle script → just run it (no tab opens)
+                handleRunScript(name);
+              }
+            }}
+            title={cmd}
+          >
+            {running ? (
+              <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+                <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
+              </div>
+            ) : isStarting ? (
+              <div className="w-[10px] h-[10px] border border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            ) : (
+              <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
+            )}
+            <span className={`flex-1 truncate ${running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>
+              {name}
+            </span>
+            {running && (
+              <button
+                onClick={(e) => handleStopScript(running.processId, e)}
+                className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                title="Stop"
+              >
+                <Square size={9} />
+              </button>
+            )}
+            {!running && (
+              <span className="text-[10px] text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
