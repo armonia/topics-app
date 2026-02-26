@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Square } from 'lucide-react';
+import { Play, Square, Globe } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
 import type { ScriptProcessInfo } from '../../lib/api';
 
@@ -20,6 +20,7 @@ function getScriptColor(name: string): string {
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const [runningScripts, setRunningScripts] = useState<ScriptProcessInfo[]>([]);
+  const [ports, setPorts] = useState<{ port: number; pid: number; command: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [startingScript, setStartingScript] = useState<string | null>(null);
 
@@ -32,15 +33,22 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       .finally(() => setLoading(false));
   }, [projectPath]);
 
-  // Poll running scripts
+  // Poll running scripts + ports together
   useEffect(() => {
-    const fetchRunning = () => {
-      scriptsApi.list()
-        .then(data => setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath)))
-        .catch(() => setRunningScripts([]));
+    const fetchAll = async () => {
+      try {
+        const [scriptsData, statusRes] = await Promise.all([
+          scriptsApi.list(),
+          fetch('/api/system/status').then(r => r.ok ? r.json() : null),
+        ]);
+        setRunningScripts(scriptsData.scripts.filter(s => s.projectPath === projectPath));
+        if (statusRes?.ports) setPorts(statusRes.ports);
+      } catch {
+        setRunningScripts([]);
+      }
     };
-    fetchRunning();
-    const interval = setInterval(fetchRunning, 3000);
+    fetchAll();
+    const interval = setInterval(fetchAll, 5000);
     return () => clearInterval(interval);
   }, [projectPath]);
 
@@ -103,10 +111,8 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
             className="flex items-center gap-1.5 px-3 py-1 hover:bg-app-hover transition-colors group cursor-pointer"
             onClick={() => {
               if (running) {
-                // Click on running script → open/focus the log pane
                 onOpenProcessLog?.(running.processId, name);
               } else if (!isStarting) {
-                // Click on idle script → just run it (no tab opens)
                 handleRunScript(name);
               }
             }}
@@ -139,6 +145,30 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
           </div>
         );
       })}
+
+      {/* Active Ports */}
+      {ports.length > 0 && (
+        <div className="mt-1 border-t border-app-border pt-1">
+          {ports.map(p => (
+            <div
+              key={p.port}
+              className="flex items-center gap-1.5 px-3 py-1 hover:bg-app-hover transition-colors"
+            >
+              <Globe size={10} className="text-green-500 flex-shrink-0" />
+              <a
+                href={`http://localhost:${p.port}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline flex-shrink-0"
+                onClick={e => e.stopPropagation()}
+              >
+                :{p.port}
+              </a>
+              <span className="text-app-text-faint truncate">{p.command}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
