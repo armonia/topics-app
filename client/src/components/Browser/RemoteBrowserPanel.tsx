@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Plus, X } from 'lucide-react';
+import { Globe, Plus, X, Server } from 'lucide-react';
 
 interface BrowserTab {
   id: string;
@@ -17,7 +17,29 @@ interface RemoteBrowserPanelProps {
   onNavigateConsumed?: () => void;
 }
 
-export function RemoteBrowserPanel({ contextId: _baseContextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+  // Track server-side browser context status
+  const [serverContext, setServerContext] = useState<{ active: boolean; url?: string; title?: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(`/api/browsers/${contextId}`);
+        if (!cancelled) {
+          if (res.ok) {
+            const data = await res.json();
+            setServerContext({ active: true, url: data.url, title: data.title });
+          } else {
+            setServerContext({ active: false });
+          }
+        }
+      } catch { if (!cancelled) setServerContext({ active: false }); }
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [contextId]);
+
   const [tabs, setTabs] = useState<BrowserTab[]>(() => [{
     id: '1',
     url: initialUrl || '',
@@ -125,6 +147,16 @@ export function RemoteBrowserPanel({ contextId: _baseContextId, initialUrl, navi
         >
           <Plus size={12} />
         </button>
+        {/* Server-side context indicator */}
+        {serverContext?.active && (
+          <div
+            className="flex items-center gap-1 px-1.5 text-[10px] text-emerald-400 flex-shrink-0"
+            title={`Agent browser active: ${serverContext.url || 'idle'}`}
+          >
+            <Server size={10} />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          </div>
+        )}
       </div>
 
       {/* Toolbar */}

@@ -88,6 +88,29 @@ export function createBrowserRouter(ctx: AppContext, browserService: BrowserServ
             return new Response(buf, { headers: { "Content-Type": body.format === "png" ? "image/png" : "image/jpeg", "Cache-Control": "no-cache" } });
           }
 
+          case "snapshot": {
+            const snap = await browserService.accessibilitySnapshot(id);
+            return json(snap);
+          }
+
+          case "click_selector":
+            if (!body.selector) return json({ error: "selector required" }, 400);
+            await browserService.clickSelector(id, body.selector, { button: body.button });
+            return json({ ok: true });
+
+          case "fill":
+            if (!body.selector || body.value == null) return json({ error: "selector and value required" }, 400);
+            await browserService.fillSelector(id, body.selector, body.value);
+            return json({ ok: true });
+
+          case "save_cookies":
+            await browserService.saveCookies(id);
+            return json({ ok: true });
+
+          case "load_cookies":
+            await browserService.loadCookies(id);
+            return json({ ok: true });
+
           case "back":
             return json(await browserService.goBack(id));
 
@@ -120,6 +143,35 @@ export function createBrowserRouter(ctx: AppContext, browserService: BrowserServ
         return new Response(buf, { headers: { "Content-Type": format === "png" ? "image/png" : "image/jpeg", "Cache-Control": "no-cache" } });
       } catch (err: any) {
         return errorResponse(500, `Snapshot failed: ${err.message}`);
+      }
+    }
+
+    // --- Accessibility snapshot (text-based, for agents) ---
+    const a11yMatch = matchRoute(pathname, "/api/browsers/:id/a11y");
+    if (method === "GET" && a11yMatch) {
+      try {
+        const snap = await browserService.accessibilitySnapshot(a11yMatch.id);
+        // Return compact text representation for LLM consumption
+        function formatNode(node: any, depth = 0): string {
+          if (!node) return "";
+          const indent = "  ".repeat(depth);
+          let line = `${indent}[${node.role}]`;
+          if (node.name) line += ` "${node.name}"`;
+          if (node.value) line += ` value="${node.value}"`;
+          if (node.description) line += ` (${node.description})`;
+          const lines = [line];
+          if (node.children) {
+            for (const child of node.children) {
+              lines.push(formatNode(child, depth + 1));
+            }
+          }
+          return lines.join("\n");
+        }
+        const treeText = snap.tree ? formatNode(snap.tree) : "(empty page)";
+        const text = `URL: ${snap.url}\nTitle: ${snap.title}\n\n${treeText}`;
+        return new Response(text, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      } catch (err: any) {
+        return errorResponse(500, `A11y snapshot failed: ${err.message}`);
       }
     }
 
