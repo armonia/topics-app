@@ -928,7 +928,7 @@ function App() {
   return (
     <ToastProvider>
     <div
-      className="h-screen flex bg-app-bg"
+      className="h-screen flex bg-app-bg overflow-hidden max-w-[100vw]"
       style={{ fontSize: `${appSettings.fontSize}px` }}
     >
       {/* Skip to main content link for keyboard users */}
@@ -1208,7 +1208,7 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         {/* Safe area spacer for PWA notch when sidebar is closed */}
         {isPWA && sidebarCollapsed && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0, background: 'inherit' }} />}
         {/* Connection status is now shown inline in the sidebar top line */}

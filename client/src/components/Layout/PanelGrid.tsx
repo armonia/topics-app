@@ -655,7 +655,7 @@ export function PanelGrid({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden relative"
+      className="flex-1 flex flex-col min-h-0 min-w-0 overflow-y-auto overflow-x-hidden relative"
       onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); }}
     >
       {/* External drop zone overlay (cross-window drag from another window) */}
@@ -679,7 +679,7 @@ export function PanelGrid({
       {gridRows.map((row, rowIdx) => (
         <Fragment key={rowIdx}>
           <div
-            className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0`}
+            className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0 min-w-0 overflow-hidden`}
             style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / gridRows.length} 1 0%` }}
           >
             {row.itemKeys.map((key, colIdx) => {
