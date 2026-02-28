@@ -655,7 +655,7 @@ export function PanelGrid({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col min-h-0 overflow-auto relative"
+      className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden relative"
       onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); }}
     >
       {/* External drop zone overlay (cross-window drag from another window) */}
