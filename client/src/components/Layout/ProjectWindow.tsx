@@ -449,8 +449,11 @@ export function ProjectWindowPane({
     const pane = panes.find(p => p.id === paneId);
     if (pane?.type === 'chat' && pane.topicId) {
       onFocusPanel(pane.topicId);
+    } else {
+      // Non-chat pane (file, terminal, etc.) — focus the project itself
+      onFocusPanel(createPaneId('project', projectPath));
     }
-  }, [panes, onFocusPanel]);
+  }, [panes, onFocusPanel, projectPath]);
 
   const handleClosePane = useCallback((groupId: string, paneId: string) => {
     const pane = panes.find(p => p.id === paneId);

@@ -5,10 +5,14 @@ import { ChatPanel } from './ChatPanel';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
-import { PANE_CONFIG, isProjectPaneId, getProjectPathFromPaneId } from '../../lib/paneConfig';
+import { PANE_CONFIG, isProjectPaneId, getProjectPathFromPaneId, createPaneId } from '../../lib/paneConfig';
+import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
+import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
+
+const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
@@ -19,6 +23,10 @@ const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ d
 
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
+
+function isBrowserPaneId(id: string): boolean {
+  return id.startsWith('browser:');
+}
 
 interface StandaloneChatGroupProps {
   topicIds: string[];
@@ -32,6 +40,8 @@ interface StandaloneChatGroupProps {
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
   sendWS: (msg: WSMessage) => void;
@@ -60,7 +70,7 @@ export function StandaloneChatGroup({
   topicIds, topics, focusedPanelId,
   onFocusPanel, onClosePanel, onDragStart,
   getSessionMessages, isSessionLoading, isSessionStreaming,
-  sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
   onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
@@ -71,14 +81,25 @@ export function StandaloneChatGroup({
   const [panelDragOver, setPanelDragOver] = useState(false);
   // Track which panes have been pinned (not preview)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
-  const pinnedIdsRef = useRef(pinnedIds);
-  pinnedIdsRef.current = pinnedIds;
+  // Effective pinned set: always includes project & utility panes (they must never be replaced)
+  const effectivePinnedIds = useMemo(() => {
+    const s = new Set(pinnedIds);
+    for (const id of orderedIds) {
+      if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id)) s.add(id);
+    }
+    return s;
+  }, [pinnedIds, orderedIds]);
+  const pinnedIdsRef = useRef(effectivePinnedIds);
+  pinnedIdsRef.current = effectivePinnedIds;
   // Pending preview close (deferred to avoid loop with parent)
   const pendingCloseRef = useRef<string | null>(null);
   // Context inspector state (lifted from ChatPanel so ring click can toggle it)
   const [contextOpen, setContextOpen] = useState(false);
   // Settings modal state (opened via right-click menu on tabs)
   const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
+
+  // Browser navigate URL (from WS)
+  const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
 
   // Sync when topicIds change externally (add/remove)
   // Handles preview replacement: new tab replaces the existing preview tab
@@ -88,13 +109,19 @@ export function StandaloneChatGroup({
     prevTopicCountRef.current = topicIds.length;
 
     setOrderedIds(prev => {
-      const existing = prev.filter(id => topicIds.includes(id));
+      // Drop standalone browser panes when a project pane exists
+      // (projects manage their own browser internally via GroupLayout)
+      const hasProject = topicIds.some(id => isProjectPaneId(id)) || prev.some(id => isProjectPaneId(id));
+      const existing = prev.filter(id => {
+        if (isBrowserPaneId(id)) return !hasProject; // remove browser panes when project exists
+        return topicIds.includes(id);
+      });
       const added = topicIds.filter(id => !prev.includes(id));
 
       // Preview replacement: if a single new tab was added, replace existing preview
       if (wasAdded && added.length === 1) {
         const previewId = findPreviewInList(existing, pinnedIdsRef.current, added[0]);
-        if (previewId) {
+        if (previewId && !isBrowserPaneId(previewId)) {
           pendingCloseRef.current = previewId;
           return replaceInList(existing, previewId, added[0]);
         }
@@ -102,9 +129,9 @@ export function StandaloneChatGroup({
 
       return [...existing, ...added];
     });
-    // Cleanup pinnedIds for removed topics
+    // Cleanup pinnedIds for removed topics (keep browser panes)
     setPinnedIds(prev => {
-      const next = new Set([...prev].filter(id => topicIds.includes(id)));
+      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id)));
       return next.size === prev.size ? prev : next;
     });
   }, [topicIds]);
@@ -123,17 +150,82 @@ export function StandaloneChatGroup({
     ? focusedPanelId!
     : orderedIds[0] || null;
 
-  // Determine if the active pane is a utility panel, project pane, or a chat topic
-  const activeIsProject = activePaneId ? isProjectPaneId(activePaneId) : false;
+  // Determine if the active pane is a utility panel, project pane, browser pane, or a chat topic
+  const activeIsBrowser = activePaneId ? isBrowserPaneId(activePaneId) : false;
+  const activeIsProject = activePaneId && !activeIsBrowser ? isProjectPaneId(activePaneId) : false;
   const activeProjectPath = activePaneId && activeIsProject ? getProjectPathFromPaneId(activePaneId) : null;
-  const activeIsUtility = activePaneId && !activeIsProject ? isUtilityPanelId(activePaneId) : false;
+  const activeIsUtility = activePaneId && !activeIsProject && !activeIsBrowser ? isUtilityPanelId(activePaneId) : false;
   const activeUtilityType = activePaneId && activeIsUtility ? parseUtilityPanelType(activePaneId) : null;
-  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject ? topics[activePaneId] : null;
+  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser ? topics[activePaneId] : null;
 
-  // Build Pane[] for PaneTabBar (mix of chat topics, utility panes, and project panes)
+  // Compute browser context ID for RemoteBrowserPanel
+  const browserContextId = useMemo(() => {
+    // Find a topic with projectPath among ordered IDs for context
+    for (const id of orderedIds) {
+      if (isProjectPaneId(id)) {
+        const p = getProjectPathFromPaneId(id);
+        if (p) return p;
+      }
+      const t = topics[id];
+      if (t?.projectPath) return t.id.slice(0, 8);
+    }
+    return orderedIds[0]?.slice(0, 8) || 'default';
+  }, [orderedIds, topics]);
+
+  // Listen for browser:navigate WS — add browser pane if needed and navigate
+  // Skip when a project pane exists (projects manage their own browser internally)
+  const hasProjectPaneRef = useRef(false);
+  hasProjectPaneRef.current = orderedIds.some(id => isProjectPaneId(id));
+  useEffect(() => {
+    const unsub = onWSMessage((msg: any) => {
+      if (msg.type === 'browser:navigate' && msg.url) {
+        if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
+        if (msg.topicId && orderedIds.includes(msg.topicId)) {
+          setBrowserNavigateUrl(msg.url);
+          // Add browser pane if not already present, and focus it
+          const existing = orderedIds.find(id => isBrowserPaneId(id));
+          if (existing) {
+            setTimeout(() => onFocusPanel(existing), 0);
+          } else {
+            const newId = createPaneId('browser');
+            setOrderedIds(prev => [...prev, newId]);
+            setTimeout(() => onFocusPanel(newId), 0);
+          }
+        }
+      }
+    });
+    return unsub;
+  }, [onWSMessage, orderedIds, onFocusPanel]);
+
+  // Handle initialTab === 'browser' by adding a browser pane
+  useEffect(() => {
+    if (activePaneId && panelInitialTab?.[activePaneId] === 'browser') {
+      onPanelInitialTabConsumed?.(activePaneId);
+      setOrderedIds(prev => {
+        const existing = prev.find(id => isBrowserPaneId(id));
+        if (existing) {
+          setTimeout(() => onFocusPanel(existing), 0);
+          return prev;
+        }
+        const newId = createPaneId('browser');
+        setTimeout(() => onFocusPanel(newId), 0);
+        return [...prev, newId];
+      });
+    }
+  }, [activePaneId, panelInitialTab, onPanelInitialTabConsumed, onFocusPanel]);
+
+  // Build Pane[] for PaneTabBar (mix of chat topics, utility panes, project panes, and browser panes)
   const panes: Pane[] = useMemo(() =>
     orderedIds.map(id => {
-      const isPreview = !pinnedIds.has(id);
+      const isPreview = !effectivePinnedIds.has(id);
+      if (isBrowserPaneId(id)) {
+        return {
+          id,
+          type: 'browser' as PaneType,
+          title: 'Browser',
+          preview: false,
+        };
+      }
       if (isProjectPaneId(id)) {
         const projectPath = getProjectPathFromPaneId(id)!;
         return {
@@ -162,7 +254,7 @@ export function StandaloneChatGroup({
         title: topics[id]?.name || 'Chat',
         preview: isPreview,
       };
-    }), [orderedIds, topics, pinnedIds]);
+    }), [orderedIds, topics, effectivePinnedIds]);
 
   const handleReorderPanes = useCallback((newPaneIds: string[]) => {
     setOrderedIds(newPaneIds);
@@ -172,6 +264,35 @@ export function StandaloneChatGroup({
   const handlePinPane = useCallback((paneId: string) => {
     setPinnedIds(prev => new Set([...prev, paneId]));
   }, []);
+
+  // Add a pane via the "+" menu
+  const handleAddPane = useCallback((type: PaneType) => {
+    if (type === 'browser') {
+      // Singleton: if browser pane already exists, just focus it
+      const existing = orderedIds.find(id => isBrowserPaneId(id));
+      if (existing) {
+        onFocusPanel(existing);
+        return;
+      }
+      const newId = createPaneId('browser');
+      setOrderedIds(prev => [...prev, newId]);
+      onFocusPanel(newId);
+    }
+  }, [orderedIds, onFocusPanel]);
+
+  // Close handler: support closing browser panes locally (they're not in topicIds)
+  const handleClosePane = useCallback((paneId: string) => {
+    if (isBrowserPaneId(paneId)) {
+      setOrderedIds(prev => prev.filter(id => id !== paneId));
+      // If the closed pane was active, focus the first remaining
+      if (activePaneId === paneId) {
+        const remaining = orderedIds.filter(id => id !== paneId);
+        if (remaining.length > 0) onFocusPanel(remaining[0]);
+      }
+    } else {
+      onClosePanel(paneId);
+    }
+  }, [onClosePanel, activePaneId, orderedIds, onFocusPanel]);
 
   // Cross-group drop: accept a tab dragged from a project tab bar
   const handleCrossGroupDrop = useCallback((sourcePaneId: string, _sourceGroupId: string, _insertIdx: number) => {
@@ -214,17 +335,40 @@ export function StandaloneChatGroup({
   const paneToTopicMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const id of orderedIds) {
-      if (!isUtilityPanelId(id) && !isProjectPaneId(id)) map[id] = id;
+      if (!isUtilityPanelId(id) && !isProjectPaneId(id) && !isBrowserPaneId(id)) map[id] = id;
     }
     return map;
   }, [orderedIds]);
   const contextPercent = useMultiContextPercent(paneToTopicMap);
 
+  // Project tab status indicators (git + processes)
+  const projectPaths = useMemo(() => {
+    const paths: string[] = [];
+    for (const id of orderedIds) {
+      if (isProjectPaneId(id)) {
+        const p = getProjectPathFromPaneId(id);
+        if (p) paths.push(p);
+      }
+    }
+    return paths;
+  }, [orderedIds]);
+  const projectStatusByPath = useProjectTabStatus(projectPaths);
+  const projectStatus = useMemo(() => {
+    const map: Record<string, ProjectTabStatus> = {};
+    for (const id of orderedIds) {
+      if (isProjectPaneId(id)) {
+        const p = getProjectPathFromPaneId(id);
+        if (p && projectStatusByPath[p]) map[id] = projectStatusByPath[p];
+      }
+    }
+    return map;
+  }, [orderedIds, projectStatusByPath]);
+
   // Build set of pane IDs that are currently streaming (only chat panes stream)
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const id of orderedIds) {
-      if (isUtilityPanelId(id)) continue;
+      if (isUtilityPanelId(id) || isBrowserPaneId(id)) continue;
       const topic = topics[id];
       if (topic && isSessionStreaming(topic.sessionKey)) {
         ids.add(id);
@@ -261,8 +405,21 @@ export function StandaloneChatGroup({
   }, [onClosePanel]);
 
   if (orderedIds.length === 0) return null;
-  // Need at least one valid pane (either a topic, a utility, or a project)
-  if (!activeTopic && !activeIsUtility && !activeIsProject) return null;
+  // Need at least one valid pane (either a topic, a utility, a project, or a browser)
+  if (!activeTopic && !activeIsUtility && !activeIsProject && !activeIsBrowser) return null;
+
+  // Available pane types for the "+" menu
+  // Don't offer browser when a project pane exists (projects manage their own browser internally)
+  const hasProjectPane = orderedIds.some(id => isProjectPaneId(id));
+  const availableTypes: PaneType[] = (() => {
+    if (hasProjectPane) return []; // Project panes have their own "+" with browser/terminal/git
+    const types: PaneType[] = ['browser'];
+    // Only offer types that aren't already open (singleton check)
+    return types.filter(t => {
+      if (t === 'browser') return !orderedIds.some(id => isBrowserPaneId(id));
+      return true;
+    });
+  })();
 
   // Tab bar rendered inline in header
   const tabBar = (
@@ -270,12 +427,21 @@ export function StandaloneChatGroup({
       className="flex-1 flex items-center bg-elevated/60 p-1 gap-0.5 min-w-0"
       panes={panes}
       activePaneId={activePaneId}
-      onActivate={(paneId) => onFocusPanel(paneId)}
-      onClose={(paneId) => onClosePanel(paneId)}
-      onAddPane={() => {}}
-      availableTypes={[]}
+      onActivate={(paneId) => {
+        if (isBrowserPaneId(paneId)) {
+          // Browser panes are managed locally, just update focus
+          onFocusPanel(paneId);
+        } else {
+          onFocusPanel(paneId);
+        }
+      }}
+      onClose={handleClosePane}
+      onAddPane={handleAddPane}
+      availableTypes={availableTypes}
       groupId="standalone"
-      onNewChat={onNewChat}
+      onNewChat={activeIsProject && activeProjectPath && onNewChatInProject
+        ? () => onNewChatInProject(activeProjectPath)
+        : onNewChat}
       onReorderPanes={handleReorderPanes}
       onCrossGroupDrop={onAcceptProjectTopicDrop ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
@@ -285,6 +451,7 @@ export function StandaloneChatGroup({
       streamingPaneIds={streamingPaneIds}
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}
+      projectStatus={projectStatus}
     />
   );
 
@@ -298,7 +465,22 @@ export function StandaloneChatGroup({
         onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
       >
-        {activeIsProject && activeProjectPath ? (
+        {activeIsBrowser ? (
+          /* ---- Browser pane content ---- */
+          <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg></button>}
+              <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag">{tabBar}</div>
+            </div>
+            <Suspense fallback={LazySpinner}>
+              <RemoteBrowserPanel
+                contextId={browserContextId}
+                navigateUrl={browserNavigateUrl || undefined}
+                onNavigateConsumed={() => setBrowserNavigateUrl(null)}
+              />
+            </Suspense>
+          </div>
+        ) : activeIsProject && activeProjectPath ? (
           /* ---- Project pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
@@ -316,6 +498,8 @@ export function StandaloneChatGroup({
               isSessionStreaming={isSessionStreaming}
               stopSession={stopSession}
               sendMessage={sendMessage}
+              editMessage={editMessage}
+              switchBranch={switchBranch}
               loadHistory={loadHistory}
               chatError={chatError}
               sendWS={sendWS}
@@ -364,13 +548,15 @@ export function StandaloneChatGroup({
             getSessionMessages={getSessionMessages}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
-            sendMessage={!pinnedIds.has(activePaneId!)
+            sendMessage={!effectivePinnedIds.has(activePaneId!)
               ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
                   setPinnedIds(prev => new Set([...prev, activePaneId!]));
                   return sendMessage(sk, content, options);
                 }
               : sendMessage
             }
+            editMessage={editMessage}
+            switchBranch={switchBranch}
             loadHistory={loadHistory}
             chatError={chatError}
             sendWS={sendWS}

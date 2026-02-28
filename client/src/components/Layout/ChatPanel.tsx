@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Settings, Pin, X, ExternalLink, Menu, MessageSquare, Globe, TerminalSquare, Layers } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Menu, MessageSquare, TerminalSquare, Layers } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
-const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const TerminalPanel = lazy(() => import('../Terminal/TerminalPanel').then(m => ({ default: m.TerminalPanel })));
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
@@ -20,6 +19,8 @@ interface ChatPanelProps {
   onDragStart: (e: React.DragEvent) => void; onToggleSidebar?: () => void; isDragOver: boolean;
   getSessionMessages: (sk: string) => ChatMessage[]; isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>; chatError: string | null;
   sendWS: (msg: WSMessage) => void; onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
@@ -36,7 +37,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   topic, isFocused, onFocus, onClose, onDragStart, onToggleSidebar, isDragOver,
-  getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, loadHistory,
+  getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, editMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
@@ -63,13 +64,12 @@ export function ChatPanel({
 
   // Consume initial tab override
   useEffect(() => {
-    if (initialTab) {
+    if (initialTab && initialTab !== 'browser') {
       setActiveTab(initialTab);
       onInitialTabConsumed?.();
     }
   }, [initialTab, onInitialTabConsumed]);
   const [suggestedProject, setSuggestedProject] = useState<string | null>(null);
-  const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -79,17 +79,6 @@ export function ChatPanel({
   const currentMessages = getSessionMessages(topic.sessionKey);
 
   useEffect(() => { if (isFocused) { topicsApi.markRead(topic.id).catch(() => {}); sendWS({ type: 'focus', topicId: topic.id }); } }, [isFocused, topic.id, sendWS]);
-
-  // Listen for browser:navigate WS to switch tabs
-  useEffect(() => {
-    const unsub = onWSMessage((msg: any) => {
-      if (msg.type === 'browser:navigate' && msg.topicId === topic.id && msg.url) {
-        setBrowserNavigateUrl(msg.url);
-        setActiveTab('browser');
-      }
-    });
-    return unsub;
-  }, [onWSMessage, topic.id]);
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
   const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
@@ -101,14 +90,13 @@ export function ChatPanel({
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
 
-  // Standalone tabs: show browser/terminal if topic has a project OR if opened as terminal
+  // Standalone tabs: show terminal if topic has a project OR if opened as terminal
   const isTerminalTopic = activeTab === 'terminal' || topic.name === 'Terminal';
   const isDedicatedTerminal = isTerminalTopic && !topic.projectPath;
   const tabs: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
     // Skip chat tab for dedicated standalone terminals — they go straight to terminal
     ...(!isDedicatedTerminal ? [{ id: 'chat' as PanelTab, label: 'Chat', icon: <MessageSquare size={13} /> }] : []),
     ...(topic.projectPath || isTerminalTopic ? [
-      ...(!isTerminalTopic || topic.projectPath ? [{ id: 'browser' as PanelTab, label: 'Browser', icon: <Globe size={13} /> }] : []),
       { id: 'terminal' as PanelTab, label: 'Terminal', icon: <TerminalSquare size={13} /> },
     ] : []),
   ];
@@ -158,7 +146,7 @@ export function ChatPanel({
           {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Close panel" aria-label="Close panel"><X size={14} strokeWidth={1.5} /></button>}
         </div>
 
-        {/* Tab Bar — hidden when only one tab (standalone chat) */}
+        {/* Tab Bar — hidden when only one tab */}
         {tabs.length > 1 && (
           <div role="tablist" aria-label="Panel views" className="flex items-center border-b border-app-border bg-elevated dark:bg-elevated flex-shrink-0 px-1 relative z-10">
             {tabs.map(tab => (
@@ -187,27 +175,28 @@ export function ChatPanel({
 
         {/* Main Content with optional Context Inspector slide-out */}
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
-          {/* Main panel */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            {activeTab === 'browser' ? (
-              <Suspense fallback={LazySpinner}><RemoteBrowserPanel contextId={topic.id} navigateUrl={browserNavigateUrl || undefined} onNavigateConsumed={() => setBrowserNavigateUrl(null)} /></Suspense>
-            ) : activeTab === 'terminal' ? (
-              <Suspense fallback={LazySpinner}><TerminalPanel projectPath={topic.projectPath} topicId={topic.id} /></Suspense>
-            ) : (
-              <ChatPane
-                topic={topic}
-                isFocused={isFocused}
-                getSessionMessages={getSessionMessages}
-                isSessionLoading={isSessionLoading}
-                isSessionStreaming={isSessionStreaming}
-                sendMessage={sendMessage}
-                loadHistory={loadHistory}
-                chatError={chatError}
-                sendWS={sendWS}
-                onWSMessage={onWSMessage}
-                onUpdateTopic={onUpdateTopic}
-              />
-            )}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              {activeTab === 'terminal' ? (
+                <Suspense fallback={LazySpinner}><TerminalPanel projectPath={topic.projectPath} topicId={topic.id} /></Suspense>
+              ) : (
+                <ChatPane
+                  topic={topic}
+                  isFocused={isFocused}
+                  getSessionMessages={getSessionMessages}
+                  isSessionLoading={isSessionLoading}
+                  isSessionStreaming={isSessionStreaming}
+                  sendMessage={sendMessage}
+                  editMessage={editMessage}
+                  switchBranch={switchBranch}
+                  loadHistory={loadHistory}
+                  chatError={chatError}
+                  sendWS={sendWS}
+                  onWSMessage={onWSMessage}
+                  onUpdateTopic={onUpdateTopic}
+                />
+              )}
+            </div>
           </div>
 
           {/* Context Inspector slide-out — overlay when narrow */}

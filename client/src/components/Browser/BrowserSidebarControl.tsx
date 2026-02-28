@@ -11,9 +11,10 @@ interface BrowserContext {
 interface BrowserSidebarControlProps {
   enabled?: boolean;
   onContextCount?: (count: number) => void;
+  onOpenBrowser?: () => void;
 }
 
-export function BrowserSidebarControl({ enabled = true, onContextCount }: BrowserSidebarControlProps) {
+export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBrowser }: BrowserSidebarControlProps) {
   const [contexts, setContexts] = useState<BrowserContext[]>([]);
   const [serviceRunning, setServiceRunning] = useState(false);
 
@@ -44,7 +45,7 @@ export function BrowserSidebarControl({ enabled = true, onContextCount }: Browse
 
   const closeContext = useCallback(async (id: string) => {
     try {
-      await fetch(`/api/browsers/${id}`, { method: 'DELETE' });
+      await fetch(`/api/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
       setContexts(prev => prev.filter(c => c.id !== id));
     } catch (err) {
       console.error('[BrowserSidebar] Close context failed:', err);
@@ -66,7 +67,8 @@ export function BrowserSidebarControl({ enabled = true, onContextCount }: Browse
         {contexts.map(ctx => (
           <div
             key={ctx.id}
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-app-text-muted hover:bg-app-hover group"
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-app-text-muted hover:bg-app-hover group cursor-pointer"
+            onClick={() => onOpenBrowser?.()}
           >
             <Globe size={11} className="flex-shrink-0 opacity-60" />
             <span className="text-[11px] truncate flex-1" title={ctx.url}>
