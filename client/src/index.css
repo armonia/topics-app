@@ -256,11 +256,15 @@ html {
 
 /* Prevent long words from causing horizontal scroll */
 .message-content {
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   word-break: break-word;
   hyphens: auto;
   max-width: 100%;
   min-width: 0;
+}
+
+.message-content code {
+  word-break: break-all;
 }
 
 /* Ensure form inputs never overflow their container */
@@ -344,6 +348,8 @@ code {
   border-radius: 0.2rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.8125em;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* Inline code inside user message bubbles (blue bg) */
