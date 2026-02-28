@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wifi, Server, RefreshCw, Clock, RotateCcw } from 'lucide-react';
+import { Wifi, Server, HardDrive, RefreshCw, Clock, RotateCcw } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { openclawControlApi } from '../../lib/api';
 
@@ -58,6 +58,15 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             color="green"
           />
 
+          {/* Memory */}
+          <StatusRow
+            icon={<HardDrive size={12} />}
+            label="Memory"
+            value={`${status.server.memoryMB} MB`}
+            detail={`heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB`}
+            color={status.server.memoryMB > 512 ? 'yellow' : 'green'}
+          />
+
           {/* Cron Jobs */}
           <StatusRow
             icon={<Clock size={12} />}
@@ -99,23 +108,11 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           onClick={refresh}
           disabled={loading}
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
-          title={status ? `Memoria: ${status.server.memoryMB} MB (heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB)` : undefined}
         >
           <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-          <span className="flex items-center gap-1">
-            {status && (
-              <span className={status.server.memoryMB > 512 ? 'text-amber-400' : ''}>
-                {status.server.memoryMB} MB
-              </span>
-            )}
-            {status?.gateway.lastCheckedAt && (
-              <>
-                <span className="text-app-text-muted/50">·</span>
-                <span>{formatTimeAgo(status.gateway.lastCheckedAt)}</span>
-              </>
-            )}
-            {!status && 'Refresh'}
-          </span>
+          {status?.gateway.lastCheckedAt
+            ? formatTimeAgo(status.gateway.lastCheckedAt)
+            : 'Refresh'}
         </button>
         <button
           onClick={async () => {

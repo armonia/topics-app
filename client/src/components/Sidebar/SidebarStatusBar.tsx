@@ -1,9 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Cpu, Wifi } from 'lucide-react';
+import { Wifi } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
-import { useAgents } from '@/hooks/useAgents';
-import type { SidebarTab } from '@/types';
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
@@ -30,17 +28,9 @@ function useFps() {
   return fps;
 }
 
-interface SidebarStatusBarProps {
-  onOpenTab?: (tab: SidebarTab) => void;
-  onBadgeData?: (badges: Partial<Record<SidebarTab, number | boolean | string>>) => void;
-}
-
-export function SidebarStatusBar({ onOpenTab, onBadgeData }: SidebarStatusBarProps) {
+export function SidebarStatusBar() {
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
-  // Background polling for agent count (30s)
-  const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: true });
-
   const gatewayOnline = status?.gateway.online ?? false;
   const latency = status?.gateway.latencyMs;
   const fps = useFps();
@@ -48,15 +38,6 @@ export function SidebarStatusBar({ onOpenTab, onBadgeData }: SidebarStatusBarPro
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const statusBtnRef = useRef<HTMLButtonElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Report badge data to parent: "active/total" format
-  const liveCount = activeSessions.length + idleSessions.length;
-  const activeCount = activeSessions.length;
-  useEffect(() => {
-    onBadgeData?.({
-      agents: liveCount > 0 ? `${activeCount}/${liveCount}` : undefined,
-    });
-  }, [activeCount, liveCount, onBadgeData]);
 
   // Close dropdown on outside click or Escape
   useEffect(() => {
@@ -92,24 +73,19 @@ export function SidebarStatusBar({ onOpenTab, onBadgeData }: SidebarStatusBarPro
           {gatewayOnline && latency !== undefined && (
             <span className="text-app-text-muted">{latency}ms</span>
           )}
+          {status && (
+            <span
+              className={`text-app-text-muted tabular-nums ${status.server.memoryMB > 512 ? 'text-amber-500' : ''}`}
+              title={`heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB`}
+            >
+              {status.server.memoryMB}MB
+            </span>
+          )}
           {fps > 0 && (
             <span className={`text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
           )}
         </button>
 
-        <div className="flex-1" />
-
-        {/* Live agents (active + idle) */}
-        {liveCount > 0 && (
-          <button
-            onClick={() => onOpenTab?.('agents')}
-            className="flex items-center gap-1 text-[10px] text-primary hover:bg-app-hover rounded px-1 py-0.5 transition-colors"
-            title={`${liveCount} session${liveCount > 1 ? 's' : ''} (${activeSessions.length} active, ${idleSessions.length} idle)`}
-          >
-            <Cpu size={10} />
-            <span>{liveCount} live</span>
-          </button>
-        )}
       </div>
 
       {showStatusDropdown && statusBtnRef.current && createPortal(
