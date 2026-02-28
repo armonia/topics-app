@@ -274,6 +274,18 @@ textarea, input[type="text"] {
   box-sizing: border-box;
 }
 
+/* Prevent overscroll white flash */
+html, body {
+  background-color: var(--bg, #1a1a1a);
+}
+
+/* App background color for safe areas */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .dark body, .dark html {
+    background-color: #0d0d0d;
+  }
+}
+
 /* Animation for message appear */
 @keyframes messageAppear {
   from {
