@@ -148,8 +148,8 @@ export const MessageBubble = memo(function MessageBubble({
         className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${!grouped ? 'message-appear' : ''} ${grouped && isCompact ? 'mt-0.5' : ''}`}
       >
         <div
-          className={`relative flex flex-col ${isMobile ? 'max-w-[92%]' : 'max-w-[85%]'} min-w-0 overflow-hidden`}
-          style={isMobile ? { maxWidth: 'min(92%, calc(100vw - 2rem))' } : undefined}
+          className={`relative flex flex-col min-w-0 overflow-hidden`}
+          style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : '85%' }}
         >
           {/* Floating action toolbar */}
           {!grouped && (
