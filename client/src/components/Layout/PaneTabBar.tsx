@@ -241,7 +241,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
-            style={{ minWidth: isTouch ? 100 : 140, flexShrink: 0 }}
+            style={{ minWidth: isTouch ? 80 : 140, flexShrink: 0 }}
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md ${
               isActive
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'

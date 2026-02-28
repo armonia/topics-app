@@ -246,7 +246,7 @@ export function GroupLayout({
                   >
                     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
                       {/* Per-group tab bar */}
-                      <div className="border-b border-app-border flex-shrink-0">
+                      <div className="border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
                         <PaneTabBar
                           panes={groupPanes}
                           activePaneId={group.activePaneId}
