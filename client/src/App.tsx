@@ -932,10 +932,7 @@ function App() {
       style={{
         fontSize: `${appSettings.fontSize}px`,
         position: 'fixed',
-        top: 'env(safe-area-inset-top, 0px)',
-        left: 'env(safe-area-inset-left, 0px)',
-        right: 'env(safe-area-inset-right, 0px)',
-        bottom: 'env(safe-area-inset-bottom, 0px)',
+        top: 0, left: 0, right: 0, bottom: 0,
       }}
     >
       {/* Skip to main content link for keyboard users */}
