@@ -158,14 +158,11 @@
 /* Prevent pull-to-refresh on mobile (we handle it ourselves) */
 html, body {
   overscroll-behavior-y: contain;
-  overflow-x: hidden;
   max-width: 100vw;
 }
 
-/* Prevent any element from causing horizontal overflow on mobile */
 #root {
   max-width: 100vw;
-  overflow-x: hidden;
 }
 
 /* Smooth scrolling */

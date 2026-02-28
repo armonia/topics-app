@@ -542,7 +542,7 @@ export function StandaloneChatGroup({
   // Tab bar rendered inline in header
   const tabBar = (
     <PaneTabBar
-      className="flex-1 flex items-center bg-elevated/60 p-1 gap-0.5 min-w-0 overflow-hidden"
+      className="flex-1 flex items-center bg-elevated/60 p-1 gap-0.5 min-w-0"
       panes={panes}
       activePaneId={activePaneId}
       onActivate={(paneId) => {
