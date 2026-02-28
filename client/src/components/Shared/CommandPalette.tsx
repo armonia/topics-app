@@ -32,6 +32,7 @@ interface CommandPaletteProps {
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
+  isElectron?: boolean;
 }
 
 export function CommandPalette({
@@ -45,6 +46,7 @@ export function CommandPalette({
   themeMode,
   projectPath,
   onOpenFile,
+  isElectron,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -72,7 +74,7 @@ export function CommandPalette({
       description: 'Create a new topic',
       icon: <Plus size={14} />,
       category: 'action',
-      shortcut: '⌘N',
+      shortcut: isElectron ? '⌘N' : undefined,
       action: () => { onNewTopic(); onClose(); },
     });
     items.push({

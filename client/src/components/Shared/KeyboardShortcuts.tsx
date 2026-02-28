@@ -1,8 +1,14 @@
 import { X } from 'lucide-react';
 
+interface Shortcut {
+  keys: string;
+  description: string;
+  desktopOnly?: boolean;
+}
+
 interface ShortcutGroup {
   title: string;
-  shortcuts: { keys: string; description: string }[];
+  shortcuts: Shortcut[];
 }
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
@@ -10,11 +16,12 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'General',
     shortcuts: [
       { keys: '⌘K', description: 'Command palette' },
-      { keys: '⌘N', description: 'New chat' },
-      { keys: '⌘⇧N', description: 'New chat (with template)' },
       { keys: '⌘B', description: 'Toggle sidebar' },
-      { keys: '⌘W', description: 'Close panel' },
-      { keys: '⌘1-9', description: 'Switch panel' },
+      { keys: '⌘?', description: 'Keyboard shortcuts' },
+      { keys: '⌘N', description: 'New chat', desktopOnly: true },
+      { keys: '⌘⇧N', description: 'New chat (with template)', desktopOnly: true },
+      { keys: '⌘W', description: 'Close panel', desktopOnly: true },
+      { keys: '⌘1-9', description: 'Switch panel', desktopOnly: true },
     ],
   },
   {
@@ -41,9 +48,10 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
 interface KeyboardShortcutsProps {
   isOpen: boolean;
   onClose: () => void;
+  isElectron?: boolean;
 }
 
-export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
+export function KeyboardShortcuts({ isOpen, onClose, isElectron }: KeyboardShortcutsProps) {
   if (!isOpen) return null;
 
   return (
@@ -60,24 +68,27 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
           </button>
         </div>
         <div className="p-4 max-h-[60vh] overflow-y-auto space-y-5">
-          {SHORTCUT_GROUPS.map(group => (
-            <div key={group.title}>
-              <h4 className="text-[11px] font-semibold text-app-text-muted uppercase tracking-wider mb-2">{group.title}</h4>
-              <div className="space-y-1.5">
-                {group.shortcuts.map(s => (
-                  <div key={s.keys} className="flex items-center justify-between">
-                    <span className="text-[12px] text-app-text-secondary">{s.description}</span>
-                    <div className="flex items-center gap-0.5">
-                      {s.keys.split('').filter(k => k !== '+').map((k, i) => {
-                        // Group multi-char keys
-                        return <kbd key={i} className="kbd">{k}</kbd>;
-                      })}
+          {SHORTCUT_GROUPS.map(group => {
+            const shortcuts = group.shortcuts.filter(s => isElectron || !s.desktopOnly);
+            if (shortcuts.length === 0) return null;
+            return (
+              <div key={group.title}>
+                <h4 className="text-[11px] font-semibold text-app-text-muted uppercase tracking-wider mb-2">{group.title}</h4>
+                <div className="space-y-1.5">
+                  {shortcuts.map(s => (
+                    <div key={s.keys} className="flex items-center justify-between">
+                      <span className="text-[12px] text-app-text-secondary">{s.description}</span>
+                      <div className="flex items-center gap-0.5">
+                        {s.keys.split('').filter(k => k !== '+').map((k, i) => {
+                          return <kbd key={i} className="kbd">{k}</kbd>;
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
