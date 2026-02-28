@@ -3,6 +3,23 @@ import { Wifi } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 
+declare const __BUILD_TIME__: string;
+
+function formatBuildTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    const diffD = Math.floor(diffH / 24);
+    return `${diffD}d ago`;
+  } catch { return iso; }
+}
+
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
 function useFps() {
@@ -84,6 +101,9 @@ export function SidebarStatusBar() {
           {fps > 0 && (
             <span className={`text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
           )}
+          <span className="text-app-text-muted tabular-nums" title={`Build: ${typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}`}>
+            {typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) : 'dev'}
+          </span>
         </button>
 
       </div>
