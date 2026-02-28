@@ -531,7 +531,7 @@ export function ChatInput({
       <form
         onSubmit={onSubmit}
         className={`relative ${isMobile ? 'mx-2 mb-1.5' : 'mx-3 mb-2'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors overflow-hidden min-w-0 max-w-full`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)', maxWidth: '100%' }}
+        style={{ maxWidth: '100%' }}
       >
         {isRecording ? (
           <div className="flex gap-2 items-center p-3">
