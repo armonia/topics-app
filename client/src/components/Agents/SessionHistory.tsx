@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, X, ChevronLeft, ChevronRight, ArrowLeft, AlertCircle, Filter, MessageSquare, User, Bot } from 'lucide-react';
+import { Search, X, ChevronLeft, ChevronRight, ArrowLeft, AlertCircle, Filter, MessageSquare, User, Bot, ExternalLink } from 'lucide-react';
 import { agentProfilesApi, chatApi, type SessionHistoryItem, type AgentProfile } from '../../lib/api';
 import type { HistoryMessage } from '../../types';
 import type { AgentSession as LiveSession } from '../../hooks/useAgents';
@@ -71,7 +71,7 @@ function formatTokens(tokens: number): string {
 }
 
 // Unified session type (works for both live and DB sessions)
-interface UnifiedSession {
+export interface UnifiedSession {
   id: string;
   sessionKey: string;
   topicId: string | null;
@@ -134,9 +134,10 @@ function historyToUnified(s: SessionHistoryItem): UnifiedSession {
 interface SessionHistoryProps {
   liveSessions?: LiveSession[];
   onNavigateToTopic?: (topicId: string) => void;
+  onOpenSessionViewer?: (sessionKey: string) => void;
 }
 
-export function SessionHistory({ liveSessions = [], onNavigateToTopic }: SessionHistoryProps) {
+export function SessionHistory({ liveSessions = [], onNavigateToTopic, onOpenSessionViewer }: SessionHistoryProps) {
   const [selectedSession, setSelectedSession] = useState<UnifiedSession | null>(null);
 
   if (selectedSession) {
@@ -145,6 +146,7 @@ export function SessionHistory({ liveSessions = [], onNavigateToTopic }: Session
         session={selectedSession}
         onBack={() => setSelectedSession(null)}
         onNavigateToTopic={onNavigateToTopic}
+        onOpenInPane={onOpenSessionViewer}
       />
     );
   }
@@ -385,72 +387,88 @@ function actionLabel(actionType: string): string {
 
 // ─── Session Detail (unified timeline) ────────────────────────
 
-function SessionDetail({ session, onBack, onNavigateToTopic }: {
+export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane }: {
   session: UnifiedSession;
-  onBack: () => void;
+  onBack?: () => void;
   onNavigateToTopic?: (topicId: string) => void;
+  onOpenInPane?: (sessionKey: string) => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+  // Shared fetch logic: tries local history first, falls back to gateway for sub-agent sessions
+  const fetchTimeline = useCallback(async (): Promise<TimelineEntry[]> => {
+    const entries: TimelineEntry[] = [];
 
-    const fetchAll = async () => {
-      const entries: TimelineEntry[] = [];
+    // 1. Try local history (works for web/WhatsApp/Discord/etc.)
+    let localMsgCount = 0;
+    try {
+      const histData = await chatApi.getHistory(session.sessionKey);
+      for (const msg of histData.messages) {
+        if (msg.timestamp) {
+          entries.push({ type: 'message', timestamp: msg.timestamp, data: msg });
+          localMsgCount++;
+        }
+      }
+    } catch {
+      // Messages may not be available locally — non-blocking
+    }
 
-      // Fetch messages by session key (works for all channels: web, WhatsApp, Discord, etc.)
+    // 2. If no local messages, try gateway (sub-agent / Claude Code sessions)
+    if (localMsgCount === 0) {
       try {
-        const histData = await chatApi.getHistory(session.sessionKey);
-        for (const msg of histData.messages) {
+        const gwData = await agentProfilesApi.sessionHistory(session.sessionKey);
+        for (const msg of gwData.messages) {
           if (msg.timestamp) {
             entries.push({ type: 'message', timestamp: msg.timestamp, data: msg });
           }
         }
       } catch {
-        // Messages may not be available — non-blocking
+        // Gateway history may not be available — non-blocking
       }
+    }
 
-      // Fetch session timeline (heartbeats + actions)
-      try {
-        const tlData = await agentProfilesApi.timeline(session.sessionKey);
-        for (const evt of tlData.events) {
-          entries.push({ type: evt.type as TimelineEntry['type'], timestamp: evt.timestamp, data: evt.data });
-        }
-      } catch {
-        // Timeline may not exist for ephemeral sessions — non-blocking
+    // 3. Fetch session timeline (heartbeats + actions)
+    try {
+      const tlData = await agentProfilesApi.timeline(session.sessionKey);
+      for (const evt of tlData.events) {
+        entries.push({ type: evt.type as TimelineEntry['type'], timestamp: evt.timestamp, data: evt.data });
       }
+    } catch {
+      // Timeline may not exist for ephemeral sessions — non-blocking
+    }
 
-      // Sort chronologically
-      entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    // Sort chronologically
+    entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      // Deduplicate consecutive heartbeats with same status (keep ones with token deltas)
-      const deduped: TimelineEntry[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        if (e.type === 'heartbeat') {
-          const prev = deduped[deduped.length - 1];
-          if (prev?.type === 'heartbeat' && prev.data.status === e.data.status && !e.data.tokensUsed) {
-            continue; // Skip redundant heartbeat
-          }
-        }
-        deduped.push(e);
+    // Deduplicate consecutive heartbeats with same status (keep ones with token deltas)
+    const deduped: TimelineEntry[] = [];
+    for (const e of entries) {
+      if (e.type === 'heartbeat') {
+        const prev = deduped[deduped.length - 1];
+        if (prev?.type === 'heartbeat' && prev.data.status === e.data.status && !e.data.tokensUsed) continue;
       }
+      deduped.push(e);
+    }
+    return deduped;
+  }, [session.sessionKey]);
 
-      if (!cancelled) {
-        setTimeline(deduped);
-        setLoading(false);
-        requestAnimationFrame(() => {
-          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-        });
-      }
-    };
+  // Initial load
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-    fetchAll().catch(err => {
+    fetchTimeline().then(deduped => {
+      if (cancelled) return;
+      setTimeline(deduped);
+      setLoading(false);
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      });
+    }).catch(err => {
       if (!cancelled) {
         setError(err instanceof Error ? err.message : 'Failed to load');
         setLoading(false);
@@ -458,7 +476,25 @@ function SessionDetail({ session, onBack, onNavigateToTopic }: {
     });
 
     return () => { cancelled = true; };
-  }, [session.topicId, session.sessionKey]);
+  }, [session.topicId, session.sessionKey, fetchTimeline]);
+
+  // Polling: re-fetch every 5s when session is live and active
+  useEffect(() => {
+    if (!session.isLive || session.status !== 'active') return;
+    const interval = setInterval(async () => {
+      try {
+        const deduped = await fetchTimeline();
+        setTimeline(prev => {
+          if (deduped.length <= prev.length) return prev;
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight, behavior: 'smooth' });
+          });
+          return deduped;
+        });
+      } catch {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [session.isLive, session.status, session.sessionKey, fetchTimeline]);
 
   // Count by type for summary
   const msgCount = timeline.filter(e => e.type === 'message').length;
@@ -469,9 +505,11 @@ function SessionDetail({ session, onBack, onNavigateToTopic }: {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-2.5 py-2 border-b border-app-border/40 flex-shrink-0">
-        <button onClick={onBack} className="p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors">
-          <ArrowLeft size={14} />
-        </button>
+        {onBack && (
+          <button onClick={onBack} className="p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors">
+            <ArrowLeft size={14} />
+          </button>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             {session.agentAvatar && <span className="text-[12px]">{session.agentAvatar}</span>}
@@ -499,6 +537,16 @@ function SessionDetail({ session, onBack, onNavigateToTopic }: {
             )}
           </div>
         </div>
+        {onOpenInPane && (
+          <button
+            onClick={() => onOpenInPane(session.sessionKey)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-purple-500 hover:bg-purple-500/10 transition-colors flex-shrink-0"
+            title="Open in pane"
+          >
+            <ExternalLink size={10} />
+            Pane
+          </button>
+        )}
         {session.topicId && onNavigateToTopic && (
           <button
             onClick={() => onNavigateToTopic(session.topicId!)}
@@ -544,7 +592,7 @@ function SessionDetail({ session, onBack, onNavigateToTopic }: {
 
 // ─── Timeline Entry Renderer ──────────────────────────────────
 
-function TimelineEntryView({ entry }: { entry: TimelineEntry }) {
+export function TimelineEntryView({ entry }: { entry: TimelineEntry }) {
   switch (entry.type) {
     case 'message':
       return <MessageBubble message={entry.data} />;
@@ -619,7 +667,7 @@ function TimelineEntryView({ entry }: { entry: TimelineEntry }) {
 
 // ─── Message Bubble ───────────────────────────────────────────
 
-function MessageBubble({ message }: { message: HistoryMessage }) {
+export function MessageBubble({ message }: { message: HistoryMessage }) {
   const isUser = message.role === 'user';
   const [showFull, setShowFull] = useState(false);
 

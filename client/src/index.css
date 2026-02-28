@@ -158,6 +158,14 @@
 /* Prevent pull-to-refresh on mobile (we handle it ourselves) */
 html, body {
   overscroll-behavior-y: contain;
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Prevent any element from causing horizontal overflow on mobile */
+#root {
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 /* Smooth scrolling */
@@ -254,6 +262,8 @@ html {
   overflow-wrap: break-word;
   word-break: break-word;
   hyphens: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Animation for message appear */
@@ -321,6 +331,7 @@ pre {
   position: relative;
   font-size: 0.8125rem;
   line-height: 1.5;
+  max-width: 100%;
 }
 
 code {

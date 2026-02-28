@@ -10,7 +10,7 @@ import type { BrowserService } from "../browser-service";
 
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
-    GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR,
+    GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR, OPENCLAW_DIR,
     broadcastToAll, broadcast, isTopicFocused,
     loadTopics, saveTopics, loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
@@ -426,6 +426,28 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     return dirName + "-" + Math.abs(hash).toString(36).slice(0, 6);
   }
 
+  // Scan workspace directory for project directories
+  const WORKSPACE_DIR = join(OPENCLAW_DIR, "workspace");
+  const SKIP_DIRS = new Set(["node_modules", "memory", "backups", "test-results"]);
+  const PROJECT_MARKERS = [
+    ".git", "package.json", "CLAUDE.md", "Cargo.toml", "go.mod", "pyproject.toml",
+    "Makefile", "README.md", "tsconfig.json", "requirements.txt", "Dockerfile",
+    "index.html", "server.ts", "server.py", "server.js",
+  ];
+  function getWorkspaceProjects(): string[] {
+    try {
+      if (!existsSync(WORKSPACE_DIR)) return [];
+      return readdirSync(WORKSPACE_DIR, { withFileTypes: true })
+        .filter(e => {
+          if (!e.isDirectory() || e.name.startsWith(".") || SKIP_DIRS.has(e.name)) return false;
+          // Check for at least one project marker
+          const dir = join(WORKSPACE_DIR, e.name);
+          return PROJECT_MARKERS.some(m => existsSync(join(dir, m)));
+        })
+        .map(e => join(WORKSPACE_DIR, e.name));
+    } catch { return []; }
+  }
+
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     // --- Topics CRUD ---
@@ -440,7 +462,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
       }
       if (fixed) saveTopics(data);
-      return json(data);
+      return json({ ...data, workspaceProjects: getWorkspaceProjects() });
     }
 
     if (method === "POST" && pathname === "/api/topics") {

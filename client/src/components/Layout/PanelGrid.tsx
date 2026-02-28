@@ -59,6 +59,12 @@ interface PanelGridProps {
   // Pending focus for project tabs (navigate to a topic inside a project)
   pendingProjectFocus?: { projectPath: string; topicId: string } | null;
   onPendingProjectFocusConsumed?: () => void;
+  // Pending terminal pane request (from App quick-create)
+  pendingTerminalPane?: { sessionId: string; name: string } | null;
+  onPendingTerminalPaneConsumed?: () => void;
+  // Pending browser pane request (from sidebar)
+  pendingBrowserPane?: boolean;
+  onPendingBrowserPaneConsumed?: () => void;
 }
 
 /* ================================================================== */
@@ -97,8 +103,20 @@ export function PanelGrid({
   onNewChat,
   pendingProjectFocus,
   onPendingProjectFocusConsumed,
+  pendingTerminalPane,
+  onPendingTerminalPaneConsumed,
+  pendingBrowserPane,
+  onPendingBrowserPaneConsumed,
 }: PanelGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Mobile detection for single-column layout
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
 
   /* ---- All panels are treated flat (no project grouping) ---- */
   /* Solo topic IDs = panels placed independently in the grid */
@@ -122,14 +140,19 @@ export function PanelGrid({
     });
   }, [openPanels]);
 
+  // Track whether standalone group has utility panes (browser/terminal)
+  const [standaloneHasUtility, setStandaloneHasUtility] = useState(false);
+  const handleStandaloneUtilityChange = useCallback((has: boolean) => setStandaloneHasUtility(has), []);
+
   /* ---- Build natural grid items (flat) ---- */
   const naturalGridItems = useMemo<GridItem[]>(() => {
     const items: GridItem[] = [];
     const soloSet = new Set(soloTopicIds);
 
     // Non-solo panels go into main standalone group
+    // Also create it when a browser/terminal pane is pending (needs a group to land in)
     const regularPanels = openPanels.filter(id => !soloSet.has(id));
-    if (regularPanels.length > 0) {
+    if (regularPanels.length > 0 || standaloneHasUtility || pendingBrowserPane || pendingTerminalPane) {
       items.push({ key: 'standalone', panelIds: regularPanels });
     }
 
@@ -141,7 +164,7 @@ export function PanelGrid({
     }
 
     return items;
-  }, [openPanels, soloTopicIds]);
+  }, [openPanels, soloTopicIds, standaloneHasUtility, pendingBrowserPane, pendingTerminalPane]);
 
   /* ---- Item lookup map ---- */
   const itemMap = useMemo(() => {
@@ -366,6 +389,13 @@ export function PanelGrid({
     const isGridDrag = e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM);
     const isTabDrag = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB);
     if (!isGridDrag && !isTabDrag) return;
+
+    // Browser/terminal tabs don't carry PANEL_ID — can't be split to solo
+    if (isTabDrag && !isGridDrag && !e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) {
+      setGridDropTarget(null);
+      gridDropTargetRef.current = null;
+      return;
+    }
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -649,7 +679,7 @@ export function PanelGrid({
       {gridRows.map((row, rowIdx) => (
         <Fragment key={rowIdx}>
           <div
-            className="flex flex-row min-h-0"
+            className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0`}
             style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / gridRows.length} 1 0%` }}
           >
             {row.itemKeys.map((key, colIdx) => {
@@ -667,7 +697,7 @@ export function PanelGrid({
                   <div
                     className={`flex min-h-0 min-w-0 overflow-hidden relative transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
                     style={{
-                      flex: `${width} 1 0%`,
+                      flex: isMobile ? '1 1 0%' : `${width} 1 0%`,
                       boxShadow: zone === 'center'
                         ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
                         : undefined,
@@ -705,6 +735,11 @@ export function PanelGrid({
                       onNewChatInProject={onNewChatInProject}
                       pendingProjectFocus={pendingProjectFocus}
                       onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
+                      pendingTerminalPane={pendingTerminalPane}
+                      onPendingTerminalPaneConsumed={onPendingTerminalPaneConsumed}
+                      onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}
+                      pendingBrowserPane={key === 'standalone' ? pendingBrowserPane : undefined}
+                      onPendingBrowserPaneConsumed={key === 'standalone' ? onPendingBrowserPaneConsumed : undefined}
                     />
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}
@@ -724,8 +759,8 @@ export function PanelGrid({
                     )}
                   </div>
 
-                  {/* Column divider (between items in a row) */}
-                  {colIdx < row.itemKeys.length - 1 && (
+                  {/* Column divider (between items in a row) — hidden on mobile */}
+                  {colIdx < row.itemKeys.length - 1 && !isMobile && (
                     <div
                       className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
                       onMouseDown={startHorizontalResize(rowIdx, colIdx, row.widths)}
@@ -738,8 +773,8 @@ export function PanelGrid({
             })}
           </div>
 
-          {/* Row divider (between rows) */}
-          {rowIdx < gridRows.length - 1 && (
+          {/* Row divider (between rows) — hidden on mobile */}
+          {rowIdx < gridRows.length - 1 && !isMobile && (
             <div
               className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
               onMouseDown={startVerticalResize(rowIdx, gridRowHeights)}

@@ -24,6 +24,7 @@ export interface Topic {
 
 export interface TopicsData {
   topics: Record<string, Topic>;
+  workspaceProjects?: string[];
 }
 
 export interface Message {
@@ -203,7 +204,7 @@ export interface GitLogEntry {
 export type PanelTab = 'chat' | 'files' | 'changes' | 'processes' | 'browser' | 'terminal';
 
 // Pane types for ProjectWindow layout
-export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project' | 'process-log';
+export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project' | 'process-log' | 'session-viewer';
 
 export interface Pane {
   id: string;            // e.g. "chat:topicId123", "browser:1707840000", "file:1707840000"
@@ -216,6 +217,7 @@ export interface Pane {
   preview?: boolean;     // true = transient tab (replaced on next open, italic text)
   color?: string;        // accent color for the tab (used by project tabs)
   processId?: string;    // only for type='process-log'
+  sessionKey?: string;   // only for type='session-viewer'
 }
 
 export interface PaneLayoutRow {

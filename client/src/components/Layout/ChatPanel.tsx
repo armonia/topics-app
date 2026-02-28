@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Settings, Pin, X, ExternalLink, Menu, MessageSquare, TerminalSquare, Layers } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, PanelLeft, Layers } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
-const TerminalPanel = lazy(() => import('../Terminal/TerminalPanel').then(m => ({ default: m.TerminalPanel })));
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
@@ -55,8 +54,6 @@ export function ChatPanel({
   const setShowContext = externalToggleContext
     ? (_v: boolean | ((prev: boolean) => boolean)) => externalToggleContext()
     : setShowContextInternal;
-  const [activeTab, setActiveTab] = useState<PanelTab>(initialTab || (topic.name === 'Terminal' ? 'terminal' : 'chat'));
-
   // Persist context inspector state
   useEffect(() => {
     try { localStorage.setItem(CONTEXT_INSPECTOR_KEY, String(showContext)); } catch {}
@@ -65,7 +62,6 @@ export function ChatPanel({
   // Consume initial tab override
   useEffect(() => {
     if (initialTab && initialTab !== 'browser') {
-      setActiveTab(initialTab);
       onInitialTabConsumed?.();
     }
   }, [initialTab, onInitialTabConsumed]);
@@ -90,16 +86,6 @@ export function ChatPanel({
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
 
-  // Standalone tabs: show terminal if topic has a project OR if opened as terminal
-  const isTerminalTopic = activeTab === 'terminal' || topic.name === 'Terminal';
-  const isDedicatedTerminal = isTerminalTopic && !topic.projectPath;
-  const tabs: { id: PanelTab; label: string; icon: React.ReactNode }[] = [
-    // Skip chat tab for dedicated standalone terminals — they go straight to terminal
-    ...(!isDedicatedTerminal ? [{ id: 'chat' as PanelTab, label: 'Chat', icon: <MessageSquare size={13} /> }] : []),
-    ...(topic.projectPath || isTerminalTopic ? [
-      { id: 'terminal' as PanelTab, label: 'Terminal', icon: <TerminalSquare size={13} /> },
-    ] : []),
-  ];
   const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
   return (
@@ -107,7 +93,7 @@ export function ChatPanel({
       <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header */}
         <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
-          {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><Menu size={18} /></button>}
+          {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><PanelLeft size={18} /></button>}
           {headerLeft ? (
             <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
           ) : (
@@ -124,7 +110,7 @@ export function ChatPanel({
           {!headerLeft && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowContext(!showContext); }}
-              className={`w-7 h-7 flex items-center justify-center rounded transition-colors app-no-drag ${
+              className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag ${
                 showContext
                   ? 'bg-primary/10 text-primary'
                   : 'hover:bg-app-hover text-app-text-tertiary hover:text-app-text'
@@ -132,31 +118,19 @@ export function ChatPanel({
               title="Context Inspector"
               aria-label="Context Inspector"
             >
-              <Layers size={13} />
+              <Layers size={isMobile ? 16 : 13} />
             </button>
           )}
           {!headerLeft && (
             <>
-              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={isMobile ? 16 : 14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
-              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag" title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
+              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={isMobile ? 16 : 14} /></button>}
               {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={13} /></button>}
             </>
           )}
-          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Close panel" aria-label="Close panel"><X size={14} strokeWidth={1.5} /></button>}
+          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={isMobile ? 16 : 14} strokeWidth={1.5} /></button>}
         </div>
-
-        {/* Tab Bar — hidden when only one tab */}
-        {tabs.length > 1 && (
-          <div role="tablist" aria-label="Panel views" className="flex items-center border-b border-app-border bg-elevated dark:bg-elevated flex-shrink-0 px-1 relative z-10">
-            {tabs.map(tab => (
-              <button role="tab" aria-selected={activeTab === tab.id} key={tab.id} onClick={(e) => { e.stopPropagation(); setActiveTab(tab.id); }} className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium transition-colors relative app-no-drag ${activeTab === tab.id ? 'text-primary dark:text-primary-dark' : 'text-app-text-tertiary hover:text-app-text'}`}>
-                {tab.icon}<span>{tab.label}</span>
-                {activeTab === tab.id && <div className="absolute bottom-0 left-1 right-1 h-[2px] bg-primary dark:bg-primary-dark rounded-t" />}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Banners */}
         {suggestedProject && (
@@ -177,31 +151,44 @@ export function ChatPanel({
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-              {activeTab === 'terminal' ? (
-                <Suspense fallback={LazySpinner}><TerminalPanel projectPath={topic.projectPath} topicId={topic.id} /></Suspense>
-              ) : (
-                <ChatPane
-                  topic={topic}
-                  isFocused={isFocused}
-                  getSessionMessages={getSessionMessages}
-                  isSessionLoading={isSessionLoading}
-                  isSessionStreaming={isSessionStreaming}
-                  sendMessage={sendMessage}
-                  editMessage={editMessage}
-                  switchBranch={switchBranch}
-                  loadHistory={loadHistory}
-                  chatError={chatError}
-                  sendWS={sendWS}
-                  onWSMessage={onWSMessage}
-                  onUpdateTopic={onUpdateTopic}
-                />
-              )}
+              <ChatPane
+                topic={topic}
+                isFocused={isFocused}
+                getSessionMessages={getSessionMessages}
+                isSessionLoading={isSessionLoading}
+                isSessionStreaming={isSessionStreaming}
+                sendMessage={sendMessage}
+                editMessage={editMessage}
+                switchBranch={switchBranch}
+                loadHistory={loadHistory}
+                chatError={chatError}
+                sendWS={sendWS}
+                onWSMessage={onWSMessage}
+                onUpdateTopic={onUpdateTopic}
+              />
             </div>
           </div>
 
-          {/* Context Inspector slide-out — overlay when narrow */}
+          {/* Context Inspector slide-out — bottom sheet on mobile, overlay when narrow, side panel when wide */}
           {showContext && (
-            <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0'}`}>
+            <div className={`overflow-hidden transition-all duration-200 ${
+              isMobile
+                ? 'absolute bottom-0 left-0 right-0 z-40 h-[50vh] rounded-t-xl shadow-lg border-t border-app-border bottom-sheet bg-surface'
+                : isNarrow
+                  ? 'absolute inset-0 z-40'
+                  : 'w-[320px] flex-shrink-0'
+            }`}>
+              {isMobile && (
+                <div className="flex items-center justify-between px-4 py-2 border-b border-app-border bg-surface rounded-t-xl flex-shrink-0">
+                  <span className="text-[13px] font-medium text-app-text">Context</span>
+                  <button
+                    onClick={() => setShowContext(false)}
+                    className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-app-hover text-app-text-muted"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
               <Suspense fallback={LazySpinner}>
                 <ContextInspector
                   topic={topic}

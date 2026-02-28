@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, PanelLeft, RefreshCw } from 'lucide-react';
+import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, LayoutPanelLeft, RefreshCw } from 'lucide-react';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer } from './FileExplorer';
 import { TaskBoard } from './TaskBoard';
@@ -40,8 +40,8 @@ export function ProjectSidebar({
     return () => window.removeEventListener('resize', h);
   }, []);
 
-  // Force collapsed on mobile
-  const effectiveCollapsed = isMobile ? true : collapsed;
+  // On mobile, start collapsed but allow toggling (renders as overlay)
+  const effectiveCollapsed = collapsed;
   const [expandedSections, setExpandedSections] = useState<Record<SectionId, boolean>>(() => {
     try {
       const saved = sessionStorage.getItem('sidebar-sections');
@@ -178,44 +178,126 @@ export function ProjectSidebar({
   }, [bottomHeights]);
 
   if (effectiveCollapsed) {
+    const iconSize = isMobile ? 16 : 15;
+    const btnClass = `${isMobile ? 'w-8 h-8' : 'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
     return (
       <div className="w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
         <button
           onClick={onToggleCollapse}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
+          className={`${btnClass} hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover`}
           title="Expand sidebar"
         >
-          <PanelLeft size={16} />
+          <LayoutPanelLeft size={isMobile ? 18 : 16} />
         </button>
         <div className="w-6 h-px bg-app-border my-1" />
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, files: true })); }}
-          className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            expandedSections.files ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
-          }`}
+          className={`${btnClass} ${expandedSections.files ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
           title="Files"
         >
-          <FolderTree size={15} />
+          <FolderTree size={iconSize} />
         </button>
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, git: true })); }}
-          className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            expandedSections.git ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
-          }`}
+          className={`${btnClass} ${expandedSections.git ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
           title="Git Changes"
         >
-          <GitBranch size={15} />
+          <GitBranch size={iconSize} />
         </button>
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, processes: true })); }}
-          className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-            expandedSections.processes ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'
-          }`}
+          className={`${btnClass} ${expandedSections.processes ? 'text-primary bg-primary/10' : 'text-app-text-muted hover:text-app-text-hover hover:bg-black/5 dark:hover:bg-white/5'}`}
           title="Processes"
         >
-          <Zap size={15} />
+          <Zap size={iconSize} />
         </button>
       </div>
+    );
+  }
+
+  // On mobile: render as overlay on top of content
+  if (isMobile) {
+    return (
+      <>
+        <div className="fixed inset-0 bg-black/50 z-40" onClick={onToggleCollapse} aria-hidden="true" />
+        <div className="fixed inset-y-0 left-0 z-50 w-[280px] bg-elevated flex flex-col overflow-hidden shadow-lg border-r border-app-border">
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
+            <span className="text-[12px] font-medium text-app-text">Project</span>
+            <button
+              onClick={onToggleCollapse}
+              className="w-9 h-9 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
+              title="Hide sidebar"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          </div>
+          {/* Sections */}
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-shrink-0">
+                {projectId && onWSMessage && (
+                  <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
+                )}
+              </div>
+              <div className={expandedSections.files ? 'flex-1 min-h-0 flex flex-col' : 'flex-shrink-0'}>
+                <button
+                  onClick={() => toggleSection('files')}
+                  className="w-full flex items-center gap-2 px-3 h-10 text-[13px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+                >
+                  <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.files ? 'rotate-90' : ''}`} />
+                  <FolderTree size={14} />
+                  <span>Files</span>
+                </button>
+                {expandedSections.files && (
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <FileExplorer projectPath={projectPath} compact onOpenFile={(path) => { onOpenFile?.(path); onToggleCollapse(); }} />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="h-[1px] flex-shrink-0 bg-app-border" />
+            <div className={expandedSections.git ? 'flex-shrink-0 flex flex-col min-h-0 overflow-hidden' : 'flex-shrink-0'}
+              style={expandedSections.git ? { height: bottomHeights.git } : undefined}
+            >
+              <Suspense fallback={
+                <div onClick={() => toggleSection('git')} className="w-full flex items-center h-10 px-3 text-[13px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expandedSections.git ? 'rotate-90' : ''}`} />
+                    <GitBranch size={14} className="flex-shrink-0" />
+                    <span>Git</span>
+                  </div>
+                </div>
+              }>
+                <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
+              </Suspense>
+            </div>
+            <div className="h-[1px] flex-shrink-0 bg-app-border" />
+            <div className={expandedSections.processes ? 'flex-shrink-0 flex flex-col min-h-0 overflow-hidden' : 'flex-shrink-0'}
+              style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
+            >
+              <button
+                onClick={() => toggleSection('processes')}
+                className="w-full flex items-center gap-2 px-3 h-10 text-[13px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+              >
+                <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.processes ? 'rotate-90' : ''}`} />
+                <Zap size={14} />
+                <span className="flex-1 text-left">Processes</span>
+                {runningCount > 0 && (
+                  <span className="text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                    {runningCount}
+                  </span>
+                )}
+              </button>
+              {expandedSections.processes && (
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </>
     );
   }
 

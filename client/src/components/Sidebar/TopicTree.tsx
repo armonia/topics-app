@@ -16,6 +16,7 @@ function getProjectLabel(projectPath: string | undefined): { name: string; isTem
 
 interface TopicTreeProps {
   topics: Record<string, Topic>;
+  workspaceProjects?: string[];
   searchQuery: string;
   expandedNodes: Set<string>;
   onToggleNode: (topicId: string) => void;
@@ -41,6 +42,7 @@ interface TopicTreeProps {
 
 export function TopicTree({
   topics,
+  workspaceProjects = [],
   searchQuery,
   expandedNodes,
   onToggleNode,
@@ -87,8 +89,9 @@ export function TopicTree({
     for (const t of Object.values(topics)) {
       if (t.projectPath) paths.add(t.projectPath);
     }
+    for (const p of workspaceProjects) paths.add(p);
     return [...paths];
-  }, [topics]);
+  }, [topics, workspaceProjects]);
   const projectTabStatus = useProjectTabStatus(sidebarProjectPaths);
 
   // Close project context menu on outside click
@@ -259,6 +262,16 @@ export function TopicTree({
     return acc;
   }, {} as Record<string, { path: string; activeTopics: Topic[]; archivedTopics: Topic[]; isTemp: boolean }>);
 
+  // Merge workspace projects that have no topics yet
+  const existingPaths = new Set(Object.values(projectGroups).map(g => g.path));
+  for (const wsPath of workspaceProjects) {
+    if (existingPaths.has(wsPath)) continue;
+    const { name: projectName, isTemp } = getProjectLabel(wsPath);
+    if (!projectGroups[projectName]) {
+      projectGroups[projectName] = { path: wsPath, activeTopics: [], archivedTopics: [], isTemp };
+    }
+  }
+
   // Sort project groups: regular projects first, temp projects last
   const sortedProjectEntries = Object.entries(projectGroups).sort(([, a], [, b]) => {
     if (a.isTemp !== b.isTemp) return a.isTemp ? 1 : -1;
@@ -351,9 +364,10 @@ export function TopicTree({
               <div>
                 {sortedProjectEntries.map(([projectName, { path, activeTopics, archivedTopics: projectArchived, isTemp }]) => {
                   const isExpanded = expandedProjects.has(projectName);
+                  const hasTopics = activeTopics.length > 0 || projectArchived.length > 0;
                   const allArchived = activeTopics.length === 0 && projectArchived.length > 0;
 
-                  // Hide fully-archived projects unless "show archived" is on
+                  // Hide fully-archived projects unless "show archived" is on (but always show projects with no topics)
                   if (allArchived && !showProjectsArchived) return null;
                   // Combine active and archived (if showing) — newest first
                   const sortByRecent = (a: Topic, b: Topic) =>

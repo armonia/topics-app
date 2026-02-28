@@ -270,6 +270,42 @@ export function createAgentsRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // GET /api/agents/sessions/:key/history?limit=100 — fetch conversation history for a session
+    const historyMatch = pathname.match(/^\/api\/agents\/sessions\/(.+)\/history$/);
+    if (method === "GET" && historyMatch) {
+      const sessionKey = decodeURIComponent(historyMatch[1]);
+      const limit = parseInt(url.searchParams.get("limit") || "100");
+      try {
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+          body: JSON.stringify({ tool: "sessions_history", args: { sessionKey, limit, includeTools: false } }),
+        });
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          return json({ error: text || "Gateway error" }, resp.status);
+        }
+
+        const data = await resp.json() as any;
+        const rawMessages = data?.result?.messages || data?.messages || [];
+        const messages = rawMessages.map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: typeof m.content === "string" ? m.content : "",
+          timestamp: m.timestamp || m.createdAt,
+          thinking: m.thinking,
+          toolCalls: m.toolCalls,
+          media: m.media,
+        }));
+
+        return json({ messages });
+      } catch (err: any) {
+        console.error("[Agents] Session history error:", err);
+        return json({ error: err.message || "Failed to fetch history" }, 500);
+      }
+    }
+
     // GET /api/agents/sessions?activeMinutes=120&messages=0
     if (method === "GET" && pathname === "/api/agents/sessions") {
       const activeMinutes = parseInt(url.searchParams.get("activeMinutes") || "120");

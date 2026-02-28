@@ -15,6 +15,7 @@ function getInitialTopics(): Record<string, Topic> {
 
 export function useTopics() {
   const [topics, setTopics] = useState<Record<string, Topic>>(getInitialTopics);
+  const [workspaceProjects, setWorkspaceProjects] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +25,7 @@ export function useTopics() {
       setError(null);
       const data = await topicsApi.getAll();
       setTopics(data.topics);
+      if (data.workspaceProjects) setWorkspaceProjects(data.workspaceProjects);
       // Cache to localStorage
       try { localStorage.setItem('topics-cache', JSON.stringify(data.topics)); } catch {}
     } catch (err) {
@@ -181,6 +183,7 @@ export function useTopics() {
 
   return {
     topics,
+    workspaceProjects,
     loading,
     error,
     loadTopics,

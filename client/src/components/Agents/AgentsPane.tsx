@@ -5,6 +5,7 @@ import { SessionHistory } from './SessionHistory';
 
 interface AgentsPaneProps {
   onNavigateToTopic?: (topicId: string) => void;
+  onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
@@ -15,7 +16,7 @@ const TABS = [
 
 type TabId = typeof TABS[number]['id'];
 
-export function AgentsPane({ onNavigateToTopic, onMessage }: AgentsPaneProps) {
+export function AgentsPane({ onNavigateToTopic, onOpenSessionViewer, onMessage }: AgentsPaneProps) {
   const [tab, setTab] = useState<TabId>('sessions');
 
   const { sessions: liveSessions, setVisible } = useAgents({
@@ -52,6 +53,7 @@ export function AgentsPane({ onNavigateToTopic, onMessage }: AgentsPaneProps) {
           <SessionHistory
             liveSessions={liveSessions}
             onNavigateToTopic={onNavigateToTopic}
+            onOpenSessionViewer={onOpenSessionViewer}
           />
         )}
         {tab === 'roster' && (

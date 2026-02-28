@@ -7,6 +7,7 @@ import type {
   ChatRequest,
   HistoryRequest,
   HistoryResponse,
+  HistoryMessage,
   UploadResponse,
   SearchResult,
   UnreadData,
@@ -1090,6 +1091,9 @@ export const agentProfilesApi = {
   },
   async timeline(sessionKey: string): Promise<SessionTimelineResponse> {
     return request<SessionTimelineResponse>(`/agents/sessions/${encodeURIComponent(sessionKey)}/timeline`);
+  },
+  async sessionHistory(sessionKey: string, limit = 100): Promise<{ messages: HistoryMessage[] }> {
+    return request<{ messages: HistoryMessage[] }>(`/agents/sessions/${encodeURIComponent(sessionKey)}/history?limit=${limit}`);
   },
   async history(params: { status?: string; agentId?: string; search?: string; limit?: number; offset?: number } = {}): Promise<SessionHistoryResponse> {
     const qs = new URLSearchParams();

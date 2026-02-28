@@ -132,6 +132,8 @@ function App() {
 
   // Pending pane request (e.g. add terminal to a project from sidebar)
   const [pendingProjectPane, setPendingProjectPane] = useState<{ projectPath: string; type: import('./types').PaneType } | null>(null);
+  // Pending terminal pane request (from quick-create)
+  const [pendingTerminalPane, setPendingTerminalPane] = useState<{ sessionId: string; name: string } | null>(null);
   // Initial tab override for standalone panels (e.g. "New Terminal" opens with terminal tab)
   const [panelInitialTab, setPanelInitialTab] = useState<Record<string, import('./types').PanelTab>>({});
 
@@ -312,6 +314,7 @@ function App() {
 
   const {
     topics,
+    workspaceProjects,
     loading: topicsLoading,
     error: topicsError,
     createTopic,
@@ -428,6 +431,8 @@ function App() {
   // Browser sidebar section state
   const [browserContextCount, setBrowserContextCount] = useState(0);
   const [browserExpanded, setBrowserExpanded] = useState(false);
+  const [pendingBrowserPane, setPendingBrowserPane] = useState(false);
+  const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(false), []);
   useEffect(() => {
     fetch('/api/browser/status').then(r => r.ok ? r.json() : null).then(data => {
       if (data?.details?.length) {
@@ -440,11 +445,14 @@ function App() {
   // Open a utility page (Activity/Journal/Agents/Dashboard/All Boards) as a pane in the main panel
   const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards') => {
     const id = utilityPanelId(type);
-    if (!openPanels.includes(id)) {
+    if (isMobile) {
+      setOpenPanels([id]);
+      setSidebarCollapsed(true);
+    } else if (!openPanels.includes(id)) {
       setOpenPanels(prev => [...prev, id]);
     }
     setFocusedPanelId(id);
-  }, [openPanels]);
+  }, [openPanels, isMobile]);
 
   // Listen for WS messages to trigger notifications
   useEffect(() => {
@@ -631,12 +639,14 @@ function App() {
     // If this topic belongs to a project, open/focus the project tab instead
     if (topic?.projectPath) {
       const projectPaneId = createPaneId('project', topic.projectPath);
-      if (!openPanels.includes(projectPaneId)) {
+      if (isMobile) {
+        setOpenPanels([projectPaneId]);
+        setSidebarCollapsed(true);
+      } else if (!openPanels.includes(projectPaneId)) {
         setOpenPanels(prev => [...prev, projectPaneId]);
       }
       setFocusedPanelId(projectPaneId);
       setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
-      if (isMobile) setSidebarCollapsed(true);
       return;
     }
     if (e && (e.metaKey || e.ctrlKey)) {
@@ -666,11 +676,14 @@ function App() {
 
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
-    if (!openPanels.includes(paneId)) {
+    if (isMobile) {
+      setOpenPanels([paneId]);
+      setSidebarCollapsed(true);
+    } else if (!openPanels.includes(paneId)) {
       setOpenPanels(prev => [...prev, paneId]);
     }
     setFocusedPanelId(paneId);
-  }, [openPanels]);
+  }, [openPanels, isMobile]);
 
   const handleCloseProject = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
@@ -747,30 +760,33 @@ function App() {
     return topic;
   };
 
-  // Quick-create standalone terminal (creates a topic with terminal tab active)
+  // Quick-create standalone terminal (creates a terminal session and adds as pane)
   const handleQuickCreateTerminal = async () => {
-    const topic = await createTopic({
-      name: 'Terminal',
-      icon: '⬛',
-      color: '#8b5cf6',
-    });
-    if (topic) {
-      setPanelInitialTab(prev => ({ ...prev, [topic.id]: 'terminal' }));
-      openPanel(topic.id, 'permanent', true);
-    }
-    return topic;
+    try {
+      const res = await fetch('/api/terminal/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'shell', name: 'Shell' }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPendingTerminalPane({ sessionId: data.id, name: data.name || 'Shell' });
+    } catch {}
   };
 
   // Add a non-chat pane (terminal, browser) to a project window
   const handleAddProjectPane = useCallback((projectPath: string, type: import('./types').PaneType) => {
     // Ensure the project pane is open
     const projectPaneId = createPaneId('project', projectPath);
-    if (!openPanels.includes(projectPaneId)) {
+    if (isMobile) {
+      setOpenPanels([projectPaneId]);
+      setSidebarCollapsed(true);
+    } else if (!openPanels.includes(projectPaneId)) {
       setOpenPanels(prev => [...prev, projectPaneId]);
     }
     setFocusedPanelId(projectPaneId);
     setPendingProjectPane({ projectPath, type });
-  }, [openPanels]);
+  }, [openPanels, isMobile]);
 
   // Open the board pane for a project (from sidebar or context menu)
   const handleOpenProjectBoard = useCallback((projectPath: string) => {
@@ -1081,6 +1097,7 @@ function App() {
           ) : (
           <TopicTree
             topics={topics}
+            workspaceProjects={workspaceProjects}
             searchQuery={searchQuery}
             expandedNodes={expandedNodes}
             onToggleNode={handleToggleNode}
@@ -1137,9 +1154,7 @@ function App() {
           {browserExpanded && (
             <Suspense fallback={<div className="px-3 py-2 text-[10px] text-app-text-muted">Loading...</div>}>
               <BrowserSidebarControl enabled onContextCount={setBrowserContextCount} onOpenBrowser={() => {
-                if (focusedPanelId) {
-                  setPanelInitialTab(prev => ({ ...prev, [focusedPanelId]: 'browser' }));
-                }
+                setPendingBrowserPane(true);
               }} />
             </Suspense>
           )}
@@ -1162,8 +1177,8 @@ function App() {
         </div>
       )}
 
-      {/* Collapsed sidebar expand button - only when no panels (mobile has button in chat header) */}
-      {sidebarCollapsed && (!isMobile || openPanels.length === 0) && (
+      {/* Collapsed sidebar expand button - only when no panels are open (panels have inline button in their header) */}
+      {sidebarCollapsed && openPanels.length === 0 && (
         <div
           className="absolute left-2 z-30 flex items-center gap-1"
           style={{ top: isMobile && isPWA ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
@@ -1232,7 +1247,7 @@ function App() {
           windowId={windowId}
           externalDragTopicId={externalDragTopicId}
           onExternalDrop={handleExternalDrop}
-          onToggleSidebar={isMobile ? toggleSidebar : undefined}
+          onToggleSidebar={toggleSidebar}
           panelInitialTab={panelInitialTab}
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab(prev => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
@@ -1241,6 +1256,10 @@ function App() {
           onNewChat={() => handleQuickCreateTopic()}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
+          pendingTerminalPane={pendingTerminalPane}
+          onPendingTerminalPaneConsumed={() => setPendingTerminalPane(null)}
+          pendingBrowserPane={pendingBrowserPane}
+          onPendingBrowserPaneConsumed={handlePendingBrowserPaneConsumed}
         />
         </ErrorBoundary>
       </div>

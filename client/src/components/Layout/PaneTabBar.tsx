@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban } from 'lucide-react';
+import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Code2, TerminalSquare } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { PANE_CONFIG } from '../../lib/paneConfig';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { useMobile, haptic } from '../../hooks/useMobile';
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
@@ -15,7 +16,7 @@ interface PaneTabBarProps {
   activePaneId: string | null;
   onActivate: (paneId: string) => void;
   onClose: (paneId: string) => void;
-  onAddPane: (type: PaneType) => void;
+  onAddPane: (type: PaneType, subType?: string) => void;
   availableTypes: PaneType[];
   groupType?: PaneGroupType;
   groupId?: string;
@@ -72,26 +73,55 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
 
+  const { isTouch, isMobile } = useMobile();
+
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showAddMenu) return;
-    const h = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowAddMenu(false); };
+    const h = (e: Event) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowAddMenu(false); };
     document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    document.addEventListener('touchstart', h, { passive: true });
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
   }, [showAddMenu]);
 
-  // Close context menu on click outside
+  // Close context menu on click/touch outside
   useEffect(() => {
     if (!ctxMenu) return;
-    const h = (e: MouseEvent) => {
+    const h = (e: Event) => {
       if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) setCtxMenu(null);
     };
     document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    document.addEventListener('touchstart', h, { passive: true });
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
   }, [ctxMenu]);
+
+  // Long-press for context menu on touch devices
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  const handleLongPressStart = useCallback((paneId: string, x: number, y: number) => {
+    longPressFiredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      haptic('medium');
+      longPressFiredRef.current = true;
+      const menuWidth = 160;
+      const menuHeight = 160;
+      const adjX = Math.min(x, window.innerWidth - menuWidth - 8);
+      const adjY = Math.min(y, window.innerHeight - menuHeight - 8);
+      setCtxMenu({ paneId, x: adjX, y: adjY });
+      longPressTimerRef.current = null;
+    }, 500);
+  }, []);
+
+  const handleLongPressCancel = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
 
   const handleContextMenu = useCallback((paneId: string) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -211,16 +241,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
-            style={{ minWidth: 140, flexShrink: 0 }}
-            className={`group flex items-center gap-1.5 px-2.5 h-7 text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md ${
+            style={{ minWidth: isTouch ? 100 : 140, flexShrink: 0 }}
+            className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md ${
               isActive
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
                 : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
-            onClick={() => onActivate(pane.id)}
+            onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
-            draggable={!!onReorderPanes}
+            onTouchStart={(e) => handleLongPressStart(pane.id, e.touches[0].clientX, e.touches[0].clientY)}
+            onTouchEnd={handleLongPressCancel}
+            onTouchMove={handleLongPressCancel}
+            draggable={!isTouch && !!onReorderPanes}
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
             onDragEnd={handleTabDragEnd}
@@ -278,15 +311,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
+              className={`${isTouch ? 'w-7 h-7' : 'w-5 h-5'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0`}
             >
-              {isElectron && paneIdx < 9 ? (
+              {isElectron && !isTouch && paneIdx < 9 ? (
                 <>
                   <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{paneIdx + 1}</kbd>
                   <X size={12} className="hidden group-hover:block" />
                 </>
               ) : (
-                <X size={12} className="opacity-0 group-hover:opacity-100" />
+                <X size={12} className={isTouch ? '' : 'opacity-0 group-hover:opacity-100'} />
               )}
             </button>
             {showRightIndicator && (
@@ -311,15 +344,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               }
               setShowAddMenu(!showAddMenu);
             }}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.08] text-app-text-muted hover:text-app-text transition-colors flex-shrink-0"
+            className={`${isTouch ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.08] text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`}
             title="Add pane"
           >
             <Plus size={14} />
           </button>
-          {showAddMenu && menuPos && (
+          {showAddMenu && (isMobile || menuPos) && (
+            <>
+            {isMobile && <div className="fixed inset-0 z-[9998]" onClick={() => setShowAddMenu(false)} />}
             <div
-              className="fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[140px]"
-              style={{ top: menuPos.top, left: menuPos.left }}
+              className={isMobile
+                ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
+                : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[140px]'}
+              style={!isMobile ? { top: menuPos!.top, left: menuPos!.left } : { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
             >
               {onNewChat && (
                 <button
@@ -332,6 +369,27 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 </button>
               )}
               {availableTypes.map(type => {
+                if (type === 'terminal') {
+                  // Terminal has sub-types: Shell and Claude Code
+                  return (
+                    <div key={type}>
+                      <button
+                        onClick={() => { onAddPane('terminal', 'shell'); setShowAddMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                      >
+                        <TerminalSquare size={14} />
+                        <span>Shell</span>
+                      </button>
+                      <button
+                        onClick={() => { onAddPane('terminal', 'claude-code'); setShowAddMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                      >
+                        <Code2 size={14} className="text-violet-500" />
+                        <span>Claude Code</span>
+                      </button>
+                    </div>
+                  );
+                }
                 const config = PANE_CONFIG[type];
                 const Icon = ICONS[config.icon];
                 return (
@@ -346,6 +404,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 );
               })}
             </div>
+            </>
           )}
         </div>
       )}

@@ -146,7 +146,10 @@ export function ProjectWindowPane({
   const [rows, setRows] = useState<GroupLayoutRow[]>(() => persisted.current?.rows || []);
   const [rowHeights, setRowHeights] = useState<number[]>(() => persisted.current?.rowHeights || [1]);
   const [focusedGroupId, setFocusedGroupId] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => persisted.current?.sidebarCollapsed ?? false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (window.innerWidth < 768) return true; // Always collapsed on mobile
+    return persisted.current?.sidebarCollapsed ?? false;
+  });
   const [showContext, setShowContext] = useState(() => {
     try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
   });

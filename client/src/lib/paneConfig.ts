@@ -23,12 +23,15 @@ export const PANE_CONFIG: Record<PaneType, PaneConfig> = {
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
   'all-boards':  { icon: 'LayoutGrid',   label: 'Board',         color: '#10b981', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
-  'process-log': { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
+  'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
+  'session-viewer': { icon: 'Eye',          label: 'Session',       color: '#8b5cf6' },
 };
 
 export function createPaneId(type: PaneType, key?: string): string {
   if (type === 'chat' && key) return `chat:${key}`;
   if (type === 'project' && key) return `project:${encodeURIComponent(key)}`;
+  if (type === 'terminal' && key) return `terminal:${key}`;
+  if (type === 'session-viewer' && key) return `session-viewer:${key}`;
   return `${type}:${Date.now()}`;
 }
 
@@ -45,9 +48,27 @@ export function isBrowserPaneId(id: string): boolean {
   return id.startsWith('browser:');
 }
 
+export function isTerminalPaneId(id: string): boolean {
+  return id.startsWith('terminal:');
+}
+
+export function getTerminalSessionFromPaneId(id: string): string | null {
+  if (!isTerminalPaneId(id)) return null;
+  return id.slice('terminal:'.length);
+}
+
 export function getProjectPathFromPaneId(id: string): string | null {
   if (!isProjectPaneId(id)) return null;
   return decodeURIComponent(id.slice('project:'.length));
+}
+
+export function isSessionViewerPaneId(id: string): boolean {
+  return id.startsWith('session-viewer:');
+}
+
+export function getSessionKeyFromViewerPaneId(id: string): string | null {
+  if (!isSessionViewerPaneId(id)) return null;
+  return id.slice('session-viewer:'.length);
 }
 
 let _groupCounter = 0;
