@@ -41,6 +41,10 @@ export function isProjectPaneId(id: string): boolean {
   return id.startsWith('project:');
 }
 
+export function isBrowserPaneId(id: string): boolean {
+  return id.startsWith('browser:');
+}
+
 export function getProjectPathFromPaneId(id: string): string | null {
   if (!isProjectPaneId(id)) return null;
   return decodeURIComponent(id.slice('project:'.length));

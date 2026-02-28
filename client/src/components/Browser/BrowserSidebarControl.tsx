@@ -16,7 +16,6 @@ interface BrowserSidebarControlProps {
 
 export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBrowser }: BrowserSidebarControlProps) {
   const [contexts, setContexts] = useState<BrowserContext[]>([]);
-  const [serviceRunning, setServiceRunning] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -26,13 +25,11 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
         const resp = await fetch('/api/browser/status');
         if (resp.ok) {
           const data = await resp.json();
-          setServiceRunning(data.running);
           const details = data.details || [];
           setContexts(details);
           onContextCount?.(details.length);
         }
       } catch {
-        setServiceRunning(false);
         setContexts([]);
         onContextCount?.(0);
       }
@@ -54,15 +51,6 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
 
   return (
     <div className="pb-2">
-      {/* Status */}
-      <div className="px-3 py-1">
-        <div className={`flex items-center gap-1.5 text-[11px] ${serviceRunning ? 'text-green-500' : 'text-app-text-muted'}`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${serviceRunning ? 'bg-green-500' : 'bg-app-text-muted'}`} />
-          {serviceRunning ? 'Playwright ready' : 'Idle'}
-        </div>
-      </div>
-
-      {/* Context list */}
       <div className="px-2 space-y-0.5">
         {contexts.map(ctx => (
           <div

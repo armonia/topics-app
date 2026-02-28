@@ -17,7 +17,7 @@ import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
-import { createPaneId, isProjectPaneId } from './lib/paneConfig';
+import { createPaneId, isProjectPaneId, isBrowserPaneId } from './lib/paneConfig';
 import { generateUUID } from './utils/uuid';
 import { globalBoardApi } from './lib/api';
 
@@ -319,14 +319,40 @@ function App() {
     applyTopicFromWS,
   } = useTopics();
 
-  // Validate saved panels exist (remove deleted topics)
+  // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
   useEffect(() => {
     if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
-      const validPanels = openPanels.filter(id => isUtilityPanelId(id) || isProjectPaneId(id) || (topics[id] && !topics[id].archived));
-      if (validPanels.length !== openPanels.length) {
+      const projectPanesToAdd: string[] = [];
+      const validPanels = openPanels.filter(id => {
+        if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id)) return true;
+        const topic = topics[id];
+        if (!topic || topic.archived) return false;
+        // Topic linked to a project → remove from standalone, ensure project pane is open
+        if (topic.projectPath) {
+          const paneId = createPaneId('project', topic.projectPath);
+          if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
+          return false;
+        }
+        return true;
+      });
+      // Add project panes for topics that were moved
+      for (const p of projectPanesToAdd) {
+        if (!validPanels.includes(p)) validPanels.push(p);
+      }
+      const changed = validPanels.length !== openPanels.length || validPanels.some((v, i) => v !== openPanels[i]);
+      if (changed) {
         setOpenPanels(validPanels);
-        if (focusedPanelId && !validPanels.includes(focusedPanelId)) {
-          setFocusedPanelId(validPanels.length > 0 ? validPanels[0] : null);
+        // Don't reset focus for browser panes (managed locally by StandaloneChatGroup)
+        if (focusedPanelId && !validPanels.includes(focusedPanelId) && !isBrowserPaneId(focusedPanelId)) {
+          // If focused topic was moved to a project, focus the project pane
+          const movedTopic = topics[focusedPanelId];
+          if (movedTopic?.projectPath) {
+            const projectPaneId = createPaneId('project', movedTopic.projectPath);
+            setFocusedPanelId(projectPaneId);
+            setPendingProjectFocus({ projectPath: movedTopic.projectPath, topicId: focusedPanelId });
+          } else {
+            setFocusedPanelId(validPanels.length > 0 ? validPanels[0] : null);
+          }
         }
       }
     }

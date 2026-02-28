@@ -5,7 +5,7 @@ import { ChatPanel } from './ChatPanel';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
-import { PANE_CONFIG, isProjectPaneId, getProjectPathFromPaneId, createPaneId } from '../../lib/paneConfig';
+import { PANE_CONFIG, isProjectPaneId, isBrowserPaneId, getProjectPathFromPaneId, createPaneId } from '../../lib/paneConfig';
 import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
@@ -23,10 +23,6 @@ const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ d
 
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
-
-function isBrowserPaneId(id: string): boolean {
-  return id.startsWith('browser:');
-}
 
 interface StandaloneChatGroupProps {
   topicIds: string[];

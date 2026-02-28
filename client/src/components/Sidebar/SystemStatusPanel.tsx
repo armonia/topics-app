@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wifi, Server, HardDrive, RefreshCw, Clock, Users, RotateCcw } from 'lucide-react';
+import { Wifi, Server, RefreshCw, Clock, RotateCcw } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { openclawControlApi } from '../../lib/api';
 
@@ -28,6 +28,7 @@ interface SystemStatusPanelProps {
 export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
   const [restarting, setRestarting] = useState(false);
+  const [confirmingRestart, setConfirmingRestart] = useState(false);
 
   const gatewayOnline = status?.gateway.online ?? false;
 
@@ -57,15 +58,6 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             color="green"
           />
 
-          {/* Memory */}
-          <StatusRow
-            icon={<HardDrive size={12} />}
-            label="Memory"
-            value={`${status.server.memoryMB} MB`}
-            detail={`heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB`}
-            color={status.server.memoryMB > 512 ? 'yellow' : 'green'}
-          />
-
           {/* Cron Jobs */}
           <StatusRow
             icon={<Clock size={12} />}
@@ -75,24 +67,15 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             color={status.cronJobs.total === 0 ? 'yellow' : 'green'}
           />
 
-          {/* Active Sessions */}
-          <StatusRow
-            icon={<Users size={12} />}
-            label="Sessions"
-            value={`${status.sessions.total}`}
-            detail={Object.entries(status.sessions.byType).map(([t, c]) => `${t}: ${c}`).join(', ') || 'none'}
-            color={status.sessions.total > 0 ? 'green' : 'yellow'}
-          />
-
           {/* Connections */}
           <div className="flex items-center gap-3 px-2 py-1.5 rounded bg-elevated">
-            <div className="flex-1 flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2" title="WebSocket — connessioni client attive">
               <span className="text-[10px] text-app-text-muted">WS</span>
               <span className="text-[11px] font-medium text-app-text">
                 {status.connections.wsClients}
               </span>
             </div>
-            <div className="flex-1 flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2" title="Streams — flussi dati in tempo reale attivi">
               <span className="text-[10px] text-app-text-muted">Streams</span>
               <span className={`text-[11px] font-medium ${
                 status.connections.activeStreams > 0 ? 'text-primary' : 'text-app-text'
@@ -100,20 +83,13 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
                 {status.connections.activeStreams}
               </span>
             </div>
-            <div className="flex-1 flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2" title="Topics — argomenti attualmente attivi">
               <span className="text-[10px] text-app-text-muted">Topics</span>
               <span className="text-[11px] font-medium text-app-text">
                 {status.topics.activeCount}
               </span>
             </div>
           </div>
-
-          {/* Last checked */}
-          {status.gateway.lastCheckedAt && (
-            <div className="px-2 text-[10px] text-app-text-muted">
-              checked {formatTimeAgo(status.gateway.lastCheckedAt)}
-            </div>
-          )}
         </div>
       )}
 
@@ -123,25 +99,48 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           onClick={refresh}
           disabled={loading}
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
+          title={status ? `Memoria: ${status.server.memoryMB} MB (heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB)` : undefined}
         >
           <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-          Refresh
+          <span className="flex items-center gap-1">
+            {status && (
+              <span className={status.server.memoryMB > 512 ? 'text-amber-400' : ''}>
+                {status.server.memoryMB} MB
+              </span>
+            )}
+            {status?.gateway.lastCheckedAt && (
+              <>
+                <span className="text-app-text-muted/50">·</span>
+                <span>{formatTimeAgo(status.gateway.lastCheckedAt)}</span>
+              </>
+            )}
+            {!status && 'Refresh'}
+          </span>
         </button>
         <button
           onClick={async () => {
+            if (!confirmingRestart) {
+              setConfirmingRestart(true);
+              setTimeout(() => setConfirmingRestart(false), 3000);
+              return;
+            }
+            setConfirmingRestart(false);
             setRestarting(true);
             try {
               await openclawControlApi.restart();
-              // Wait a moment for the gateway to come back up, then refresh status
               setTimeout(refresh, 3000);
             } catch {}
             setRestarting(false);
           }}
           disabled={restarting}
-          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-app-hover rounded transition-colors whitespace-nowrap"
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors whitespace-nowrap ${
+            confirmingRestart
+              ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20'
+              : 'text-amber-400 hover:text-amber-300 hover:bg-app-hover'
+          }`}
         >
           <RotateCcw size={11} className={restarting ? 'animate-spin' : ''} />
-          {restarting ? 'Riavvio…' : 'Riavvia'}
+          {restarting ? 'Riavvio…' : confirmingRestart ? 'Sei sicuro?' : 'Riavvia'}
         </button>
       </div>
     </div>
