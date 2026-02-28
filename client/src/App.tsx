@@ -928,8 +928,8 @@ function App() {
   return (
     <ToastProvider>
     <div
-      className="fixed inset-0 flex bg-app-bg overflow-hidden max-w-[100vw]"
-      style={{ fontSize: `${appSettings.fontSize}px` }}
+      className="flex bg-app-bg overflow-hidden max-w-[100vw]"
+      style={{ fontSize: `${appSettings.fontSize}px`, position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' }}
     >
       {/* Skip to main content link for keyboard users */}
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm">
