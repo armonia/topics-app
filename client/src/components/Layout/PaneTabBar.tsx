@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
+import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { PANE_CONFIG } from '../../lib/paneConfig';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -32,6 +33,7 @@ interface PaneTabBarProps {
   streamingPaneIds?: Set<string>;
   onStopStreaming?: (paneId: string) => void;
   onPinPane?: (paneId: string) => void;
+  projectStatus?: Record<string, ProjectTabStatus>;
 }
 
 // Mini context ring SVG for chat tabs
@@ -62,7 +64,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -161,8 +163,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   }, []);
 
   // Keyboard shortcut: Cmd/Ctrl+1-9 to select tabs
+  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+  const isElectron = !!(window as any).electronAPI?.isElectron;
+
   useEffect(() => {
-    if (!panes.length) return;
+    if (!isElectron || !panes.length) return;
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
@@ -177,9 +182,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [panes, onActivate]);
-
-  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+  }, [panes, onActivate, isElectron]);
 
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
@@ -237,6 +240,32 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               <ContextRing percent={paneContextPercent ?? 0} onClick={onContextRingClick ? () => onContextRingClick(pane.id) : undefined} />
             )}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            {pane.type === 'project' && projectStatus?.[pane.id] && (() => {
+              const ps = projectStatus[pane.id];
+              const showBranch = ps.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
+              return (
+                <span className="flex items-center gap-1 flex-shrink-0 text-[10px] font-medium min-w-0">
+                  {showBranch && (
+                    <span className="truncate max-w-[80px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>
+                  )}
+                  {ps.gitFileCount > 0 && (
+                    <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>
+                  )}
+                  {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
+                    <span className="text-blue-500 dark:text-blue-400 leading-none whitespace-nowrap">
+                      {ps.gitAhead > 0 && <>{ps.gitAhead}↑</>}
+                      {ps.gitBehind > 0 && <>{ps.gitAhead > 0 ? ' ' : ''}{ps.gitBehind}↓</>}
+                    </span>
+                  )}
+                  {ps.runningProcessCount > 0 && (
+                    <span className="flex items-center gap-0.5 text-green-500 dark:text-green-400 leading-none">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                      {ps.runningProcessCount}
+                    </span>
+                  )}
+                </span>
+              );
+            })()}
             {isPaneStreaming && (
               <button
                 onClick={(e) => { e.stopPropagation(); onStopStreaming?.(pane.id); }}
@@ -251,9 +280,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
             >
-              {paneIdx < 9 ? (
+              {isElectron && paneIdx < 9 ? (
                 <>
-                  <span className="text-[10px] text-app-text-muted/50 tabular-nums group-hover:hidden">{isMac ? '⌘' : '⌃'}{paneIdx + 1}</span>
+                  <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{paneIdx + 1}</kbd>
                   <X size={12} className="hidden group-hover:block" />
                 </>
               ) : (
@@ -298,7 +327,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <MessageSquare size={14} />
-                  <span>New Chat</span>
+                  <span className="flex-1 text-left">New Chat</span>
+                  {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>}
                 </button>
               )}
               {availableTypes.map(type => {
@@ -332,7 +362,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
             <X size={13} />
-            <span>Close</span>
+            <span className="flex-1 text-left">Close</span>
+            {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}W</kbd>}
           </button>
           {panes.length > 1 && (
             <button

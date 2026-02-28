@@ -3,6 +3,7 @@ import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, PanelLeft, Re
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer } from './FileExplorer';
 import { TaskBoard } from './TaskBoard';
+import { scriptsApi } from '../../lib/api';
 import type { WSMessage } from '../../types';
 
 // Git is heavy (diff rendering) — keep lazy
@@ -56,6 +57,23 @@ export function ProjectSidebar({
 
   // Use same projectId as KanbanBoard (encodeURIComponent of projectPath)
   const projectId = projectPath ? encodeURIComponent(projectPath) : null;
+
+  // Running process count for the Processes header badge
+  const [runningCount, setRunningCount] = useState(0);
+  useEffect(() => {
+    let active = true;
+    const poll = () => {
+      scriptsApi.list()
+        .then(data => {
+          if (!active) return;
+          setRunningCount(data.scripts.filter(s => s.projectPath === projectPath && s.status === 'running').length);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => { active = false; clearInterval(interval); };
+  }, [projectPath]);
 
   // Read cached git status for Suspense fallback (avoids flash without branch/changes)
   const cachedGit = (() => {
@@ -337,7 +355,12 @@ export function ProjectSidebar({
           >
             <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             <Zap size={14} />
-            <span>Processes</span>
+            <span className="flex-1 text-left">Processes</span>
+            {runningCount > 0 && (
+              <span className="text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                {runningCount}
+              </span>
+            )}
           </button>
           {expandedSections.processes && (
             <div className="flex-1 min-h-0 overflow-y-auto">

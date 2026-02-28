@@ -1,8 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, Terminal, Globe, LayoutGrid, FolderOpen } from 'lucide-react';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
+import { createPaneId } from '@/lib/paneConfig';
 import type { Topic, UnreadData, PaneType } from '@/types';
+import { useProjectTabStatus } from '@/hooks/useProjectTabStatus';
 
 function getProjectLabel(projectPath: string | undefined): { name: string; isTemp: boolean } {
   if (!projectPath) return { name: 'Unlinked', isTemp: false };
@@ -79,6 +81,16 @@ export function TopicTree({
   }, [projectAddMenu]);
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean } | null>(null);
 
+  // Project tab status for sidebar indicators
+  const sidebarProjectPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const t of Object.values(topics)) {
+      if (t.projectPath) paths.add(t.projectPath);
+    }
+    return [...paths];
+  }, [topics]);
+  const projectTabStatus = useProjectTabStatus(sidebarProjectPaths);
+
   // Close project context menu on outside click
   useEffect(() => {
     if (!projectContextMenu) return;
@@ -106,10 +118,14 @@ export function TopicTree({
       return;
     }
 
-    // Get sorted list of chat topics (non-project, non-archived)
+    // Get sorted list of chat topics (non-project, non-archived) — same order as rendered
     const chatTopics = Object.values(topics)
       .filter(t => !t.projectPath && !t.archived)
-      .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+      .sort((a, b) => {
+        const so = (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
+        if (so !== 0) return so;
+        return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
+      });
 
     const fromIdx = chatTopics.findIndex(t => t.id === draggedId);
     const toIdx = chatTopics.findIndex(t => t.id === targetId);
@@ -148,7 +164,12 @@ export function TopicTree({
   };
 
   const renderLevel = (parentId: string | null, depth = 0, includeArchived = false, hideIcon = false): React.ReactNode[] => {
-    const children = getChildren(parentId).sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+    const children = getChildren(parentId).sort((a, b) => {
+      const so = (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
+      if (so !== 0) return so;
+      // No manual order — newest first
+      return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
+    });
     const result: React.ReactNode[] = [];
 
     for (const topic of children) {
@@ -312,14 +333,15 @@ export function TopicTree({
                     onClick={() => setShowProjectsArchived(!showProjectsArchived)}
                     aria-pressed={showProjectsArchived}
                     aria-label={showProjectsArchived ? `Hide ${totalProjectArchived} archived` : `Show ${totalProjectArchived} archived`}
-                    className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all ${
+                    className={`flex-shrink-0 h-6 inline-flex items-center gap-1 px-1.5 rounded transition-all text-[11px] leading-none ${
                       showProjectsArchived
                         ? 'text-primary opacity-100'
                         : 'text-app-text-tertiary opacity-0 md:group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10'
                     }`}
                     title={showProjectsArchived ? "Hide archived" : `Show ${totalProjectArchived} archived`}
                   >
-                    <Archive size={12} />
+                    <span>Show</span>
+                    <Archive size={12} className="flex-shrink-0" />
                   </button>
                 )}
               </div>
@@ -333,24 +355,38 @@ export function TopicTree({
 
                   // Hide fully-archived projects unless "show archived" is on
                   if (allArchived && !showProjectsArchived) return null;
-                  // Combine active and archived (if showing) and sort by name
+                  // Combine active and archived (if showing) — newest first
+                  const sortByRecent = (a: Topic, b: Topic) =>
+                    (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
                   const allChats = showProjectsArchived
-                    ? [...activeTopics, ...projectArchived].sort((a, b) => a.name.localeCompare(b.name))
-                    : activeTopics;
+                    ? [...activeTopics, ...projectArchived].sort(sortByRecent)
+                    : [...activeTopics].sort(sortByRecent);
 
                   // Sum unread counts for all topics in this project group
                   const groupUnread = allChats.reduce((sum, t) => sum + (unreadData[t.id]?.unreadCount || 0), 0);
+                  const projectPaneId = createPaneId('project', path);
+                  const isProjectFocused = focusedTopicId === projectPaneId;
+                  const isProjectOpen = openPanels.includes(projectPaneId);
                   return (
                     <div key={projectName}>
                       {/* Project folder item */}
                       <div
-                        className="group/proj flex items-center h-8 hover:bg-app-hover transition-colors"
+                        className={`group/proj flex items-center h-8 transition-colors relative ${
+                          isProjectFocused
+                            ? 'bg-primary/8 dark:bg-primary/15'
+                            : isProjectOpen
+                              ? 'bg-app-hover'
+                              : 'hover:bg-app-hover'
+                        }`}
                         onContextMenu={(e) => {
                           if (!onArchiveProject) return;
                           e.preventDefault();
                           setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: path, projectName, allArchived });
                         }}
                       >
+                        {isProjectFocused && (
+                          <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />
+                        )}
                         <button
                           onClick={() => {
                             const wasExpanded = expandedProjects.has(projectName);
@@ -360,7 +396,9 @@ export function TopicTree({
                             }
                           }}
                           className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-                            allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+                            isProjectFocused
+                              ? 'text-primary dark:text-primary-dark'
+                              : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
                           }`}
                           style={{ paddingLeft: 28 }}
                           title={path}
@@ -372,9 +410,36 @@ export function TopicTree({
                           />
                           <span className="truncate flex-1">{projectName}</span>
                         </button>
-                        {/* Right side: count (default) / action buttons (hover) */}
+                        {/* Right side: count + status (default) / action buttons (hover) */}
                         <div className="flex items-center pr-2 flex-shrink-0">
-                          {/* Count — visible by default, hidden on hover */}
+                          {/* Status indicators + count — visible by default, hidden on hover */}
+                          {(() => {
+                            const ps = projectTabStatus[path];
+                            const showBranch = ps?.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
+                            const hasStatus = ps && (showBranch || ps.gitFileCount > 0 || ps.gitAhead > 0 || ps.gitBehind > 0 || ps.runningProcessCount > 0);
+                            return hasStatus ? (
+                              <span className="flex items-center gap-1 text-[10px] font-medium mr-1.5 group-hover/proj:hidden min-w-0">
+                                {showBranch && (
+                                  <span className="truncate max-w-[60px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>
+                                )}
+                                {ps.gitFileCount > 0 && (
+                                  <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>
+                                )}
+                                {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
+                                  <span className="text-blue-500 dark:text-blue-400 leading-none whitespace-nowrap">
+                                    {ps.gitAhead > 0 && <>{ps.gitAhead}↑</>}
+                                    {ps.gitBehind > 0 && <>{ps.gitAhead > 0 ? ' ' : ''}{ps.gitBehind}↓</>}
+                                  </span>
+                                )}
+                                {ps.runningProcessCount > 0 && (
+                                  <span className="flex items-center gap-0.5 text-green-500 dark:text-green-400 leading-none">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                    {ps.runningProcessCount}
+                                  </span>
+                                )}
+                              </span>
+                            ) : null;
+                          })()}
                           {groupUnread > 0 ? (
                             <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center group-hover/proj:hidden">
                               {groupUnread}
@@ -526,14 +591,15 @@ export function TopicTree({
                 onClick={() => setShowChatsArchived(!showChatsArchived)}
                 aria-pressed={showChatsArchived}
                 aria-label={showChatsArchived ? `Hide ${archivedOutsideProjects.length} archived chats` : `Show ${archivedOutsideProjects.length} archived chats`}
-                className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all ${
+                className={`flex-shrink-0 h-6 inline-flex items-center gap-1 px-1.5 rounded transition-all text-[11px] leading-none ${
                   showChatsArchived
                     ? 'text-primary opacity-100'
                     : 'text-app-text-tertiary opacity-0 md:group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10'
                 }`}
                 title={showChatsArchived ? "Hide archived" : `Show ${archivedOutsideProjects.length} archived`}
               >
-                <Archive size={12} />
+                <span>Show</span>
+                <Archive size={12} className="flex-shrink-0" />
               </button>
             )}
           </div>
@@ -561,7 +627,9 @@ export function TopicTree({
           >
             <span>+</span> Create Topic
           </button>
-          <p className="text-[11px] text-app-placeholder mt-3">or press <kbd className="kbd">⌘N</kbd></p>
+          {!!(window as any).electronAPI?.isElectron && (
+            <p className="text-[11px] text-app-placeholder mt-3">or press <kbd className="kbd">⌘N</kbd></p>
+          )}
         </div>
       )}
 
