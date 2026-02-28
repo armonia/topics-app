@@ -176,7 +176,7 @@ export function MessageList({
       <NewMessageBanner show={showNewBanner} onClick={scrollToBottom} />
 
       {currentLoading && currentMessages.length === 0 ? (
-        <div className={`${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'}`}>
+        <div className={`${isMobile ? 'px-2' : 'px-4'} ${isCompact ? 'space-y-1' : 'space-y-2'} overflow-hidden`}>
           {[1,2,3].map(i => (
             <div key={i} className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-end' : 'justify-start'} animate-pulse`}>
               <div className={`rounded-lg px-3 py-2 max-w-[85%] ${
