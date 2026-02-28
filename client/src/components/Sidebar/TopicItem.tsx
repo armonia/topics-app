@@ -207,17 +207,7 @@ export const TopicItem = memo(function TopicItem({
         {topic.name}
       </span>
 
-      {/* Relative time — hidden on hover when action buttons appear */}
-      {!isStreaming && topic.updatedAt && (
-        <span
-          className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
-          title={new Date(topic.updatedAt).toLocaleString()}
-        >
-          {relativeTime(topic.updatedAt)}
-        </span>
-      )}
-
-      {/* Streaming spinner (replaces archive button) / Archive button */}
+      {/* Streaming spinner */}
       {isStreaming ? (
         <button
           onClick={(e) => { e.stopPropagation(); onStopStreaming?.(); }}
@@ -228,20 +218,35 @@ export const TopicItem = memo(function TopicItem({
           <div className="w-3.5 h-3.5 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
           <div className="w-2 h-2 bg-primary rounded-[1px] hidden group-hover/stop:block" />
         </button>
-      ) : onArchive ? (
-        <button
-          onClick={handleArchiveClick}
-          className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-          title={topic.archived ? "Unarchive" : "Archive"}
-          aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
-        >
-          {topic.archived ? (
-            <ArchiveRestore size={12} className="text-app-text-tertiary" />
-          ) : (
-            <Archive size={12} className="text-app-text-tertiary" />
+      ) : (
+        /* Time / Archive — occupy the same slot, swap on hover */
+        <span className="flex-shrink-0 flex items-center justify-center w-11 h-11 md:w-7 md:h-7">
+          {/* Relative time — default visible, hidden on group hover */}
+          {topic.updatedAt && (
+            <span
+              className="text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
+              title={new Date(topic.updatedAt).toLocaleString()}
+            >
+              {relativeTime(topic.updatedAt)}
+            </span>
           )}
-        </button>
-      ) : null}
+          {/* Archive button — hidden by default, visible on group hover */}
+          {onArchive && (
+            <button
+              onClick={handleArchiveClick}
+              className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+              title={topic.archived ? "Unarchive" : "Archive"}
+              aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
+            >
+              {topic.archived ? (
+                <ArchiveRestore size={12} className="text-app-text-tertiary" />
+              ) : (
+                <Archive size={12} className="text-app-text-tertiary" />
+              )}
+            </button>
+          )}
+        </span>
+      )}
 
       {/* Assigned agents badge */}
       {assignedAgentCount > 0 && (
