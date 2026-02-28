@@ -220,7 +220,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     <div className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5 min-w-0"}>
       {/* Scrollable tab area */}
       <div
-        className="flex items-center gap-0.5 min-w-0 overflow-x-auto shrink scrollbar-none p-px"
+        className="flex items-center gap-0.5 min-w-0 overflow-x-auto shrink scrollbar-none p-px max-w-full"
         style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;

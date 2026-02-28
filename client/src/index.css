@@ -156,13 +156,17 @@
 }
 
 /* Prevent pull-to-refresh on mobile (we handle it ourselves) */
-html, body {
+html, body, #root {
   overscroll-behavior-y: contain;
   max-width: 100vw;
+  overflow-x: hidden;
+  width: 100%;
 }
 
-#root {
+/* All flex containers in the layout must not exceed parent */
+#root > div {
   max-width: 100vw;
+  overflow-x: hidden;
 }
 
 /* Smooth scrolling */
