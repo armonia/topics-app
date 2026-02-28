@@ -929,6 +929,7 @@ function App() {
     <ToastProvider>
     <div
       className="h-screen flex bg-app-bg overflow-hidden max-w-[100vw]"
+      style={{ height: '100dvh', maxHeight: '100dvh' }}
       style={{ fontSize: `${appSettings.fontSize}px` }}
     >
       {/* Skip to main content link for keyboard users */}
