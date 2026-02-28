@@ -576,14 +576,14 @@ export function StandaloneChatGroup({
   return (
     <>
       <div
-        className={`flex flex-col flex-1 min-h-0 transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+        className={`flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
         onDragOver={handleStandaloneDragOver}
         onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
       >
         {activeIsTerminal ? (
           /* ---- Terminal pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
@@ -594,7 +594,7 @@ export function StandaloneChatGroup({
           </div>
         ) : activeIsSessionViewer && activeSessionKey ? (
           /* ---- Session viewer pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
@@ -605,7 +605,7 @@ export function StandaloneChatGroup({
           </div>
         ) : activeIsBrowser ? (
           /* ---- Browser pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
@@ -620,7 +620,7 @@ export function StandaloneChatGroup({
           </div>
         ) : activeIsProject && activeProjectPath ? (
           /* ---- Project pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
@@ -652,7 +652,7 @@ export function StandaloneChatGroup({
           </div>
         ) : activeIsUtility ? (
           /* ---- Utility pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 bg-surface overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             {/* Header with tab bar */}
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}

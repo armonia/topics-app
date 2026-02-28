@@ -199,7 +199,7 @@ export function GroupLayout({
   }, []);
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 overflow-hidden" onDragEnd={handleRowDragEnd}>
+    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" onDragEnd={handleRowDragEnd}>
       {rows.map((row, rowIdx) => {
         const isDraggingRow = draggingRowIdx === rowIdx;
         const isRowDropTop = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'top';
@@ -208,7 +208,7 @@ export function GroupLayout({
         return (
           <div key={rowIdx} className={`flex flex-col flex-1 min-h-0 ${isDraggingRow ? 'opacity-40' : ''}`}>
             <div
-              className="flex flex-1 min-h-0 min-w-0 relative"
+              className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
               style={{
                 flex: `${rowHeights[rowIdx] ?? 1 / rows.length} 1 0%`,
                 boxShadow: isRowDropTop ? `inset 0 4px 0 0 var(--primary)` : isRowDropBottom ? `inset 0 -4px 0 0 var(--primary)` : undefined,
