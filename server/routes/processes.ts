@@ -124,10 +124,16 @@ function loadState() {
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0); // signal 0 = just check
-    return true;
   } catch {
     return false;
   }
+  // signal 0 succeeds for zombies too — check actual state via ps
+  try {
+    const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
+    const stat = new TextDecoder().decode(result.stdout).trim();
+    if (stat.startsWith("Z")) return false; // zombie
+  } catch {}
+  return true;
 }
 
 function pollPidExit(sp: ScriptProcess) {
@@ -399,7 +405,17 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
       // Kill by PID (works even for re-adopted processes without proc handle)
       const pid = sp.pid;
-      if (!pid) return json({ error: "No PID available" }, 500);
+      if (!pid || !isPidAlive(pid)) {
+        // PID missing or already dead/zombie — just clean up state
+        sp.status = "error";
+        sp.completedAt = new Date().toISOString();
+        sp.exitCode = sp.exitCode ?? -1;
+        sp.proc = null;
+        runningScripts.delete(processId);
+        addToRecent(sp);
+        saveState();
+        return json({ ok: true });
+      }
 
       try {
         // Kill entire process group

@@ -22,6 +22,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const [runningScripts, setRunningScripts] = useState<ScriptProcessInfo[]>([]);
   const [ready, setReady] = useState(false);
   const [startingScript, setStartingScript] = useState<string | null>(null);
+  const [stoppingScript, setStoppingScript] = useState<string | null>(null);
 
   // Load both scripts and running state together before rendering
   useEffect(() => {
@@ -64,15 +65,27 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     }
   }, [projectPath, onRunScript]);
 
-  const handleStopScript = useCallback(async (processId: string, e: React.MouseEvent) => {
+  const handleStopScript = useCallback(async (processId: string, scriptName: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setStoppingScript(scriptName);
     try {
       await scriptsApi.stop(processId);
-      setTimeout(async () => {
+      // Poll until the process is actually gone
+      const poll = async (attempts: number) => {
         const data = await scriptsApi.list();
-        setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath));
-      }, 1000);
-    } catch {}
+        const still = data.scripts.filter(s => s.projectPath === projectPath);
+        const stillRunning = still.some(s => s.scriptName === scriptName && s.status === 'running');
+        if (stillRunning && attempts > 0) {
+          setTimeout(() => poll(attempts - 1), 500);
+        } else {
+          setRunningScripts(still);
+          setStoppingScript(null);
+        }
+      };
+      setTimeout(() => poll(10), 500);
+    } catch {
+      setStoppingScript(null);
+    }
   }, [projectPath]);
 
   const scriptEntries = Object.entries(scripts);
@@ -98,13 +111,15 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       {scriptEntries.map(([name, cmd]) => {
         const running = runningMap.get(name);
         const isStarting = startingScript === name;
+        const isStopping = stoppingScript === name;
         const ports = running?.ports ?? [];
 
         return (
           <div key={name}>
             <div
-              className="flex items-center gap-1.5 px-3 py-1 hover:bg-app-hover transition-colors group cursor-pointer"
+              className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
               onClick={() => {
+                if (isStopping) return;
                 if (running) {
                   onOpenProcessLog?.(running.processId, name);
                 } else if (!isStarting) {
@@ -113,7 +128,9 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               }}
               title={cmd}
             >
-              {running ? (
+              {isStopping ? (
+                <div className="w-[10px] h-[10px] border border-red-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              ) : running ? (
                 <div className="w-[10px] h-[10px] flex-shrink-0 relative">
                   <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
                 </div>
@@ -122,11 +139,11 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               ) : (
                 <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
               )}
-              <span className={`flex-1 truncate ${running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>
+              <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>
                 {name}
               </span>
               {/* Inline ports for running scripts */}
-              {ports.map(port => (
+              {!isStopping && ports.map(port => (
                 <a
                   key={port}
                   href={`http://localhost:${port}`}
@@ -138,16 +155,16 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   :{port}
                 </a>
               ))}
-              {running && (
+              {running && !isStopping && (
                 <button
-                  onClick={(e) => handleStopScript(running.processId, e)}
+                  onClick={(e) => handleStopScript(running.processId, name, e)}
                   className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                   title="Stop"
                 >
                   <Square size={9} />
                 </button>
               )}
-              {!running && (
+              {!running && !isStopping && (
                 <span className="text-[10px] text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
               )}
             </div>
