@@ -9,6 +9,54 @@ import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../li
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { isPlanResponse, PlanView } from './Chat/PlanView';
 
+/**
+ * Close any open/incomplete markdown tokens so ReactMarkdown doesn't flicker
+ * during streaming. Only called when partial === true.
+ */
+function completePartialMarkdown(text: string): string {
+  // 1. Close open fenced code blocks (``` or ~~~)
+  const fenceRegex = /^(`{3,}|~{3,})/gm;
+  let fenceCount = 0;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRegex.exec(text)) !== null) fenceCount++;
+  if (fenceCount % 2 !== 0) {
+    text += '\n```';
+  }
+
+  // If inside a code block, don't try to fix inline formatting
+  if (fenceCount % 2 !== 0) return text;
+
+  // 2. Close open inline code spans (backticks)
+  //    Count unescaped backticks outside of code blocks
+  let backticks = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '`' && (i === 0 || text[i - 1] !== '\\')) backticks++;
+  }
+  if (backticks % 2 !== 0) {
+    text += '`';
+  }
+
+  // 3. Close open bold markers (**)
+  const boldMatches = text.match(/\*\*/g);
+  if (boldMatches && boldMatches.length % 2 !== 0) {
+    text += '**';
+  }
+
+  // 4. Close open italic markers (single * not part of **)
+  const withoutBold = text.replace(/\*\*/g, '');
+  const italicMatches = withoutBold.match(/\*/g);
+  if (italicMatches && italicMatches.length % 2 !== 0) {
+    text += '*';
+  }
+
+  // 5. Remove trailing incomplete link/image syntax: [text without ]
+  text = text.replace(/!?\[([^\]]*)$/, '$1');
+  // [text](incomplete url
+  text = text.replace(/(\[[^\]]*\])\([^)]*$/, '$1');
+
+  return text;
+}
+
 // File extension helpers
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
 const AUDIO_EXTS = ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'opus', 'webm'];
@@ -438,7 +486,13 @@ interface MessageContentProps {
 }
 
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject }: MessageContentProps) {
-  const { cleanText, mediaPaths: extractedMediaPaths } = useMemo(() => extractMediaPaths(content), [content]);
+  const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths } = useMemo(() => extractMediaPaths(content), [content]);
+
+  // During streaming, close any incomplete markdown tokens to prevent rendering glitches
+  const cleanText = useMemo(
+    () => (partial && rawCleanText) ? completePartialMarkdown(rawCleanText) : rawCleanText,
+    [rawCleanText, partial],
+  );
   
   // Combine extracted media paths with explicit media array
   const allMediaPaths = useMemo(() => {

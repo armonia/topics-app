@@ -28,6 +28,8 @@ interface MessageListProps {
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
   onRemember?: (msg: ChatMessage) => void;
+  onEdit?: (msg: ChatMessage) => void;
+  onSwitchBranch?: (messageId: string, branchIndex: number) => void;
 }
 
 export function MessageList({
@@ -51,9 +53,14 @@ export function MessageList({
   onPlanApprove,
   onPlanReject,
   onRemember,
+  onEdit,
+  onSwitchBranch,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollerElRef = useRef<HTMLElement | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const isScrolledUpRef = useRef(false);
+  const prevStreamingRef = useRef(false);
   const [newMsgCount, setNewMsgCount] = useState(0);
   const [showNewBanner, setShowNewBanner] = useState(false);
   const prevMsgCountRef = useRef(currentMessages.length);
@@ -81,6 +88,7 @@ export function MessageList({
     if (prevTopicIdRef.current !== topic.id) {
       prevTopicIdRef.current = topic.id;
       needsScrollRef.current = true;
+      isScrolledUpRef.current = false;
       setIsScrolledUp(false);
       setNewMsgCount(0);
       setShowNewBanner(false);
@@ -99,17 +107,35 @@ export function MessageList({
     }
   }, [filteredMessages.length, currentLoading]);
 
-  // Auto-scroll during streaming: Virtuoso's followOutput handles new items,
-  // but during streaming the last message content grows (no new item added).
-  // We explicitly scroll to bottom on each content update while streaming.
+  // Force scroll anchor when streaming starts (user just sent a message).
+  // When new items are added (user msg + assistant placeholder), Virtuoso may
+  // briefly report atBottom=false before followOutput catches up, which would
+  // set isScrolledUpRef=true and block our streaming scroll. Reset it here.
+  // This effect is declared BEFORE the streaming scroll effect so React runs
+  // it first in the same render cycle.
   useEffect(() => {
-    if (_currentStreaming && !isScrolledUp) {
-      // Use requestAnimationFrame to let Virtuoso measure the new content first
+    if (_currentStreaming && !prevStreamingRef.current) {
+      isScrolledUpRef.current = false;
+      setIsScrolledUp(false);
+    }
+    prevStreamingRef.current = _currentStreaming;
+  }, [_currentStreaming]);
+
+  // Auto-scroll during streaming: the last message content grows in-place
+  // (no new items added), so Virtuoso's followOutput doesn't trigger.
+  // We set scrollTop = scrollHeight directly on the scroller DOM element,
+  // bypassing Virtuoso's item-height measurement which may lag the actual layout.
+  // Uses isScrolledUpRef (not state) to avoid re-triggering on scroll changes.
+  useEffect(() => {
+    if (_currentStreaming && !isScrolledUpRef.current) {
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+        const el = scrollerElRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
       });
     }
-  }, [filteredMessages, _currentStreaming, isScrolledUp]);
+  }, [filteredMessages, _currentStreaming]);
 
   // Detect new messages while scrolled up
   useEffect(() => {
@@ -208,11 +234,15 @@ export function MessageList({
         <Virtuoso
           key={topic.id}
           ref={virtuosoRef}
+          scrollerRef={(ref) => { scrollerElRef.current = ref as HTMLElement | null; }}
           data={filteredMessages}
           initialTopMostItemIndex={filteredMessages.length - 1}
-          followOutput="smooth"
+          followOutput={_currentStreaming ? false : 'smooth'}
+          atBottomThreshold={50}
           atBottomStateChange={(atBottom) => {
-            setIsScrolledUp(!atBottom);
+            const scrolledUp = !atBottom;
+            isScrolledUpRef.current = scrolledUp;
+            setIsScrolledUp(scrolledUp);
             if (atBottom) {
               setNewMsgCount(0);
               setShowNewBanner(false);
@@ -240,6 +270,8 @@ export function MessageList({
                   onPlanApprove={isLastAssistant ? onPlanApprove : undefined}
                   onPlanReject={isLastAssistant ? onPlanReject : undefined}
                   onRemember={onRemember}
+                  onEdit={onEdit}
+                  onSwitchBranch={onSwitchBranch}
                 />
               </div>
             );
