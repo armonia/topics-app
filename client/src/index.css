@@ -3,6 +3,18 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
 /* Font stack */
 :root {
   --primary: #0066ff;
@@ -44,7 +56,6 @@
   --blockquote-border: #d1d5db;
   --blockquote-text: #6b7280;
   --kbd-text: #6b7280;
-  --kbd-bg: rgba(0,0,0,0.06);
   --disabled-bg: #cccccc;
   
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -128,7 +139,6 @@
   --blockquote-border: #4b5563;
   --blockquote-text: #9ca3af;
   --kbd-text: #9ca3af;
-  --kbd-bg: rgba(255,255,255,0.08);
   --disabled-bg: #444444;
 }
 
@@ -158,11 +168,20 @@ html {
 /* Mobile tap highlight */
 * {
   -webkit-tap-highlight-color: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: rgba(156, 163, 175, 0.25) transparent;
+}
+.dark *:hover {
+  scrollbar-color: rgba(100, 116, 139, 0.25) transparent;
 }
 
 /* Scrollbar — hidden by default, thin on hover */
 ::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -175,18 +194,24 @@ html {
   transition: background-color 0.2s;
 }
 
-*:hover > ::-webkit-scrollbar-thumb,
-*::-webkit-scrollbar-thumb:hover {
+:hover::-webkit-scrollbar-thumb {
   background-color: rgba(156, 163, 175, 0.25);
 }
 
-*::-webkit-scrollbar-thumb:active {
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.35);
+}
+
+::-webkit-scrollbar-thumb:active {
   background-color: rgba(156, 163, 175, 0.4);
 }
 
-.dark ::-webkit-scrollbar-thumb:hover,
-.dark *:hover > ::-webkit-scrollbar-thumb {
+.dark :hover::-webkit-scrollbar-thumb {
   background-color: rgba(100, 116, 139, 0.25);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.35);
 }
 
 .dark ::-webkit-scrollbar-thumb:active {
@@ -194,11 +219,20 @@ html {
 }
 
 /* Sidebar scroll — show scrollbar on container hover */
+.sidebar-scroll {
+  scrollbar-color: transparent transparent;
+}
+.sidebar-scroll:hover {
+  scrollbar-color: rgba(156, 163, 175, 0.2) transparent;
+}
 .sidebar-scroll::-webkit-scrollbar-thumb {
   background-color: transparent;
 }
 .sidebar-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(156, 163, 175, 0.2);
+}
+.dark .sidebar-scroll:hover {
+  scrollbar-color: rgba(100, 116, 139, 0.2) transparent;
 }
 .dark .sidebar-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(100, 116, 139, 0.2);
@@ -568,30 +602,12 @@ input[type="range"]::-webkit-slider-thumb {
   animation: slideUp 0.15s ease-out;
 }
 
-/* Hide scrollbar on mobile (use swipe instead) */
-@media (max-width: 768px) {
-  .hide-scrollbar-mobile {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .hide-scrollbar-mobile::-webkit-scrollbar {
-    display: none;
-  }
-}
-
 /* Mobile keyboard adjustments */
 @media (max-height: 500px) and (max-width: 768px) {
   /* Compact mode when keyboard is open */
   .mobile-compact {
     padding-top: 0 !important;
     padding-bottom: 0 !important;
-  }
-}
-
-/* iOS rubber band effect */
-@supports (-webkit-overflow-scrolling: touch) {
-  .scroll-container {
-    -webkit-overflow-scrolling: touch;
   }
 }
 
@@ -662,20 +678,13 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ============ UX POLISH ============ */
 
-/* Keyboard shortcut badge */
+/* Keyboard shortcut hint */
 .kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.05rem 0.3rem;
-  font-size: 0.6rem;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-weight: 500;
-  line-height: 1.3;
   color: var(--kbd-text);
-  background: var(--kbd-bg);
-  border-radius: 3px;
   white-space: nowrap;
+  vertical-align: baseline;
 }
 
 /* Command palette overlay */
@@ -793,6 +802,13 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* xterm scrollbar — thin, rounded, theme-aware */
+.xterm .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+.dark .xterm .xterm-viewport {
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
 .xterm .xterm-viewport::-webkit-scrollbar {
   width: 6px;
 }
