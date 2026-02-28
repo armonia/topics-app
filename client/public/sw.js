@@ -57,17 +57,21 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Handle push notifications (future)
+// Handle push notifications
 self.addEventListener('push', (event) => {
   if (!event.data) return;
   
-  const data = event.data.json();
+  let data;
+  try { data = event.data.json(); } catch { return; }
+  
   const options = {
-    body: data.body || 'New message',
+    body: data.body || 'New event',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: data.tag || 'topics-notification',
-    data: data.url || '/',
+    data: { url: data.url || '/' },
+    renotify: true,
+    vibrate: [100, 50, 100],
   };
   
   event.waitUntil(
@@ -75,10 +79,21 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Handle notification click
+// Handle notification click — focus existing window or open new one
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+  
   event.waitUntil(
-    clients.openWindow(event.notification.data || '/')
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus an existing window if one is open
+      for (const client of windowClients) {
+        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      return clients.openWindow(targetUrl);
+    })
   );
 });

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
+import { usePushNotifications } from '../../hooks/usePushNotifications';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -165,6 +166,9 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             </div>
           </div>
 
+          {/* Push Notifications */}
+          <PushNotificationsToggle />
+
           {/* Keyboard Shortcuts Reference */}
           <div>
             <label className="text-[13px] font-medium text-app-text mb-2 block">Keyboard Shortcuts</label>
@@ -187,6 +191,41 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PushNotificationsToggle() {
+  const { state, loading, subscribe, unsubscribe } = usePushNotifications();
+
+  if (state === "unsupported") return null;
+
+  const isSubscribed = state === "subscribed";
+  const isDenied = state === "denied";
+
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+        {isSubscribed ? <Bell size={14} /> : <BellOff size={14} />}
+        Push Notifications
+      </label>
+      {isDenied ? (
+        <p className="text-[12px] text-app-text-muted">
+          Notifications blocked by your browser. Enable them in site settings.
+        </p>
+      ) : (
+        <button
+          onClick={isSubscribed ? unsubscribe : subscribe}
+          disabled={loading}
+          className={`w-full py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+            isSubscribed
+              ? "bg-primary/10 border-primary/30 text-primary"
+              : "bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover"
+          } disabled:opacity-50`}
+        >
+          {loading ? "..." : isSubscribed ? "Disable push notifications" : "Enable push notifications"}
+        </button>
+      )}
     </div>
   );
 }

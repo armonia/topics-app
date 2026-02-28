@@ -8,6 +8,7 @@ import type {
   ActiveStream, ErrorResponseOptions, AppContext,
 } from "./types";
 import { initDatabase } from "./db";
+import { maybeSendPush } from "./push-triggers";
 
 export function createAppContext(baseDir: string): AppContext {
   const PORT = parseInt(process.env.PORT || "3333");
@@ -218,6 +219,8 @@ export function createAppContext(baseDir: string): AppContext {
         }
       }
     }
+    // Trigger push notifications for meaningful events
+    try { maybeSendPush(message as Record<string, any>); } catch {}
   }
 
   function broadcastToTopic(topicId: string, message: object, exclude?: ServerWebSocket<WSData>) {

@@ -30,6 +30,8 @@ import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter } from "./server/routes/processes";
+import { createPushRouter } from "./server/routes/push";
+import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
 // Validate required environment variables
@@ -73,6 +75,9 @@ const webhooksRouter = createWebhooksRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const agentApiRouter = createAgentApiRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
+const pushRouter = createPushRouter(ctx);
+// Initialize VAPID keys on startup
+initVapid();
 // Start agent heartbeat checker
 startHeartbeatChecker(db);
 
@@ -210,6 +215,7 @@ const server = Bun.serve<WSData>({
         || await webhooksRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
+        || await pushRouter(req, url, pathname, method)
 ;
 
       if (response) return response;

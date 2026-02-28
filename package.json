@@ -22,6 +22,10 @@
   },
   "dependencies": {
     "node-pty": "^1.0.0",
-    "playwright-core": "^1.50.0"
+    "playwright-core": "^1.50.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/web-push": "^3.6.4"
   }
 }
