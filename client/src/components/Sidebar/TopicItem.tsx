@@ -53,7 +53,7 @@ export const TopicItem = memo(function TopicItem({
   isFocused,
   isPreview,
   isArchived,
-  isProject,
+  isProject: _isProject,
   isStreaming,
   unreadCount = 0,
   assignedAgentCount = 0,

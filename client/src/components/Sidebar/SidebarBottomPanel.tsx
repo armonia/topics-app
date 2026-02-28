@@ -18,6 +18,7 @@ const TAB_LABELS: Record<SidebarTab, string> = {
   system: 'System Status',
   browser: 'Browser',
   terminal: 'Terminal',
+  webhooks: 'Webhooks',
 };
 
 const PANEL_HEIGHT_KEY = 'topics-sidebar-panel-height';

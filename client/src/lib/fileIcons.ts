@@ -2,10 +2,10 @@
 // Used by FileExplorer, FilePane, PaneTabBar, EditorTabs
 
 import {
-  FileText, FileCode, FileJson, FileType, FileImage, FileVideo, FileAudio,
-  FileSpreadsheet, FileArchive, FileLock, FileTerminal, FileSearch, FileCog,
-  File, Folder, FolderOpen, Database, Globe, Palette, Bug, Coffee,
-  Diamond, Gem, Cog, Package, BookOpen, ShieldOff, Container, Hash,
+  FileText, FileCode, FileImage, FileVideo, FileAudio,
+  FileSpreadsheet, FileArchive, FileLock, FileTerminal, FileCog,
+  File, Folder, FolderOpen, Database, Globe, Palette, Coffee,
+  Gem, Cog, Package, BookOpen, ShieldOff, Container,
   Braces, Code, Binary, FileKey, ScrollText, FileCheck, Presentation,
   type LucideIcon,
 } from 'lucide-react';
