@@ -36,6 +36,9 @@ export interface ChatPaneProps {
   // Interaction with adjacent panes
   onOpenFile?: (path: string) => void;
   onNavigateBrowser?: (url: string) => void;
+  // Branching
+  editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
 }
 
 export function ChatPane({
@@ -43,6 +46,7 @@ export function ChatPane({
   getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
+  editMessage, switchBranch,
 }: ChatPaneProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -92,6 +96,7 @@ export function ChatPane({
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
   }, [draftKey, queueKey]);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [planMode, setPlanMode] = useState(() => {
     try { const stored = localStorage.getItem(`planMode:${topic.id}`); return stored === 'true'; } catch { return false; }
   });
@@ -180,6 +185,30 @@ export function ChatPane({
     try { await memoryApi.appendToTopic(topic.id, snippet); } catch {}
   }, [topic.id]);
 
+  const handleEditMessage = useCallback((msg: ChatMessage) => {
+    setEditingMessage(msg);
+    setMessage(msg.content);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [setMessage]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setMessage('');
+  }, [setMessage]);
+
+  const handleSubmitEdit = useCallback(async () => {
+    if (!editingMessage || !editMessage || !message.trim()) return;
+    const content = message.trim();
+    setEditingMessage(null);
+    setMessage('');
+    await editMessage(topic.sessionKey, editingMessage.id, content);
+  }, [editingMessage, editMessage, message, topic.sessionKey, setMessage]);
+
+  const handleSwitchBranch = useCallback(async (messageId: string, branchIndex: number) => {
+    if (!switchBranch) return;
+    await switchBranch(topic.sessionKey, messageId, branchIndex);
+  }, [switchBranch, topic.sessionKey]);
+
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
   useEffect(() => { if (!isFocused) return; const h = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key === 'u') { e.preventDefault(); fileInputRef.current?.click(); } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [isFocused]);
 
@@ -194,6 +223,11 @@ export function ChatPane({
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    // Edit mode: submit the edit
+    if (editingMessage) {
+      await handleSubmitEdit();
+      return;
+    }
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
     if (currentStreaming) { if (message.trim()) { setMessageQueue(prev => [...prev, message.trim()]); setMessage(''); } return; }
     let finalMessage = message.trim();
@@ -261,9 +295,9 @@ export function ChatPane({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} />
       <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-      <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} />
+      <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} />
     </div>
   );
 }

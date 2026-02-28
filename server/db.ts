@@ -115,7 +115,39 @@ function runMigrations(db: Database, baseDir: string): void {
 
   if (ranCount > 0) {
     console.log(`[DB] Applied ${ranCount} migration(s)`);
+
+    // Post-migration backfill: chain existing messages with parent_id
+    if (!applied.has(5)) {
+      backfillParentIds(db);
+    }
   } else {
     console.log("[DB] All migrations up to date");
   }
+}
+
+/**
+ * Backfill parent_id for existing messages after migration 005.
+ * Chains messages within each session by sort_order so the tree structure
+ * is backward-compatible with the flat list.
+ */
+function backfillParentIds(db: Database): void {
+  const sessions = db.query("SELECT DISTINCT session_key FROM messages").all() as { session_key: string }[];
+  if (sessions.length === 0) return;
+
+  console.log(`[DB] Backfilling parent_id for ${sessions.length} session(s)...`);
+  const update = db.prepare("UPDATE messages SET parent_id = ? WHERE id = ?");
+
+  db.transaction(() => {
+    for (const { session_key } of sessions) {
+      const msgs = db.query(
+        "SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order ASC"
+      ).all(session_key) as { id: string }[];
+
+      for (let i = 1; i < msgs.length; i++) {
+        update.run(msgs[i - 1].id, msgs[i].id);
+      }
+    }
+  })();
+
+  console.log("[DB] Backfill complete");
 }

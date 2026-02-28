@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useRef } from 'react';
-import { Copy, Check, Pin, Brain } from 'lucide-react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
 import { MessageContent } from '../MessageContent';
 
@@ -69,6 +69,8 @@ interface MessageBubbleProps {
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
   onRemember?: (msg: ChatMessage) => void;
+  onEdit?: (msg: ChatMessage) => void;
+  onSwitchBranch?: (messageId: string, branchIndex: number) => void;
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -86,6 +88,8 @@ export const MessageBubble = memo(function MessageBubble({
   onPlanApprove,
   onPlanReject,
   onRemember,
+  onEdit,
+  onSwitchBranch,
 }: MessageBubbleProps) {
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
   const dateSep = getDateSeparator(msg.timestamp, prev?.timestamp);
@@ -147,6 +151,11 @@ export const MessageBubble = memo(function MessageBubble({
           {/* Floating action toolbar */}
           {!grouped && (
             <div className={`absolute bottom-full mb-1 ${msg.role === 'user' ? 'right-1' : 'left-1'} flex items-center gap-0.5 z-10 transition-opacity ${actionsVisibility} bg-elevated dark:bg-app-surface rounded-lg shadow-sm border border-app-border-light px-1 py-0.5`}>
+              {msg.role === 'user' && onEdit && (
+                <button onClick={() => onEdit(msg)} className={actionBtnClass} title="Edit" aria-label="Edit message">
+                  <Pencil size={14} />
+                </button>
+              )}
               <button onClick={() => onReply(msg)} className={actionBtnClass} title="Reply" aria-label="Reply">↩</button>
               <button onClick={() => onCopy(msg)} className={actionBtnClass} title="Copy" aria-label="Copy message">
                 {copiedMsgId === msg.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
@@ -192,6 +201,36 @@ export const MessageBubble = memo(function MessageBubble({
           {msg.role === 'user' && msg.partial && (
             <div className="text-[10px] text-amber-500 mt-0.5 text-right">
               Queued
+            </div>
+          )}
+          {/* Branch navigation arrows */}
+          {onSwitchBranch && msg.siblingCount != null && msg.siblingCount > 1 && (
+            <div className={`flex items-center gap-1 mt-0.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <button
+                onClick={() => {
+                  const current = msg.activeBranchIndex ?? 0;
+                  if (current > 0) onSwitchBranch(msg.id, current - 1);
+                }}
+                disabled={(msg.activeBranchIndex ?? 0) === 0}
+                className="w-5 h-5 flex items-center justify-center text-app-text-muted hover:text-app-text disabled:opacity-30 disabled:cursor-default rounded transition-colors"
+                aria-label="Previous branch"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-[11px] text-app-text-muted font-medium tabular-nums min-w-[2ch] text-center">
+                {(msg.activeBranchIndex ?? 0) + 1}/{msg.siblingCount}
+              </span>
+              <button
+                onClick={() => {
+                  const current = msg.activeBranchIndex ?? 0;
+                  if (current < (msg.siblingCount ?? 1) - 1) onSwitchBranch(msg.id, current + 1);
+                }}
+                disabled={(msg.activeBranchIndex ?? 0) >= (msg.siblingCount ?? 1) - 1}
+                className="w-5 h-5 flex items-center justify-center text-app-text-muted hover:text-app-text disabled:opacity-30 disabled:cursor-default rounded transition-colors"
+                aria-label="Next branch"
+              >
+                <ChevronRight size={14} />
+              </button>
             </div>
           )}
           {/* Timestamp on hover */}

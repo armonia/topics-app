@@ -29,6 +29,10 @@ export interface StoredMessage {
   partial?: boolean;
   streamedAt?: string;
   planStatus?: 'approved' | 'rejected';
+  parentId?: string | null;
+  branchIndex?: number;
+  siblingCount?: number;
+  activeBranchIndex?: number;
 }
 
 export interface Topic {
@@ -141,6 +145,15 @@ export interface AppContext {
   logRequest: (method: string, path: string, status: number, startTime: number) => void;
   searchTranscripts: (query: string, limit?: number) => any[];
   getMessagesPath: (sessionKey: string) => string;
+
+  // Branching
+  getMessageById: (id: string) => StoredMessage | null;
+  getMessageSessionKey: (id: string) => string | null;
+  createBranchMessage: (sessionKey: string, parentId: string, role: "user" | "assistant", content: string) => StoredMessage;
+  createBranchPartialMessage: (sessionKey: string, parentId: string) => StoredMessage;
+  switchActiveBranch: (sessionKey: string, parentId: string, branchIndex: number) => void;
+  getSiblingMessages: (parentId: string) => StoredMessage[];
+  loadActiveThread: (sessionKey: string) => StoredMessage[];
 
   // Constants
   ALLOWED_UPLOAD_MIMES: Set<string>;

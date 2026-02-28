@@ -172,26 +172,24 @@ export function useChat() {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastMessageIndex = sessionMessages.length - 1;
-      
+
       if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
         const updatedMessages = [...sessionMessages];
-        const lastMsg = updatedMessages[lastMessageIndex];
-        
-        if (contentDelta) {
-          lastMsg.content = (lastMsg.content || '') + contentDelta;
-        }
-        if (thinkingDelta) {
-          lastMsg.thinking = (lastMsg.thinking || '') + thinkingDelta;
-        }
-        
-        updatedMessages[lastMessageIndex] = { ...lastMsg };
-        
+        const lastMsg = sessionMessages[lastMessageIndex];
+
+        // Create a new object without mutating the old state reference
+        updatedMessages[lastMessageIndex] = {
+          ...lastMsg,
+          content: contentDelta ? (lastMsg.content || '') + contentDelta : lastMsg.content,
+          thinking: thinkingDelta ? (lastMsg.thinking || '') + thinkingDelta : lastMsg.thinking,
+        };
+
         return {
           ...prev,
           [sessionKey]: updatedMessages,
         };
       }
-      
+
       return prev;
     });
   }, []);
@@ -434,27 +432,24 @@ export function useChat() {
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
           
+          // Batch content/thinking deltas per read-cycle to reduce React re-renders
+          let contentBatch = '';
+          let thinkingBatch = '';
+          let isDone = false;
+
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
-            
+
             const data = line.slice(6).trim();
             if (data === '[DONE]') {
-              // Finalize message — strip any remaining browser markers from accumulated content
-              if (assistantMessageCreated) {
-                if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:')) {
-                  currentContent = stripTopicSwitchMarker(stripBrowserMarker(currentContent));
-                  updateLastMessage(sessionKey, { content: currentContent, partial: false });
-                } else {
-                  updateLastMessage(sessionKey, { partial: false });
-                }
-              }
+              isDone = true;
               continue;
             }
-            
+
             try {
               const parsed = JSON.parse(data);
               const delta = parsed.choices?.[0]?.delta;
-              
+
               if (delta?.content) {
                 let chunk = delta.content;
 
@@ -495,12 +490,13 @@ export function useChat() {
                   }
                   if (chunk) assistantMessageCreated = true;
                 } else {
+                  // Accumulate into batch — single state update after the loop
                   if (isInThinking) {
                     currentThinking += chunk;
-                    appendToLastMessage(sessionKey, undefined, chunk);
+                    thinkingBatch += chunk;
                   } else if (chunk) {
                     currentContent += chunk;
-                    appendToLastMessage(sessionKey, chunk, undefined);
+                    contentBatch += chunk;
                   }
                 }
               }
@@ -523,10 +519,39 @@ export function useChat() {
               console.warn('Failed to parse SSE data:', parseErr);
             }
           }
+
+          // Flush batched deltas as a single state update
+          if (contentBatch || thinkingBatch) {
+            appendToLastMessage(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
+          }
+
+          // Finalize after flushing so content is up to date
+          if (isDone && assistantMessageCreated) {
+            if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:')) {
+              currentContent = stripTopicSwitchMarker(stripBrowserMarker(currentContent));
+              updateLastMessage(sessionKey, { content: currentContent, partial: false });
+            } else {
+              updateLastMessage(sessionKey, { partial: false });
+            }
+          }
         }
       } finally {
         reader.releaseLock();
       }
+
+      // Reload full history to sync server-generated IDs and branching metadata
+      try {
+        const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
+        const chatMessages: ChatMessage[] = historyResponse.messages
+          .filter((msg: any) => !isContextMessage(msg.content))
+          .map((msg: any) => ({
+            ...msg,
+            id: msg.id || generateMessageId(),
+            content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+            timestamp: msg.timestamp || new Date().toISOString(),
+          }));
+        setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
+      } catch {}
 
       return true;
     } catch (err) {
@@ -703,6 +728,142 @@ export function useChat() {
     }
   }, [resetStreamTimeout]);
 
+  /** Edit a user message — creates a new branch and streams the assistant response. */
+  const editMessage = useCallback(async (sessionKey: string, messageId: string, newContent: string): Promise<boolean> => {
+    localSSESessionsRef.current.add(sessionKey);
+    const abortController = new AbortController();
+    abortControllersRef.current[sessionKey] = abortController;
+
+    try {
+      setError(null);
+      setStreaming(prev => ({ ...prev, [sessionKey]: true }));
+      setLoading(prev => ({ ...prev, [sessionKey]: true }));
+
+      const stream = await chatApi.editMessage(messageId, newContent, abortController.signal);
+      if (!stream) throw new Error('No stream received');
+
+      // Reload the full thread from server (the edit endpoint created the branch)
+      // We do this to get the updated thread with the new branch
+      const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
+      const chatMessages: ChatMessage[] = historyResponse.messages
+        .filter((msg: any) => !isContextMessage(msg.content))
+        .map((msg: any) => ({
+          ...msg,
+          id: msg.id || generateMessageId(),
+          content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+          timestamp: msg.timestamp || new Date().toISOString(),
+        }));
+
+      setMessages(prev => ({
+        ...prev,
+        [sessionKey]: chatMessages,
+      }));
+
+      // Now process the SSE stream for the assistant response
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let currentContent = '';
+      let currentThinking = '';
+      let isInThinking = false;
+
+      // Add a placeholder partial assistant message
+      addMessage(sessionKey, {
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        partial: true,
+      });
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let contentBatch = '';
+          let thinkingBatch = '';
+          let isDone = false;
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') { isDone = true; continue; }
+
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                let chunk = delta.content;
+                if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
+                if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
+                if (!isInThinking) chunk = stripTopicSwitchMarker(stripBrowserMarker(chunk));
+                if (isInThinking) { currentThinking += chunk; thinkingBatch += chunk; }
+                else if (chunk) { currentContent += chunk; contentBatch += chunk; }
+              }
+            } catch {}
+          }
+
+          if (contentBatch || thinkingBatch) {
+            appendToLastMessage(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
+          }
+          if (isDone) {
+            updateLastMessage(sessionKey, { partial: false });
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      // Reload full history to get accurate sibling counts
+      await loadHistory(sessionKey);
+      return true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return true;
+      console.error('Failed to edit message:', err);
+      setError(err instanceof Error ? err.message : 'Failed to edit message');
+      return false;
+    } finally {
+      localSSESessionsRef.current.delete(sessionKey);
+      setLoading(prev => ({ ...prev, [sessionKey]: false }));
+      setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+      setThinking(prev => ({ ...prev, [sessionKey]: false }));
+      delete abortControllersRef.current[sessionKey];
+    }
+  }, [addMessage, appendToLastMessage, updateLastMessage, loadHistory]);
+
+  /** Switch to a different branch at a message fork point. */
+  const switchBranch = useCallback(async (sessionKey: string, messageId: string, branchIndex: number): Promise<boolean> => {
+    try {
+      setError(null);
+      const response = await chatApi.switchBranch(messageId, branchIndex);
+
+      const chatMessages: ChatMessage[] = response.messages
+        .filter((msg: any) => !isContextMessage(msg.content))
+        .map((msg: any) => ({
+          ...msg,
+          id: msg.id || generateMessageId(),
+          content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+          timestamp: msg.timestamp || new Date().toISOString(),
+        }));
+
+      setMessages(prev => ({
+        ...prev,
+        [sessionKey]: chatMessages,
+      }));
+
+      cacheMessages(sessionKey, chatMessages);
+      return true;
+    } catch (err) {
+      console.error('Failed to switch branch:', err);
+      setError(err instanceof Error ? err.message : 'Failed to switch branch');
+      return false;
+    }
+  }, []);
+
   const appendMediaToLastAssistant = useCallback((sessionKey: string, mediaPaths: string[]) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
@@ -773,6 +934,8 @@ export function useChat() {
 
   return {
     sendMessage,
+    editMessage,
+    switchBranch,
     stopSession,
     getSessionMessages,
     isSessionLoading,

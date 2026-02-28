@@ -68,8 +68,8 @@ export function createAppContext(baseDir: string): AppContext {
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET content = $content, thinking = $thinking, tool_calls = $tool_calls, media = $media,
@@ -77,6 +77,16 @@ export function createAppContext(baseDir: string): AppContext {
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
+
+    // Branching
+    getMessageById: db.prepare(`SELECT * FROM messages WHERE id = ?`),
+    getChildren: db.prepare(`SELECT * FROM messages WHERE parent_id = ? ORDER BY branch_index ASC`),
+    getSiblings: db.prepare(`SELECT * FROM messages WHERE parent_id = ? ORDER BY branch_index ASC`),
+    getMaxBranchIndex: db.prepare(`SELECT COALESCE(MAX(branch_index), -1) as max_idx FROM messages WHERE parent_id = ?`),
+    getActiveBranch: db.prepare(`SELECT active_branch_index FROM active_branches WHERE parent_id = ? AND session_key = ?`),
+    upsertActiveBranch: db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES (?, ?, ?)`),
+    getRootMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? AND parent_id IS NULL ORDER BY sort_order ASC`),
+    deleteActiveBranchesBySession: db.prepare(`DELETE FROM active_branches WHERE session_key = ?`),
 
   };
 
@@ -182,6 +192,8 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.partial) msg.partial = true;
     if (row.streamed_at) msg.streamedAt = row.streamed_at;
     if (row.plan_status) msg.planStatus = row.plan_status;
+    if (row.parent_id !== undefined && row.parent_id !== null) msg.parentId = row.parent_id;
+    if (row.branch_index !== undefined) msg.branchIndex = row.branch_index;
     return msg;
   }
 
@@ -301,14 +313,68 @@ export function createAppContext(baseDir: string): AppContext {
     return join(MESSAGES_DIR, safe + ".json");
   }
 
+  /**
+   * Walk the message tree following active branch selections.
+   * Returns a linear thread representing the currently active conversation path.
+   */
+  function loadActiveThread(sessionKey: string): StoredMessage[] {
+    // Get all messages for this session
+    const allRows = stmts.getMessages.all(sessionKey) as any[];
+    if (allRows.length === 0) return [];
+
+    // Build parent→children map
+    const childrenMap = new Map<string | null, any[]>(); // parentId → child rows
+    for (const row of allRows) {
+      const pid = row.parent_id || null;
+      if (!childrenMap.has(pid)) childrenMap.set(pid, []);
+      childrenMap.get(pid)!.push(row);
+    }
+
+    // Sort children by branch_index
+    for (const children of childrenMap.values()) {
+      children.sort((a: any, b: any) => (a.branch_index || 0) - (b.branch_index || 0));
+    }
+
+    // Walk from root(s) following active branches
+    const thread: StoredMessage[] = [];
+    let currentParentId: string | null = null;
+
+    while (true) {
+      const children = childrenMap.get(currentParentId);
+      if (!children || children.length === 0) break;
+
+      // Determine which branch to follow
+      let activeBranchIndex = 0;
+      if (children.length > 1) {
+        // For root messages (parent_id IS NULL), use '__root__' key
+        const lookupKey = currentParentId === null ? '__root__' : currentParentId;
+        const active = stmts.getActiveBranch.get(lookupKey, sessionKey) as any;
+        if (active) activeBranchIndex = active.active_branch_index;
+      }
+
+      // Find the child at this branch index
+      const selectedChild = children.find((c: any) => (c.branch_index || 0) === activeBranchIndex) || children[0];
+      const msg = rowToMessage(selectedChild);
+
+      // Annotate with sibling info for the client
+      msg.siblingCount = children.length;
+      msg.activeBranchIndex = selectedChild.branch_index || 0;
+
+      thread.push(msg);
+      currentParentId = selectedChild.id;
+    }
+
+    return thread;
+  }
+
   function loadLocalMessages(sessionKey: string): StoredMessage[] {
-    const rows = stmts.getMessages.all(sessionKey) as any[];
-    return rows.map(rowToMessage);
+    return loadActiveThread(sessionKey);
   }
 
   function saveLocalMessages(sessionKey: string, msgs: StoredMessage[]): void {
     db.transaction(() => {
       stmts.deleteMessagesBySession.run(sessionKey);
+      stmts.deleteActiveBranchesBySession.run(sessionKey);
       for (let i = 0; i < msgs.length; i++) {
         const msg = msgs[i];
         stmts.insertMessage.run({
@@ -324,6 +390,8 @@ export function createAppContext(baseDir: string): AppContext {
           $plan_status: msg.planStatus || null,
           $timestamp: msg.timestamp,
           $sort_order: i,
+          $parent_id: msg.parentId || null,
+          $branch_index: msg.branchIndex || 0,
         });
       }
     })();
@@ -331,7 +399,11 @@ export function createAppContext(baseDir: string): AppContext {
 
   function appendLocalMessage(sessionKey: string, role: "user" | "assistant", content: string): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
-    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString() };
+    // Find the last message in the active thread to set as parent
+    const activeThread = loadActiveThread(sessionKey);
+    const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
+    const parentId = lastMsg?.id || null;
+    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex: 0 };
     stmts.insertMessage.run({
       $id: stored.id,
       $session_key: sessionKey,
@@ -345,15 +417,21 @@ export function createAppContext(baseDir: string): AppContext {
       $plan_status: null,
       $timestamp: stored.timestamp,
       $sort_order: maxOrder + 1,
+      $parent_id: parentId,
+      $branch_index: 0,
     });
     return stored;
   }
 
   function createPartialMessage(sessionKey: string, role: "user" | "assistant"): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    // Find the last message in the active thread to set as parent
+    const activeThread = loadActiveThread(sessionKey);
+    const lastMsg = activeThread.length > 0 ? activeThread[activeThread.length - 1] : null;
+    const parentId = lastMsg?.id || null;
     const stored: StoredMessage = {
       id: crypto.randomUUID(), role, content: "", timestamp: new Date().toISOString(),
-      partial: true, streamedAt: new Date().toISOString(),
+      partial: true, streamedAt: new Date().toISOString(), parentId, branchIndex: 0,
     };
     stmts.insertMessage.run({
       $id: stored.id,
@@ -368,12 +446,21 @@ export function createAppContext(baseDir: string): AppContext {
       $plan_status: null,
       $timestamp: stored.timestamp,
       $sort_order: maxOrder + 1,
+      $parent_id: parentId,
+      $branch_index: 0,
     });
     return stored;
   }
 
+  /** Get the last message in the active thread (or by sort_order as fallback for streaming). */
+  function getLastActiveMessage(sessionKey: string): any | null {
+    // During streaming, the last message by sort_order is the partial assistant message
+    // which is always the correct one to update.
+    return stmts.getLastMessage.get(sessionKey) as any;
+  }
+
   function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>): StoredMessage | null {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = getLastActiveMessage(sessionKey);
     if (!row) return null;
     const msg = rowToMessage(row);
     Object.assign(msg, updates);
@@ -718,6 +805,77 @@ export function createAppContext(baseDir: string): AppContext {
     "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/webm",
   ]);
 
+  // --- Branching helpers ---
+  function getMessageById(id: string): StoredMessage | null {
+    const row = stmts.getMessageById.get(id) as any;
+    return row ? rowToMessage(row) : null;
+  }
+
+  function getMessageSessionKey(id: string): string | null {
+    const row = stmts.getMessageById.get(id) as any;
+    return row?.session_key || null;
+  }
+
+  function createBranchMessage(sessionKey: string, parentId: string, role: "user" | "assistant", content: string): StoredMessage {
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as any).max_idx;
+    const branchIndex = maxBranch + 1;
+    const stored: StoredMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date().toISOString(), parentId, branchIndex };
+    stmts.insertMessage.run({
+      $id: stored.id,
+      $session_key: sessionKey,
+      $role: role,
+      $content: content,
+      $thinking: null,
+      $tool_calls: null,
+      $media: null,
+      $partial: 0,
+      $streamed_at: null,
+      $plan_status: null,
+      $timestamp: stored.timestamp,
+      $sort_order: maxOrder + 1,
+      $parent_id: parentId,
+      $branch_index: branchIndex,
+    });
+    // Set this new branch as active
+    stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
+    return stored;
+  }
+
+  function createBranchPartialMessage(sessionKey: string, parentId: string): StoredMessage {
+    const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    const stored: StoredMessage = {
+      id: crypto.randomUUID(), role: "assistant", content: "", timestamp: new Date().toISOString(),
+      partial: true, streamedAt: new Date().toISOString(), parentId, branchIndex: 0,
+    };
+    stmts.insertMessage.run({
+      $id: stored.id,
+      $session_key: sessionKey,
+      $role: "assistant",
+      $content: '',
+      $thinking: null,
+      $tool_calls: null,
+      $media: null,
+      $partial: 1,
+      $streamed_at: stored.streamedAt!,
+      $plan_status: null,
+      $timestamp: stored.timestamp,
+      $sort_order: maxOrder + 1,
+      $parent_id: parentId,
+      $branch_index: 0,
+    });
+    return stored;
+  }
+
+  function switchActiveBranch(sessionKey: string, parentId: string, branchIndex: number): void {
+    stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
+  }
+
+  function getSiblingMessages(parentId: string): StoredMessage[] {
+    const rows = stmts.getSiblings.all(parentId) as any[];
+    return rows.map(rowToMessage);
+  }
+
   return {
     db,
     PORT, GATEWAY_URL, GATEWAY_TOKEN,
@@ -735,5 +893,13 @@ export function createAppContext(baseDir: string): AppContext {
     findNewMediaFiles, updateLastMessageWithMedia, atomicWriteJSON, logRequest,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,
+    // Branching
+    getMessageById,
+    getMessageSessionKey,
+    createBranchMessage,
+    createBranchPartialMessage,
+    switchActiveBranch,
+    getSiblingMessages,
+    loadActiveThread,
   };
 }

@@ -6,7 +6,6 @@ import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useS
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
 import { ContextPills, useContextFileTokens } from './ContextPills';
 import { MentionAutocomplete } from './MentionAutocomplete';
-import { ShortcutHint } from '../Shared/KeyboardShortcuts';
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -187,6 +186,8 @@ interface ChatInputProps {
   setMentionedFiles: React.Dispatch<React.SetStateAction<MentionedFile[]>>;
   planMode?: boolean;
   onTogglePlanMode?: () => void;
+  editingMessage?: ChatMessage | null;
+  onCancelEdit?: () => void;
 }
 
 export function ChatInput({
@@ -224,6 +225,8 @@ export function ChatInput({
   setMentionedFiles,
   planMode,
   onTogglePlanMode,
+  editingMessage,
+  onCancelEdit,
 }: ChatInputProps) {
   // Context pills state
   const contextFilePaths = topic.contextFiles || [];
@@ -568,6 +571,21 @@ export function ChatInput({
               </div>
             )}
 
+            {/* Row 0a: Editing indicator (inside card) */}
+            {editingMessage && (
+              <div className="mx-3 mt-2 flex items-center gap-1.5">
+                <div className="w-0.5 h-5 bg-amber-500 rounded-full flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                    Editing message
+                  </div>
+                </div>
+                <button onClick={onCancelEdit} className="text-app-text-tertiary hover:text-app-text p-0.5" title="Cancel edit">
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
             {/* Row 0b: Reply preview (inside card) */}
             {replyingTo && (
               <div className="mx-3 mt-2 flex items-center gap-1.5">
@@ -639,12 +657,11 @@ export function ChatInput({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
-                  title="Attach file"
+                  title="Attach file (⌘U)"
                   aria-label="Attach file"
                   disabled={currentStreaming}
                 >
                   <Paperclip size={16} />
-                  {!isMobile && <ShortcutHint keys="⌘U" className="opacity-50 ml-0.5" />}
                 </button>
                 <button
                   type="button"

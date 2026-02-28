@@ -20,6 +20,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     resolveProjectPath, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,
+    getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage,
+    switchActiveBranch, getSiblingMessages, loadActiveThread,
   } = ctx;
 
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
@@ -198,6 +200,192 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     const prefix = "/api/history/";
     if (pathname.startsWith(prefix)) return decodeURIComponent(pathname.slice(prefix.length));
     return null;
+  }
+
+  /**
+   * Stream an assistant response for an edited message.
+   * Reuses the same gateway streaming flow as /api/chat.
+   */
+  async function streamEditResponse(sessionKey: string, newUserMsgId: string, userContent: string): Promise<Response> {
+    const topicsData = loadTopics();
+    let matchedTopic: Topic | null = null;
+    for (const t of Object.values(topicsData.topics)) {
+      if (t.sessionKey === sessionKey) { matchedTopic = t; break; }
+    }
+
+    // Build the messages array from the active thread up to (and including) the new user message
+    const activeThread = loadActiveThread(sessionKey);
+    const finalMessages: { role: string; content: string }[] = activeThread.map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    // Add system messages (system prompt, context files, etc.)
+    if (matchedTopic) {
+      const disabled = matchedTopic.disabledContextSources || [];
+      const isSourceEnabled = (id: string) => !disabled.includes(id);
+      if (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) {
+        finalMessages.unshift({ role: "system", content: matchedTopic.systemPrompt });
+      }
+      if (matchedTopic.contextFiles && matchedTopic.contextFiles.length > 0) {
+        const contextParts: string[] = [];
+        for (const filePath of matchedTopic.contextFiles) {
+          if (!isSourceEnabled(`file:${filePath}`)) continue;
+          if (existsSync(filePath)) {
+            try {
+              const content = readFileSync(filePath, "utf-8");
+              const fileName = filePath.split("/").pop() || filePath;
+              contextParts.push(`--- File: ${fileName} ---\n${content}`);
+            } catch {}
+          }
+        }
+        if (contextParts.length > 0) {
+          const insertIdx = (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) ? 1 : 0;
+          finalMessages.splice(insertIdx, 0, { role: "system", content: `Context files for this topic:\n\n${contextParts.join("\n\n")}` });
+        }
+      }
+      if (matchedTopic.projectPath) {
+        const projectDir = resolveProjectPath(matchedTopic.projectPath);
+        if (projectDir && existsSync(projectDir)) {
+          const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
+          const templateParts: string[] = [];
+          for (const name of TEMPLATE_FILES) {
+            let filePath = join(projectDir, name);
+            if (!existsSync(filePath) && name === "CLAUDE.md") {
+              const altPath = join(projectDir, ".claude", "CLAUDE.md");
+              if (existsSync(altPath)) filePath = altPath;
+            }
+            if (existsSync(filePath)) {
+              try { templateParts.push(`--- Project file: ${name} ---\n${readFileSync(filePath, "utf-8")}`); } catch {}
+            }
+          }
+          if (templateParts.length > 0) {
+            const insertIdx = finalMessages.findIndex(m => m.role !== "system");
+            finalMessages.splice(insertIdx >= 0 ? insertIdx : finalMessages.length, 0, {
+              role: "system", content: `Project context files (from ${matchedTopic.projectPath}):\n\n${templateParts.join("\n\n")}`,
+            });
+          }
+        }
+      }
+    }
+
+    try {
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 300000);
+
+      const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": sessionKey },
+        body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
+        signal: abortController.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        return new Response(text, { status: resp.status, headers: { "Content-Type": "application/json" } });
+      }
+
+      // Create partial assistant message as child of the new user message
+      const partialMsg = createBranchPartialMessage(sessionKey, newUserMsgId);
+      startStream(sessionKey, partialMsg.id, abortController);
+      broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+
+      const originalBody = resp.body!;
+      let fullContent = "";
+      let fullThinking = "";
+      let isInThinking = false;
+      let chunkCount = 0;
+      let lastSaveChunk = 0;
+      const SAVE_INTERVAL = 10;
+
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      let clientDisconnected = false;
+
+      const forwardToClient = async (chunk: Uint8Array) => {
+        if (clientDisconnected) return;
+        try { await writer.write(chunk); } catch { clientDisconnected = true; }
+      };
+      const closeClient = async () => {
+        if (clientDisconnected) return;
+        try { await writer.close(); } catch { clientDisconnected = true; }
+      };
+
+      const processLine = (line: string) => {
+        if (!line.startsWith("data: ")) return;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") {
+          updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+          endStream(sessionKey);
+          if (matchedTopic) {
+            broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+          }
+          return;
+        }
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta?.content) {
+            const content = delta.content;
+            if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
+            if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
+            if (isInThinking) {
+              const cleaned = content.replace(/<\/?thinking>/g, '');
+              fullThinking += cleaned;
+              broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
+            } else {
+              const cleaned = content.replace(/<\/?thinking>/g, '');
+              if (cleaned) {
+                fullContent += cleaned;
+                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
+              }
+            }
+            chunkCount++;
+            updateStreamContent(sessionKey, fullContent, fullThinking);
+            if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) {
+              lastSaveChunk = chunkCount;
+              updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined });
+            }
+          }
+        } catch {}
+      };
+
+      const consumeGateway = async () => {
+        const reader = originalBody.getReader();
+        const decoder = new TextDecoder();
+        let sseBuffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await forwardToClient(value);
+            sseBuffer += decoder.decode(value, { stream: true });
+            const lines = sseBuffer.split("\n");
+            sseBuffer = lines.pop() || "";
+            for (const line of lines) processLine(line);
+          }
+          if (sseBuffer.trim()) processLine(sseBuffer);
+        } catch (err) {
+          console.warn(`[Stream:Edit] Gateway read error for ${sessionKey}:`, err);
+        } finally {
+          reader.releaseLock();
+          await closeClient();
+          if (isStreaming(sessionKey)) {
+            updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+            endStream(sessionKey);
+            broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+          }
+        }
+      };
+
+      consumeGateway();
+
+      return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+    } catch (err: any) {
+      if (err.name === "AbortError") return json({ error: "Request timeout" }, 504);
+      return json({ error: "Gateway unreachable: " + err.message }, 502);
+    }
   }
 
   // --- Tasks helpers (SQLite-backed) ---
@@ -457,11 +645,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "Topic not found" }, 404);
-        const messages = loadLocalMessages(topic.sessionKey);
-        const msg = messages.find(m => m.id === params.msgId);
+        const msg = getMessageById(params.msgId);
         if (!msg) return json({ error: "Message not found" }, 404);
-        msg.planStatus = body.status;
-        saveLocalMessages(topic.sessionKey, messages);
+        ctx.db.prepare(`UPDATE messages SET plan_status = ? WHERE id = ?`).run(body.status, params.msgId);
         broadcastToAll({ type: "message:plan-status", topicId: params.id, messageId: params.msgId, planStatus: body.status });
         return json({ ok: true, planStatus: body.status });
       }
@@ -988,9 +1174,14 @@ Wait for the user to approve the plan before executing any changes.` };
 
                 // Remove user msg + assistant response from source session
                 const sourceMsgs = loadLocalMessages(sessionKey);
-                // Remove last 2 messages (user + assistant that were just added)
-                const trimmed = sourceMsgs.slice(0, -2);
-                saveLocalMessages(sessionKey, trimmed);
+                // Delete the last 2 messages (user + assistant that were just added) by ID
+                const toRemove = sourceMsgs.slice(-2);
+                for (const m of toRemove) {
+                  const parentRow = ctx.db.prepare(`SELECT parent_id FROM messages WHERE id = ?`).get(m.id) as any;
+                  const pId = parentRow?.parent_id || null;
+                  ctx.db.prepare(`UPDATE messages SET parent_id = ? WHERE parent_id = ?`).run(pId, m.id);
+                  ctx.db.prepare(`DELETE FROM messages WHERE id = ?`).run(m.id);
+                }
 
                 // Broadcast complete event so client can update both sessions in-memory
                 broadcastToAll({
@@ -1152,6 +1343,81 @@ Wait for the user to approve the plan before executing any changes.` };
       return json({ ok: true, cleared: !!body?.clearMessages });
     }
 
+    // --- Edit message (create branch) ---
+    {
+      const params = matchRoute(pathname, "/api/messages/:id/edit");
+      if (params && method === "POST") {
+        const body = await readJSON(req);
+        if (!body?.content) return json({ error: "content required" }, 400);
+
+        const originalMsg = getMessageById(params.id);
+        if (!originalMsg) return json({ error: "message not found" }, 404);
+
+        const sessionKey = getMessageSessionKey(params.id);
+        if (!sessionKey) return json({ error: "session not found" }, 404);
+
+        const parentId = originalMsg.parentId || null;
+        if (!parentId) {
+          // Root message edit: create a new root message (sibling)
+          // For simplicity, we treat root messages as having parent_id = null
+          // and create a sibling with a different branch_index
+          const maxOrder = (ctx.db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`).get(sessionKey) as any).max_order;
+          const maxBranch = (ctx.db.prepare(`SELECT COALESCE(MAX(branch_index), -1) as max_idx FROM messages WHERE session_key = ? AND parent_id IS NULL`).get(sessionKey) as any).max_idx;
+          const branchIndex = maxBranch + 1;
+          const newMsg: any = {
+            id: crypto.randomUUID(),
+            role: originalMsg.role,
+            content: body.content,
+            timestamp: new Date().toISOString(),
+            parentId: null,
+            branchIndex,
+          };
+          ctx.db.prepare(`
+            INSERT INTO messages (id, session_key, role, content, timestamp, sort_order, parent_id, branch_index, partial, plan_status)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL)
+          `).run(newMsg.id, sessionKey, newMsg.role, newMsg.content, newMsg.timestamp, maxOrder + 1, branchIndex);
+          // Set active branch to this new sibling — use a special key for root siblings
+          ctx.db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES ('__root__', ?, ?)`).run(sessionKey, branchIndex);
+
+          // Now stream a response — reuse the gateway streaming logic
+          return await streamEditResponse(sessionKey, newMsg.id, body.content);
+        }
+
+        // Create sibling user message under the same parent
+        const newUserMsg = createBranchMessage(sessionKey, parentId, "user", body.content);
+
+        // Now stream the assistant response under the new user message
+        return await streamEditResponse(sessionKey, newUserMsg.id, body.content);
+      }
+    }
+
+    // --- Switch branch ---
+    {
+      const params = matchRoute(pathname, "/api/messages/:id/switch-branch");
+      if (params && method === "POST") {
+        const body = await readJSON(req);
+        if (body?.branchIndex === undefined) return json({ error: "branchIndex required" }, 400);
+
+        const msg = getMessageById(params.id);
+        if (!msg) return json({ error: "message not found" }, 404);
+
+        const sessionKey = getMessageSessionKey(params.id);
+        if (!sessionKey) return json({ error: "session not found" }, 404);
+
+        const parentId = msg.parentId;
+        if (!parentId) {
+          // Root message — switch active root branch
+          ctx.db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES ('__root__', ?, ?)`).run(sessionKey, body.branchIndex);
+        } else {
+          switchActiveBranch(sessionKey, parentId, body.branchIndex);
+        }
+
+        // Return the new active thread
+        const thread = loadActiveThread(sessionKey);
+        return json({ messages: thread });
+      }
+    }
+
     // --- History ---
     {
       const sessionKey = matchHistoryRoute(pathname);
@@ -1167,9 +1433,25 @@ Wait for the user to approve the plan before executing any changes.` };
         const completeMsgs = activeStream
           ? localMsgs
           : localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
-        let needsSave = completeMsgs.length !== localMsgs.length;
-        if (!activeStream) { completeMsgs.forEach(m => { if (m.partial) { m.partial = false; needsSave = true; } }); }
-        if (needsSave) saveLocalMessages(sessionKey, completeMsgs);
+
+        // Clean up stale messages surgically (avoid saveLocalMessages which destroys branch tree)
+        if (!activeStream) {
+          // Delete empty partial messages — re-parent children first to avoid FK constraint
+          const removedIds = localMsgs.filter(m => m.partial && !(m.content && m.content.trim())).map(m => m.id);
+          for (const id of removedIds) {
+            const parentRow = ctx.db.prepare(`SELECT parent_id FROM messages WHERE id = ?`).get(id) as any;
+            const parentId = parentRow?.parent_id || null;
+            ctx.db.prepare(`UPDATE messages SET parent_id = ? WHERE parent_id = ?`).run(parentId, id);
+            ctx.db.prepare(`DELETE FROM messages WHERE id = ?`).run(id);
+          }
+          // Clear partial flag on messages with content
+          for (const m of completeMsgs) {
+            if (m.partial) {
+              ctx.db.prepare(`UPDATE messages SET partial = 0 WHERE id = ?`).run(m.id);
+              m.partial = false;
+            }
+          }
+        }
 
         if (completeMsgs.length > 0) {
           const total = completeMsgs.length;
