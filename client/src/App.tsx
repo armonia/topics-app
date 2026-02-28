@@ -8,7 +8,7 @@ import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
-import { useServiceWorkerUpdate } from './hooks/useServiceWorkerUpdate';
+
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -398,7 +398,7 @@ function App() {
   const { themeMode, toggleTheme, setTheme } = useTheme();
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: true });
   const agentLiveCount = activeSessions.length + idleSessions.length;
-  const { updateAvailable, applyUpdate } = useServiceWorkerUpdate();
+
 
 
   // Board task counts per project (for sidebar badges)
@@ -935,15 +935,6 @@ function App() {
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm">
         Skip to main content
       </a>
-      {/* Update banner */}
-      {updateAvailable && (
-        <div className="fixed top-0 left-0 right-0 z-[200] bg-primary text-white text-center py-2 px-4 text-sm flex items-center justify-center gap-3">
-          <span>Nuova versione disponibile</span>
-          <button onClick={applyUpdate} className="bg-white/20 hover:bg-white/30 px-3 py-0.5 rounded-md font-medium transition-colors">
-            Aggiorna
-          </button>
-        </div>
-      )}
       {/* Mobile sidebar overlay */}
       {isMobile && !sidebarCollapsed && (
         <div

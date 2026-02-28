@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Wifi } from 'lucide-react';
+import { Wifi, RefreshCw } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 
 declare const __BUILD_TIME__: string;
 
@@ -51,6 +52,22 @@ export function SidebarStatusBar() {
   const gatewayOnline = status?.gateway.online ?? false;
   const latency = status?.gateway.latencyMs;
   const fps = useFps();
+  const { updateAvailable, applyUpdate } = useServiceWorkerUpdate();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    // Force SW update check, then reload
+    if (updateAvailable) {
+      applyUpdate();
+    } else {
+      navigator.serviceWorker?.getRegistration().then(reg => {
+        reg?.update().then(() => {
+          setTimeout(() => window.location.reload(), 500);
+        });
+      });
+    }
+  };
 
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const statusBtnRef = useRef<HTMLButtonElement>(null);
@@ -106,6 +123,17 @@ export function SidebarStatusBar() {
           </span>
         </button>
 
+        <div className="ml-auto flex items-center">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary font-medium' : 'text-app-text-muted'}`}
+            title={updateAvailable ? 'Update available — click to refresh' : 'Check for updates & reload'}
+          >
+            <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
+            {updateAvailable ? 'Update' : ''}
+          </button>
+        </div>
       </div>
 
       {showStatusDropdown && statusBtnRef.current && createPortal(
