@@ -55,18 +55,21 @@ export function SidebarStatusBar() {
   const { updateAvailable, applyUpdate } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    // Force SW update check, then reload
-    if (updateAvailable) {
-      applyUpdate();
-    } else {
-      navigator.serviceWorker?.getRegistration().then(reg => {
-        reg?.update().then(() => {
-          setTimeout(() => window.location.reload(), 500);
-        });
-      });
-    }
+    try {
+      // Clear all caches
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+      // Force SW update
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        await reg.update();
+        if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+      }
+    } catch {}
+    // Hard reload (bypass cache)
+    window.location.reload();
   };
 
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
