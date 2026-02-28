@@ -263,6 +263,12 @@ html {
   min-width: 0;
 }
 
+/* Ensure form inputs never overflow their container */
+textarea, input[type="text"] {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 /* Animation for message appear */
 @keyframes messageAppear {
   from {
