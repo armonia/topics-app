@@ -284,7 +284,7 @@ export function ChatPane({
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
   return (
-    <div className="flex flex-col min-w-0 overflow-hidden flex-1 w-full max-w-full">
+    <div className="flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
       {/* Command result banner */}
       {commandResult && (
         <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
