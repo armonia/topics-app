@@ -33,6 +33,8 @@ interface PanelGridProps {
   isSessionStreaming: (sessionKey: string) => boolean;
   stopSession: (sessionKey: string) => boolean;
   sendMessage: (sessionKey: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  editMessage?: (sessionKey: string, messageId: string, newContent: string) => Promise<boolean>;
+  switchBranch?: (sessionKey: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
   chatError: string | null;
   sendWS: (msg: WSMessage) => void;
@@ -76,6 +78,8 @@ export function PanelGrid({
   isSessionStreaming,
   stopSession,
   sendMessage,
+  editMessage,
+  switchBranch,
   loadHistory,
   chatError,
   sendWS,
@@ -602,12 +606,11 @@ export function PanelGrid({
               <p className="text-[13px] text-app-text-muted leading-relaxed mb-6">
                 {window.innerWidth < 768
                   ? 'Tap the menu button to browse topics or create a new one.'
-                  : 'Select a topic or press \u2318N to start'}
+                  : 'Select a topic to start'}
               </p>
               {window.innerWidth >= 768 && (
                 <div className="flex flex-wrap gap-3 justify-center text-[12px] text-app-text-muted">
                   <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318K'}</kbd> Search</span>
-                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318N'}</kbd> New chat</span>
                   <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318B'}</kbd> Sidebar</span>
                 </div>
               )}
@@ -686,6 +689,8 @@ export function PanelGrid({
                       isSessionStreaming={isSessionStreaming}
                       stopSession={stopSession}
                       sendMessage={sendMessage}
+                      editMessage={editMessage}
+                      switchBranch={switchBranch}
                       loadHistory={loadHistory}
                       chatError={chatError}
                       sendWS={sendWS}

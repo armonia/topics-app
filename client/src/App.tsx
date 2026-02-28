@@ -15,7 +15,6 @@ import { loadSettings, saveSettings } from './lib/settings';
 import { ToastProvider } from './components/Shared/Toast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
-import { ShortcutHint } from './components/Shared/KeyboardShortcuts';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
 import { createPaneId, isProjectPaneId } from './lib/paneConfig';
@@ -335,6 +334,8 @@ function App() {
 
   const {
     sendMessage,
+    editMessage,
+    switchBranch,
     stopSession,
     getSessionMessages,
     addMessageFromWS,
@@ -802,7 +803,7 @@ function App() {
         return;
       }
 
-      if (isMod && e.key === 'n') {
+      if (isElectron && isMod && e.key === 'n') {
         e.preventDefault();
         if (e.shiftKey) {
           setShowNewTopic({}); // ⌘⇧N = templates modal
@@ -830,7 +831,7 @@ function App() {
         return;
       }
 
-      if (isMod && e.key === 'w') {
+      if (isElectron && isMod && e.key === 'w') {
         e.preventDefault();
         if (focusedPanelId) {
           handleClosePanel(focusedPanelId);
@@ -838,7 +839,7 @@ function App() {
         return;
       }
 
-      if (isMod && e.key >= '1' && e.key <= '9') {
+      if (isElectron && isMod && e.key >= '1' && e.key <= '9') {
         e.preventDefault();
         const idx = parseInt(e.key) - 1;
         if (idx < openPanels.length) {
@@ -864,7 +865,7 @@ function App() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [focusedPanelId, openPanels, handleClosePanel, showSearch, showNewTopic, showFileSearch, toggleSidebar]);
+  }, [focusedPanelId, openPanels, handleClosePanel, showSearch, showNewTopic, showFileSearch, toggleSidebar, isElectron]);
 
   // Listen for "open-all-boards" custom event from sidebar
   useEffect(() => {
@@ -1017,12 +1018,11 @@ function App() {
                 }}
                 className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
                 style={{ pointerEvents: 'auto' }}
-                title="New chat or terminal"
+                title="New chat or terminal (⌘N)"
                 aria-label="New"
               >
                 <Plus size={15} strokeWidth={1.5} />
               </button>
-              {!isMobile && <ShortcutHint keys="⌘N" className="text-app-text-muted/50" />}
             </div>
           </div>
         </div>
@@ -1105,7 +1105,11 @@ function App() {
           </div>
           {browserExpanded && (
             <Suspense fallback={<div className="px-3 py-2 text-[10px] text-app-text-muted">Loading...</div>}>
-              <BrowserSidebarControl enabled onContextCount={setBrowserContextCount} />
+              <BrowserSidebarControl enabled onContextCount={setBrowserContextCount} onOpenBrowser={() => {
+                if (focusedPanelId) {
+                  setPanelInitialTab(prev => ({ ...prev, [focusedPanelId]: 'browser' }));
+                }
+              }} />
             </Suspense>
           )}
         </div>
@@ -1142,12 +1146,11 @@ function App() {
             className={`bg-surface border border-app-border-light rounded-lg flex items-center justify-center text-app-text-secondary hover:bg-app-hover shadow-sm transition-colors ${
               isMobile ? 'w-10 h-10' : 'w-8 h-8'
             }`}
-            title="Expand sidebar"
+            title="Expand sidebar (⌘B)"
             aria-label="Expand sidebar"
           >
             <PanelLeft size={isMobile ? 20 : 16} />
           </button>
-          {!isMobile && <ShortcutHint keys="⌘B" className="text-app-text-muted/50" />}
         </div>
       )}
 
@@ -1165,10 +1168,9 @@ function App() {
           }}
           className="absolute right-2 z-30 w-7 h-7 bg-transparent hover:bg-red-500/10 dark:hover:bg-red-500/20 rounded-md flex items-center justify-center text-app-text-secondary hover:text-red-500 transition-colors"
           style={{ top: '0.5rem' }}
-          title="Close window"
+          title="Close window (⌘W)"
         >
           <X size={16} strokeWidth={2} />
-          <ShortcutHint keys="⌘W" className="opacity-50 ml-0.5" />
         </button>
       )}
 
@@ -1193,6 +1195,8 @@ function App() {
           isSessionStreaming={isSessionStreaming}
           stopSession={stopSession}
           sendMessage={sendMessage}
+          editMessage={editMessage}
+          switchBranch={switchBranch}
           loadHistory={loadHistory}
           chatError={chatError}
           sendWS={sendWS}
@@ -1250,7 +1254,8 @@ function App() {
           style={{ position: 'fixed', top: newMenuPos.top, right: newMenuPos.right, zIndex: 9999 }}
         >
           <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <MessageSquare size={14} /><span>New Chat</span>
+            <MessageSquare size={14} /><span className="flex-1 text-left">New Chat</span>
+            {isElectron && <kbd className="kbd text-app-text-muted">⌘N</kbd>}
           </button>
           <button onClick={() => { handleQuickCreateTerminal(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <Terminal size={14} /><span>New Terminal</span>
@@ -1345,6 +1350,7 @@ function App() {
               window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId: focusedPanelId } }));
               setShowSearch(false);
             }}
+            isElectron={isElectron}
           />
         </Suspense>
       )}
@@ -1355,6 +1361,7 @@ function App() {
           <KeyboardShortcuts
             isOpen={showShortcuts}
             onClose={() => setShowShortcuts(false)}
+            isElectron={isElectron}
           />
         </Suspense>
       )}
