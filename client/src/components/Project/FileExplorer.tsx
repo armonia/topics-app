@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import type { FileNode } from '../../types';
-import { filesApi } from '../../lib/api';
+import { filesApi, gitApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
@@ -35,6 +35,8 @@ interface TreeNodeProps {
   newItemType: 'file' | 'dir' | null;
   onNewItemSubmit: (name: string) => void;
   onNewItemCancel: () => void;
+  gitFileMap: Map<string, string>;
+  gitDirSet: Set<string>;
 }
 
 function InlineInput({ depth, icon, onSubmit, onCancel }: {
@@ -81,11 +83,30 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
   );
 }
 
-function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel }: TreeNodeProps) {
+function getGitStatusColor(status: string): string {
+  if (status === '??' || status === 'A' || status === 'AM') return 'text-green-400';
+  if (status === 'M' || status === 'MM') return 'text-amber-400';
+  if (status === 'D') return 'text-red-400';
+  if (status === 'R' || status.startsWith('R')) return 'text-blue-400';
+  return 'text-amber-400'; // fallback for other statuses
+}
+
+function getGitStatusLabel(status: string): string {
+  if (status === '??') return 'U';
+  if (status === 'A' || status === 'AM') return 'A';
+  if (status === 'D') return 'D';
+  if (status === 'R' || status.startsWith('R')) return 'R';
+  if (status === 'M' || status === 'MM') return 'M';
+  return 'M';
+}
+
+function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet }: TreeNodeProps) {
   const isDir = node.type === 'dir';
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedPath === node.path;
   const isFocused = focusedPath === node.path;
+  const gitStatus = isDir ? undefined : gitFileMap.get(node.path);
+  const dirHasChanges = isDir && gitDirSet.has(node.path);
   const isRenaming = renamingPath === node.path;
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [renameValue, setRenameValue] = useState(node.name);
@@ -183,8 +204,17 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
           />
         ) : (
           <>
-            <span className={`truncate ${isDir ? 'font-medium' : ''}`}>{node.name}</span>
-            {node.size !== undefined && !isDir && (
+            <span className={`truncate ${isDir ? 'font-medium' : ''} ${
+              !isSelected && gitStatus ? getGitStatusColor(gitStatus)
+              : !isSelected && dirHasChanges ? 'text-amber-400'
+              : ''
+            }`}>{node.name}</span>
+            {gitStatus && !isSelected && (
+              <span className={`text-[10px] flex-shrink-0 ml-1 ${getGitStatusColor(gitStatus)}`}>
+                {getGitStatusLabel(gitStatus)}
+              </span>
+            )}
+            {node.size !== undefined && !isDir && !gitStatus && (
               <span className="ml-auto text-[10px] text-app-text-faint flex-shrink-0">
                 {node.size < 1024 ? `${node.size}B` : node.size < 1048576 ? `${(node.size / 1024).toFixed(1)}K` : `${(node.size / 1048576).toFixed(1)}M`}
               </span>
@@ -232,6 +262,8 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
                     newItemType={newItemType}
                     onNewItemSubmit={onNewItemSubmit}
                     onNewItemCancel={onNewItemCancel}
+                    gitFileMap={gitFileMap}
+                    gitDirSet={gitDirSet}
                   />
                 ))}
                 {!showAll && remaining > 0 && (
@@ -265,6 +297,8 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
   const [newItemParent, setNewItemParent] = useState<string | null>(null);
   const [newItemType, setNewItemType] = useState<'file' | 'dir' | null>(null);
   const [expandedOverflow, setExpandedOverflow] = useState<Set<string>>(new Set());
+  const [gitFileMap, setGitFileMap] = useState<Map<string, string>>(new Map());
+  const [gitDirSet, setGitDirSet] = useState<Set<string>>(new Set());
   const treeRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void } | null>(null);
@@ -293,6 +327,38 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
   useEffect(() => {
     loadFiles();
   }, [loadFiles]);
+
+  // Fetch git status and build lookup maps
+  useEffect(() => {
+    let active = true;
+    const fetchGitStatus = async () => {
+      try {
+        const status = await gitApi.status(projectPath);
+        if (!active) return;
+        const fileMap = new Map<string, string>();
+        const dirSet = new Set<string>();
+        for (const f of status.files) {
+          const absPath = projectPath + '/' + f.path;
+          fileMap.set(absPath, f.status);
+          // Propagate to all parent directories
+          let dir = absPath.substring(0, absPath.lastIndexOf('/'));
+          while (dir.length >= projectPath.length) {
+            dirSet.add(dir);
+            const next = dir.substring(0, dir.lastIndexOf('/'));
+            if (next === dir) break;
+            dir = next;
+          }
+        }
+        setGitFileMap(fileMap);
+        setGitDirSet(dirSet);
+      } catch {
+        // silently ignore — not a git repo or git not available
+      }
+    };
+    fetchGitStatus();
+    const interval = setInterval(fetchGitStatus, 10_000);
+    return () => { active = false; clearInterval(interval); };
+  }, [projectPath]);
 
   const handleExpandOverflow = useCallback((path: string) => {
     setExpandedOverflow(prev => { const next = new Set(prev); next.add(path); return next; });
@@ -593,6 +659,8 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
               newItemType={newItemType}
               onNewItemSubmit={handleNewItemSubmit}
               onNewItemCancel={handleNewItemCancel}
+              gitFileMap={gitFileMap}
+              gitDirSet={gitDirSet}
             />
           ))}
         </div>
@@ -642,6 +710,8 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
               newItemType={newItemType}
               onNewItemSubmit={handleNewItemSubmit}
               onNewItemCancel={handleNewItemCancel}
+              gitFileMap={gitFileMap}
+              gitDirSet={gitDirSet}
             />
           ))}
         </div>
