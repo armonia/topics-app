@@ -969,7 +969,7 @@ export function ProjectWindowPane({
 
   return (
     <>
-      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
         <ProjectSidebar
           projectPath={projectPath}
           topicId={primaryTopicId}
