@@ -121,22 +121,19 @@ export function SidebarStatusBar() {
           {fps > 0 && (
             <span className={`text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
           )}
-          <span className="text-app-text-muted tabular-nums" title={`Build: ${typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}`}>
-            {typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) : 'dev'}
-          </span>
         </button>
 
-        <div className="ml-auto flex items-center">
+        <span className="ml-auto flex items-center gap-1 text-[10px] text-app-text-muted tabular-nums" title={`Build: ${typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}`}>
+          {typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) : 'dev'}
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary font-medium' : 'text-app-text-muted'}`}
-            title={updateAvailable ? 'Update available — click to refresh' : 'Check for updates & reload'}
+            className={`p-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
+            title={updateAvailable ? 'Update available' : 'Reload'}
           >
             <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
-            {updateAvailable ? 'Update' : ''}
           </button>
-        </div>
+        </span>
       </div>
 
       {showStatusDropdown && statusBtnRef.current && createPortal(
