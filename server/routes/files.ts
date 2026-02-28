@@ -331,7 +331,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statusText = await new Response(statusProc.stdout).text();
         const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const branch = (await new Response(branchProc.stdout).text()).trim();
+        let branch = (await new Response(branchProc.stdout).text()).trim();
+        if (!branch) {
+          // Detached HEAD — use short commit hash as label
+          try {
+            const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            branch = (await new Response(headProc.stdout).text()).trim() || "HEAD";
+          } catch { branch = "HEAD"; }
+        }
         const logProc = Bun.spawn(["git", "log", "-1", "--format=%H|%s|%an|%ar"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const logText = (await new Response(logProc.stdout).text()).trim();
         const [hash = "", message = "", author = "", ago = ""] = logText.split("|");
@@ -392,6 +399,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             try { const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${name}...${upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); const revText = (await new Response(revProc.stdout).text()).trim(); const parts = revText.split(/\s+/); if (parts.length >= 2) { ahead = parseInt(parts[0]) || 0; behind = parseInt(parts[1]) || 0; } } catch {}
           }
           branches.push({ name, current: isCurrent, isRemote, ahead, behind });
+        }
+        // Detached HEAD — no branch is current, add a HEAD entry
+        if (branches.length > 0 && !branches.some(b => b.current)) {
+          try {
+            const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            const headRef = (await new Response(headProc.stdout).text()).trim();
+            if (headRef) branches.unshift({ name: headRef, current: true, isRemote: false, ahead: 0, behind: 0 });
+          } catch {}
         }
         // Fresh repo (git init, no commits) — git branch returns nothing but HEAD exists
         if (branches.length === 0) {
