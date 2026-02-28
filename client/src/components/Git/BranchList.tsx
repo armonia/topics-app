@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { GitBranch, Check, RefreshCw, Globe, Monitor, Plus, Trash2 } from 'lucide-react';
+import { GitBranch, Check, RefreshCw, Globe, Monitor, Plus, Trash2, Link } from 'lucide-react';
 import { gitApi } from '../../lib/api';
+import { useToast } from '../Shared/Toast';
 
 interface Branch {
   name: string;
@@ -13,27 +14,33 @@ interface Branch {
 interface BranchListProps {
   projectPath: string;
   onBranchSwitch?: () => void;
+  remotes?: { name: string; fetchUrl: string; pushUrl: string }[];
+  onAddRemote?: (name: string, url: string) => Promise<void>;
+  onRemoveRemote?: (name: string) => Promise<void>;
 }
 
-export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
+export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, onRemoveRemote }: BranchListProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const [showNewInput, setShowNewInput] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
+  const [showRemoteInput, setShowRemoteInput] = useState(false);
+  const [newRemoteName, setNewRemoteName] = useState('origin');
+  const [newRemoteUrl, setNewRemoteUrl] = useState('');
+  const [addingRemote, setAddingRemote] = useState(false);
 
   const loadBranches = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
       const result = await gitApi.branches(projectPath);
       setBranches(result);
     } catch (err: any) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -56,7 +63,7 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
       await loadBranches();
       onBranchSwitch?.();
     } catch (err: any) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setSwitching(null);
     }
@@ -67,14 +74,13 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
     if (!name) return;
     try {
       setCreating(true);
-      setError(null);
       await gitApi.createBranch(projectPath, name, true);
       setNewBranchName('');
       setShowNewInput(false);
       await loadBranches();
       onBranchSwitch?.();
     } catch (err: any) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setCreating(false);
     }
@@ -84,7 +90,6 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
     e.stopPropagation();
     try {
       setDeleting(name);
-      setError(null);
       await gitApi.deleteBranch(projectPath, name);
       await loadBranches();
     } catch (err: any) {
@@ -93,10 +98,28 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
         await gitApi.deleteBranch(projectPath, name, true);
         await loadBranches();
       } catch (err2: any) {
-        setError(err2.message);
+        toast.error(err2.message);
       }
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleAddRemoteSubmit = async () => {
+    const name = newRemoteName.trim();
+    const url = newRemoteUrl.trim();
+    if (!name || !url || !onAddRemote) return;
+    try {
+      setAddingRemote(true);
+      await onAddRemote(name, url);
+      setNewRemoteName('origin');
+      setNewRemoteUrl('');
+      setShowRemoteInput(false);
+      toast.success(`Remote "${name}" added`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add remote');
+    } finally {
+      setAddingRemote(false);
     }
   };
 
@@ -114,10 +137,6 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
 
   return (
     <div className="text-[12px]">
-      {error && (
-        <div className="px-3 py-1 text-red-500 text-[11px]">{error}</div>
-      )}
-
       {/* New branch input */}
       {showNewInput && (
         <div className="px-2 py-1.5 border-b border-app-border flex items-center gap-1">
@@ -227,6 +246,85 @@ export function BranchList({ projectPath, onBranchSwitch }: BranchListProps) {
                 <Globe size={12} className="flex-shrink-0 opacity-30" />
               )}
               <span className="truncate text-[11px]">{branch.name.replace(/^remotes\/origin\//, '')}</span>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Remotes (URLs) */}
+      {remotes !== undefined && (
+        <>
+          <div className="px-2 py-1 mt-1 flex items-center justify-between">
+            <div className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
+              <Link size={10} />
+              Remotes{remotes.length > 0 ? ` (${remotes.length})` : ''}
+            </div>
+            {onAddRemote && (
+              <button
+                onClick={() => setShowRemoteInput(!showRemoteInput)}
+                className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors"
+                title="Add remote"
+              >
+                <Plus size={10} />
+              </button>
+            )}
+          </div>
+          {showRemoteInput && onAddRemote && (
+            <div className="px-2 py-1">
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={newRemoteName}
+                  onChange={e => setNewRemoteName(e.target.value)}
+                  placeholder="name"
+                  className="w-[50px] h-[20px] px-1 text-[10px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                />
+                <input
+                  type="text"
+                  value={newRemoteUrl}
+                  onChange={e => setNewRemoteUrl(e.target.value)}
+                  placeholder="https://github.com/..."
+                  className="flex-1 min-w-0 h-[20px] px-1 text-[10px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); handleAddRemoteSubmit(); }
+                    if (e.key === 'Escape') { setShowRemoteInput(false); setNewRemoteName('origin'); setNewRemoteUrl(''); }
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={handleAddRemoteSubmit}
+                  disabled={addingRemote || !newRemoteName.trim() || !newRemoteUrl.trim()}
+                  className="px-1.5 h-[20px] text-[9px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+                >
+                  {addingRemote ? <div className="w-2 h-2 border border-white/30 border-t-white rounded-full animate-spin" /> : 'Add'}
+                </button>
+              </div>
+            </div>
+          )}
+          {remotes.map(r => (
+            <div
+              key={r.name}
+              className="flex items-center gap-1.5 px-2 py-[3px] text-[11px] group/remote hover:bg-app-hover transition-colors"
+            >
+              <Link size={10} className="text-app-text-muted flex-shrink-0" />
+              <span className="font-medium text-app-text-heading">{r.name}</span>
+              <span className="truncate text-app-text-muted text-[9px] min-w-0">{r.fetchUrl}</span>
+              {onRemoveRemote && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await onRemoveRemote(r.name);
+                      toast.success(`Remote "${r.name}" removed`);
+                    } catch (err: any) {
+                      toast.error(err.message || 'Failed to remove remote');
+                    }
+                  }}
+                  className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover/remote:opacity-100 flex-shrink-0"
+                  title={`Remove ${r.name}`}
+                >
+                  <Trash2 size={10} />
+                </button>
+              )}
             </div>
           ))}
         </>

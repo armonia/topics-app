@@ -6,7 +6,6 @@ import type { GitStatus } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
-import { ShortcutHint } from '../Shared/KeyboardShortcuts';
 
 // ── Session cache — survives mount/unmount AND page refresh ────────────
 const CACHE_KEY = 'git-status-cache';
@@ -114,6 +113,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       // Update cache
       const prev = gitCache.get(projectPath);
       gitCache.set(projectPath, { status, remotes: prev?.remotes ?? [] });
+      window.dispatchEvent(new CustomEvent('git-cache-updated'));
     } catch (err: any) {
       const msg = err.message || 'Failed to load git status';
       if (msg.toLowerCase().includes('not a git')) {
@@ -132,7 +132,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setRemotes(result);
       // Update cache
       const prev = gitCache.get(projectPath);
-      if (prev) gitCache.set(projectPath, { ...prev, remotes: result });
+      if (prev) {
+        gitCache.set(projectPath, { ...prev, remotes: result });
+        window.dispatchEvent(new CustomEvent('git-cache-updated'));
+      }
     } catch {
       setRemotes([]);
     }
@@ -353,7 +356,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // In compact mode, show a minimal header even while loading/error/notGit
   // Non-compact early returns for loading/error
   if (!compact) {
-    if (loading) {
+    if (loading && !gitStatus) {
       return (
         <div className="flex items-center justify-center py-4">
           <div className="flex items-center gap-2 text-app-text-tertiary text-[11px]">
@@ -563,7 +566,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       ) : (
                         <GitCommit size={10} />
                       )}
-                      <ShortcutHint keys="⌘↩" className="opacity-60" />
+                      <kbd className="kbd !text-white/50">⌘↩</kbd>
                     </button>
                   </div>
 
@@ -652,7 +655,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               left: branchBtnRef.current.getBoundingClientRect().left,
             }}
           >
-            <BranchList projectPath={projectPath} onBranchSwitch={() => { loadStatus(); setShowBranches(false); }} />
+            <BranchList
+              projectPath={projectPath}
+              onBranchSwitch={() => { loadStatus(); setShowBranches(false); }}
+              remotes={remotes}
+              onAddRemote={async (name, url) => {
+                await gitApi.addRemote(projectPath, name, url);
+                await loadRemotes();
+              }}
+              onRemoveRemote={async (name) => {
+                await gitApi.removeRemote(projectPath, name);
+                await loadRemotes();
+              }}
+            />
           </div>,
           document.body,
         )}
@@ -661,6 +676,51 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   }
 
   // ── Full mode (panel) ───────────────────────────────────────────────
+  const fullStagedFiles = gitStatus.files.filter(f => isFileStaged(f.status));
+  const fullUnstagedFiles = gitStatus.files.filter(f => hasUnstagedChanges(f.status));
+
+  const renderFullModeFileRow = (file: { path: string; status: string }, group: 'staged' | 'unstaged') => {
+    const st = statusLabel(file.status);
+    const isSelected = selectedFile === file.path;
+    const basename = file.path.split('/').pop() || file.path;
+    const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
+    return (
+      <div
+        key={`${group}-${file.path}`}
+        className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group ${
+          isSelected ? 'bg-primary/10 dark:bg-primary/20' : 'hover:bg-app-hover'
+        }`}
+        onClick={() => handleFileClick(file.path)}
+      >
+        <span className={`${st.color} ${st.bg} text-[10px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
+          {st.text}
+        </span>
+        <span className="truncate text-app-text-body min-w-0">
+          {basename}
+          {dir && <span className="text-app-text-muted ml-1 text-[10px]">{dir}</span>}
+        </span>
+        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+          {group === 'unstaged' && (
+            <button
+              onClick={(e) => handleDiscard(file.path, e)}
+              className="p-0.5 rounded hover:bg-app-hover"
+              title="Discard changes"
+            >
+              <Undo2 size={11} className="text-app-text-muted" />
+            </button>
+          )}
+          <button
+            onClick={(e) => group === 'staged' ? handleUnstage(file.path, e) : handleStage(file.path, e)}
+            className="p-0.5 rounded hover:bg-app-hover"
+            title={group === 'staged' ? 'Unstage' : 'Stage'}
+          >
+            {group === 'staged' ? <Minus size={12} className="text-red-500" /> : <Plus size={12} className="text-green-500" />}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-full">
       {/* Left: status panel */}
@@ -770,35 +830,25 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 )}
               </button>
             </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={handleStageAll}
-                disabled={stagingAll}
-                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border border-app-border-input hover:bg-app-hover text-app-text-secondary transition-colors disabled:opacity-40"
-              >
-                {stagingAll ? <div className="w-2.5 h-2.5 border border-app-spinner border-t-primary rounded-full animate-spin" /> : <Plus size={10} />}
-                Stage All
-              </button>
-              <button
-                onClick={handleCommit}
-                disabled={committing || !commitMessage.trim()}
-                className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                {committing ? (
-                  <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <GitCommit size={10} />
-                )}
-                Commit <ShortcutHint keys="⌘↩" className="opacity-60" />
-              </button>
-            </div>
+            <button
+              onClick={handleCommit}
+              disabled={committing || !commitMessage.trim() || fullStagedFiles.length === 0}
+              className="w-full flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {committing ? (
+                <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <GitCommit size={10} />
+              )}
+              Commit <kbd className="kbd !text-white/50">⌘↩</kbd>
+            </button>
           </div>
         )}
 
         {/* Changed files list */}
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {gitStatus.files.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-app-text-tertiary text-[12px]">
+            <div className="flex items-center justify-center py-8 text-app-text-tertiary text-[12px]">
               <div className="text-center">
                 <CheckCircle size={24} className="mx-auto mb-2 opacity-30" />
                 <p>Clean working tree</p>
@@ -807,43 +857,52 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
           ) : (
             <>
-              <div className="px-2 py-1 flex items-center justify-between flex-shrink-0">
-                <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
-                  Changes ({gitStatus.files.length})
-                </span>
-              </div>
-              <Virtuoso
-                style={{ flex: 1 }}
-                totalCount={gitStatus.files.length}
-                itemContent={i => {
-                  const file = gitStatus.files[i];
-                  const st = statusLabel(file.status);
-                  const isSelected = selectedFile === file.path;
-                  const staged = isFileStaged(file.status);
-                  return (
-                    <div
-                      className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group ${
-                        isSelected
-                          ? 'bg-primary/10 dark:bg-primary/20'
-                          : 'hover:bg-app-hover'
-                      }`}
-                      onClick={() => handleFileClick(file.path)}
+              {/* Staged files */}
+              {fullStagedFiles.length > 0 && (
+                <div className="border-t border-app-border">
+                  <div className="flex items-center justify-between px-2 py-1 group/hdr">
+                    <button
+                      onClick={() => setStagedExpanded(v => !v)}
+                      className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
                     >
-                      <span className={`${st.color} ${st.bg} text-[10px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
-                        {st.text}
-                      </span>
-                      <span className="truncate text-app-text-body">{file.path}</span>
-                      <button
-                        onClick={(e) => staged ? handleUnstage(file.path, e) : handleStage(file.path, e)}
-                        className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-app-hover transition-all flex-shrink-0"
-                        title={staged ? 'Unstage' : 'Stage'}
-                      >
-                        {staged ? <Minus size={12} className="text-red-500" /> : <Plus size={12} className="text-green-500" />}
-                      </button>
-                    </div>
-                  );
-                }}
-              />
+                      {stagedExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                      Staged ({fullStagedFiles.length})
+                    </button>
+                    <button
+                      onClick={handleUnstageAll}
+                      className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors opacity-0 group-hover/hdr:opacity-100"
+                      title="Unstage all"
+                    >
+                      <Minus size={10} />
+                    </button>
+                  </div>
+                  {stagedExpanded && fullStagedFiles.map(file => renderFullModeFileRow(file, 'staged'))}
+                </div>
+              )}
+
+              {/* Unstaged files */}
+              {fullUnstagedFiles.length > 0 && (
+                <div className="border-t border-app-border">
+                  <div className="flex items-center justify-between px-2 py-1 group/hdr">
+                    <button
+                      onClick={() => setUnstagedExpanded(v => !v)}
+                      className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+                    >
+                      {unstagedExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                      Changes ({fullUnstagedFiles.length})
+                    </button>
+                    <button
+                      onClick={handleStageAll}
+                      disabled={stagingAll}
+                      className="p-0.5 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors disabled:opacity-40 opacity-0 group-hover/hdr:opacity-100"
+                      title="Stage all"
+                    >
+                      {stagingAll ? <div className="w-2.5 h-2.5 border border-app-spinner border-t-primary rounded-full animate-spin" /> : <Plus size={10} />}
+                    </button>
+                  </div>
+                  {unstagedExpanded && fullUnstagedFiles.map(file => renderFullModeFileRow(file, 'unstaged'))}
+                </div>
+              )}
             </>
           )}
 
@@ -906,13 +965,25 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && branchBtnRef.current && createPortal(
         <div
           ref={branchDropdownRef}
-          className="fixed w-56 max-h-[260px] overflow-y-auto bg-surface dark:bg-app-panel border border-app-border rounded-md shadow-lg z-[9999]"
+          className="fixed w-56 max-h-[320px] overflow-y-auto bg-surface dark:bg-app-panel border border-app-border rounded-md shadow-lg z-[9999]"
           style={{
             top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
             left: branchBtnRef.current.getBoundingClientRect().left,
           }}
         >
-          <BranchList projectPath={projectPath} onBranchSwitch={() => { loadStatus(); setSelectedFile(null); setShowBranches(false); }} />
+          <BranchList
+            projectPath={projectPath}
+            onBranchSwitch={() => { loadStatus(); setSelectedFile(null); setShowBranches(false); }}
+            remotes={remotes}
+            onAddRemote={async (name, url) => {
+              await gitApi.addRemote(projectPath, name, url);
+              await loadRemotes();
+            }}
+            onRemoveRemote={async (name) => {
+              await gitApi.removeRemote(projectPath, name);
+              await loadRemotes();
+            }}
+          />
         </div>,
         document.body,
       )}
