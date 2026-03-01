@@ -711,7 +711,16 @@ export function StandaloneChatGroup({
             initialTab={panelInitialTab?.[activePaneId!]}
             onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(activePaneId!) : undefined}
           />
-        ) : null}
+        ) : (
+          /* ---- Empty state with header ---- */
+          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+              <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
+            </div>
+            <div className="flex-1" />
+          </div>
+        )}
       </div>
       {settingsTopic && (
         <Suspense fallback={null}>
