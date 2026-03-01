@@ -32,6 +32,8 @@ interface ChatPanelProps {
   /** External toggle for context inspector (from tab ring click) */
   contextOpen?: boolean;
   onToggleContext?: () => void;
+  /** Hide the header bar entirely (used when mobile bottom bar is active) */
+  hideHeader?: boolean;
 }
 
 export function ChatPanel({
@@ -40,6 +42,7 @@ export function ChatPanel({
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
+  hideHeader,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
@@ -92,7 +95,7 @@ export function ChatPanel({
     <>
       <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header */}
-        <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
+        <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region ${hideHeader ? 'hidden' : ''}`}>
           {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><PanelLeft size={18} /></button>}
           {headerLeft ? (
             <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
