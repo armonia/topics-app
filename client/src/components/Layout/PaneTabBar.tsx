@@ -242,7 +242,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
-            style={{ minWidth: isTouch ? 80 : 140, flexShrink: 0 }}
+            style={{ minWidth: 120, flexShrink: 0 }}
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md ${
               isActive
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
@@ -312,7 +312,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
-              className={`${isTouch ? 'w-7 h-7' : 'w-5 h-5'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0`}
+              className={`${'w-5 h-5'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0`}
             >
               {isElectron && !isTouch && paneIdx < 9 ? (
                 <>
@@ -345,7 +345,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               }
               setShowAddMenu(!showAddMenu);
             }}
-            className={`${isTouch ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.08] text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`}
+            className={`${'w-7 h-7'} flex items-center justify-center rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.08] text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`}
             title="Add pane"
           >
             <Plus size={14} />
