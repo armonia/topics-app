@@ -65,7 +65,7 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[44px] md:min-h-[28px] text-[12px] bg-app-hover"
+      className="flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] text-[12px] bg-app-hover"
       style={{ paddingLeft: `${depth * 16 + 12}px` }}
     >
       <span className="w-4 h-4 flex-shrink-0" />
@@ -170,7 +170,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
   return (
     <>
       <div
-        className={`flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[44px] md:min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
+        className={`flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
           isSelected
             ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-dark'
             : isFocused

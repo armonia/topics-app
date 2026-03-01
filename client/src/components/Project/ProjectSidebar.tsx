@@ -226,7 +226,7 @@ export function ProjectSidebar({
             <span className="text-[12px] font-medium text-app-text">Project</span>
             <button
               onClick={onToggleCollapse}
-              className="w-9 h-9 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
               title="Hide sidebar"
             >
               <PanelLeftClose size={16} />
@@ -243,7 +243,7 @@ export function ProjectSidebar({
               <div className={expandedSections.files ? 'flex-1 min-h-0 flex flex-col' : 'flex-shrink-0'}>
                 <button
                   onClick={() => toggleSection('files')}
-                  className="w-full flex items-center gap-2 px-3 h-10 text-[13px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+                  className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
                 >
                   <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.files ? 'rotate-90' : ''}`} />
                   <FolderTree size={14} />
@@ -261,7 +261,7 @@ export function ProjectSidebar({
               style={expandedSections.git ? { height: bottomHeights.git } : undefined}
             >
               <Suspense fallback={
-                <div onClick={() => toggleSection('git')} className="w-full flex items-center h-10 px-3 text-[13px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
+                <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expandedSections.git ? 'rotate-90' : ''}`} />
                     <GitBranch size={14} className="flex-shrink-0" />
@@ -278,7 +278,7 @@ export function ProjectSidebar({
             >
               <button
                 onClick={() => toggleSection('processes')}
-                className="w-full flex items-center gap-2 px-3 h-10 text-[13px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               >
                 <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 <Zap size={14} />
