@@ -179,7 +179,7 @@ export function ProjectSidebar({
 
   if (effectiveCollapsed) {
     const iconSize = isMobile ? 16 : 15;
-    const btnClass = `${isMobile ? 'w-8 h-8' : 'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
+    const btnClass = `${'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
     return (
       <div className="w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
         <button
@@ -187,7 +187,7 @@ export function ProjectSidebar({
           className={`${btnClass} hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover`}
           title="Expand sidebar"
         >
-          <LayoutPanelLeft size={isMobile ? 18 : 16} />
+          <LayoutPanelLeft size={16} />
         </button>
         <div className="w-6 h-px bg-app-border my-1" />
         <button

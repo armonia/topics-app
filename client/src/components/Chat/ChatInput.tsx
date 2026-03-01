@@ -650,7 +650,7 @@ export function ChatInput({
             <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
 
             {/* Row 2: Action bar */}
-            <div className={`flex items-center justify-between ${isMobile ? 'px-1.5 pb-1.5' : 'px-2 pb-2'}`}>
+            <div className={`flex items-center justify-between ${'px-1.5 pb-1.5'}`}>
               {/* Left: tools */}
               <div className="flex items-center gap-0.5">
                 <button

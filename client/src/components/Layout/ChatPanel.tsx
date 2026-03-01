@@ -118,7 +118,7 @@ export function ChatPanel({
               title="Context Inspector"
               aria-label="Context Inspector"
             >
-              <Layers size={isMobile ? 16 : 13} />
+              <Layers size={13} />
             </button>
           )}
           {!headerLeft && (

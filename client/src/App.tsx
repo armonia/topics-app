@@ -967,7 +967,7 @@ function App() {
         {isPWA && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0 }} />}
         
         {/* Header - draggable for window move */}
-        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-10' : 'h-10'}`}>
+        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${'h-10'}`}>
           <div className="flex items-center gap-2">
             {/* Close button on mobile */}
             {isMobile && (
@@ -1017,7 +1017,7 @@ function App() {
           <div className="flex items-center gap-1 relative z-50 app-no-drag" style={{ pointerEvents: 'auto' }}>
             <button
               onClick={() => handleOpenAsPage('activity')}
-              className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
               style={{ pointerEvents: 'auto' }}
               title="Activity"
               aria-label="Activity"
@@ -1026,7 +1026,7 @@ function App() {
             </button>
             <button
               onClick={() => handleOpenAsPage('agents')}
-              className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative"
+              className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative"
               style={{ pointerEvents: 'auto' }}
               title="Agents"
               aria-label="Agents"
@@ -1040,7 +1040,7 @@ function App() {
             </button>
             <button
               onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
-              className={`w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
+              className={`w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
               style={{ pointerEvents: 'auto' }}
               title="Remote Access"
               aria-label="Remote Access"
@@ -1058,7 +1058,7 @@ function App() {
                   }
                   setShowNewMenu(!showNewMenu);
                 }}
-                className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
                 style={{ pointerEvents: 'auto' }}
                 title="New chat or terminal (⌘N)"
                 aria-label="New"
@@ -1186,7 +1186,7 @@ function App() {
             title="Expand sidebar (⌘B)"
             aria-label="Expand sidebar"
           >
-            <PanelLeft size={isMobile ? 20 : 16} />
+            <PanelLeft size={16} />
           </button>
         </div>
       )}
