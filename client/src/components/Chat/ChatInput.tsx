@@ -656,7 +656,7 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg text-app-text-muted hover:text-primary hover:bg-app-hover transition-all`}
                   title="Attach file (⌘U)"
                   aria-label="Attach file"
                   disabled={currentStreaming}
@@ -666,7 +666,7 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={onTogglePlanMode}
-                  className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg transition-all ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
                     planMode
                       ? 'text-indigo-500 bg-indigo-500/10'
                       : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
@@ -709,7 +709,7 @@ export function ChatInput({
                 <button
                   type="submit"
                   disabled={(!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) || uploading}
-                  className={`${isMobile ? 'w-8 h-8' : 'w-8 h-8'} flex items-center justify-center rounded-lg transition-all ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
                     uploading
                       ? 'bg-primary text-white'
                       : currentStreaming && message.trim()

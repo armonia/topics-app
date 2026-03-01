@@ -130,7 +130,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={emojiMsg ? 'mb-1' : isCompact ? 'mb-1' : isMobile ? 'mb-1.5' : 'mb-3'}
+      className={emojiMsg ? 'mb-1' : isCompact ? 'mb-1' : 'mb-1.5'}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}

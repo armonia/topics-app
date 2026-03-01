@@ -110,7 +110,7 @@ export function ChatPanel({
           {!headerLeft && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowContext(!showContext); }}
-              className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag ${
+              className={`${'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag ${
                 showContext
                   ? 'bg-primary/10 text-primary'
                   : 'hover:bg-app-hover text-app-text-tertiary hover:text-app-text'
@@ -123,13 +123,13 @@ export function ChatPanel({
           )}
           {!headerLeft && (
             <>
-              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={isMobile ? 16 : 14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
-              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={isMobile ? 16 : 14} /></button>}
+              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
               {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={13} /></button>}
             </>
           )}
-          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${isMobile ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={isMobile ? 16 : 14} strokeWidth={1.5} /></button>}
+          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} strokeWidth={1.5} /></button>}
         </div>
 
         {/* Banners */}

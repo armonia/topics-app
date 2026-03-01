@@ -211,7 +211,7 @@ export const TopicItem = memo(function TopicItem({
       {isStreaming ? (
         <button
           onClick={(e) => { e.stopPropagation(); onStopStreaming?.(); }}
-          className="group/stop flex-shrink-0 w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+          className="group/stop flex-shrink-0 w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
           title="Stop generating"
           aria-label="Stop generating"
         >
@@ -220,7 +220,7 @@ export const TopicItem = memo(function TopicItem({
         </button>
       ) : (
         /* Time / Archive — occupy the same slot, swap on hover */
-        <span className="flex-shrink-0 flex items-center justify-center w-11 h-11 md:w-7 md:h-7">
+        <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 md:w-7 md:h-7">
           {/* Relative time — default visible, hidden on group hover */}
           {topic.updatedAt && (
             <span

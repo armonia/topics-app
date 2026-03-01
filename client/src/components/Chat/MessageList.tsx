@@ -191,7 +191,7 @@ export function MessageList({
           ))}
         </div>
       ) : filteredMessages.length === 0 ? (
-        <div className={`text-center ${isMobile ? 'py-4 px-3' : 'py-8 px-4'}`}>
+        <div className={`text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
           <div className="float-icon inline-block mb-3">
             <TopicIcon name={topic.icon} size={36} color={topic.color || undefined} />
           </div>
