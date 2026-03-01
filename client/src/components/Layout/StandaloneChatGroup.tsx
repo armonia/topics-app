@@ -1,7 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
-import { MobileBottomBar } from './MobileBottomBar';
 import { ChatPanel } from './ChatPanel';
 import { PanelLeft } from 'lucide-react';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -9,7 +8,6 @@ import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import { PANE_CONFIG, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isSessionViewerPaneId, getTerminalSessionFromPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, createPaneId } from '../../lib/paneConfig';
 import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
-import { useMobile } from '../../hooks/useMobile';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
 import { ProjectWindowPane } from './ProjectWindow';
@@ -109,16 +107,6 @@ export function StandaloneChatGroup({
   const [contextOpen, setContextOpen] = useState(false);
   // Settings modal state (opened via right-click menu on tabs)
   const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
-
-  // Mobile bottom bar: show on touch devices < 1024px
-  const { isTouch } = useMobile();
-  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
-  useEffect(() => {
-    const h = () => setIsNarrow(window.innerWidth < 1024);
-    window.addEventListener('resize', h);
-    return () => window.removeEventListener('resize', h);
-  }, []);
-  const showBottomBar = isTouch && isNarrow;
 
   // Browser navigate URL (from WS)
   const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
@@ -596,7 +584,7 @@ export function StandaloneChatGroup({
         {activeIsTerminal ? (
           /* ---- Terminal pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className={`flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region ${showBottomBar ? "hidden" : ""}`}>
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
@@ -607,7 +595,7 @@ export function StandaloneChatGroup({
         ) : activeIsSessionViewer && activeSessionKey ? (
           /* ---- Session viewer pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className={`flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region ${showBottomBar ? "hidden" : ""}`}>
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
@@ -618,7 +606,7 @@ export function StandaloneChatGroup({
         ) : activeIsBrowser ? (
           /* ---- Browser pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className={`flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region ${showBottomBar ? "hidden" : ""}`}>
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
@@ -633,7 +621,7 @@ export function StandaloneChatGroup({
         ) : activeIsProject && activeProjectPath ? (
           /* ---- Project pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className={`flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region ${showBottomBar ? "hidden" : ""}`}>
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
@@ -666,7 +654,7 @@ export function StandaloneChatGroup({
           /* ---- Utility pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             {/* Header with tab bar */}
-            <div className={`flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region ${showBottomBar ? "hidden" : ""}`}>
+            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
               {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
@@ -701,7 +689,6 @@ export function StandaloneChatGroup({
             isDragOver={false}
             headerLeft={tabBar}
             showCloseButton={false}
-            hideHeader={showBottomBar}
             contextOpen={contextOpen}
             onToggleContext={handleToggleContext}
             getSessionMessages={getSessionMessages}
@@ -726,16 +713,6 @@ export function StandaloneChatGroup({
           />
         ) : null}
       </div>
-      {showBottomBar && (
-        <MobileBottomBar
-          panes={panes}
-          activePaneId={activePaneId}
-          onActivate={onFocusPanel}
-          onToggleSidebar={onToggleSidebar}
-          onNewChat={onNewChat}
-          streamingPaneIds={streamingPaneIds}
-        />
-      )}
       {settingsTopic && (
         <Suspense fallback={null}>
           <TopicSettingsModal

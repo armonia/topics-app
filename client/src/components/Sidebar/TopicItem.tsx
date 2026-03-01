@@ -70,7 +70,7 @@ export const TopicItem = memo(function TopicItem({
   onSidebarDrop,
   onSidebarDragEnd,
 }: TopicItemProps) {
-  const paddingLeft = 8 + depth * 12;
+  const paddingLeft = 12 + depth * 16;
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
@@ -148,7 +148,7 @@ export const TopicItem = memo(function TopicItem({
         }
       }}
       className={cn(
-        'group flex items-center gap-1.5 min-h-[36px] h-9 pr-1.5 cursor-pointer text-[12px] font-medium transition-colors duration-100 select-none relative md:min-h-8 md:h-8 md:gap-2 md:pr-2 md:text-[13px]',
+        'group flex items-center gap-2 min-h-[44px] h-11 pr-2 cursor-pointer text-[13px] font-medium transition-colors duration-100 select-none relative md:min-h-8 md:h-8',
         // Focused (panel open and focused): accent bg + left border
         isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
         // Open but not focused
@@ -190,7 +190,7 @@ export const TopicItem = memo(function TopicItem({
 
       {/* Icon */}
       {!hideIcon && (
-        <span className="flex-shrink-0 leading-none flex items-center justify-center w-4 h-4 md:w-5 md:h-5">
+        <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5">
           {isArchived ? (
             <Archive size={14} className="text-app-text-tertiary" />
           ) : (
@@ -211,7 +211,7 @@ export const TopicItem = memo(function TopicItem({
       {isStreaming ? (
         <button
           onClick={(e) => { e.stopPropagation(); onStopStreaming?.(); }}
-          className="group/stop flex-shrink-0 w-9 h-9 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+          className="group/stop flex-shrink-0 w-11 h-11 md:w-7 md:h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
           title="Stop generating"
           aria-label="Stop generating"
         >
@@ -220,7 +220,7 @@ export const TopicItem = memo(function TopicItem({
         </button>
       ) : (
         /* Time / Archive — occupy the same slot, swap on hover */
-        <span className="flex-shrink-0 flex items-center justify-center w-9 h-9 md:w-7 md:h-7">
+        <span className="flex-shrink-0 flex items-center justify-center w-11 h-11 md:w-7 md:h-7">
           {/* Relative time — default visible, hidden on group hover */}
           {topic.updatedAt && (
             <span

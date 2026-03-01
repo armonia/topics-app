@@ -956,10 +956,10 @@ function App() {
         role="navigation"
         aria-label="Topics sidebar"
         className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
-          isMobile ? 'fixed inset-y-0 left-0 z-50 w-[260px]' : ''
+          isMobile ? 'fixed inset-y-0 left-0 z-50 w-[280px]' : ''
         }`}
         style={{ 
-          width: isMobile ? (sidebarCollapsed ? 0 : '260px') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
+          width: isMobile ? (sidebarCollapsed ? 0 : '280px') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
         }}
       >
