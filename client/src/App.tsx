@@ -967,7 +967,7 @@ function App() {
         {isPWA && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0 }} />}
         
         {/* Header - draggable for window move */}
-        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region h-10 ${isElectron && !isMobile ? 'pl-[70px]' : ''}`}>
+        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${'h-10'}`}>
           <div className="flex items-center gap-2">
             {/* Close button on mobile */}
             {isMobile && (
