@@ -967,13 +967,13 @@ function App() {
         {isPWA && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0 }} />}
         
         {/* Header - draggable for window move */}
-        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`}>
+        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-11' : 'h-10'}`}>
           <div className="flex items-center gap-2">
             {/* Close button on mobile */}
             {isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(true)}
-                className="w-11 h-11 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag"
+                className="w-8 h-8 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag"
                 aria-label="Close sidebar"
               >
                 <X size={20} aria-hidden="true" />
@@ -996,7 +996,7 @@ function App() {
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'}`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] text-[15px]`}>Topics</span>
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
@@ -1017,7 +1017,7 @@ function App() {
           <div className="flex items-center gap-1 relative z-50 app-no-drag" style={{ pointerEvents: 'auto' }}>
             <button
               onClick={() => handleOpenAsPage('activity')}
-              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
+              className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
               style={{ pointerEvents: 'auto' }}
               title="Activity"
               aria-label="Activity"
@@ -1026,7 +1026,7 @@ function App() {
             </button>
             <button
               onClick={() => handleOpenAsPage('agents')}
-              className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative"
+              className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative"
               style={{ pointerEvents: 'auto' }}
               title="Agents"
               aria-label="Agents"
@@ -1040,7 +1040,7 @@ function App() {
             </button>
             <button
               onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
-              className={`w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
+              className={`w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
               style={{ pointerEvents: 'auto' }}
               title="Remote Access"
               aria-label="Remote Access"
@@ -1058,7 +1058,7 @@ function App() {
                   }
                   setShowNewMenu(!showNewMenu);
                 }}
-                className="w-11 h-11 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
+                className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
                 style={{ pointerEvents: 'auto' }}
                 title="New chat or terminal (⌘N)"
                 aria-label="New"
