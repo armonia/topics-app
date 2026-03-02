@@ -111,13 +111,13 @@ function getBufferedOutput(session: TerminalSession): Uint8Array {
   return result;
 }
 
-function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell'): TerminalSession {
+function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true): TerminalSession {
   let file: string;
   let args: string[];
 
   if (sessionType === 'claude-code') {
     file = 'claude';
-    args = ['--dangerously-skip-permissions'];
+    args = skipPermissions ? ['--dangerously-skip-permissions'] : [];
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -181,9 +181,10 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       const rows = body.rows || 30;
       const topicId = body.topicId || undefined;
       const sessionType = body.type === 'claude-code' ? 'claude-code' : 'shell';
+      const skipPermissions = body.skipPermissions !== false; // default true
 
       try {
-        const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType);
+        const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type });
       } catch (err: any) {
         return errorResponse(500, `Failed to create terminal: ${err.message}`);

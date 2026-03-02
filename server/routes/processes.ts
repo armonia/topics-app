@@ -53,6 +53,7 @@ function persistPath(): string {
 }
 
 function saveState() {
+  invalidateScriptsCache();
   const data = {
     running: Array.from(runningScripts.values()).map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
@@ -136,6 +137,8 @@ function isPidAlive(pid: number): boolean {
   return true;
 }
 
+let _broadcastCtx: AppContext | null = null;
+
 function pollPidExit(sp: ScriptProcess) {
   const check = () => {
     if (!sp.pid || !isPidAlive(sp.pid)) {
@@ -145,6 +148,7 @@ function pollPidExit(sp: ScriptProcess) {
       runningScripts.delete(sp.processId);
       addToRecent(sp);
       saveState();
+      if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
       return;
     }
     setTimeout(check, 3000);
@@ -157,9 +161,9 @@ function pollPidExit(sp: ScriptProcess) {
 // Cache lsof results for a short time to avoid running it on every request
 let cachedPorts: { port: number; pid: number; command: string }[] = [];
 let cachedPortsAt = 0;
-const PORT_CACHE_TTL = 3000;
+const PORT_CACHE_TTL = 5000;
 
-async function getListeningPorts(): Promise<{ port: number; pid: number; command: string }[]> {
+export async function getListeningPorts(): Promise<{ port: number; pid: number; command: string }[]> {
   const now = Date.now();
   if (now - cachedPortsAt < PORT_CACHE_TTL) return cachedPorts;
 
@@ -246,8 +250,67 @@ loadState();
 
 // ── Router ───────────────────────────────────────────────────────────────────
 
+// ── Scripts response cache (2s TTL, invalidated on state change) ─────────
+let scriptsResponseCache: { data: any; timestamp: number } | null = null;
+const SCRIPTS_CACHE_TTL = 2000;
+
+function invalidateScriptsCache() {
+  scriptsResponseCache = null;
+}
+
+// Build current scripts list (without port detection for WS broadcasts — ports are fetched on GET)
+function getScriptsSnapshot(): any[] {
+  const running = Array.from(runningScripts.values()).map(sp => ({
+    processId: sp.processId,
+    scriptName: sp.scriptName,
+    command: sp.command,
+    projectPath: sp.projectPath,
+    status: sp.status,
+    pid: sp.pid,
+    startedAt: sp.startedAt,
+    completedAt: sp.completedAt,
+    exitCode: sp.exitCode,
+    ports: [] as number[],
+  }));
+  const recent = recentScripts.map(sp => ({
+    processId: sp.processId,
+    scriptName: sp.scriptName,
+    command: sp.command,
+    projectPath: sp.projectPath,
+    status: sp.status,
+    pid: sp.pid,
+    startedAt: sp.startedAt,
+    completedAt: sp.completedAt,
+    exitCode: sp.exitCode,
+    ports: [] as number[],
+  }));
+  return [...running, ...recent];
+}
+
+// Debounced output notification
+let outputNotifyTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingOutputIds = new Set<string>();
+
+function notifyScriptOutput(ctx: AppContext, processId: string) {
+  pendingOutputIds.add(processId);
+  if (!outputNotifyTimer) {
+    outputNotifyTimer = setTimeout(() => {
+      for (const id of pendingOutputIds) {
+        ctx.broadcastToAll({ type: 'scripts:output', processId: id });
+      }
+      pendingOutputIds.clear();
+      outputNotifyTimer = null;
+    }, 1000); // max 1 notification per second
+  }
+}
+
+function broadcastScriptsUpdate(ctx: AppContext) {
+  ctx.broadcastToAll({ type: 'scripts:updated', scripts: getScriptsSnapshot() });
+}
+
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
+  _broadcastCtx = ctx; // store for pollPidExit callbacks
 
   async function readJSON(req: Request): Promise<any> {
     try { return await req.json(); } catch { return null; }
@@ -294,6 +357,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
       runningScripts.set(processId, sp);
       saveState();
+      broadcastScriptsUpdate(ctx);
 
       // Stream stdout
       if (proc.stdout) {
@@ -305,6 +369,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
               const { done, value } = await reader.read();
               if (done) break;
               appendOutput(sp, decoder.decode(value, { stream: true }));
+              notifyScriptOutput(ctx, processId);
             }
           } catch {}
         })();
@@ -320,6 +385,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
               const { done, value } = await reader.read();
               if (done) break;
               appendOutput(sp, decoder.decode(value, { stream: true }));
+              notifyScriptOutput(ctx, processId);
             }
           } catch {}
         })();
@@ -334,6 +400,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         runningScripts.delete(processId);
         addToRecent(sp);
         saveState();
+        broadcastScriptsUpdate(ctx);
       });
 
       return json({
@@ -346,6 +413,10 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
     // GET /api/scripts — list running + recent, with per-process ports
     if (method === "GET" && pathname === "/api/scripts") {
+      // Server-side cache check (2s TTL)
+      if (scriptsResponseCache && Date.now() - scriptsResponseCache.timestamp < SCRIPTS_CACHE_TTL) {
+        return json(scriptsResponseCache.data);
+      }
       // Resolve ports for each running script
       const runningList = await Promise.all(
         Array.from(runningScripts.values()).map(async sp => ({
@@ -375,7 +446,9 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         ports: [] as number[],
       }));
 
-      return json({ scripts: [...runningList, ...recentList] });
+      const scriptsResult = { scripts: [...runningList, ...recentList] };
+      scriptsResponseCache = { data: scriptsResult, timestamp: Date.now() };
+      return json(scriptsResult);
     }
 
     // GET /api/scripts/:id/output — get process output (streaming with offset)
@@ -414,6 +487,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         runningScripts.delete(processId);
         addToRecent(sp);
         saveState();
+        broadcastScriptsUpdate(ctx);
         return json({ ok: true });
       }
 

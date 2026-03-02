@@ -3,6 +3,14 @@ import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { loadMemoryForTopic } from "./memory";
 
+// ── Context analysis cache (15s TTL) ─────────────────────────────────────
+const CONTEXT_CACHE_TTL = 15000;
+const contextAnalysisCache = new Map<string, { data: any; timestamp: number }>();
+
+export function invalidateContextCache(topicId: string) {
+  contextAnalysisCache.delete(topicId);
+}
+
 export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
   const { json, matchRoute, loadTopics, OPENCLAW_DIR } = ctx;
   const WORKSPACE_DIR = join(OPENCLAW_DIR, "workspace");
@@ -128,6 +136,12 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/context/analyze") {
       const topicId = url.searchParams.get("topicId");
       if (!topicId) return json({ error: "topicId parameter required" }, 400);
+
+      // Server-side cache check (15s TTL)
+      const cached = contextAnalysisCache.get(topicId);
+      if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
+        return json(cached.data);
+      }
 
       const topicsData = loadTopics();
       const topic = topicsData.topics[topicId];
@@ -330,13 +344,9 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
         });
       }
 
-      return json({
-        sources,
-        totalTokens,
-        budgetLimit,
-        budgetPercent,
-        warnings,
-      });
+      const result = { sources, totalTokens, budgetLimit, budgetPercent, warnings };
+      contextAnalysisCache.set(topicId, { data: result, timestamp: Date.now() });
+      return json(result);
     }
 
     return null;

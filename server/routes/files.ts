@@ -1,6 +1,15 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync, rmdirSync, renameSync } from "fs";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
+import { watchGitDir } from "../git-watcher";
+
+// ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
+const GIT_STATUS_CACHE_TTL = 5000;
+const gitStatusCache = new Map<string, { data: any; timestamp: number }>();
+
+export function invalidateGitCache(projectPath: string) {
+  gitStatusCache.delete(projectPath);
+}
 
 // Backup store persisted to disk for undo support
 interface FileBackup {
@@ -322,12 +331,19 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
+        // Server-side cache check (5s TTL)
+        const cached = gitStatusCache.get(resolvedDir);
+        if (cached && Date.now() - cached.timestamp < GIT_STATUS_CACHE_TTL) {
+          return json(cached.data);
+        }
         // Check if path is a git repo
         const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await checkProc.exited;
         if (checkProc.exitCode !== 0) {
           return json({ error: "Not a git repository", notGit: true }, 400);
         }
+        // Start watching .git for changes (idempotent — only sets up once per path)
+        watchGitDir(resolvedDir, ctx);
         const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statusText = await new Response(statusProc.stdout).text();
         const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
@@ -357,7 +373,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         } catch {}
         const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({ path: line.substring(3), status: line.substring(0, 2).trim() }));
         const files = relativePrefix ? allFiles.filter((f) => f.path.startsWith(relativePrefix)).map((f) => ({ ...f, path: f.path.slice(relativePrefix.length) })) : allFiles;
-        return json({ branch, lastCommit: { hash, message, author, ago }, files, ahead, behind });
+        const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
+        gitStatusCache.set(resolvedDir, { data: result, timestamp: Date.now() });
+        return json(result);
       } catch (err: any) { return json({ error: "Git error: " + err.message }, 500); }
     }
 
