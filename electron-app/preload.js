@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App control
   app: {
     quit: () => ipcRenderer.invoke('app:quit'),
+    relaunch: () => ipcRenderer.invoke('app:relaunch'),
   },
 
   // Platform info

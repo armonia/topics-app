@@ -3,7 +3,6 @@ const path = require('path');
 const http = require('http');
 
 let mainWindow = null;
-let topicsView = null;
 let tray = null;
 let updateLayout = null;
 
@@ -18,6 +17,7 @@ let browserPanelWidth = 0.4; // 40% width when visible
 
 // Server URL - use DEV_URL env var for hot reload development
 const SERVER_URL = process.env.DEV_URL || 'http://localhost:3333';
+const isDev = !app.isPackaged;
 
 // CDP port for browser control (Electron DevTools)
 // Use a port far from Chrome Topics (19222) to avoid conflicts
@@ -38,38 +38,29 @@ function createWindow() {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    frame: false,
+    titleBarStyle: 'hidden',
     backgroundColor: '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      webviewTag: true,
     },
     show: false,
   });
 
-  // Create Topics app view (left/main area)
-  topicsView = new BrowserView({
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      webviewTag: true,
-    },
-  });
-  mainWindow.addBrowserView(topicsView);
-
-  // Layout function
+  // Layout function for browser panel tabs
   updateLayout = () => {
     if (!mainWindow) return;
     const [width, height] = mainWindow.getSize();
 
     if (browserPanelVisible && activeTabId && browserTabs.has(activeTabId)) {
-      // Split view: Topics on left, Browser on right
+      // Split view: Browser tabs overlay on right
       const topicsWidth = Math.floor(width * (1 - browserPanelWidth));
-      topicsView.setBounds({ x: 0, y: 0, width: topicsWidth, height });
-      
+      // Tell React app to constrain its width
+      mainWindow.webContents.send('browser-panel-layout', { topicsWidth, totalWidth: width });
+
       // Show only active tab's view
       for (const [id, tab] of browserTabs) {
         if (id === activeTabId) {
@@ -81,8 +72,8 @@ function createWindow() {
       }
     } else {
       // Topics takes full width
-      topicsView.setBounds({ x: 0, y: 0, width, height });
-      
+      mainWindow.webContents.send('browser-panel-layout', { topicsWidth: null, totalWidth: width });
+
       // Hide all browser tabs
       for (const [id, tab] of browserTabs) {
         tab.view.setBounds({ x: width + 1000, y: 0, width: 0, height: 0 });
@@ -91,27 +82,26 @@ function createWindow() {
   };
 
   mainWindow.on('resize', updateLayout);
-  updateLayout();
 
-  // Load Topics app
-  topicsView.webContents.loadURL(SERVER_URL);
+  // Load Topics app directly in main window (not BrowserView — enables -webkit-app-region: drag)
+  mainWindow.loadURL(SERVER_URL);
 
   // Show when ready
-  topicsView.webContents.once('did-finish-load', () => {
-    console.log('[Topics Electron] Topics view loaded, showing window');
+  mainWindow.webContents.once('did-finish-load', () => {
+    console.log('[Topics Electron] Topics loaded, showing window');
     mainWindow.show();
   });
-  
-  topicsView.webContents.on('did-fail-load', (event, code, desc) => {
+
+  mainWindow.webContents.on('did-fail-load', (event, code, desc) => {
     console.error('[Topics Electron] Failed to load:', code, desc);
   });
-  
+
   mainWindow.on('closed', () => {
     console.log('[Topics Electron] Main window closed');
   });
 
-  // Handle external links and detached windows from Topics view
-  topicsView.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
+  // Handle external links and detached windows
+  mainWindow.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
     // Check if this is a topic pop-out (detached window)
     if (frameName && frameName.startsWith('topic-')) {
       const topicId = frameName.replace('topic-', '');
@@ -162,7 +152,7 @@ function createDetachedWindow(topicId, url, features = '') {
     height,
     minWidth: 500,
     minHeight: 400,
-    frame: false,
+    titleBarStyle: 'hidden',
     backgroundColor: '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
@@ -267,8 +257,8 @@ function closeBrowserTab(id) {
 
 // Notify Topics view of browser events
 function notifyTopics(event, data) {
-  if (topicsView && !topicsView.webContents.isDestroyed()) {
-    topicsView.webContents.send('browser-event', { event, ...data });
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send('browser-event', { event, ...data });
   }
 }
 
@@ -313,20 +303,21 @@ async function fetchUnreadCount() {
 
 function updateBadges(topicsWithUnread, totalUnread) {
   // Update tray tooltip with count
+  const appLabel = isDev ? 'Topics DEV' : 'Topics';
   if (tray) {
     if (topicsWithUnread > 0) {
-      tray.setToolTip(`Topics (${topicsWithUnread} with unread)`);
+      tray.setToolTip(`${appLabel} (${topicsWithUnread} with unread)`);
     } else {
-      tray.setToolTip('Topics');
+      tray.setToolTip(appLabel);
     }
   }
-  
+
   // Update dock badge (macOS)
   if (process.platform === 'darwin' && app.dock) {
     if (totalUnread > 0) {
       app.dock.setBadge(String(totalUnread));
     } else {
-      app.dock.setBadge('');
+      app.dock.setBadge(isDev ? 'DEV' : '');
     }
   }
   
@@ -383,8 +374,8 @@ function createAppMenu() {
           label: 'Refresh',
           accelerator: 'CmdOrCtrl+R',
           click: () => {
-            if (topicsView && !topicsView.webContents.isDestroyed()) {
-              topicsView.webContents.reload();
+            if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+              mainWindow.webContents.reload();
             }
           }
         },
@@ -392,9 +383,9 @@ function createAppMenu() {
           label: 'Hard Reload (Clear Cache)',
           accelerator: 'CmdOrCtrl+Shift+R',
           click: async () => {
-            if (topicsView && !topicsView.webContents.isDestroyed()) {
+            if (mainWindow && !mainWindow.webContents.isDestroyed()) {
               await session.defaultSession.clearCache();
-              topicsView.webContents.reload();
+              mainWindow.webContents.reload();
             }
           }
         },
@@ -434,7 +425,7 @@ function createTray() {
   tray = new Tray(icon.resize({ width: 18, height: 18 }));
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show Topics', click: () => mainWindow.show() },
+    { label: isDev ? 'Show Topics DEV' : 'Show Topics', click: () => mainWindow.show() },
     { type: 'separator' },
     { 
       label: 'Open at Login',
@@ -448,7 +439,7 @@ function createTray() {
     { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } },
   ]);
 
-  tray.setToolTip('Topics');
+  tray.setToolTip(isDev ? 'Topics DEV' : 'Topics');
   tray.setContextMenu(contextMenu);
 
   tray.on('click', () => {
@@ -643,6 +634,11 @@ ipcMain.handle('app:quit', () => {
   app.quit();
 });
 
+ipcMain.handle('app:relaunch', () => {
+  app.relaunch();
+  app.exit(0);
+});
+
 // --- Detached Windows ---
 ipcMain.handle('window:detach', async (event, topicId) => {
   const url = `${SERVER_URL}?topic=${topicId}`;
@@ -717,13 +713,13 @@ function startCDPInfoServer() {
       const targets = [];
       
       // Topics view
-      if (topicsView && !topicsView.webContents.isDestroyed()) {
-        const debuggerUrl = topicsView.webContents.debugger.isAttached() ? '' : '';
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        const debuggerUrl = mainWindow.webContents.debugger.isAttached() ? '' : '';
         targets.push({
           id: 'topics-main',
           type: 'page',
-          title: topicsView.webContents.getTitle() || 'Topics',
-          url: topicsView.webContents.getURL(),
+          title: mainWindow.webContents.getTitle() || 'Topics',
+          url: mainWindow.webContents.getURL(),
           webSocketDebuggerUrl: `ws://127.0.0.1:${CDP_PORT}/devtools/page/topics-main`,
           devtoolsFrontendUrl: '',
         });
@@ -783,6 +779,12 @@ function startCDPInfoServer() {
 // ============ App Lifecycle ============
 
 app.whenReady().then(() => {
+  // In dev mode, set the dock icon and app name to distinguish from prod
+  if (isDev && process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(path.join(__dirname, 'icon.png'));
+    app.setName('Topics DEV');
+  }
+
   createAppMenu();
   createWindow();
   createTray();

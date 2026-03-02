@@ -45,6 +45,7 @@ export interface ElectronAPI {
   };
   app: {
     quit: () => void;
+    relaunch: () => Promise<void>;
   };
   platform: string;
   isElectron: boolean;

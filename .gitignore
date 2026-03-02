@@ -75,7 +75,6 @@ tasks/
 .reference/
 
 # Dev/audit artifacts
-*.png
 *.migrated
 .playwright-mcp/
 package-lock.json

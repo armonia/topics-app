@@ -6,11 +6,13 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --mac",
-    "dev": "electron ."
+    "postinstall": "/usr/libexec/PlistBuddy -c \"Set :CFBundleName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null; /usr/libexec/PlistBuddy -c \"Set :CFBundleDisplayName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null || true",
+    "dev": "electronmon ."
   },
   "devDependencies": {
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "electronmon": "^2.0.4"
   },
   "build": {
     "appId": "com.topics.app",
@@ -29,6 +31,5 @@
       "icon.icns",
       "tray-icon.png"
     ]
-  },
-  "dependencies": {}
+  }
 }
