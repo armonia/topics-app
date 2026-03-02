@@ -6,12 +6,12 @@ type Tab = 'activity' | 'journal';
 
 function eventIcon(type: JournalEvent['type']) {
   switch (type) {
-    case 'tool_call': return <Terminal size={11} className="text-blue-500" />;
-    case 'message': return <MessageSquare size={11} className="text-green-500" />;
-    case 'session_start': return <Play size={11} className="text-indigo-500" />;
-    case 'session_end': return <Zap size={11} className="text-gray-400" />;
-    case 'error': return <AlertCircle size={11} className="text-red-500" />;
-    default: return <Terminal size={11} className="text-gray-400" />;
+    case 'tool_call': return <Terminal size={12} className="text-blue-500" />;
+    case 'message': return <MessageSquare size={12} className="text-green-500" />;
+    case 'session_start': return <Play size={12} className="text-indigo-500" />;
+    case 'session_end': return <Zap size={12} className="text-gray-400" />;
+    case 'error': return <AlertCircle size={12} className="text-red-500" />;
+    default: return <Terminal size={12} className="text-gray-400" />;
   }
 }
 

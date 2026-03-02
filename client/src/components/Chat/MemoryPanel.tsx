@@ -89,11 +89,11 @@ export function MemoryPanel({ topicId, topicName, isOpen, onClose, onMessage }: 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
-            <Brain size={18} className="text-purple-500" />
+            <Brain size={16} className="text-purple-500" />
             <h2 className="text-[15px] font-semibold text-app-text">Memory</h2>
           </div>
           <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
 
@@ -105,7 +105,7 @@ export function MemoryPanel({ topicId, topicName, isOpen, onClose, onMessage }: 
               activeTab === 'topic' ? 'text-primary' : 'text-app-text-tertiary hover:text-app-text'
             }`}
           >
-            <MessageSquare size={13} />
+            <MessageSquare size={14} />
             <span>{topicName}</span>
             {activeTab === 'topic' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t" />}
           </button>
@@ -115,7 +115,7 @@ export function MemoryPanel({ topicId, topicName, isOpen, onClose, onMessage }: 
               activeTab === 'global' ? 'text-primary' : 'text-app-text-tertiary hover:text-app-text'
             }`}
           >
-            <Globe size={13} />
+            <Globe size={14} />
             <span>Global</span>
             {activeTab === 'global' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t" />}
           </button>
@@ -155,13 +155,13 @@ export function MemoryPanel({ topicId, topicName, isOpen, onClose, onMessage }: 
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-app-border">
-          {saved && <span className="text-emerald-500 text-[13px] mr-auto flex items-center gap-1"><Save size={13} /> Saved</span>}
+          {saved && <span className="text-emerald-500 text-[13px] mr-auto flex items-center gap-1"><Save size={14} /> Saved</span>}
           <button
             onClick={handleClear}
             disabled={saving || !currentContent}
             className="px-3 py-2 text-[13px] text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 mr-auto"
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
             Clear
           </button>
           <button
@@ -175,7 +175,7 @@ export function MemoryPanel({ topicId, topicName, isOpen, onClose, onMessage }: 
             disabled={!isDirty || saving}
             className="px-4 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
-            <Save size={13} />
+            <Save size={14} />
             {saving ? 'Saving...' : 'Save'}
           </button>
         </div>

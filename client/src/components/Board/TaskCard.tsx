@@ -95,7 +95,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
 
           {/* Blocked indicator */}
           {isBlocked && (
-            <Lock size={8} className="flex-shrink-0 text-yellow-500/70" />
+            <Lock size={10} className="flex-shrink-0 text-yellow-500/70" />
           )}
 
           {/* Task text */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { X, ShieldCheck, ShieldX, BarChart3 } from 'lucide-react';
 import type { Approval } from '../../lib/api';
 

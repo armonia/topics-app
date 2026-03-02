@@ -49,7 +49,7 @@ export function AgentPanel({ enabled = true, onNavigateToTopic, onMessage }: Age
         disabled={loading}
         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 mt-1 text-[11px] text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
       >
-        <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         Refresh
       </button>
     </div>

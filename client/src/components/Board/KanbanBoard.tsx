@@ -180,7 +180,7 @@ export function KanbanBoard({ projectId, topicId, onWSMessage }: KanbanBoardProp
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 size={18} className="animate-spin text-app-text-muted" />
+        <Loader2 size={16} className="animate-spin text-app-text-muted" />
       </div>
     );
   }
@@ -233,7 +233,7 @@ export function KanbanBoard({ projectId, topicId, onWSMessage }: KanbanBoardProp
           className="p-1.5 mr-1 text-app-text-muted hover:text-app-text transition-colors"
           title="Board settings"
         >
-          <Settings size={13} />
+          <Settings size={14} />
         </button>
       </div>
 

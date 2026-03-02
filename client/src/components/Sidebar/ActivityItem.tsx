@@ -66,7 +66,7 @@ export function ActivityItem({ event }: ActivityItemProps) {
         </span>
 
         {/* Icon */}
-        <Icon size={11} className={`${config.color} flex-shrink-0 mt-[2px]`} />
+        <Icon size={12} className={`${config.color} flex-shrink-0 mt-[2px]`} />
 
         {/* Title */}
         <span className={`text-[11px] leading-[16px] flex-1 min-w-0 break-words ${

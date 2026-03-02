@@ -52,7 +52,7 @@ export function DashboardPane() {
         </div>
         <div className="flex items-center gap-1.5">
           {loading && (
-            <RefreshCw size={11} className="animate-spin text-app-text-muted" />
+            <RefreshCw size={12} className="animate-spin text-app-text-muted" />
           )}
           <span className="text-[10px] text-app-text-muted">Auto-refresh 15s</span>
         </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, UserPlus, UserMinus } from 'lucide-react';
-import { agentProfilesApi, type AgentProfile, type AgentAssignment } from '../../lib/api';
+import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 
 interface AgentAssignPanelProps {
   topicId: string;

@@ -225,7 +225,7 @@ function SessionList({ liveSessions, onSelect }: {
       {/* Toolbar */}
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-app-border/40 flex-shrink-0">
         <div className="relative flex-1">
-          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-muted" />
+          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-muted" />
           <input
             type="text"
             value={searchInput}
@@ -268,7 +268,7 @@ function SessionList({ liveSessions, onSelect }: {
 
       {error && (
         <div className="px-3 py-1.5 text-[11px] text-red-500 flex items-center gap-1.5 flex-shrink-0">
-          <AlertCircle size={11} /> {error}
+          <AlertCircle size={12} /> {error}
         </div>
       )}
 

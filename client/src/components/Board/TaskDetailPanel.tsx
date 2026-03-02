@@ -23,7 +23,7 @@ interface TaskDetailPanelProps {
   onArchive?: (taskId: string) => void;
 }
 
-export function TaskDetailPanel({ task, projectId, tags, onClose, onUpdate, onArchive }: TaskDetailPanelProps) {
+export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdate, onArchive }: TaskDetailPanelProps) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [editingDescription, setEditingDescription] = useState(false);
@@ -120,7 +120,7 @@ export function TaskDetailPanel({ task, projectId, tags, onClose, onUpdate, onAr
         {/* Due date */}
         {task.dueDate && (
           <div className="flex items-center gap-1 text-[11px] text-app-text-muted">
-            <Clock size={11} />
+            <Clock size={12} />
             <span>Due: {new Date(task.dueDate).toLocaleDateString()}</span>
           </div>
         )}
@@ -128,7 +128,7 @@ export function TaskDetailPanel({ task, projectId, tags, onClose, onUpdate, onAr
         {/* Tags */}
         {task.tags.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
-            <Tag size={11} className="text-app-text-muted" />
+            <Tag size={12} className="text-app-text-muted" />
             {task.tags.map(tag => (
               <span
                 key={tag.id}
@@ -145,7 +145,7 @@ export function TaskDetailPanel({ task, projectId, tags, onClose, onUpdate, onAr
         {(task.blockedBy.length > 0 || task.blocks.length > 0) && (
           <div className="text-[11px] space-y-1">
             <div className="flex items-center gap-1 text-app-text-muted">
-              <Link2 size={11} />
+              <Link2 size={12} />
               <span>Dependencies</span>
             </div>
             {task.blockedBy.length > 0 && (
@@ -190,7 +190,7 @@ export function TaskDetailPanel({ task, projectId, tags, onClose, onUpdate, onAr
         {/* Comments */}
         <div>
           <div className="flex items-center gap-1 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider mb-1">
-            <MessageSquare size={11} />
+            <MessageSquare size={12} />
             <span>Comments ({comments.length})</span>
           </div>
 

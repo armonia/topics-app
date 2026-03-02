@@ -101,7 +101,7 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors flex-shrink-0"
             title="Edit"
           >
-            <Edit3 size={11} />
+            <Edit3 size={12} />
           </button>
         )}
 

@@ -159,7 +159,7 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
       {showSearch && (
         <div className="px-2 py-1 border-b border-app-border flex-shrink-0">
           <div className="relative">
-            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-muted" />
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-muted" />
             <input
               type="text"
               value={searchInput}
@@ -198,7 +198,7 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
                 }`}
                 title={cat}
               >
-                <config.icon size={9} />
+                <config.icon size={10} />
                 <span>{config.label}</span>
                 {count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}
               </button>

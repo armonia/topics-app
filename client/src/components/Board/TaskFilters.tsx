@@ -41,7 +41,7 @@ export function TaskFilters({
 
   return (
     <div className="flex items-center gap-1.5 px-1 py-1 text-[10px]">
-      <Filter size={11} className="text-app-text-muted flex-shrink-0" />
+      <Filter size={12} className="text-app-text-muted flex-shrink-0" />
 
       {/* Status filter */}
       <select

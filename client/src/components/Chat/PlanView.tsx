@@ -183,13 +183,13 @@ export const PlanView = memo(function PlanView({ content, onApprove, onReject, i
       {/* Status indicators */}
       {approved && (
         <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-          <Check size={13} />
+          <Check size={14} />
           Plan approved — executing...
         </div>
       )}
       {rejected && (
         <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <X size={13} />
+          <X size={14} />
           Plan rejected
         </div>
       )}

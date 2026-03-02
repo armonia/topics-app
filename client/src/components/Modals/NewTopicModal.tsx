@@ -91,7 +91,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <h2 id="new-topic-title" className="text-[15px] font-semibold text-app-text">New Topic</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close dialog">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
 
@@ -133,7 +133,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <TopicIcon name={template.icon} size={18} color={template.color} />
+                      <TopicIcon name={template.icon} size={16} color={template.color} />
                       <span className="text-[13px] font-medium text-app-text">{template.name}</span>
                     </div>
                     <p className="text-[11px] text-app-text-muted">{template.description}</p>

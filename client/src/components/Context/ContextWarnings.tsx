@@ -17,12 +17,12 @@ export function ContextWarnings({ warnings }: ContextWarningsProps) {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-app-hover transition-colors"
       >
-        <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
+        <AlertTriangle size={14} className="text-amber-500 flex-shrink-0" />
         <span className="text-[12px] font-medium text-amber-600 dark:text-amber-400">
           {warnings.length} warning{warnings.length !== 1 ? 's' : ''}
         </span>
         <div className="flex-1" />
-        {expanded ? <ChevronDown size={13} className="text-app-text-tertiary" /> : <ChevronRight size={13} className="text-app-text-tertiary" />}
+        {expanded ? <ChevronDown size={14} className="text-app-text-tertiary" /> : <ChevronRight size={14} className="text-app-text-tertiary" />}
       </button>
       {expanded && (
         <div className="px-4 pb-2 space-y-1">

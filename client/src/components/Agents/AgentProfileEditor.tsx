@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 
@@ -18,7 +18,7 @@ const EMOJI_OPTIONS = ['\uD83E\uDD16', '\uD83E\uDDD1\u200D\uD83D\uDCBB', '\uD83D
 
 export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEditorProps) {
   const [name, setName] = useState(profile?.name || '');
-  const [role, setRole] = useState<string>(profile?.role || 'worker');
+  const [role, setRole] = useState<AgentProfile['role']>(profile?.role || 'worker');
   const [avatarEmoji, setAvatarEmoji] = useState(profile?.avatarEmoji || '\uD83E\uDD16');
   const [modelPreference, setModelPreference] = useState(profile?.modelPreference || '');
   const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(profile?.maxConcurrentTasks ?? 1);

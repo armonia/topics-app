@@ -581,7 +581,7 @@ export function ChatInput({
                   </div>
                 </div>
                 <button onClick={onCancelEdit} className="text-app-text-tertiary hover:text-app-text p-0.5" title="Cancel edit">
-                  <X size={13} />
+                  <X size={14} />
                 </button>
               </div>
             )}
@@ -599,7 +599,7 @@ export function ChatInput({
                   </div>
                 </div>
                 <button onClick={() => setReplyingTo(null)} className="text-app-text-tertiary hover:text-app-text p-0.5">
-                  <X size={13} />
+                  <X size={14} />
                 </button>
               </div>
             )}
@@ -724,7 +724,7 @@ export function ChatInput({
                   {uploading ? (
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <Send size={15} />
+                    <Send size={14} />
                   )}
                 </button>
               </div>

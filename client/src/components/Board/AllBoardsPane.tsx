@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { LayoutGrid, Loader2, Plus } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Loader2 } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,

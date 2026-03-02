@@ -152,7 +152,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
                     : 'text-app-text hover:bg-app-hover'
                 }`}
               >
-                <File size={13} className="text-app-text-muted flex-shrink-0" />
+                <File size={14} className="text-app-text-muted flex-shrink-0" />
                 <span className="text-[12px] font-medium truncate">{file.name}</span>
                 {dir && (
                   <span className="text-[10px] text-app-text-muted truncate ml-auto flex-shrink-0">
@@ -172,13 +172,13 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
 export function FilePill({ file, onRemove }: { file: MentionedFile; onRemove: () => void }) {
   return (
     <span className="inline-flex items-center gap-1 bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-md px-2 py-0.5 text-[11px] font-medium">
-      <File size={11} className="flex-shrink-0" />
+      <File size={12} className="flex-shrink-0" />
       <span className="truncate max-w-[120px]">{file.name}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
         className="ml-0.5 text-blue-400 hover:text-blue-600 dark:hover:text-blue-200"
       >
-        <X size={11} />
+        <X size={12} />
       </button>
     </span>
   );
