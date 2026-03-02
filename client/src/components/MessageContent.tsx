@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
@@ -8,6 +8,7 @@ import { ThinkingBlock, ToolCallsList, PartialIndicator } from './MessageParts';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { isPlanResponse, PlanView } from './Chat/PlanView';
+import { AgentSpawnCard } from './Chat/AgentSpawnCard';
 
 /**
  * Close any open/incomplete markdown tokens so ReactMarkdown doesn't flicker
@@ -17,8 +18,7 @@ function completePartialMarkdown(text: string): string {
   // 1. Close open fenced code blocks (``` or ~~~)
   const fenceRegex = /^(`{3,}|~{3,})/gm;
   let fenceCount = 0;
-  let m: RegExpExecArray | null;
-  while ((m = fenceRegex.exec(text)) !== null) fenceCount++;
+  while (fenceRegex.exec(text) !== null) fenceCount++;
   if (fenceCount % 2 !== 0) {
     text += '\n```';
   }
@@ -447,10 +447,10 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
  * Highlight @mentions in text by wrapping them in styled spans.
  * Returns an array of string and JSX elements.
  */
-function highlightMentions(text: string): (string | JSX.Element)[] {
+function highlightMentions(text: string): (string | React.JSX.Element)[] {
   // Match @name at start of string or after whitespace (without lookbehind for Safari compat)
   const mentionRegex = /(^|\s)(@[a-zA-Z][a-zA-Z0-9_-]*)/gm;
-  const parts: (string | JSX.Element)[] = [];
+  const parts: (string | React.JSX.Element)[] = [];
   let lastIdx = 0;
   let match;
 
@@ -483,9 +483,11 @@ interface MessageContentProps {
   // Plan mode
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
+  // Session viewer
+  onOpenSessionViewer?: (sessionKey: string) => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject, onOpenSessionViewer }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths } = useMemo(() => extractMediaPaths(content), [content]);
 
   // During streaming, close any incomplete markdown tokens to prevent rendering glitches
@@ -545,6 +547,12 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         {cleanText && renderUserText(cleanText)}
       </div>
     );
+  }
+
+  // Agent spawn card — detect marker format {{AGENT_SPAWN:sessionKey|label}}
+  const spawnMatch = content.match(/^\{\{AGENT_SPAWN:(.+?)\|(.+)\}\}$/);
+  if (spawnMatch) {
+    return <AgentSpawnCard sessionKey={spawnMatch[1]} label={spawnMatch[2]} onOpenInPane={onOpenSessionViewer} />;
   }
 
   // Assistant message - render thinking, tool calls, content, and media

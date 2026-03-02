@@ -1,4 +1,5 @@
 import type { PaneType } from '../types';
+import { generateUUID } from '../utils/uuid';
 
 export interface PaneConfig {
   icon: string;      // Lucide icon name
@@ -30,6 +31,7 @@ export const PANE_CONFIG: Record<PaneType, PaneConfig> = {
 export function createPaneId(type: PaneType, key?: string): string {
   if (type === 'chat' && key) return `chat:${key}`;
   if (type === 'project' && key) return `project:${encodeURIComponent(key)}`;
+  if (type === 'browser' && key) return `browser:${key}`;
   if (type === 'terminal' && key) return `terminal:${key}`;
   if (type === 'session-viewer' && key) return `session-viewer:${key}`;
   return `${type}:${Date.now()}`;
@@ -52,6 +54,11 @@ export function isTerminalPaneId(id: string): boolean {
   return id.startsWith('terminal:');
 }
 
+export function getBrowserContextFromPaneId(id: string): string | null {
+  if (!isBrowserPaneId(id)) return null;
+  return id.slice('browser:'.length);
+}
+
 export function getTerminalSessionFromPaneId(id: string): string | null {
   if (!isTerminalPaneId(id)) return null;
   return id.slice('terminal:'.length);
@@ -69,6 +76,14 @@ export function isSessionViewerPaneId(id: string): boolean {
 export function getSessionKeyFromViewerPaneId(id: string): string | null {
   if (!isSessionViewerPaneId(id)) return null;
   return id.slice('session-viewer:'.length);
+}
+
+export function isDraftPaneId(id: string): boolean {
+  return id.startsWith('draft:');
+}
+
+export function createDraftPaneId(): string {
+  return `draft:${generateUUID()}`;
 }
 
 let _groupCounter = 0;

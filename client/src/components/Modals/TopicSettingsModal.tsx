@@ -98,11 +98,11 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
-            <TopicIcon name={topic.icon} size={18} color={topic.color || undefined} />
+            <TopicIcon name={topic.icon} size={16} color={topic.color || undefined} />
             <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
           </div>
           <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
 
@@ -121,7 +121,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   showIconPicker ? 'border-primary bg-primary/10' : 'border-app-border-light bg-surface dark:bg-elevated hover:bg-app-hover'
                 }`}
               >
-                <TopicIcon name={topicIcon} size={18} color={topicColor || undefined} />
+                <TopicIcon name={topicIcon} size={16} color={topicColor || undefined} />
               </button>
               <input
                 type="text"
@@ -171,7 +171,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           <div>
             <label className="block text-[13px] font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
-                <FolderOpen size={15} />
+                <FolderOpen size={14} />
                 Link Project
               </span>
             </label>

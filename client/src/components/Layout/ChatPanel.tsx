@@ -32,6 +32,8 @@ interface ChatPanelProps {
   /** External toggle for context inspector (from tab ring click) */
   contextOpen?: boolean;
   onToggleContext?: () => void;
+  /** Callback to open a session-viewer pane for a spawned agent */
+  onOpenSessionViewer?: (sessionKey: string) => void;
 }
 
 export function ChatPanel({
@@ -40,6 +42,7 @@ export function ChatPanel({
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
+  onOpenSessionViewer,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
@@ -69,12 +72,13 @@ export function ChatPanel({
   const [commandLoading, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Keep hook alive for potential inspector use
-  useContextInspector(topic.id);
+  // Keep hook alive for potential inspector use (skip for draft topics)
+  const isDraft = topic.id.startsWith('draft:');
+  useContextInspector(isDraft ? null : topic.id);
 
   const currentMessages = getSessionMessages(topic.sessionKey);
 
-  useEffect(() => { if (isFocused) { topicsApi.markRead(topic.id).catch(() => {}); sendWS({ type: 'focus', topicId: topic.id }); } }, [isFocused, topic.id, sendWS]);
+  useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendWS({ type: 'focus', topicId: topic.id }); } }, [isFocused, isDraft, topic.id, sendWS]);
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
   const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
@@ -93,7 +97,7 @@ export function ChatPanel({
       <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header */}
         <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
-          {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><PanelLeft size={18} /></button>}
+          {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><PanelLeft size={16} /></button>}
           {headerLeft ? (
             <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
           ) : (
@@ -118,7 +122,7 @@ export function ChatPanel({
               title="Context Inspector"
               aria-label="Context Inspector"
             >
-              <Layers size={13} />
+              <Layers size={14} />
             </button>
           )}
           {!headerLeft && (
@@ -126,10 +130,10 @@ export function ChatPanel({
               <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
               {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
-              {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={13} /></button>}
+              {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={14} /></button>}
             </>
           )}
-          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} strokeWidth={1.5} /></button>}
+          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
         </div>
 
         {/* Banners */}
@@ -165,6 +169,7 @@ export function ChatPanel({
                 sendWS={sendWS}
                 onWSMessage={onWSMessage}
                 onUpdateTopic={onUpdateTopic}
+                onOpenSessionViewer={onOpenSessionViewer}
               />
             </div>
           </div>

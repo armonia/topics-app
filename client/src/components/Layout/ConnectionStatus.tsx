@@ -60,9 +60,9 @@ export function ConnectionStatusBar({ status, onRetry, lastConnectedAt }: Connec
       }`}
     >
       {isOffline ? (
-        <WifiOff size={18} className="text-red-700 dark:text-red-400 flex-shrink-0" />
+        <WifiOff size={16} className="text-red-700 dark:text-red-400 flex-shrink-0" />
       ) : (
-        <Loader2 size={18} className="text-amber-700 dark:text-amber-400 flex-shrink-0 animate-spin" />
+        <Loader2 size={16} className="text-amber-700 dark:text-amber-400 flex-shrink-0 animate-spin" />
       )}
       <div className="flex flex-col items-center gap-0.5">
         <span className={`text-[13px] font-medium ${
@@ -91,7 +91,7 @@ export function ConnectionStatusBar({ status, onRetry, lastConnectedAt }: Connec
               : 'text-amber-800 dark:text-amber-300 bg-amber-200/60 dark:bg-amber-800/40 hover:bg-amber-300/60 dark:hover:bg-amber-700/40'
           }`}
         >
-          <RefreshCw size={13} />
+          <RefreshCw size={14} />
           Retry
         </button>
       )}

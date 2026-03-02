@@ -42,7 +42,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
           >
-            <X size={15} />
+            <X size={14} />
           </button>
         </div>
 
@@ -93,7 +93,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                         : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
                     }`}
                   >
-                    <Icon size={16} strokeWidth={1.5} />
+                    <Icon size={16} />
                     {label}
                   </button>
                 ))}

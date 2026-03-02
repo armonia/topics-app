@@ -42,6 +42,8 @@ interface PersistedState {
   rows?: GroupLayoutRow[];
   rowHeights?: number[];
   sidebarCollapsed: boolean;
+  closedTopicIds?: string[];       // legacy — no longer written
+  openChatTopicIds?: string[];     // topic IDs that were open when last saved
 }
 
 function loadPersistedState(projectPath: string): PersistedState | null {
@@ -111,15 +113,18 @@ export interface ProjectWindowPaneProps {
   // Navigate to a specific topic inside the project (from external focus)
   pendingFocusTopicId?: string | null;
   onPendingFocusConsumed?: () => void;
+  // Report which topic is currently active in this project window
+  onActiveTopicChange?: (topicId: string | null) => void;
 }
 
 export function ProjectWindowPane({
   projectPath, topics, focusedPanelId,
-  onFocusPanel, onClosePanel,
+  onFocusPanel, onClosePanel: _onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, onPendingFocusConsumed,
+  onActiveTopicChange,
 }: ProjectWindowPaneProps) {
   // Compute topicIds from topics that belong to this project
   const topicIds = useMemo(() =>
@@ -141,8 +146,6 @@ export function ProjectWindowPane({
   const [panes, setPanes] = useState<Pane[]>(() => persisted.current?.nonChatPanes || []);
   const [groups, setGroups] = useState<PaneGroup[]>(() => persisted.current?.groups || []);
   const pendingPreviewCloseRef = useRef<string | null>(null);
-  // Track topic IDs manually closed by the user (so the sync effect doesn't re-add them)
-  const closedTopicIdsRef = useRef<Set<string>>(new Set());
   const [rows, setRows] = useState<GroupLayoutRow[]>(() => persisted.current?.rows || []);
   const [rowHeights, setRowHeights] = useState<number[]>(() => persisted.current?.rowHeights || [1]);
   const [focusedGroupId, setFocusedGroupId] = useState<string | null>(null);
@@ -160,6 +163,12 @@ export function ProjectWindowPane({
   const focusedPane = focusedGroup ? panes.find(p => p.id === focusedGroup.activePaneId) : null;
   const activeTopicId = focusedPane?.type === 'chat' ? focusedPane.topicId || null : null;
   const activeTopic = activeTopicId ? topics[activeTopicId] : null;
+
+  // Report active topic changes to parent (for sidebar highlighting)
+  useEffect(() => {
+    onActiveTopicChange?.(activeTopicId);
+  }, [activeTopicId, onActiveTopicChange]);
+
   const paneToTopicMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const p of panes) {
@@ -167,7 +176,7 @@ export function ProjectWindowPane({
     }
     return map;
   }, [panes]);
-  const contextPercent = useMultiContextPercent(paneToTopicMap);
+  const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
 
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
@@ -190,7 +199,6 @@ export function ProjectWindowPane({
         const isFirst = stopSession(topic.sessionKey);
         if (isFirst) {
           // First message stopped — close the tab locally
-          closedTopicIdsRef.current.add(pane.topicId);
           setPanes(prev => prev.filter(p => p.id !== paneId));
         }
       }
@@ -201,47 +209,62 @@ export function ProjectWindowPane({
     try { localStorage.setItem('topics-context-inspector-open', String(showContext)); } catch {}
   }, [showContext]);
 
-  // Persist non-chat panes, groups, rows
+  // Persist non-chat panes, groups, rows, and open chat topic IDs
   useEffect(() => {
     const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
     const nonChatGroups = groups.filter(g => g.type !== 'chat').map(g => ({
       ...g,
       paneIds: g.paneIds.filter(id => nonChatPanes.some(p => p.id === id)),
     })).filter(g => g.paneIds.length > 0);
+    const openChatTopicIds = panes
+      .filter(p => p.type === 'chat' && p.topicId)
+      .map(p => p.topicId!);
     savePersistedState(projectPath, {
       nonChatPanes,
       groups: nonChatGroups,
       rows,
       rowHeights,
       sidebarCollapsed,
+      openChatTopicIds,
     });
   }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath]);
 
   // --- Sync chat panes with topicIds ---
+  // Only restore chats that were previously open (persisted), not all project topics.
+  const initialChatsSyncedRef = useRef(false);
   useEffect(() => {
-    // Clean up closedTopicIds for topics that no longer exist in the project
     const currentSet = new Set(topicIds);
-    for (const id of closedTopicIdsRef.current) {
-      if (!currentSet.has(id)) closedTopicIdsRef.current.delete(id);
-    }
 
     setPanes(prev => {
-      const chatPaneIds = new Set(prev.filter(p => p.type === 'chat').map(p => p.topicId));
+      // Remove chat panes whose topic no longer exists in the project
       let updated = prev.filter(p => p.type !== 'chat' || (p.topicId && currentSet.has(p.topicId)));
-      const newChatPanes: Pane[] = [];
-      for (const tid of topicIds) {
-        if (!chatPaneIds.has(tid) && !closedTopicIdsRef.current.has(tid)) {
-          const topic = topics[tid];
-          newChatPanes.push({
-            id: createPaneId('chat', tid),
-            type: 'chat' as PaneType,
-            topicId: tid,
-            title: topic?.name || 'Chat',
-            preview: true,
-          });
+
+      // On first sync only: restore chats that were open last session
+      if (!initialChatsSyncedRef.current) {
+        initialChatsSyncedRef.current = true;
+        const openSet = new Set(persisted.current?.openChatTopicIds || []);
+        // Backward compat: if openChatTopicIds was never saved but closedTopicIds exists,
+        // open everything except the closed ones (legacy behavior, one-time migration).
+        const isLegacy = !persisted.current?.openChatTopicIds && persisted.current?.closedTopicIds;
+        const closedSet = new Set(persisted.current?.closedTopicIds || []);
+        const chatPaneIds = new Set(updated.filter(p => p.type === 'chat').map(p => p.topicId));
+        const newChatPanes: Pane[] = [];
+        for (const tid of topicIds) {
+          if (chatPaneIds.has(tid)) continue;
+          const shouldOpen = isLegacy ? !closedSet.has(tid) : openSet.has(tid);
+          if (shouldOpen) {
+            const topic = topics[tid];
+            newChatPanes.push({
+              id: createPaneId('chat', tid),
+              type: 'chat' as PaneType,
+              topicId: tid,
+              title: topic?.name || 'Chat',
+              preview: false,
+            });
+          }
         }
+        if (newChatPanes.length > 0) updated = [...updated, ...newChatPanes];
       }
-      if (newChatPanes.length > 0) updated = [...updated, ...newChatPanes];
       return updated;
     });
   }, [topicIds, topics]);
@@ -376,24 +399,20 @@ export function ProjectWindowPane({
     }
   }, [groups.length, panes]);
 
-  // Reopen a closed topic (remove from closedTopicIds so sync effect re-creates the pane)
+  // Open a topic that isn't currently open (e.g. clicked from sidebar)
   const reopenTopic = useCallback((topicId: string) => {
-    if (closedTopicIdsRef.current.has(topicId)) {
-      closedTopicIdsRef.current.delete(topicId);
-      // Manually add the pane back since the sync effect may not re-run
-      const topic = topics[topicId];
-      const paneId = createPaneId('chat', topicId);
-      setPanes(prev => {
-        if (prev.some(p => p.id === paneId)) return prev;
-        return [...prev, {
-          id: paneId,
-          type: 'chat' as PaneType,
-          topicId,
-          title: topic?.name || 'Chat',
-          preview: false,
-        }];
-      });
-    }
+    const topic = topics[topicId];
+    const paneId = createPaneId('chat', topicId);
+    setPanes(prev => {
+      if (prev.some(p => p.id === paneId)) return prev;
+      return [...prev, {
+        id: paneId,
+        type: 'chat' as PaneType,
+        topicId,
+        title: topic?.name || 'Chat',
+        preview: false,
+      }];
+    });
   }, [topics]);
 
   // Set focused group when focusedPanelId changes (external focus)
@@ -427,11 +446,11 @@ export function ProjectWindowPane({
           setGroups(prev => prev.map(gg =>
             gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg
           ));
+          // Consume only after successfully finding the pane AND its group
+          onPendingFocusConsumed?.();
         }
-        // Consume only after successfully finding the pane
-        onPendingFocusConsumed?.();
       }
-      // If pane not found yet (just reopened via setPanes), effect will re-run
+      // If pane/group not found yet, effect will re-run when panes/groups update
     }
   }, [pendingFocusTopicId, panes, groups, onPendingFocusConsumed, reopenTopic]);
 
@@ -449,22 +468,15 @@ export function ProjectWindowPane({
     setGroups(prev => prev.map(g =>
       g.id === groupId ? { ...g, activePaneId: paneId } : g
     ));
-    const pane = panes.find(p => p.id === paneId);
-    if (pane?.type === 'chat' && pane.topicId) {
-      onFocusPanel(pane.topicId);
-    } else {
-      // Non-chat pane (file, terminal, etc.) — focus the project itself
-      onFocusPanel(createPaneId('project', projectPath));
-    }
-  }, [panes, onFocusPanel, projectPath]);
+    // Always focus the project pane in the parent — internal group state
+    // is already updated above, so we just need the parent to stay on this project tab.
+    // (Sending a raw topicId would fail orderedIds lookup and fall back to orderedIds[0],
+    // switching away from this project.)
+    onFocusPanel(createPaneId('project', projectPath));
+  }, [onFocusPanel, projectPath]);
 
   const handleClosePane = useCallback((groupId: string, paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
-
-    if (pane?.type === 'chat' && pane.topicId) {
-      // Track as manually closed so the sync effect doesn't re-add it
-      closedTopicIdsRef.current.add(pane.topicId);
-    }
 
     // Remove the pane from local state
     setPanes(prev => prev.filter(p => p.id !== paneId));
@@ -473,7 +485,7 @@ export function ProjectWindowPane({
       return prev.map(g => {
         if (g.id !== groupId) return g;
         const remaining = g.paneIds.filter(id => id !== paneId);
-        if (remaining.length === 0) return g;
+        if (remaining.length === 0) return { ...g, paneIds: [] };
         const newActive = g.activePaneId === paneId
           ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
           : g.activePaneId;
@@ -706,8 +718,6 @@ export function ProjectWindowPane({
     if (pendingPreviewCloseRef.current) {
       const id = pendingPreviewCloseRef.current;
       pendingPreviewCloseRef.current = null;
-      // Mark as closed so the sync effect doesn't re-add the replaced preview
-      closedTopicIdsRef.current.add(id);
       setPanes(prev => prev.filter(p => !(p.type === 'chat' && p.topicId === id)));
     }
   });
@@ -843,7 +853,6 @@ export function ProjectWindowPane({
       ? window.open(url, `topic-${pane.topicId}`, 'width=900,height=700')
       : window.open(url, `topic-${pane.topicId}`);
     // Close the tab locally
-    closedTopicIdsRef.current.add(pane.topicId);
     setPanes(prev => prev.filter(p => p.id !== paneId));
   }, [panes]);
 

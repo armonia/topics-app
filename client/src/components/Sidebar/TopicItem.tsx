@@ -182,7 +182,6 @@ export const TopicItem = memo(function TopicItem({
         >
           <ChevronRight
             size={12}
-            strokeWidth={1.5}
             className={cn('transition-transform duration-150', isExpanded && 'rotate-90')}
           />
         </button>
@@ -254,7 +253,7 @@ export const TopicItem = memo(function TopicItem({
           className="flex-shrink-0 flex items-center gap-0.5 text-[10px] text-purple-500 dark:text-purple-400"
           title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
         >
-          <Bot size={11} />
+          <Bot size={12} />
           {assignedAgentCount > 1 && <span className="font-medium">{assignedAgentCount}</span>}
         </span>
       )}

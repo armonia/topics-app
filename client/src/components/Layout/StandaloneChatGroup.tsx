@@ -6,8 +6,9 @@ import { PanelLeft } from 'lucide-react';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
-import { PANE_CONFIG, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isSessionViewerPaneId, getTerminalSessionFromPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, createPaneId } from '../../lib/paneConfig';
+import { PANE_CONFIG, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isSessionViewerPaneId, getTerminalSessionFromPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, getBrowserContextFromPaneId, createPaneId, isDraftPaneId } from '../../lib/paneConfig';
 import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
+import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
 import { ProjectWindowPane } from './ProjectWindow';
@@ -63,14 +64,21 @@ interface StandaloneChatGroupProps {
   // Pending focus for project tabs (navigate to a topic inside a project)
   pendingProjectFocus?: { projectPath: string; topicId: string } | null;
   onPendingProjectFocusConsumed?: () => void;
+  // Report which topic is active inside the focused project
+  onProjectActiveTopicChange?: (topicId: string | null) => void;
   // Pending terminal pane request (from App quick-create)
   pendingTerminalPane?: { sessionId: string; name: string } | null;
   onPendingTerminalPaneConsumed?: () => void;
   // Report whether this group has utility panes (browser/terminal)
   onUtilityPaneChange?: (has: boolean) => void;
-  // Pending browser pane request (from sidebar)
-  pendingBrowserPane?: boolean;
+  // Pending browser pane request (from sidebar) — contextId or null
+  pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;
+  // Report open browser context IDs to parent
+  onOpenBrowserContextIds?: (ids: string[]) => void;
+  // Draft chat support
+  promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
+  draftMeta?: Record<string, { projectPath?: string }>;
 }
 
 export function StandaloneChatGroup({
@@ -82,10 +90,14 @@ export function StandaloneChatGroup({
   onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
+  onProjectActiveTopicChange,
   pendingTerminalPane, onPendingTerminalPaneConsumed,
   onUtilityPaneChange,
   pendingBrowserPane, onPendingBrowserPaneConsumed,
+  onOpenBrowserContextIds,
+  promoteDraft, draftMeta: _draftMeta,
 }: StandaloneChatGroupProps) {
+  const [claudeSkipPermissions] = useClaudeSkipPermissions();
   // Track order locally for tab reordering
   const [orderedIds, setOrderedIds] = useState<string[]>(topicIds);
   const [panelDragOver, setPanelDragOver] = useState(false);
@@ -95,7 +107,7 @@ export function StandaloneChatGroup({
   const effectivePinnedIds = useMemo(() => {
     const s = new Set(pinnedIds);
     for (const id of orderedIds) {
-      if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id)) s.add(id);
+      if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) s.add(id);
     }
     return s;
   }, [pinnedIds, orderedIds]);
@@ -172,10 +184,37 @@ export function StandaloneChatGroup({
   const activeProjectPath = activePaneId && activeIsProject ? getProjectPathFromPaneId(activePaneId) : null;
   const activeIsUtility = activePaneId && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer ? isUtilityPanelId(activePaneId) : false;
   const activeUtilityType = activePaneId && activeIsUtility ? parseUtilityPanelType(activePaneId) : null;
-  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer ? topics[activePaneId] : null;
+
+  // Synthetic topics for draft panes (not yet persisted on server)
+  const draftTopics = useMemo(() => {
+    const map: Record<string, Topic> = {};
+    for (const id of orderedIds) {
+      if (isDraftPaneId(id)) {
+        map[id] = {
+          id,
+          name: 'New Chat',
+          icon: '💬',
+          color: '#0066ff',
+          sessionKey: `draft-session:${id}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        } as Topic;
+      }
+    }
+    return map;
+  }, [orderedIds]);
+
+  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer
+    ? (topics[activePaneId] || draftTopics[activePaneId] || null)
+    : null;
 
   // Compute browser context ID for RemoteBrowserPanel
   const browserContextId = useMemo(() => {
+    // If the active pane is a browser pane, use its encoded context ID
+    if (activePaneId && isBrowserPaneId(activePaneId)) {
+      const ctx = getBrowserContextFromPaneId(activePaneId);
+      if (ctx) return ctx;
+    }
     // Find a topic with projectPath among ordered IDs for context
     for (const id of orderedIds) {
       if (isProjectPaneId(id)) {
@@ -186,7 +225,7 @@ export function StandaloneChatGroup({
       if (t?.projectPath) return t.id.slice(0, 8);
     }
     return orderedIds[0]?.slice(0, 8) || 'default';
-  }, [orderedIds, topics]);
+  }, [activePaneId, orderedIds, topics]);
   const browserContextIdRef = useRef(browserContextId);
   browserContextIdRef.current = browserContextId;
 
@@ -198,6 +237,15 @@ export function StandaloneChatGroup({
   useEffect(() => {
     onUtilityPaneChange?.(hasUtilityPanes);
   }, [hasUtilityPanes, onUtilityPaneChange]);
+
+  // Report open browser context IDs to parent for sidebar highlighting
+  const openBrowserContextIds = useMemo(
+    () => orderedIds.filter(isBrowserPaneId).map(id => getBrowserContextFromPaneId(id)).filter((id): id is string => id !== null),
+    [orderedIds],
+  );
+  useEffect(() => {
+    onOpenBrowserContextIds?.(openBrowserContextIds);
+  }, [openBrowserContextIds, onOpenBrowserContextIds]);
 
   // Listen for browser:navigate WS — add browser pane if needed and navigate
   // Skip when a project pane exists (projects manage their own browser internally)
@@ -255,19 +303,25 @@ export function StandaloneChatGroup({
     }
   }, [pendingTerminalPane, onPendingTerminalPaneConsumed, onFocusPanel]);
 
-  // Consume pending browser pane request (from sidebar)
+  // Consume pending browser pane request (from sidebar — contextId string)
   useEffect(() => {
     if (pendingBrowserPane) {
       onPendingBrowserPaneConsumed?.();
+      const targetId = createPaneId('browser', pendingBrowserPane);
       setOrderedIds(prev => {
-        const existing = prev.find(id => isBrowserPaneId(id));
-        if (existing) {
-          setTimeout(() => onFocusPanel(existing), 0);
+        // Check if we already have a pane for this context
+        if (prev.includes(targetId)) {
+          setTimeout(() => onFocusPanel(targetId), 0);
           return prev;
         }
-        const newId = createPaneId('browser');
-        setTimeout(() => onFocusPanel(newId), 0);
-        return [...prev, newId];
+        // Check for any existing browser pane — reuse it (swap context)
+        const existing = prev.find(id => isBrowserPaneId(id));
+        if (existing) {
+          setTimeout(() => onFocusPanel(targetId), 0);
+          return prev.map(id => id === existing ? targetId : id);
+        }
+        setTimeout(() => onFocusPanel(targetId), 0);
+        return [...prev, targetId];
       });
     }
   }, [pendingBrowserPane, onPendingBrowserPaneConsumed, onFocusPanel]);
@@ -323,6 +377,14 @@ export function StandaloneChatGroup({
           preview: isPreview,
         };
       }
+      if (isDraftPaneId(id)) {
+        return {
+          id,
+          type: 'chat' as PaneType,
+          title: 'New Chat',
+          preview: false,
+        };
+      }
       return {
         id,
         type: 'chat' as PaneType,
@@ -357,10 +419,12 @@ export function StandaloneChatGroup({
       try {
         const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
         const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+        const body: Record<string, unknown> = { type: termType, name };
+        if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
         const res = await fetch('/api/terminal/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: termType, name }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) return;
         const data = await res.json();
@@ -370,7 +434,7 @@ export function StandaloneChatGroup({
         onFocusPanel(newId);
       } catch {}
     }
-  }, [orderedIds, onFocusPanel]);
+  }, [orderedIds, onFocusPanel, claudeSkipPermissions]);
 
   // Close handler: support closing browser/terminal panes locally (they're not in topicIds)
   const handleClosePane = useCallback((paneId: string) => {
@@ -449,15 +513,15 @@ export function StandaloneChatGroup({
     onAcceptProjectTopicDrop(topicId);
   }, [onAcceptProjectTopicDrop, topicIds]);
 
-  // Build paneId → topicId map for context percent (only for chat panes)
+  // Build paneId → topicId map for context percent (only for real chat panes, not drafts)
   const paneToTopicMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const id of orderedIds) {
-      if (!isUtilityPanelId(id) && !isProjectPaneId(id) && !isBrowserPaneId(id) && !isTerminalPaneId(id) && !isSessionViewerPaneId(id)) map[id] = id;
+      if (!isUtilityPanelId(id) && !isProjectPaneId(id) && !isBrowserPaneId(id) && !isTerminalPaneId(id) && !isSessionViewerPaneId(id) && !isDraftPaneId(id)) map[id] = id;
     }
     return map;
   }, [orderedIds]);
-  const contextPercent = useMultiContextPercent(paneToTopicMap);
+  const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
 
   // Project tab status indicators (git + processes)
   const projectPaths = useMemo(() => {
@@ -482,11 +546,11 @@ export function StandaloneChatGroup({
     return map;
   }, [orderedIds, projectStatusByPath]);
 
-  // Build set of pane IDs that are currently streaming (only chat panes stream)
+  // Build set of pane IDs that are currently streaming (only real chat panes stream, not drafts)
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const id of orderedIds) {
-      if (isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id)) continue;
+      if (isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) continue;
       const topic = topics[id];
       if (topic && isSessionStreaming(topic.sessionKey)) {
         ids.add(id);
@@ -507,6 +571,13 @@ export function StandaloneChatGroup({
   const handleToggleContext = useCallback(() => {
     setContextOpen(prev => !prev);
   }, []);
+
+  // Open session viewer pane (used by AgentSpawnCard in chat and AgentsPane)
+  const handleOpenSessionViewer = useCallback((sessionKey: string) => {
+    const newId = createPaneId('session-viewer', sessionKey);
+    setOrderedIds(prev => prev.includes(newId) ? prev : [...prev, newId]);
+    setTimeout(() => onFocusPanel(newId), 0);
+  }, [onFocusPanel]);
 
   // Right-click menu: Settings opens TopicSettingsModal
   const handleSettings = useCallback((paneId: string) => {
@@ -542,7 +613,7 @@ export function StandaloneChatGroup({
   // Tab bar rendered inline in header
   const tabBar = (
     <PaneTabBar
-      className="flex-1 flex items-center bg-elevated/60 p-1 gap-0.5 min-w-0"
+      className="flex-1 flex items-center bg-elevated/60 p-1 gap-0.5 min-w-0 app-drag-region"
       panes={panes}
       activePaneId={activePaneId}
       onActivate={(paneId) => {
@@ -585,7 +656,7 @@ export function StandaloneChatGroup({
           /* ---- Terminal pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <Suspense fallback={LazySpinner}>
@@ -596,7 +667,7 @@ export function StandaloneChatGroup({
           /* ---- Session viewer pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <Suspense fallback={LazySpinner}>
@@ -607,7 +678,7 @@ export function StandaloneChatGroup({
           /* ---- Browser pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <Suspense fallback={LazySpinner}>
@@ -622,10 +693,11 @@ export function StandaloneChatGroup({
           /* ---- Project pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <ProjectWindowPane
+              key={activeProjectPath}
               projectPath={activeProjectPath}
               topics={topics}
               focusedPanelId={focusedPanelId}
@@ -648,6 +720,7 @@ export function StandaloneChatGroup({
               onNewChat={onNewChatInProject ? () => onNewChatInProject(activeProjectPath) : undefined}
               pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === activeProjectPath ? pendingProjectFocus.topicId : null}
               onPendingFocusConsumed={onPendingProjectFocusConsumed}
+              onActiveTopicChange={onProjectActiveTopicChange}
             />
           </div>
         ) : activeIsUtility ? (
@@ -655,7 +728,7 @@ export function StandaloneChatGroup({
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             {/* Header with tab bar */}
             <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={18} /></button>}
+              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             {/* Utility panel body */}
@@ -665,11 +738,7 @@ export function StandaloneChatGroup({
                 {activeUtilityType === 'journal' && <JournalPanel enabled />}
                 {activeUtilityType === 'agents' && <AgentsPane
                   onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
-                  onOpenSessionViewer={(sessionKey) => {
-                    const newId = createPaneId('session-viewer', sessionKey);
-                    setOrderedIds(prev => prev.includes(newId) ? prev : [...prev, newId]);
-                    setTimeout(() => onFocusPanel(newId), 0);
-                  }}
+                  onOpenSessionViewer={handleOpenSessionViewer}
                   onMessage={onWSMessage}
                 />}
                 {activeUtilityType === 'dashboard' && <DashboardPane />}
@@ -694,12 +763,20 @@ export function StandaloneChatGroup({
             getSessionMessages={getSessionMessages}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
-            sendMessage={!effectivePinnedIds.has(activePaneId!)
-              ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
-                  setPinnedIds(prev => new Set([...prev, activePaneId!]));
-                  return sendMessage(sk, content, options);
-                }
-              : sendMessage
+            sendMessage={
+              isDraftPaneId(activePaneId!)
+                ? async (_sk: string, content: string, options?: { planMode?: boolean }) => {
+                    if (promoteDraft) {
+                      await promoteDraft(activePaneId!, content, options);
+                    }
+                    return true;
+                  }
+                : !effectivePinnedIds.has(activePaneId!)
+                  ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
+                      setPinnedIds(prev => new Set([...prev, activePaneId!]));
+                      return sendMessage(sk, content, options);
+                    }
+                  : sendMessage
             }
             editMessage={editMessage}
             switchBranch={switchBranch}
@@ -707,9 +784,13 @@ export function StandaloneChatGroup({
             chatError={chatError}
             sendWS={sendWS}
             onWSMessage={onWSMessage}
-            onUpdateTopic={onUpdateTopic}
+            onUpdateTopic={isDraftPaneId(activePaneId!)
+              ? async () => null
+              : onUpdateTopic
+            }
             initialTab={panelInitialTab?.[activePaneId!]}
             onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(activePaneId!) : undefined}
+            onOpenSessionViewer={handleOpenSessionViewer}
           />
         ) : (
           /* ---- Empty state with header ---- */

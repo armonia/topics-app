@@ -109,7 +109,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           disabled={loading}
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
         >
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {status?.gateway.lastCheckedAt
             ? formatTimeAgo(status.gateway.lastCheckedAt)
             : 'Refresh'}
@@ -136,7 +136,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               : 'text-amber-400 hover:text-amber-300 hover:bg-app-hover'
           }`}
         >
-          <RotateCcw size={11} className={restarting ? 'animate-spin' : ''} />
+          <RotateCcw size={12} className={restarting ? 'animate-spin' : ''} />
           {restarting ? 'Riavvio…' : confirmingRestart ? 'Sei sicuro?' : 'Riavvia'}
         </button>
       </div>

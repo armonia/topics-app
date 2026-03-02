@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, MessageSquare, Plus, Settings, Moon, Sun, File } from 'lucide-react';
-import type { Topic } from '../../types';
+import { Search, Plus, Settings, Moon, Sun, File, Loader2 } from 'lucide-react';
+import type { Topic, SearchResult } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
+import { searchApi } from '../../lib/api';
 
 export interface CommandAction {
   id: string;
   label: string;
   description?: string;
   icon: React.ReactNode;
-  category: 'topic' | 'action' | 'command' | 'file';
+  category: 'topic' | 'action' | 'command' | 'file' | 'message';
   shortcut?: string;
   action: () => void;
+  /** Raw content for highlight rendering in message results */
+  _rawContent?: string;
 }
 
 function fuzzyMatch(query: string, target: string): boolean {
@@ -53,6 +56,49 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [fileList, setFileList] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<CommandAction[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced message search
+  useEffect(() => {
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    const q = query.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    searchTimeout.current = setTimeout(async () => {
+      try {
+        const data = await searchApi.search(q, 20);
+        setSearchResults(
+          data.results
+            .filter((r: SearchResult) => r.topicId)
+            .map((r: SearchResult) => {
+              const roleLabel = r.role === 'user' ? 'You' : 'Assistant';
+              const truncated = r.content.slice(0, 80).replace(/\n/g, ' ');
+              const dateStr = r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '';
+              return {
+                id: `msg-${r.sessionKey}-${r.timestamp}`,
+                label: `${roleLabel}: ${truncated}`,
+                description: `${r.topicName}${dateStr ? ' · ' + dateStr : ''}`,
+                icon: <TopicIcon name={r.topicIcon} size={14} />,
+                category: 'message' as const,
+                action: () => { onOpenTopic(r.topicId!); onClose(); },
+                _rawContent: r.content.slice(0, 200),
+              };
+            })
+        );
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
+  }, [query, onOpenTopic, onClose]);
 
   // Fetch flat file list when palette opens with a project path
   useEffect(() => {
@@ -171,6 +217,9 @@ export function CommandPalette({
     );
   }, [actions, query]);
 
+  // Merge filtered items with search results
+  const allItems = useMemo(() => [...filtered, ...searchResults], [filtered, searchResults]);
+
   // Reset selection on filter change
   useEffect(() => {
     setSelectedIndex(0);
@@ -181,6 +230,8 @@ export function CommandPalette({
     if (isOpen) {
       setQuery('');
       setSelectedIndex(0);
+      setSearchResults([]);
+      setSearchLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
@@ -189,20 +240,20 @@ export function CommandPalette({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(i => Math.min(i + 1, filtered.length - 1));
+      setSelectedIndex(i => Math.min(i + 1, allItems.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSelectedIndex(i => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (filtered[selectedIndex]) {
-        filtered[selectedIndex].action();
+      if (allItems[selectedIndex]) {
+        allItems[selectedIndex].action();
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
     }
-  }, [filtered, selectedIndex, onClose]);
+  }, [allItems, selectedIndex, onClose]);
 
   // Scroll selected into view
   useEffect(() => {
@@ -213,7 +264,7 @@ export function CommandPalette({
   if (!isOpen) return null;
 
   // Group by category
-  const groupedActions = filtered.reduce((acc, action) => {
+  const groupedActions = allItems.reduce((acc, action) => {
     if (!acc[action.category]) acc[action.category] = [];
     acc[action.category].push(action);
     return acc;
@@ -224,6 +275,7 @@ export function CommandPalette({
     file: 'Files',
     topic: 'Topics',
     command: 'Commands',
+    message: 'Messages',
   };
 
   let globalIdx = 0;
@@ -244,7 +296,7 @@ export function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={projectPath ? "Search files, topics, actions..." : "Search topics, actions..."}
+            placeholder={projectPath ? "Search files, topics, messages, actions..." : "Search topics, messages, actions..."}
             className="flex-1 bg-transparent text-[14px] text-app-text placeholder-app-placeholder outline-none"
           />
           <kbd className="kbd">ESC</kbd>
@@ -252,49 +304,61 @@ export function CommandPalette({
 
         {/* Results */}
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1" role="listbox" aria-label="Results">
-          {filtered.length === 0 ? (
+          {allItems.length === 0 && !searchLoading ? (
             <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">
               No results found
             </div>
           ) : (
-            Object.entries(groupedActions).map(([category, items]) => (
-              <div key={category}>
-                <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider">
-                  {categoryLabels[category] || category}
-                </div>
-                {items.map(item => {
-                  const idx = globalIdx++;
-                  return (
-                    <button
-                      key={item.id}
-                      role="option"
-                      aria-selected={idx === selectedIndex}
-                      data-cmd-idx={idx}
-                      onClick={item.action}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                      className={`w-full px-4 py-2 flex items-center gap-3 text-left transition-colors ${
-                        idx === selectedIndex
-                          ? 'bg-primary/10 text-primary dark:text-primary-dark'
-                          : 'text-app-text hover:bg-app-hover'
-                      }`}
-                    >
-                      <span className={idx === selectedIndex ? 'text-primary dark:text-primary-dark' : 'text-app-text-muted'}>
-                        {item.icon}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="text-[13px] font-medium truncate block">{item.label}</span>
-                        {item.description && (
-                          <span className="text-[11px] text-app-text-muted  truncate block">{item.description}</span>
+            <>
+              {Object.entries(groupedActions).map(([category, items]) => (
+                <div key={category}>
+                  <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
+                    {categoryLabels[category] || category}
+                    {category === 'message' && searchLoading && (
+                      <Loader2 size={10} className="animate-spin" />
+                    )}
+                  </div>
+                  {items.map(item => {
+                    const idx = globalIdx++;
+                    return (
+                      <button
+                        key={item.id}
+                        role="option"
+                        aria-selected={idx === selectedIndex}
+                        data-cmd-idx={idx}
+                        onClick={item.action}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        className={`w-full px-4 py-2 flex items-center gap-3 text-left transition-colors ${
+                          idx === selectedIndex
+                            ? 'bg-primary/10 text-primary dark:text-primary-dark'
+                            : 'text-app-text hover:bg-app-hover'
+                        }`}
+                      >
+                        <span className={idx === selectedIndex ? 'text-primary dark:text-primary-dark' : 'text-app-text-muted'}>
+                          {item.icon}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="text-[13px] font-medium truncate block">
+                            {item._rawContent ? highlightQuery(item.label, query) : item.label}
+                          </span>
+                          {item.description && (
+                            <span className="text-[11px] text-app-text-muted truncate block">{item.description}</span>
+                          )}
+                        </span>
+                        {item.shortcut && (
+                          <kbd className="kbd">{item.shortcut}</kbd>
                         )}
-                      </span>
-                      {item.shortcut && (
-                        <kbd className="kbd">{item.shortcut}</kbd>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            ))
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+              {searchLoading && !groupedActions['message'] && (
+                <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
+                  Messages <Loader2 size={10} className="animate-spin" />
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -306,5 +370,16 @@ export function CommandPalette({
         </div>
       </div>
     </div>
+  );
+}
+
+function highlightQuery(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.toLowerCase()
+      ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-800 text-inherit rounded px-0.5">{part}</mark>
+      : part
   );
 }

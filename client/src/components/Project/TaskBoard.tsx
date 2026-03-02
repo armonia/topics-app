@@ -164,7 +164,7 @@ function TaskList({
               {task.status === 'done' ? <CheckCircle2 size={14} /> : task.status === 'in_progress' ? <Clock size={14} /> : <Circle size={14} />}
             </button>
             <span className={`flex-1 text-[11px] truncate ${task.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}>{task.text}</span>
-            <button onClick={() => handleDelete(task.id)} className="opacity-0 group-hover:opacity-100 text-app-placeholder hover:text-red-500 p-0.5 transition-all"><Trash2 size={11} /></button>
+            <button onClick={() => handleDelete(task.id)} className="opacity-0 group-hover:opacity-100 text-app-placeholder hover:text-red-500 p-0.5 transition-all"><Trash2 size={12} /></button>
           </div>
         ))}
       </div>

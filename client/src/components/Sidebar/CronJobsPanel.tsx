@@ -182,7 +182,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
         disabled={loading}
         className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 mt-1 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
       >
-        <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         Refresh
       </button>
     </div>
@@ -231,7 +231,7 @@ function JobRow({ job, onToggle, onRun, onDelete }: JobRowProps) {
         </div>
         <div className="flex items-center gap-2 text-[10px] text-app-text-muted">
           <span className="flex items-center gap-0.5">
-            <ScheduleIcon size={9} />
+            <ScheduleIcon size={10} />
             {formatSchedule(job.schedule)}
           </span>
           {job.nextRunAt && job.enabled && (
@@ -250,14 +250,14 @@ function JobRow({ job, onToggle, onRun, onDelete }: JobRowProps) {
             className="p-1 text-app-text-muted hover:text-primary transition-colors"
             title="Run now"
           >
-            <Play size={11} />
+            <Play size={12} />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(job.id); }}
             className="p-1 text-app-text-muted hover:text-red-500 transition-colors"
             title="Delete"
           >
-            <Trash2 size={11} />
+            <Trash2 size={12} />
           </button>
         </div>
       )}

@@ -59,12 +59,19 @@ interface PanelGridProps {
   // Pending focus for project tabs (navigate to a topic inside a project)
   pendingProjectFocus?: { projectPath: string; topicId: string } | null;
   onPendingProjectFocusConsumed?: () => void;
+  // Report which topic is active inside the focused project
+  onProjectActiveTopicChange?: (topicId: string | null) => void;
   // Pending terminal pane request (from App quick-create)
   pendingTerminalPane?: { sessionId: string; name: string } | null;
   onPendingTerminalPaneConsumed?: () => void;
-  // Pending browser pane request (from sidebar)
-  pendingBrowserPane?: boolean;
+  // Pending browser pane request (from sidebar) — contextId or null
+  pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;
+  // Report open browser context IDs for sidebar highlighting
+  onOpenBrowserContextIds?: (ids: string[]) => void;
+  // Draft chat support
+  promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
+  draftMeta?: Record<string, { projectPath?: string }>;
 }
 
 /* ================================================================== */
@@ -103,10 +110,14 @@ export function PanelGrid({
   onNewChat,
   pendingProjectFocus,
   onPendingProjectFocusConsumed,
+  onProjectActiveTopicChange,
   pendingTerminalPane,
   onPendingTerminalPaneConsumed,
   pendingBrowserPane,
   onPendingBrowserPaneConsumed,
+  onOpenBrowserContextIds,
+  promoteDraft,
+  draftMeta,
 }: PanelGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -735,11 +746,15 @@ export function PanelGrid({
                       onNewChatInProject={onNewChatInProject}
                       pendingProjectFocus={pendingProjectFocus}
                       onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
+                      onProjectActiveTopicChange={onProjectActiveTopicChange}
                       pendingTerminalPane={pendingTerminalPane}
                       onPendingTerminalPaneConsumed={onPendingTerminalPaneConsumed}
                       onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}
                       pendingBrowserPane={key === 'standalone' ? pendingBrowserPane : undefined}
                       onPendingBrowserPaneConsumed={key === 'standalone' ? onPendingBrowserPaneConsumed : undefined}
+                      onOpenBrowserContextIds={key === 'standalone' ? onOpenBrowserContextIds : undefined}
+                      promoteDraft={promoteDraft}
+                      draftMeta={draftMeta}
                     />
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}

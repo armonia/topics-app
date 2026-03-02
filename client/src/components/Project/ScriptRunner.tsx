@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, Square, Globe } from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
 import type { ScriptProcessInfo } from '../../lib/api';
+import { useScripts } from '../../hooks/useScripts';
 
 interface ScriptRunnerProps {
   projectPath: string;
@@ -19,43 +20,28 @@ function getScriptColor(name: string): string {
 
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const [scripts, setScripts] = useState<Record<string, string>>({});
-  const [runningScripts, setRunningScripts] = useState<ScriptProcessInfo[]>([]);
+  const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath });
   const [ready, setReady] = useState(false);
   const [startingScript, setStartingScript] = useState<string | null>(null);
   const [stoppingScript, setStoppingScript] = useState<string | null>(null);
 
-  // Load both scripts and running state together before rendering
+  // Load package.json scripts on mount
   useEffect(() => {
     let active = true;
-    Promise.all([
-      filesApi.packageScripts(projectPath).catch(() => ({ scripts: {} })),
-      scriptsApi.list().catch(() => ({ scripts: [] as ScriptProcessInfo[] })),
-    ]).then(([pkgData, runData]) => {
-      if (!active) return;
-      setScripts(pkgData.scripts);
-      setRunningScripts((runData.scripts as ScriptProcessInfo[]).filter(s => s.projectPath === projectPath));
-      setReady(true);
-    });
+    filesApi.packageScripts(projectPath).catch(() => ({ scripts: {} }))
+      .then((pkgData) => {
+        if (!active) return;
+        setScripts(pkgData.scripts);
+        setReady(true);
+      });
     return () => { active = false; };
   }, [projectPath]);
-
-  // Poll running scripts after initial load
-  useEffect(() => {
-    if (!ready) return;
-    const interval = setInterval(() => {
-      scriptsApi.list()
-        .then(data => setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath)))
-        .catch(() => {});
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [projectPath, ready]);
 
   const handleRunScript = useCallback(async (name: string) => {
     setStartingScript(name);
     try {
       await scriptsApi.run(projectPath, name);
-      const data = await scriptsApi.list();
-      setRunningScripts(data.scripts.filter(s => s.projectPath === projectPath));
+      refreshScripts();
     } catch {
       if (onRunScript) {
         onRunScript(`cd ${JSON.stringify(projectPath)} && npm run ${name}`);
@@ -63,7 +49,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     } finally {
       setStartingScript(null);
     }
-  }, [projectPath, onRunScript]);
+  }, [projectPath, onRunScript, refreshScripts]);
 
   const handleStopScript = useCallback(async (processId: string, scriptName: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -72,13 +58,11 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       await scriptsApi.stop(processId);
       // Poll until the process is actually gone
       const poll = async (attempts: number) => {
-        const data = await scriptsApi.list();
-        const still = data.scripts.filter(s => s.projectPath === projectPath);
-        const stillRunning = still.some(s => s.scriptName === scriptName && s.status === 'running');
+        await refreshScripts();
+        const stillRunning = runningScripts.some(s => s.scriptName === scriptName && s.status === 'running');
         if (stillRunning && attempts > 0) {
           setTimeout(() => poll(attempts - 1), 500);
         } else {
-          setRunningScripts(still);
           setStoppingScript(null);
         }
       };
@@ -86,7 +70,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     } catch {
       setStoppingScript(null);
     }
-  }, [projectPath]);
+  }, [refreshScripts, runningScripts]);
 
   const scriptEntries = Object.entries(scripts);
 
@@ -161,7 +145,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                   title="Stop"
                 >
-                  <Square size={9} />
+                  <Square size={10} />
                 </button>
               )}
               {!running && !isStopping && (

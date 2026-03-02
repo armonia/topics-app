@@ -30,6 +30,7 @@ interface MessageListProps {
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
+  onOpenSessionViewer?: (sessionKey: string) => void;
 }
 
 export function MessageList({
@@ -55,6 +56,7 @@ export function MessageList({
   onRemember,
   onEdit,
   onSwitchBranch,
+  onOpenSessionViewer,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -272,6 +274,7 @@ export function MessageList({
                   onRemember={onRemember}
                   onEdit={onEdit}
                   onSwitchBranch={onSwitchBranch}
+                  onOpenSessionViewer={onOpenSessionViewer}
                 />
               </div>
             );

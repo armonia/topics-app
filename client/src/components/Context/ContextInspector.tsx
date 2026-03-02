@@ -19,7 +19,7 @@ interface ContextInspectorProps {
 }
 
 export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile }: ContextInspectorProps) {
-  const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id);
+  const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id, onMessage);
   const { data: openclawData } = useOpenClawContext();
   const { saveTopicMemory, saveGlobalMemory } = useMemory(topic.id, { onMessage });
 
@@ -127,7 +127,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                 onClick={() => handleOpenMemoryFile(node.path)}
                 className="w-full flex items-center gap-1.5 py-1 px-2 text-[12px] text-app-text-secondary hover:bg-app-hover hover:text-app-text rounded transition-colors text-left"
               >
-                <FileText size={11} className="text-app-text-tertiary flex-shrink-0" />
+                <FileText size={12} className="text-app-text-tertiary flex-shrink-0" />
                 <span className="truncate flex-1">{node.name}</span>
                 {node.tokens !== undefined && (
                   <span className="text-[10px] text-app-text-muted flex-shrink-0">~{node.tokens} tok</span>
@@ -154,7 +154,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           </span>
           <div className="flex-1" />
           <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary">
-            <X size={13} />
+            <X size={14} />
           </button>
         </div>
 
@@ -186,7 +186,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary"
         >
-          <X size={13} />
+          <X size={14} />
         </button>
       </div>
 

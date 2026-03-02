@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -39,6 +40,8 @@ export interface ChatPaneProps {
   // Branching
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
+  // Session viewer
+  onOpenSessionViewer?: (sessionKey: string) => void;
 }
 
 export function ChatPane({
@@ -46,7 +49,7 @@ export function ChatPane({
   getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
-  editMessage, switchBranch,
+  editMessage, switchBranch, onOpenSessionViewer,
 }: ChatPaneProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -122,8 +125,10 @@ export function ChatPane({
   useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus(), 50); }, [isFocused]);
 
   // After first assistant response, call server auto-name for project path detection
+  // Skip for draft topics (not yet persisted on server)
+  const isDraft = topic.id.startsWith('draft:');
   useEffect(() => {
-    if (autoNameTriggered || currentStreaming) return;
+    if (isDraft || autoNameTriggered || currentStreaming) return;
     const aMsgs = currentMessages.filter(m => m.role === 'assistant' && m.content.trim() !== '');
     const isDefaultName = topic.name === 'New Chat' || topic.name.startsWith('New ');
     if (aMsgs.length >= 1 && isDefaultName) {
@@ -134,7 +139,7 @@ export function ChatPane({
         }
       }).catch((err) => console.warn('[AutoName] failed for topic', topic.id, err));
     }
-  }, [currentMessages, currentStreaming, topic.id, topic.name, topic.projectPath, autoNameTriggered, onUpdateTopic]);
+  }, [isDraft, currentMessages, currentStreaming, topic.id, topic.name, topic.projectPath, autoNameTriggered, onUpdateTopic]);
 
   const sendTyping = useCallback((text?: string) => sendWS({ type: 'typing', topicId: topic.id, text: text || '' }), [sendWS, topic.id]);
 
@@ -290,12 +295,12 @@ export function ChatPane({
         <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
           <button onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <X size={12} />
           </button>
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} />
       <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
       <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} />
     </div>

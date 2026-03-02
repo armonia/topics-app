@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Square, RotateCcw } from 'lucide-react';
+import { Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 
 interface ProcessLogPaneProps {

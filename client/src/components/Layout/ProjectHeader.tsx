@@ -88,7 +88,7 @@ export function ProjectHeader({ projectPath, projectName, onOpenInFinder, onClos
           style={{ color: accentColor }}
           title="Open in Finder"
         >
-          <ExternalLink size={13} />
+          <ExternalLink size={14} />
         </button>
       )}
       {onClose && (

@@ -3,7 +3,9 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { Plus, X, TerminalSquare, RefreshCw, Link, Code2, Loader2 } from 'lucide-react';
+import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2 } from 'lucide-react';
+import { ClaudeIcon } from '../Shared/ClaudeIcon';
+import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 
 interface TerminalTab {
   id: string;
@@ -88,6 +90,7 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [remoteSessions, setRemoteSessions] = useState<RemoteSession[]>([]);
+  const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const [isCreating, setIsCreating] = useState(false);
   const isDarkRef = useRef(isDark);
   const terminalsRef = useRef<Map<string, { term: Terminal; fit: FitAddon; ws: WebSocket }>>(new Map());
@@ -248,17 +251,12 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
     try {
       const { cols, rows } = getTerminalDimensions();
       const name = type === 'claude-code' ? 'Claude Code' : `Shell ${(shellCounterRef.current += 1)}`;
+      const body: Record<string, unknown> = { cwd: projectPath || undefined, cols, rows, topicId, type, name };
+      if (type === 'claude-code') body.skipPermissions = claudeSkipPermissions;
       const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cwd: projectPath || undefined,
-          cols,
-          rows,
-          topicId,
-          type,
-          name,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`Server returned ${res.status}: ${res.statusText}`);
       const data = await res.json();
@@ -270,7 +268,7 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
     } finally {
       setIsCreating(false);
     }
-  }, [projectPath, topicId, connectToSession, getTerminalDimensions]);
+  }, [projectPath, topicId, connectToSession, getTerminalDimensions, claudeSkipPermissions]);
 
   const closeTerminal = useCallback(async (id: string) => {
     const entry = terminalsRef.current.get(id);
@@ -415,14 +413,20 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
       <div className="flex flex-col items-center justify-center h-full bg-surface overflow-hidden gap-4" ref={containerRef}>
         <div className="text-app-text-muted text-[13px] mb-2">Open a terminal</div>
         <div className="flex gap-3">
-          <button
-            onClick={() => createTerminal('claude-code')}
-            disabled={isCreating}
-            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px] font-medium rounded-lg transition-colors shadow-sm"
-          >
-            {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Code2 size={16} />}
-            Claude Code
-          </button>
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              onClick={() => createTerminal('claude-code')}
+              disabled={isCreating}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#D97757] hover:bg-[#C4684A] disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px] font-medium rounded-lg transition-colors shadow-sm"
+            >
+              {isCreating ? <Loader2 size={16} className="animate-spin" /> : <ClaudeIcon size={16} />}
+              Claude Code
+            </button>
+            <label className="flex items-center gap-1.5 text-[11px] text-app-text-muted cursor-pointer select-none">
+              <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+              <span>yolo mode</span>
+            </label>
+          </div>
           <button
             onClick={() => createTerminal('shell')}
             disabled={isCreating}
@@ -453,9 +457,9 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
                 onClick={() => setActiveTabId(tab.id)}
               >
                 {tab.type === 'claude-code' ? (
-                  <Code2 size={11} className={`${tab.stale ? 'text-yellow-500' : 'text-violet-500'}`} />
+                  <ClaudeIcon size={12} className={`${tab.stale ? 'text-yellow-500' : 'text-[#D97757]'}`} />
                 ) : (
-                  <TerminalSquare size={11} className={tab.stale ? 'text-yellow-500' : ''} />
+                  <TerminalSquare size={12} className={tab.stale ? 'text-yellow-500' : ''} />
                 )}
                 <span>{tab.label}</span>
                 {tab.stale && (
@@ -464,7 +468,7 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
                     className="ml-0.5 w-4 h-4 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-yellow-500 hover:text-yellow-400"
                     title="Session expired - click to restart"
                   >
-                    <RefreshCw size={9} />
+                    <RefreshCw size={10} />
                   </button>
                 )}
                 <button
@@ -483,7 +487,7 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
               className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               title="Connect to existing session"
             >
-              <Link size={13} />
+              <Link size={14} />
             </button>
             {showSessionPicker && (
               <div className="absolute top-full right-0 mt-1 z-50 bg-surface border border-app-border rounded-lg shadow-lg min-w-[280px] max-h-[300px] overflow-y-auto">
@@ -511,7 +515,7 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
                     >
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-1.5 text-app-text font-medium">
-                          {s.type === 'claude-code' ? <Code2 size={11} className="text-violet-500" /> : <TerminalSquare size={11} />}
+                          {s.type === 'claude-code' ? <ClaudeIcon size={12} className="text-[#D97757]" /> : <TerminalSquare size={12} />}
                           {s.name}
                         </span>
                         <span className="text-app-text-muted">{s.clients} client{s.clients !== 1 ? 's' : ''}</span>
@@ -538,8 +542,12 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
                   onClick={() => createTerminal('claude-code')}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
-                  <Code2 size={14} className="text-violet-500" />
-                  <span>Claude Code</span>
+                  <ClaudeIcon size={14} className="text-[#D97757]" />
+                  <span className="flex-1 text-left">Claude Code</span>
+                  <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+                    <span>yolo</span>
+                  </label>
                 </button>
                 <button
                   onClick={() => createTerminal('shell')}

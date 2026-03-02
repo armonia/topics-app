@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, Terminal, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe, ExternalLink } from 'lucide-react';
+import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, TerminalSquare, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe } from 'lucide-react';
+import { ClaudeIcon } from './components/Shared/ClaudeIcon';
 import type { Topic, CreateTopicRequest, AppSettings, SidebarTab } from './types';
 import { DEFAULT_TOPIC_ICON } from './lib/topicIcons';
 import { useTopics } from './hooks/useTopics';
@@ -8,6 +9,7 @@ import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
+import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { ContextMenu } from './components/Modals/ContextMenu';
@@ -19,7 +21,7 @@ import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
-import { createPaneId, isProjectPaneId, isBrowserPaneId } from './lib/paneConfig';
+import { createPaneId, isProjectPaneId, isBrowserPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId } from './lib/paneConfig';
 import { generateUUID } from './utils/uuid';
 import { globalBoardApi } from './lib/api';
 
@@ -53,7 +55,9 @@ const FOCUSED_PANEL_KEY = 'topics-focused-panel';
 const loadSavedPanels = (): string[] => {
   try {
     const saved = localStorage.getItem(OPEN_PANELS_KEY);
-    return saved ? JSON.parse(saved) : [];
+    const panels: string[] = saved ? JSON.parse(saved) : [];
+    // Filter out draft panes — they don't persist across sessions
+    return panels.filter(id => !id.startsWith('draft:'));
   } catch {
     return [];
   }
@@ -125,6 +129,8 @@ function App() {
 
   // Pending focus for a topic inside a project tab
   const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectPath: string; topicId: string } | null>(null);
+  // Active topic inside the focused project (for sidebar highlighting)
+  const [focusedProjectTopicId, setFocusedProjectTopicId] = useState<string | null>(null);
 
   // Cross-window drag state
   const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
@@ -136,6 +142,8 @@ function App() {
   const [pendingTerminalPane, setPendingTerminalPane] = useState<{ sessionId: string; name: string } | null>(null);
   // Initial tab override for standalone panels (e.g. "New Terminal" opens with terminal tab)
   const [panelInitialTab, setPanelInitialTab] = useState<Record<string, import('./types').PanelTab>>({});
+  // Draft chat state: tracks metadata for draft panes (not yet persisted on server)
+  const [draftMeta, setDraftMeta] = useState<Record<string, { projectPath?: string }>>({});
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
@@ -145,6 +153,7 @@ function App() {
   const [showFileSearch, setShowFileSearch] = useState(false);
   const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
+  const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const newMenuRef = useRef<HTMLDivElement>(null);
   const newMenuDropdownRef = useRef<HTMLDivElement>(null);
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
@@ -329,7 +338,7 @@ function App() {
     if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
       const projectPanesToAdd: string[] = [];
       const validPanels = openPanels.filter(id => {
-        if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id)) return true;
+        if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id) || isDraftPaneId(id)) return true;
         const topic = topics[id];
         if (!topic || topic.archived) return false;
         // Topic linked to a project → remove from standalone, ensure project pane is open
@@ -431,8 +440,10 @@ function App() {
   // Browser sidebar section state
   const [browserContextCount, setBrowserContextCount] = useState(0);
   const [browserExpanded, setBrowserExpanded] = useState(false);
-  const [pendingBrowserPane, setPendingBrowserPane] = useState(false);
-  const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(false), []);
+  const [pendingBrowserPane, setPendingBrowserPane] = useState<string | null>(null);
+  const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(null), []);
+  const [openBrowserContextIds, setOpenBrowserContextIds] = useState<string[]>([]);
+  const focusedBrowserContextId = focusedPanelId ? getBrowserContextFromPaneId(focusedPanelId) : null;
   useEffect(() => {
     fetch('/api/browser/status').then(r => r.ok ? r.json() : null).then(data => {
       if (data?.details?.length) {
@@ -440,6 +451,49 @@ function App() {
         setBrowserExpanded(true);
       }
     }).catch(() => {});
+  }, []);
+
+  // ── Browser section resize (TopicTree ↔ Browser) ──
+  const BROWSER_HEIGHT_KEY = 'topics-sidebar-browser-height';
+  const [browserSectionHeight, setBrowserSectionHeight] = useState(() => {
+    try {
+      const saved = localStorage.getItem(BROWSER_HEIGHT_KEY);
+      return saved ? Math.max(80, parseInt(saved, 10)) : 150;
+    } catch { return 150; }
+  });
+  const browserDrag = useRef<{ startY: number; startHeight: number } | null>(null);
+  const sidebarContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(BROWSER_HEIGHT_KEY, String(browserSectionHeight)); } catch {}
+  }, [browserSectionHeight]);
+
+  const handleBrowserDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    browserDrag.current = { startY: e.clientY, startHeight: browserSectionHeight };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, [browserSectionHeight]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!browserDrag.current || !sidebarContentRef.current) return;
+      const maxH = sidebarContentRef.current.clientHeight * 0.6;
+      const delta = browserDrag.current.startY - e.clientY;
+      setBrowserSectionHeight(Math.max(80, Math.min(maxH, browserDrag.current.startHeight + delta)));
+    };
+    const onUp = () => {
+      if (!browserDrag.current) return;
+      browserDrag.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
   }, []);
 
   // Open a utility page (Activity/Journal/Agents/Dashboard/All Boards) as a pane in the main panel
@@ -537,6 +591,17 @@ function App() {
       // Handle clear command
       if (msg.type === 'clear' && msg.sessionKey) {
         clearSession(msg.sessionKey as string);
+      }
+      // Inject inline card when a sub-agent is spawned for a topic
+      if (msg.type === 'agents:spawned' && msg.topicId && msg.sessionKey) {
+        const parentTopic = topics[msg.topicId as string];
+        if (parentTopic) {
+          addMessageFromWS(parentTopic.sessionKey, {
+            role: 'assistant',
+            content: `{{AGENT_SPAWN:${msg.sessionKey}|${(msg.label as string) || 'Claude Code'}}}`,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
     });
 
@@ -672,6 +737,14 @@ function App() {
       }
       return next;
     });
+    // Clean up draft metadata if closing a draft pane
+    if (isDraftPaneId(topicId)) {
+      setDraftMeta(prev => {
+        const next = { ...prev };
+        delete next[topicId];
+        return next;
+      });
+    }
   }, [focusedPanelId]);
 
   const handleProjectClick = useCallback((projectPath: string) => {
@@ -737,40 +810,70 @@ function App() {
   // Quick-create empty chat (bypasses modal)
   // projectPath must be explicitly provided to bind to a project
   const handleQuickCreateTopic = async (projectPath?: string) => {
-    const topic = await createTopic({
-      name: 'New Chat',
-      icon: DEFAULT_TOPIC_ICON,
-      color: '#0066ff',
-      projectPath: projectPath || undefined,
-    });
-    if (topic) {
-      if (projectPath) {
-        // Topic belongs to a project — keep focus on the project pane
-        // and navigate to the new topic inside the project window
+    if (projectPath) {
+      // Project-bound: create immediately on server (existing behavior)
+      const topic = await createTopic({
+        name: 'New Chat',
+        icon: DEFAULT_TOPIC_ICON,
+        color: '#0066ff',
+        projectPath,
+      });
+      if (topic) {
         const projectPaneId = createPaneId('project', projectPath);
         if (!openPanels.includes(projectPaneId)) {
           setOpenPanels(prev => [...prev, projectPaneId]);
         }
         setFocusedPanelId(projectPaneId);
         setPendingProjectFocus({ projectPath, topicId: topic.id });
-      } else {
-        openPanel(topic.id, 'permanent', true);
       }
+      return topic;
     }
-    return topic;
+    // Standalone: open a draft pane (no API call until first message)
+    const draftId = createDraftPaneId();
+    setDraftMeta(prev => ({ ...prev, [draftId]: {} }));
+    openPanel(draftId, 'permanent', true);
+    return null;
   };
 
+  // Promote a draft pane to a real topic on first message
+  const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => {
+    const meta = draftMeta[draftId] || {};
+    const topic = await createTopic({
+      name: 'New Chat',
+      icon: DEFAULT_TOPIC_ICON,
+      color: '#0066ff',
+      projectPath: meta.projectPath,
+    });
+    if (!topic) return;
+    // Replace draft ID with real topic ID in openPanels
+    setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
+    if (focusedPanelId === draftId) {
+      setFocusedPanelId(topic.id);
+    }
+    // Clean up draft metadata
+    setDraftMeta(prev => {
+      const next = { ...prev };
+      delete next[draftId];
+      return next;
+    });
+    // Send the first message with the real session key
+    await sendMessage(topic.sessionKey, firstMessage, options);
+  }, [draftMeta, createTopic, focusedPanelId, sendMessage]);
+
   // Quick-create standalone terminal (creates a terminal session and adds as pane)
-  const handleQuickCreateTerminal = async () => {
+  const handleQuickCreateTerminal = async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
     try {
+      const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+      const body: Record<string, unknown> = { type: termType, name };
+      if (termType === 'claude-code') body.skipPermissions = skipPermissions;
       const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'shell', name: 'Shell' }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) return;
       const data = await res.json();
-      setPendingTerminalPane({ sessionId: data.id, name: data.name || 'Shell' });
+      setPendingTerminalPane({ sessionId: data.id, name: data.name || name });
     } catch {}
   };
 
@@ -1022,7 +1125,7 @@ function App() {
               title="Activity"
               aria-label="Activity"
             >
-              <Activity size={14} strokeWidth={1.5} />
+              <Activity size={14} />
             </button>
             <button
               onClick={() => handleOpenAsPage('agents')}
@@ -1031,7 +1134,7 @@ function App() {
               title="Agents"
               aria-label="Agents"
             >
-              <Cpu size={14} strokeWidth={1.5} />
+              <Cpu size={14} />
               {agentLiveCount > 0 && (
                 <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
                   {agentLiveCount}
@@ -1046,7 +1149,7 @@ function App() {
               aria-label="Remote Access"
               ref={remoteAccessBtnRef}
             >
-              <Radio size={14} strokeWidth={1.5} />
+              <Radio size={14} />
             </button>
             <div ref={newMenuRef} className="flex items-center gap-1">
               <button
@@ -1060,10 +1163,10 @@ function App() {
                 }}
                 className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
                 style={{ pointerEvents: 'auto' }}
-                title="New chat or terminal (⌘N)"
+                title="New (⌘N)"
                 aria-label="New"
               >
-                <Plus size={15} strokeWidth={1.5} />
+                <Plus size={14} />
               </button>
             </div>
           </div>
@@ -1085,74 +1188,94 @@ function App() {
           {topicsError && <div className="text-red-500 text-[11px] mt-1">{topicsError}</div>}
         </div>
 
-        <div className="flex-1 overflow-y-auto sidebar-scroll">
-          <ErrorBoundary fallbackMessage="Sidebar error">
-          {topicsLoading && Object.keys(topics).length === 0 ? (
-            <SkeletonTopicList count={5} />
-          ) : (
-          <TopicTree
-            topics={topics}
-            workspaceProjects={workspaceProjects}
-            searchQuery={searchQuery}
-            expandedNodes={expandedNodes}
-            onToggleNode={handleToggleNode}
-            focusedTopicId={focusedPanelId}
-            previewPanelId={previewPanelId}
-            openPanels={openPanels}
-            onTopicClick={handleTopicClick}
-            onTopicDoubleClick={handleTopicDoubleClick}
-            onTopicContextMenu={handleTopicContextMenu}
-            getChildren={getChildren}
-            getArchivedTopics={getArchivedTopics}
-            unreadData={unreadData}
-            onArchiveTopic={archiveTopic}
-            onArchiveProject={handleArchiveProject}
-            onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
-            onAddProjectPane={handleAddProjectPane}
-            onProjectClick={handleProjectClick}
-            isSessionStreaming={isSessionStreaming}
-            stopSession={stopSession}
-            onOpenProjectBoard={handleOpenProjectBoard}
-            boardTaskCounts={boardTaskCounts}
-          />
-          )}
-          </ErrorBoundary>
-        </div>
-
-        {/* Browser section — anchored at bottom, above status bar */}
-        <div className="border-t border-app-border flex-shrink-0">
-          <div className="group flex items-center h-8 hover:bg-app-hover transition-colors">
-            <button
-              onClick={() => setBrowserExpanded(!browserExpanded)}
-              aria-expanded={browserExpanded}
-              aria-label="Browser section"
-              className="flex items-center gap-2 flex-1 h-full text-left"
-              style={{ paddingLeft: 12 }}
-            >
-              <Globe size={14} strokeWidth={1.5} className="text-app-text-secondary flex-shrink-0" />
-              <span className="text-[13px] text-app-text">Browser</span>
-              <ChevronRight
-                size={12}
-                strokeWidth={1.5}
-                aria-hidden="true"
-                className={`transition-transform duration-150 text-app-text-tertiary ${browserExpanded ? 'rotate-90' : ''}`}
-              />
-            </button>
-            <div className="flex items-center gap-1 pr-3">
-              {browserContextCount > 0 && (
-                <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center leading-[14px]">
-                  {browserContextCount}
-                </span>
-              )}
-            </div>
+        <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0">
+          {/* TopicTree — fills remaining space above browser */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <ErrorBoundary fallbackMessage="Sidebar error">
+            {topicsLoading && Object.keys(topics).length === 0 ? (
+              <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
+            ) : (
+            <TopicTree
+              topics={topics}
+              workspaceProjects={workspaceProjects}
+              searchQuery={searchQuery}
+              expandedNodes={expandedNodes}
+              onToggleNode={handleToggleNode}
+              focusedTopicId={focusedPanelId}
+              focusedProjectTopicId={focusedProjectTopicId}
+              previewPanelId={previewPanelId}
+              openPanels={openPanels}
+              onTopicClick={handleTopicClick}
+              onTopicDoubleClick={handleTopicDoubleClick}
+              onTopicContextMenu={handleTopicContextMenu}
+              getChildren={getChildren}
+              getArchivedTopics={getArchivedTopics}
+              unreadData={unreadData}
+              onArchiveTopic={archiveTopic}
+              onArchiveProject={handleArchiveProject}
+              onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
+              onAddProjectPane={handleAddProjectPane}
+              onProjectClick={handleProjectClick}
+              isSessionStreaming={isSessionStreaming}
+              stopSession={stopSession}
+              onOpenProjectBoard={handleOpenProjectBoard}
+              boardTaskCounts={boardTaskCounts}
+            />
+            )}
+            </ErrorBoundary>
           </div>
-          {browserExpanded && (
-            <Suspense fallback={<div className="px-3 py-2 text-[10px] text-app-text-muted">Loading...</div>}>
-              <BrowserSidebarControl enabled onContextCount={setBrowserContextCount} onOpenBrowser={() => {
-                setPendingBrowserPane(true);
-              }} />
-            </Suspense>
-          )}
+
+          {/* Resize handle: TopicTree ↔ Browser */}
+          <div
+            className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${browserExpanded ? 'cursor-row-resize hover:bg-primary' : ''}`}
+            onMouseDown={browserExpanded ? handleBrowserDragStart : undefined}
+          >
+            {browserExpanded && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+          </div>
+
+          {/* Browser section — resizable when expanded */}
+          <div
+            className={`flex flex-col ${browserExpanded ? 'min-h-0 overflow-hidden' : 'flex-shrink-0'}`}
+            style={browserExpanded ? { height: browserSectionHeight } : undefined}
+          >
+            <div className="flex-shrink-0 group flex items-center h-8 hover:bg-app-hover transition-colors">
+              <button
+                onClick={() => setBrowserExpanded(!browserExpanded)}
+                aria-expanded={browserExpanded}
+                aria-label="Browser section"
+                className="flex items-center gap-2 flex-1 h-full text-left"
+                style={{ paddingLeft: 12 }}
+              >
+                <Globe size={14} className="text-app-text-secondary flex-shrink-0" />
+                <span className="text-[13px] text-app-text">Browser</span>
+                <ChevronRight
+                  size={12}
+                  aria-hidden="true"
+                  className={`transition-transform duration-150 text-app-text-tertiary ${browserExpanded ? 'rotate-90' : ''}`}
+                />
+              </button>
+              <div className="flex items-center gap-1 pr-3">
+                {browserContextCount > 0 && (
+                  <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center leading-[14px]">
+                    {browserContextCount}
+                  </span>
+                )}
+              </div>
+            </div>
+            {browserExpanded && (
+              <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
+                <Suspense fallback={<div className="px-3 py-2 text-[10px] text-app-text-muted">Loading...</div>}>
+                  <BrowserSidebarControl
+                    enabled
+                    onContextCount={setBrowserContextCount}
+                    onOpenBrowser={(contextId) => setPendingBrowserPane(contextId)}
+                    openBrowserContextIds={openBrowserContextIds}
+                    focusedBrowserContextId={focusedBrowserContextId}
+                  />
+                </Suspense>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Status bar */}
@@ -1207,7 +1330,7 @@ function App() {
           style={{ top: '0.5rem' }}
           title="Close window (⌘W)"
         >
-          <X size={16} strokeWidth={2} />
+          <X size={16} />
         </button>
       )}
 
@@ -1251,10 +1374,14 @@ function App() {
           onNewChat={() => handleQuickCreateTopic()}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
+          onProjectActiveTopicChange={setFocusedProjectTopicId}
           pendingTerminalPane={pendingTerminalPane}
           onPendingTerminalPaneConsumed={() => setPendingTerminalPane(null)}
           pendingBrowserPane={pendingBrowserPane}
           onPendingBrowserPaneConsumed={handlePendingBrowserPaneConsumed}
+          onOpenBrowserContextIds={setOpenBrowserContextIds}
+          promoteDraft={promoteDraft}
+          draftMeta={draftMeta}
         />
         </ErrorBoundary>
       </div>
@@ -1272,7 +1399,7 @@ function App() {
               onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
             >
-              <Icon size={14} strokeWidth={1.5} />
+              <Icon size={14} />
               <span className="flex-1 text-left">{label}</span>
             </button>
           ))}
@@ -1280,7 +1407,7 @@ function App() {
             onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
-            <SettingsIcon size={14} strokeWidth={1.5} />
+            <SettingsIcon size={14} />
             <span className="flex-1 text-left">Settings</span>
           </button>
           <div className="h-1" />
@@ -1298,8 +1425,18 @@ function App() {
             <MessageSquare size={14} /><span className="flex-1 text-left">New Chat</span>
             {isElectron && <kbd className="kbd text-app-text-muted">⌘N</kbd>}
           </button>
-          <button onClick={() => { handleQuickCreateTerminal(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <Terminal size={14} /><span>New Terminal</span>
+          <button onClick={() => { handleQuickCreateTerminal('shell'); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+            <TerminalSquare size={14} /><span>Shell</span>
+          </button>
+          <button onClick={() => { handleQuickCreateTerminal('claude-code', claudeSkipPermissions); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+            <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
+            <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+              <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+              <span>yolo</span>
+            </label>
+          </button>
+          <button onClick={() => { setPendingBrowserPane(`new-${Date.now()}`); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+            <Globe size={14} /><span>Browser</span>
           </button>
         </div>,
         document.body

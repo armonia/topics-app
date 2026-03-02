@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import type { FileNode } from '../../types';
-import { filesApi, gitApi } from '../../lib/api';
+import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
+import { useGitStatus } from '../../hooks/useGitStatus';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
@@ -297,11 +298,12 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
   const [newItemParent, setNewItemParent] = useState<string | null>(null);
   const [newItemType, setNewItemType] = useState<'file' | 'dir' | null>(null);
   const [expandedOverflow, setExpandedOverflow] = useState<Set<string>>(new Set());
+  const { gitStatus: feGitStatus } = useGitStatus({ projectPath });
   const [gitFileMap, setGitFileMap] = useState<Map<string, string>>(new Map());
   const [gitDirSet, setGitDirSet] = useState<Set<string>>(new Set());
   const treeRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void } | null>(null);
+  const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void; pinTab: (path: string) => void } | null>(null);
 
   const closeContextMenu = useCallback(() => {
     setContextMenuPos(null);
@@ -328,37 +330,26 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
     loadFiles();
   }, [loadFiles]);
 
-  // Fetch git status and build lookup maps
+  // Build git lookup maps from shared hook data (no duplicate polling)
   useEffect(() => {
-    let active = true;
-    const fetchGitStatus = async () => {
-      try {
-        const status = await gitApi.status(projectPath);
-        if (!active) return;
-        const fileMap = new Map<string, string>();
-        const dirSet = new Set<string>();
-        for (const f of status.files) {
-          const absPath = projectPath + '/' + f.path;
-          fileMap.set(absPath, f.status);
-          // Propagate to all parent directories
-          let dir = absPath.substring(0, absPath.lastIndexOf('/'));
-          while (dir.length >= projectPath.length) {
-            dirSet.add(dir);
-            const next = dir.substring(0, dir.lastIndexOf('/'));
-            if (next === dir) break;
-            dir = next;
-          }
-        }
-        setGitFileMap(fileMap);
-        setGitDirSet(dirSet);
-      } catch {
-        // silently ignore — not a git repo or git not available
+    if (!feGitStatus?.files) return;
+    const fileMap = new Map<string, string>();
+    const dirSet = new Set<string>();
+    for (const f of feGitStatus.files) {
+      const absPath = projectPath + '/' + f.path;
+      fileMap.set(absPath, f.status);
+      // Propagate to all parent directories
+      let dir = absPath.substring(0, absPath.lastIndexOf('/'));
+      while (dir.length >= projectPath.length) {
+        dirSet.add(dir);
+        const next = dir.substring(0, dir.lastIndexOf('/'));
+        if (next === dir) break;
+        dir = next;
       }
-    };
-    fetchGitStatus();
-    const interval = setInterval(fetchGitStatus, 10_000);
-    return () => { active = false; clearInterval(interval); };
-  }, [projectPath]);
+    }
+    setGitFileMap(fileMap);
+    setGitDirSet(dirSet);
+  }, [feGitStatus, projectPath]);
 
   const handleExpandOverflow = useCallback((path: string) => {
     setExpandedOverflow(prev => { const next = new Set(prev); next.add(path); return next; });

@@ -6,25 +6,7 @@ import type { GitStatus } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
-
-// ── Session cache — survives mount/unmount AND page refresh ────────────
-const CACHE_KEY = 'git-status-cache';
-
-type GitCacheEntry = { status: GitStatus; remotes: { name: string; fetchUrl: string; pushUrl: string }[] };
-
-const gitCache = {
-  get(path: string): GitCacheEntry | undefined {
-    try {
-      const raw = sessionStorage.getItem(`${CACHE_KEY}:${path}`);
-      return raw ? JSON.parse(raw) : undefined;
-    } catch { return undefined; }
-  },
-  set(path: string, entry: GitCacheEntry) {
-    try {
-      sessionStorage.setItem(`${CACHE_KEY}:${path}`, JSON.stringify(entry));
-    } catch { /* quota exceeded — ignore */ }
-  },
-};
+import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 
 interface GitChangesProps {
   projectPath: string;
@@ -47,11 +29,7 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
 }
 
 export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
-  const cached = gitCache.get(projectPath);
-  const [gitStatus, setGitStatus] = useState<GitStatus | null>(cached?.status ?? null);
-  const [loading, setLoading] = useState(!cached);
-  const [error, setError] = useState<string | null>(null);
-  const [notGit, setNotGit] = useState(false);
+  const { gitStatus, loading, error, notGit, reload: loadStatus } = useGitStatus({ projectPath });
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<string>('');
   const [modifiedContent, setModifiedContent] = useState<string>('');
@@ -67,13 +45,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [stagedExpanded, setStagedExpanded] = useState(true);
   const [unstagedExpanded, setUnstagedExpanded] = useState(true);
   const [initializing, setInitializing] = useState(false);
-  const [remotes, setRemotes] = useState<{ name: string; fetchUrl: string; pushUrl: string }[]>(cached?.remotes ?? []);
+  const [remotes, setRemotes] = useState<{ name: string; fetchUrl: string; pushUrl: string }[]>(() => gitCache.get(projectPath)?.remotes ?? []);
   const [remotesExpanded, setRemotesExpanded] = useState(false);
   const [showAddRemote, setShowAddRemote] = useState(false);
   const [newRemoteName, setNewRemoteName] = useState('origin');
   const [newRemoteUrl, setNewRemoteUrl] = useState('');
   const [addingRemote, setAddingRemote] = useState(false);
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const branchBtnRef = useRef<HTMLButtonElement>(null);
@@ -103,29 +80,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return () => observer.disconnect();
   }, []);
 
-  const loadStatus = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const status = await gitApi.status(projectPath);
-      setNotGit(false);
-      setGitStatus(status);
-      // Update cache
-      const prev = gitCache.get(projectPath);
-      gitCache.set(projectPath, { status, remotes: prev?.remotes ?? [] });
-      window.dispatchEvent(new CustomEvent('git-cache-updated'));
-    } catch (err: any) {
-      const msg = err.message || 'Failed to load git status';
-      if (msg.toLowerCase().includes('not a git')) {
-        setNotGit(true);
-        if (refreshTimerRef.current) { clearInterval(refreshTimerRef.current); refreshTimerRef.current = null; }
-      }
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectPath]);
-
   const loadRemotes = useCallback(async () => {
     try {
       const result = await gitApi.remotes(projectPath);
@@ -145,16 +99,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       setInitializing(true);
       await gitApi.init(projectPath);
-      setNotGit(false);
-      setError(null);
-      // Restart polling
-      if (!refreshTimerRef.current) {
-        refreshTimerRef.current = setInterval(loadStatus, 15000);
-      }
       await loadStatus();
       await loadRemotes();
     } catch (err: any) {
-      setError(`Init failed: ${err.message}`);
+      // error state is handled by useGitStatus
     } finally {
       setInitializing(false);
     }
@@ -186,14 +134,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       showTemporaryMessage(`Error: ${err.message}`);
     }
   }, [projectPath, loadRemotes]);
-
-  useEffect(() => {
-    loadStatus();
-    refreshTimerRef.current = setInterval(loadStatus, 15000);
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    };
-  }, [loadStatus]);
 
   // Load remotes when we have a valid git status
   useEffect(() => {
@@ -420,7 +360,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 className="flex items-center gap-0.5 min-w-0 hover:text-primary transition-colors text-app-text-muted"
               >
                 <span className="truncate">{gitStatus!.branch}</span>
-                <ChevronDown size={8} className={`text-app-text-muted flex-shrink-0 transition-transform ${showBranches ? 'rotate-180' : ''}`} />
+                <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform ${showBranches ? 'rotate-180' : ''}`} />
               </button>
             )}
           </div>
@@ -676,6 +616,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   }
 
   // ── Full mode (panel) ───────────────────────────────────────────────
+  if (!gitStatus) return null;
   const fullStagedFiles = gitStatus.files.filter(f => isFileStaged(f.status));
   const fullUnstagedFiles = gitStatus.files.filter(f => hasUnstagedChanges(f.status));
 
@@ -706,7 +647,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               className="p-0.5 rounded hover:bg-app-hover"
               title="Discard changes"
             >
-              <Undo2 size={11} className="text-app-text-muted" />
+              <Undo2 size={12} className="text-app-text-muted" />
             </button>
           )}
           <button
@@ -733,9 +674,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               onClick={() => setShowBranches(!showBranches)}
               className="flex items-center gap-1.5 hover:bg-app-hover px-1.5 py-0.5 rounded transition-colors"
             >
-              <GitBranch size={13} className="text-primary" />
+              <GitBranch size={14} className="text-primary" />
               <span className="text-[12px] font-semibold text-app-text-heading">{gitStatus.branch}</span>
-              <ChevronDown size={9} className={`text-app-text-muted transition-transform ${showBranches ? 'rotate-180' : ''}`} />
+              <ChevronDown size={10} className={`text-app-text-muted transition-transform ${showBranches ? 'rotate-180' : ''}`} />
             </button>
             <div className="flex items-center gap-1">
               <button
@@ -747,7 +688,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 {pulling ? (
                   <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
                 ) : (
-                  <ArrowDown size={13} />
+                  <ArrowDown size={14} />
                 )}
               </button>
               <button
@@ -759,7 +700,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 {pushing ? (
                   <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
                 ) : (
-                  <ArrowUp size={13} />
+                  <ArrowUp size={14} />
                 )}
               </button>
               <button
@@ -826,7 +767,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 {generatingMsg ? (
                   <div className="w-3 h-3 border border-app-spinner border-t-primary rounded-full animate-spin" />
                 ) : (
-                  <Sparkles size={13} />
+                  <Sparkles size={14} />
                 )}
               </button>
             </div>
@@ -1216,7 +1157,7 @@ interface RemotesSectionProps {
 function RemotesSection({
   remotes, expanded, onToggle, showAddRemote, onToggleAdd,
   newRemoteName, newRemoteUrl, onNameChange, onUrlChange,
-  onAdd, onRemove, adding, compact,
+  onAdd, onRemove, adding,
 }: RemotesSectionProps) {
   if (remotes.length === 0 && !showAddRemote) return null;
 
@@ -1228,7 +1169,7 @@ function RemotesSection({
           className="flex items-center gap-1 text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
         >
           {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-          <Globe size={9} />
+          <Globe size={10} />
           Remotes ({remotes.length})
         </button>
         <button

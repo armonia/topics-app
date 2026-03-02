@@ -1,12 +1,12 @@
 import { lazy, Suspense } from 'react';
-import { X, Activity, Cpu, BarChart3, LayoutGrid } from 'lucide-react';
+import { X, Activity, Cpu, BarChart3, LayoutGrid, BookOpen } from 'lucide-react';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
 
-export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'all-boards';
+export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'journal';
 
 export const UTILITY_PREFIX = '__';
 
@@ -28,6 +28,7 @@ const CONFIG: Record<UtilityPanelType, { icon: typeof Activity; label: string; c
   agents:        { icon: Cpu,        label: 'Agents',      color: '#8b5cf6' },
   dashboard:     { icon: BarChart3,  label: 'Statistics',   color: '#10b981' },
   'all-boards':  { icon: LayoutGrid, label: 'Board',       color: '#10b981' },
+  journal:       { icon: BookOpen,   label: 'Journal',     color: '#f59e0b' },
 };
 
 const Spinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;

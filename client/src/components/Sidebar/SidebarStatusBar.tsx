@@ -12,12 +12,12 @@ function formatBuildTime(iso: string): string {
     const now = new Date();
     const diffMs = now.getTime() - d.getTime();
     const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return 'just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffMin < 1) return 'now';
+    if (diffMin < 60) return `${diffMin}m`;
     const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return `${diffH}h ago`;
+    if (diffH < 24) return `${diffH}h`;
     const diffD = Math.floor(diffH / 24);
-    return `${diffD}d ago`;
+    return `${diffD}d`;
   } catch { return iso; }
 }
 
@@ -52,10 +52,16 @@ export function SidebarStatusBar() {
   const gatewayOnline = status?.gateway.online ?? false;
   const latency = status?.gateway.latencyMs;
   const fps = useFps();
-  const { updateAvailable, applyUpdate } = useServiceWorkerUpdate();
+  const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
 
+  const isElectron = !!window.electronAPI?.isElectron;
+
   const handleRefresh = async () => {
+    if (isElectron) {
+      await window.electronAPI!.app.relaunch();
+      return;
+    }
     setRefreshing(true);
     try {
       // Clear all caches
@@ -123,13 +129,13 @@ export function SidebarStatusBar() {
           )}
         </button>
 
-        <span className="ml-auto flex items-center gap-1 text-[10px] text-app-text-muted tabular-nums" title={`Build: ${typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}`}>
+        <span className="ml-auto flex items-center gap-1 text-[10px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) + ' ago' : 'dev'}`}>
           {typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) : 'dev'}
           <button
             onClick={handleRefresh}
             disabled={refreshing}
             className={`p-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
-            title={updateAvailable ? 'Update available' : 'Reload'}
+            title={isElectron ? 'Restart App' : updateAvailable ? 'Update available' : 'Reload'}
           >
             <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
           </button>

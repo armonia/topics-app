@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Code2, TerminalSquare } from 'lucide-react';
+import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { PANE_CONFIG } from '../../lib/paneConfig';
+import { ClaudeIcon } from '../Shared/ClaudeIcon';
+import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMobile, haptic } from '../../hooks/useMobile';
 
-const ICONS: Record<string, React.FC<{ size: number; className?: string }>> = {
+const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
 };
 
@@ -72,6 +74,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
+  const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
 
   const { isTouch, isMobile } = useMobile();
 
@@ -217,7 +220,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
-    <div className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5 min-w-0"}>
+    <div className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5 min-w-0 app-drag-region"}>
       {/* Scrollable tab area */}
       <div
         className="flex items-center gap-0.5 min-w-0 overflow-x-auto shrink scrollbar-none p-px max-w-full"
@@ -242,8 +245,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
-            style={{ minWidth: 120, flexShrink: 0 }}
-            className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md ${
+            style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
+            className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md app-no-drag ${
               isActive
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
                 : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
@@ -266,9 +269,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               <div className="absolute inset-0 rounded-md pointer-events-none" style={{ backgroundColor: pane.color, opacity: 0.10 }} />
             )}
             {pane.type === 'file' && pane.title ? (
-              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={13} style={{ color: d.color }} />; })()}</span>
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : Icon ? (
-              <Icon size={13} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
+              <Icon size={14} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
             ) : null}
             {pane.type === 'chat' && contextPercent && (
               <ContextRing percent={paneContextPercent ?? 0} onClick={onContextRingClick ? () => onContextRingClick(pane.id) : undefined} />
@@ -333,7 +336,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
       {/* Add pane button — pinned right, hidden when no menu items */}
       {hasMenuItems && (
-        <div className="relative flex items-center" ref={menuRef}>
+        <div className="relative flex items-center app-no-drag" ref={menuRef}>
           <button
             ref={buttonRef}
             onClick={() => {
@@ -385,8 +388,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                         onClick={() => { onAddPane('terminal', 'claude-code'); setShowAddMenu(false); }}
                         className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                       >
-                        <Code2 size={14} className="text-violet-500" />
-                        <span>Claude Code</span>
+                        <ClaudeIcon size={14} className="text-[#D97757]" />
+                        <span className="flex-1 text-left">Claude Code</span>
+                        <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+                          <span>yolo</span>
+                        </label>
                       </button>
                     </div>
                   );
@@ -421,7 +428,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
-            <X size={13} />
+            <X size={14} />
             <span className="flex-1 text-left">Close</span>
             {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}W</kbd>}
           </button>
@@ -438,7 +445,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
-              <X size={13} />
+              <X size={14} />
               <span>Close Others</span>
             </button>
           )}
@@ -449,7 +456,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 onClick={() => { onDetach(ctxMenu.paneId); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
-                <ExternalLink size={13} />
+                <ExternalLink size={14} />
                 <span>Detach</span>
               </button>
             </>
@@ -459,7 +466,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               onClick={() => { onRename(ctxMenu.paneId); setCtxMenu(null); }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
-              <Edit3 size={13} />
+              <Edit3 size={14} />
               <span>Rename</span>
             </button>
           )}
@@ -477,7 +484,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                     onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                   >
-                    <Settings size={13} />
+                    <Settings size={14} />
                     <span>Settings</span>
                   </button>
                 )}
@@ -486,7 +493,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                     onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                   >
-                    <ExternalLink size={13} />
+                    <ExternalLink size={14} />
                     <span>Pop Out</span>
                   </button>
                 )}
