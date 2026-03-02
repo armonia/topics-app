@@ -191,6 +191,9 @@ export interface GitBranch {
   name: string;
   current: boolean;
   remote?: string;
+  isRemote: boolean;
+  ahead?: number;
+  behind?: number;
 }
 
 export interface GitLogEntry {

@@ -28,12 +28,14 @@ interface UseAgentsOptions {
 
 const POLL_INTERVAL_ACTIVE = 5000;
 const POLL_INTERVAL_BACKGROUND = 30000;
+const POLL_INTERVAL_WS_CONNECTED = 60000; // WS is primary source; poll rarely as consistency check
 
 export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: UseAgentsOptions = {}) {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
   const fetchingRef = useRef(false);
   const lastUpdateRef = useRef<number>(0);
 
@@ -74,13 +76,15 @@ export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: Us
     fetchSessions();
   }, [enabled, fetchSessions]);
 
-  // Polling
+  // Polling — reduce frequency when WS is connected (WS is primary source)
   useEffect(() => {
     if (!enabled) return;
-    const interval = isVisible ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_BACKGROUND;
+    const interval = wsConnected
+      ? POLL_INTERVAL_WS_CONNECTED
+      : (isVisible ? POLL_INTERVAL_ACTIVE : POLL_INTERVAL_BACKGROUND);
     const timer = setInterval(fetchSessions, interval);
     return () => clearInterval(timer);
-  }, [enabled, isVisible, fetchSessions]);
+  }, [enabled, isVisible, wsConnected, fetchSessions]);
 
   // Track panel visibility
   const setVisible = useCallback((visible: boolean) => {
@@ -90,6 +94,9 @@ export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: Us
   // WebSocket updates (timestamp-based merge — most recent wins)
   useEffect(() => {
     if (!enabled || !onMessage) return;
+    setWsConnected(true);
+    // Fetch immediately on WS connect to catch up
+    fetchSessions();
     const unsub = onMessage((msg: WSMessage) => {
       try {
       if (msg.type === 'agents:sessions' && Array.isArray(msg.sessions)) {
@@ -138,8 +145,11 @@ export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: Us
         console.warn('[useAgents] WS message handler error:', err);
       }
     });
-    return unsub;
-  }, [enabled, onMessage]);
+    return () => {
+      unsub();
+      setWsConnected(false);
+    };
+  }, [enabled, onMessage, fetchSessions]);
 
   const activeSessions = sessions.filter(s => s.status === 'active');
   const idleSessions = sessions.filter(s => s.status === 'idle');

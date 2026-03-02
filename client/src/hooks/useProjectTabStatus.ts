@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { scriptsApi } from '../lib/api';
+import { useState, useEffect, useCallback } from 'react';
+import { useScripts } from './useScripts';
 
 const CACHE_KEY = 'git-status-cache';
 
@@ -32,7 +32,9 @@ function readGitCache(path: string): { fileCount: number; ahead: number; behind:
 export function useProjectTabStatus(projectPaths: string[]): Record<string, ProjectTabStatus> {
   const [status, setStatus] = useState<Record<string, ProjectTabStatus>>({});
   const pathsKey = projectPaths.join('\n');
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Use shared scripts hook — no duplicate polling
+  const { allScripts } = useScripts();
 
   // Read git cache for all paths
   const refreshGit = useCallback(() => {
@@ -57,39 +59,34 @@ export function useProjectTabStatus(projectPaths: string[]): Record<string, Proj
     });
   }, [pathsKey]);
 
-  // Poll scripts for running process counts
-  const refreshScripts = useCallback(async () => {
-    try {
-      const { scripts } = await scriptsApi.list();
-      const counts: Record<string, number> = {};
-      for (const s of scripts) {
-        if (s.status === 'running' && s.projectPath) {
-          counts[s.projectPath] = (counts[s.projectPath] || 0) + 1;
+  // Derive running process counts from shared scripts data
+  useEffect(() => {
+    const counts: Record<string, number> = {};
+    for (const s of allScripts) {
+      if (s.status === 'running' && s.projectPath) {
+        counts[s.projectPath] = (counts[s.projectPath] || 0) + 1;
+      }
+    }
+    setStatus(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const path of projectPaths) {
+        const count = counts[path] ?? 0;
+        const old = prev[path];
+        if (!old || old.runningProcessCount !== count) {
+          changed = true;
+          next[path] = {
+            gitFileCount: old?.gitFileCount ?? 0,
+            gitAhead: old?.gitAhead ?? 0,
+            gitBehind: old?.gitBehind ?? 0,
+            gitBranch: old?.gitBranch ?? '',
+            runningProcessCount: count,
+          };
         }
       }
-      setStatus(prev => {
-        let changed = false;
-        const next = { ...prev };
-        for (const path of projectPaths) {
-          const count = counts[path] ?? 0;
-          const old = prev[path];
-          if (!old || old.runningProcessCount !== count) {
-            changed = true;
-            next[path] = {
-              gitFileCount: old?.gitFileCount ?? 0,
-              gitAhead: old?.gitAhead ?? 0,
-              gitBehind: old?.gitBehind ?? 0,
-              gitBranch: old?.gitBranch ?? '',
-              runningProcessCount: count,
-            };
-          }
-        }
-        return changed ? next : prev;
-      });
-    } catch {
-      // ignore API errors
-    }
-  }, [pathsKey]);
+      return changed ? next : prev;
+    });
+  }, [allScripts, pathsKey]);
 
   // Initial read + listen for git-cache-updated events
   useEffect(() => {
@@ -99,16 +96,6 @@ export function useProjectTabStatus(projectPaths: string[]): Record<string, Proj
     window.addEventListener('git-cache-updated', handler);
     return () => window.removeEventListener('git-cache-updated', handler);
   }, [refreshGit, projectPaths.length]);
-
-  // Poll scripts every 5s
-  useEffect(() => {
-    if (projectPaths.length === 0) return;
-    refreshScripts();
-    intervalRef.current = setInterval(refreshScripts, 5000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [refreshScripts, projectPaths.length]);
 
   return status;
 }
