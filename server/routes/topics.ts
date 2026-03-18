@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdir
 import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, ToolCall, Topic } from "../types";
+import { registerSessionHandler, unregisterSessionHandler, type ChatStreamHandler } from "../gateway-ws";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
@@ -14,7 +15,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     broadcastToAll, broadcast, isTopicFocused,
     loadTopics, saveTopics, loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
-    createPartialMessage, updateLastMessage, addToolCallToLastMessage,
+    createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, findNewMediaFiles, updateLastMessageWithMedia,
@@ -23,6 +24,234 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage,
     switchActiveBranch, getSiblingMessages, loadActiveThread,
   } = ctx;
+
+  // ── Sub-agent completion polling via JSONL transcript ──────────────────
+  // Gateway executes tool calls (including sessions_spawn) internally and
+  // writes completion events as user messages with "[Internal task completion event]"
+  // to the parent session's JSONL transcript. We poll that file for new events.
+  interface WatchedSession {
+    topicId: string;
+    sessionKey: string;      // e.g. "topic:d1428015"
+    jsonlPath: string;       // path to the JSONL transcript file
+    lastLineCount: number;   // lines already processed
+    createdAt: number;
+    deliveredEvents: Set<string>; // session_key of already-delivered results
+  }
+  const watchedSessions = new Map<string, WatchedSession>();  // keyed by sessionKey
+  let subagentPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  function startSubagentPolling() {
+    if (subagentPollTimer) return;
+    console.log(`[SubagentPoll] Starting JSONL polling (${watchedSessions.size} watched sessions)`);
+    subagentPollTimer = setInterval(pollJSONLTranscripts, 5000);
+  }
+
+  function stopSubagentPolling() {
+    if (!subagentPollTimer) return;
+    clearInterval(subagentPollTimer);
+    subagentPollTimer = null;
+    console.log(`[SubagentPoll] Stopped polling`);
+  }
+
+  function findSessionJSONL(sessionKey: string): string | null {
+    const agentId = 'main';
+    const transcriptDir = join(homedir(), '.openclaw', 'agents', agentId, 'sessions');
+    if (!existsSync(transcriptDir)) return null;
+    // JSONL files are named: <sessionId>-<sessionKey-slug>.jsonl
+    // e.g. 466c80b4-...-topic-d1428015.jsonl
+    const keySlug = sessionKey.replace(/:/g, '-');
+    const files = readdirSync(transcriptDir).filter(f => f.endsWith('.jsonl') && f.includes(keySlug));
+    if (files.length > 0) return join(transcriptDir, files[0]);
+    // Fallback: search recent files for matching session key
+    const recent = readdirSync(transcriptDir)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => ({ name: f, mtime: statSync(join(transcriptDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 10);
+    for (const f of recent) {
+      try {
+        const first = readFileSync(join(transcriptDir, f.name), 'utf-8').split('\n')[0];
+        if (first.includes(sessionKey)) return join(transcriptDir, f.name);
+      } catch {}
+    }
+    return null;
+  }
+
+  function pollJSONLTranscripts() {
+    for (const [sk, watched] of watchedSessions.entries()) {
+      // Timeout: stop watching after 30 minutes
+      if (Date.now() - watched.createdAt > 30 * 60_000) {
+        console.log(`[SubagentPoll] Timeout watching ${sk}`);
+        watchedSessions.delete(sk);
+        continue;
+      }
+      // Find JSONL if not yet resolved
+      if (!watched.jsonlPath) {
+        const found = findSessionJSONL(sk);
+        if (found) { watched.jsonlPath = found; }
+        else continue;
+      }
+      if (!existsSync(watched.jsonlPath)) continue;
+
+      try {
+        const content = readFileSync(watched.jsonlPath, 'utf-8');
+        const lines = content.split('\n').filter(Boolean);
+        if (lines.length <= watched.lastLineCount) continue; // no new lines
+
+        // Check new lines for completion events
+        const newLines = lines.slice(watched.lastLineCount);
+        watched.lastLineCount = lines.length;
+
+        for (const line of newLines) {
+          try {
+            const entry = JSON.parse(line);
+            const msg = entry.message || entry;
+            const textContent = extractTextContent(msg.content);
+            if (!textContent.includes('[Internal task completion event]')) continue;
+
+            // Extract the child session key to deduplicate
+            const skMatch = textContent.match(/session_key:\s*(agent:\S+)/);
+            const childSk = skMatch?.[1] || textContent.slice(0, 50);
+            if (watched.deliveredEvents.has(childSk)) continue;
+            watched.deliveredEvents.add(childSk);
+
+            // Extract the result between markers
+            const resultMatch = textContent.match(/<<<BEGIN_UNTRUSTED_CHILD_RESULT>>>([\s\S]*?)<<<END_UNTRUSTED_CHILD_RESULT>>>/);
+            const result = resultMatch?.[1]?.trim() || '(sub-agent completed, no output recovered)';
+
+            // Extract task description
+            const taskMatch = textContent.match(/task:\s*(.+)/);
+            const task = taskMatch?.[1]?.trim() || '';
+
+            console.log(`[SubagentPoll] Found completion event for ${childSk.slice(0, 40)} in ${sk}`);
+
+            // Now we need the gateway to process this completion event (generate assistant response)
+            // The event is already in the transcript — trigger a gateway inference call
+            // so the AI can read the result and produce a user-facing response
+            triggerGatewayInference(watched, result, task);
+          } catch {}
+        }
+      } catch (err) {
+        console.warn(`[SubagentPoll] Error reading ${watched.jsonlPath}:`, err);
+      }
+    }
+    if (watchedSessions.size === 0) stopSubagentPolling();
+  }
+
+  function extractTextContent(content: any): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) return content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+    return '';
+  }
+
+  async function triggerGatewayInference(watched: WatchedSession, result: string, task: string) {
+    // Send a follow-up message to the gateway session so the AI generates a response
+    // that includes the sub-agent result. The gateway has the completion event in its
+    // context already — we just need to trigger a new inference turn.
+    try {
+      const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+        body: JSON.stringify({
+          sessionKey: watched.sessionKey,
+          messages: [{ role: "user", content: `[System: sub-agent completed. Present the result to the user naturally.]` }],
+        }),
+      });
+      if (!resp.ok) {
+        // Fallback: deliver raw result directly
+        console.warn(`[SubagentPoll] Gateway inference failed (${resp.status}), delivering raw result`);
+        deliverRawResult(watched, result, task);
+        return;
+      }
+      // Stream the response — it should appear as a regular assistant message
+      // The gateway streams SSE, and the existing chat flow handles it
+      // But since we're not in an HTTP request context, we need to stream manually
+      const reader = resp.body?.getReader();
+      if (!reader) { deliverRawResult(watched, result, task); return; }
+
+      let fullContent = '';
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta;
+            if (delta?.content) fullContent += delta.content;
+          } catch {}
+        }
+      }
+
+      if (fullContent) {
+        appendLocalMessage(watched.sessionKey, 'assistant', fullContent);
+        broadcastToAll({
+          type: "message:new",
+          sessionKey: watched.sessionKey,
+          topicId: watched.topicId,
+          role: "assistant",
+          content: fullContent,
+          preview: fullContent.slice(0, 100),
+        });
+        updateUnreadCount(watched.topicId);
+        console.log(`[SubagentPoll] ✓ Delivered AI-formatted result → topic ${watched.topicId.slice(0, 8)}`);
+      } else {
+        deliverRawResult(watched, result, task);
+      }
+    } catch (err) {
+      console.warn(`[SubagentPoll] Inference error:`, err);
+      deliverRawResult(watched, result, task);
+    }
+  }
+
+  function deliverRawResult(watched: WatchedSession, result: string, task: string) {
+    const msgContent = `📋 **Sub-agent result${task ? ` (${task.slice(0, 80)})` : ''}:**\n\n${result}`;
+    appendLocalMessage(watched.sessionKey, 'assistant', msgContent);
+    broadcastToAll({
+      type: "message:new",
+      sessionKey: watched.sessionKey,
+      topicId: watched.topicId,
+      role: "assistant",
+      content: msgContent,
+      preview: result.slice(0, 100),
+    });
+    updateUnreadCount(watched.topicId);
+    console.log(`[SubagentPoll] ✓ Delivered raw result → topic ${watched.topicId.slice(0, 8)}`);
+  }
+
+  function updateUnreadCount(topicId: string) {
+    try {
+      if (!isTopicFocused(topicId)) {
+        const unread = loadUnread();
+        if (!unread[topicId]) unread[topicId] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+        unread[topicId].unreadCount += 1;
+        saveUnread(unread);
+        broadcastToAll({ type: "unread:updated", topicId, unreadCount: unread[topicId].unreadCount });
+      }
+    } catch {}
+  }
+
+  function watchSessionForSubagents(topicId: string, sessionKey: string) {
+    if (watchedSessions.has(sessionKey)) {
+      // Reset timeout
+      watchedSessions.get(sessionKey)!.createdAt = Date.now();
+      return;
+    }
+    const jsonlPath = findSessionJSONL(sessionKey) || '';
+    const lineCount = jsonlPath && existsSync(jsonlPath)
+      ? readFileSync(jsonlPath, 'utf-8').split('\n').filter(Boolean).length
+      : 0;
+    watchedSessions.set(sessionKey, {
+      topicId, sessionKey, jsonlPath, lastLineCount: lineCount,
+      createdAt: Date.now(), deliveredEvents: new Set(),
+    });
+    console.log(`[SubagentPoll] Watching ${sessionKey} for sub-agent completions (JSONL: ${jsonlPath ? 'found' : 'pending'}, lines: ${lineCount})`);
+    startSubagentPolling();
+  }
 
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
   const browserNavigatedTopics = new Set<string>();
@@ -353,6 +582,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
       const consumeGateway = async () => {
         const reader = originalBody.getReader();
+        const onAbort = () => reader.cancel();
+        abortController.signal.addEventListener("abort", onAbort, { once: true });
         const decoder = new TextDecoder();
         let sseBuffer = "";
         try {
@@ -369,6 +600,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         } catch (err) {
           console.warn(`[Stream:Edit] Gateway read error for ${sessionKey}:`, err);
         } finally {
+          abortController.signal.removeEventListener("abort", onAbort);
           reader.releaseLock();
           await closeClient();
           if (isStreaming(sessionKey)) {
@@ -379,7 +611,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
       };
 
-      consumeGateway();
+      consumeGateway().catch(err => console.error('[consumeGateway:edit] error:', err));
 
       return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
     } catch (err: any) {
@@ -717,7 +949,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         writeFileSync(tempWebm, Buffer.from(buffer));
         const ffmpeg = Bun.spawnSync(["ffmpeg", "-i", tempWebm, "-ar", "16000", "-ac", "1", tempWav, "-y"], { timeout: 30000, stdout: "pipe", stderr: "pipe" });
         if (ffmpeg.exitCode !== 0) throw new Error(`ffmpeg conversion failed: ${ffmpeg.stderr.toString()}`);
-        const whisper = Bun.spawnSync(["whisper-cli", "-m", "/tmp/ggml-large-v3-turbo.bin", "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
+        const whisper = Bun.spawnSync(["whisper-cli", "-m", "/Users/user/whisper-models/ggml-large-v3.bin", "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
         if (whisper.exitCode !== 0) throw new Error(`Whisper failed: ${whisper.stderr.toString()}`);
         const transcript = whisper.stdout.toString().split("\n").filter((line: string) => !line.match(/^(whisper|ggml|system|main):/i) && line.trim()).join(" ").trim();
         try { unlinkSync(tempWebm); } catch {}
@@ -780,6 +1012,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
     // --- Chat proxy (streaming) ---
     if (method === "POST" && pathname === "/api/chat") {
+      console.log(`[HTTP] POST /api/chat received`);
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
       // Reset browser navigate tracking for this topic so new URLs can trigger
@@ -1053,121 +1286,99 @@ Wait for the user to approve the plan before executing any changes.` };
         finalMessages.splice(planInsertIdx >= 0 ? planInsertIdx : finalMessages.length, 0, planInstruction);
       }
 
-      try {
-        const abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), 300000);
-        const requestStartMs = Date.now();
+      // ─── Gateway WebSocket streaming (with tool event visibility) ───
+      const gatewayWS = ctx.gatewayWS;
+      const useWS = gatewayWS?.connected;
 
-        const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": sessionKey },
-          body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
-          signal: abortController.signal,
-        });
-        clearTimeout(timeoutId);
+      console.log(`[Chat] useWS=${useWS}, sessionKey=${sessionKey}`);
+      if (useWS) {
+        // === WS-based chat: sends via chat.send, receives tool + text events ===
+        try {
+          const requestStartMs = Date.now();
+          let fullContent = "";
+          let fullThinking = "";
+          let lastTextDelta = ""; // track cumulative text from delta events
+          let chunkCount = 0;
+          let lastSaveChunk = 0;
+          const SAVE_INTERVAL = 10;
+          const trackedToolCallIds: string[] = [];
+          let topicSwitchDetected = false;
+          let switchTargetTopicId: string | null = null;
+          const partialMsg = createPartialMessage(sessionKey, "assistant");
+          startStream(sessionKey, partialMsg.id);
+          broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
-        if (!resp.ok) {
-          const text = await resp.text();
-          return new Response(text, { status: resp.status, headers: { "Content-Type": "application/json" } });
-        }
+          // Create SSE response for the HTTP client
+          const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+          const writer = writable.getWriter();
+          let clientDisconnected = false;
+          const encoder = new TextEncoder();
 
-        const contentType = resp.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          const data = await resp.json() as any;
-          let content = data?.choices?.[0]?.message?.content || "";
-          content = detectAndBroadcastBrowserMarker(content, matchedTopic);
-          // Capture usage data from non-streaming response
-          if (data?.usage) {
-            const model = data.model || "unknown";
-            const inputTokens = data.usage.prompt_tokens || 0;
-            const outputTokens = data.usage.completion_tokens || 0;
-            appendUsageRecord({
-                timestamp: Date.now(),
-                sessionKey,
-                topicId: matchedTopic?.id,
-                model,
-                inputTokens,
-                outputTokens,
-                totalTokens: inputTokens + outputTokens,
-                costUsd: calculateCost(model, inputTokens, outputTokens),
-              }).catch(err => console.warn("[Usage] Failed to record usage:", err));
-          }
-          if (content) appendLocalMessage(sessionKey, "assistant", content);
-          if (matchedTopic) {
-            broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
-            if (!isTopicFocused(matchedTopic.id)) {
-              const unread = loadUnread();
-              if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-              unread[matchedTopic.id].unreadCount += 1;
-              saveUnread(unread);
-              broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
-            }
-          }
-          setTimeout(() => {
-            try {
-              const newMedia = findNewMediaFiles(requestStartMs);
-              if (newMedia.length > 0 && sessionKey) {
-                updateLastMessageWithMedia(sessionKey, newMedia);
-                broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: newMedia });
+          const writeSSE = async (data: string) => {
+            if (clientDisconnected) return;
+            try { await writer.write(encoder.encode(`data: ${data}\n\n`)); } catch { clientDisconnected = true; }
+          };
+          const closeClient = async () => {
+            if (clientDisconnected) return;
+            try { await writer.close(); } catch { clientDisconnected = true; }
+          };
+
+          // Stream inactivity timeout
+          let streamInactivityTimer: ReturnType<typeof setTimeout> | null = null;
+          const STREAM_TIMEOUT_MS = 120000; // 2 min for WS (tool calls can take time)
+          const resetStreamTimer = () => {
+            if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
+            streamInactivityTimer = setTimeout(() => {
+              console.warn(`[StreamWS] Timeout: no data for ${STREAM_TIMEOUT_MS / 1000}s on ${sessionKey}`);
+              const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
+              if (!fullContent.trim()) fullContent = timeoutMsg;
+              else fullContent += "\n\n---\n*[Response timed out]*";
+              updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
+              endStream(sessionKey);
+              unregisterSessionHandler(sessionKey);
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
               }
-            } catch {}
-          }, 500);
-          // Auto-bind project path from conversation content (no LLM needed)
-          if (matchedTopic && !matchedTopic.projectPath) {
-            setTimeout(() => autoBindProject(matchedTopic!), 100);
-          }
-          const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
-          return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
-        }
+              writeSSE("[DONE]").then(() => closeClient());
+            }, STREAM_TIMEOUT_MS);
+          };
 
-        // Streaming — decoupled from HTTP response so gateway is fully consumed
-        // even if the client disconnects mid-stream (reload, navigate away).
-        const originalBody = resp.body!;
-        let fullContent = "";
-        let fullThinking = "";
-        let isInThinking = false;
-        let chunkCount = 0;
-        let lastSaveChunk = 0;
-        const SAVE_INTERVAL = 10;
-        let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
-        let streamModel: string = "unknown";
-        let topicSwitchDetected = false;
-        let switchTargetTopicId: string | null = null;
-        const partialMsg = createPartialMessage(sessionKey, "assistant");
-        startStream(sessionKey, partialMsg.id, abortController);
-        broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+          // Helper: finalize the stream (called on done/error/abort)
+          const finalizeStream = async (reason: "done" | "error" | "aborted", errorMsg?: string) => {
+            if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
 
-        // Create a pass-through stream for the HTTP response
-        const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-        const writer = writable.getWriter();
-        let clientDisconnected = false;
-
-        // Helper: forward chunk to HTTP response (ignore errors if client left)
-        const forwardToClient = async (chunk: Uint8Array) => {
-          if (clientDisconnected) return;
-          try { await writer.write(chunk); } catch { clientDisconnected = true; }
-        };
-        const closeClient = async () => {
-          if (clientDisconnected) return;
-          try { await writer.close(); } catch { clientDisconnected = true; }
-        };
-
-        // Process a single SSE line from the gateway
-        const processLine = (line: string) => {
-          if (!line.startsWith("data: ")) return;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") {
-            updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
-            if (streamUsage) {
-              const inputTokens = streamUsage.prompt_tokens || 0;
-              const outputTokens = streamUsage.completion_tokens || 0;
-              appendUsageRecord({
-                timestamp: Date.now(), sessionKey, topicId: matchedTopic?.id, model: streamModel,
-                inputTokens, outputTokens, totalTokens: inputTokens + outputTokens,
-                costUsd: calculateCost(streamModel, inputTokens, outputTokens),
-              }).catch(err => console.warn("[Usage] Failed to record streaming usage:", err));
+            if (reason === "error" && errorMsg) {
+              if (!fullContent.trim()) fullContent = `⚠️ ${errorMsg}`;
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
+              }
             }
+
+            if (reason === "done" && !fullContent.trim() && trackedToolCallIds.length === 0) {
+              const emptyErrorMsg = "⚠️ No response received. The AI service may be temporarily unavailable. Please try again.";
+              fullContent = emptyErrorMsg;
+              console.warn(`[StreamWS] Empty response for ${sessionKey}`);
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: emptyErrorMsg });
+              }
+            }
+
+            // Finalize tool calls
+            for (const tcId of trackedToolCallIds) {
+              updateToolCallResult(sessionKey, tcId, 'completed');
+              broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success' });
+            }
+
+            updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
+            unregisterSessionHandler(sessionKey);
+
+            // Detect sub-agent launches
+            if (matchedTopic && /sub.?agent|subagent|lanciato|spawned|sessions_spawn/i.test(fullContent)) {
+              watchSessionForSubagents(matchedTopic.id, sessionKey);
+            }
+
             if (matchedTopic) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -1179,12 +1390,12 @@ Wait for the user to approve the plan before executing any changes.` };
                 broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
               }
             }
-            // Move messages to target topic if topic switch was detected
+
+            // Topic switch handling
             if (topicSwitchDetected && switchTargetTopicId) {
               const targetData = loadTopics();
               const targetTopic = targetData.topics[switchTargetTopicId];
               if (targetTopic) {
-                // Find and copy the user message
                 const currentMsgs = loadLocalMessages(sessionKey);
                 const lastUserMsg = [...currentMsgs].reverse().find(m => m.role === 'user');
                 let userContent = '';
@@ -1193,10 +1404,7 @@ Wait for the user to approve the plan before executing any changes.` };
                   appendLocalMessage(targetTopic.sessionKey, 'user', userContent);
                 }
                 appendLocalMessage(targetTopic.sessionKey, 'assistant', fullContent);
-
-                // Remove user msg + assistant response from source session
                 const sourceMsgs = loadLocalMessages(sessionKey);
-                // Delete the last 2 messages (user + assistant that were just added) by ID
                 const toRemove = sourceMsgs.slice(-2);
                 for (const m of toRemove) {
                   const parentRow = ctx.db.prepare(`SELECT parent_id FROM messages WHERE id = ?`).get(m.id) as any;
@@ -1204,19 +1412,16 @@ Wait for the user to approve the plan before executing any changes.` };
                   ctx.db.prepare(`UPDATE messages SET parent_id = ? WHERE parent_id = ?`).run(pId, m.id);
                   ctx.db.prepare(`DELETE FROM messages WHERE id = ?`).run(m.id);
                 }
-
-                // Broadcast complete event so client can update both sessions in-memory
                 broadcastToAll({
                   type: "topic:switch:complete",
-                  fromTopicId: matchedTopic!.id,
-                  fromSessionKey: sessionKey,
-                  toTopicId: switchTargetTopicId,
-                  toSessionKey: targetTopic.sessionKey,
-                  userContent,
-                  assistantContent: fullContent,
+                  fromTopicId: matchedTopic!.id, fromSessionKey: sessionKey,
+                  toTopicId: switchTargetTopicId, toSessionKey: targetTopic.sessionKey,
+                  userContent, assistantContent: fullContent,
                 });
               }
             }
+
+            // Media detection
             setTimeout(() => {
               try {
                 const newMedia = findNewMediaFiles(requestStartMs);
@@ -1226,110 +1431,332 @@ Wait for the user to approve the plan before executing any changes.` };
                 }
               } catch {}
             }, 1000);
+
             if (matchedTopic && !matchedTopic.projectPath) {
               setTimeout(() => autoBindProject(matchedTopic!), 500);
             }
-            return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.usage) streamUsage = parsed.usage;
-            if (parsed.model) streamModel = parsed.model;
-            const delta = parsed.choices?.[0]?.delta;
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (tc.function?.name) {
-                  const toolCall: ToolCall = { id: tc.id || crypto.randomUUID(), name: tc.function.name, args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {}, status: 'pending' };
-                  addToolCallToLastMessage(sessionKey, toolCall);
-                  broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
 
-                  // Browser isolation monitoring
-                  if (toolCall.name === 'browser' && matchedTopic) {
-                    const profile = toolCall.args?.profile;
-                    if (profile === 'topics') {
-                      console.log(`[BrowserIsolation] ✓ Topic ${matchedTopic.id.slice(0,8)} using isolated browser (action: ${toolCall.args?.action})`);
-                    } else {
-                      console.warn(`[BrowserIsolation] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
-                    }
-                  }
+            // Close SSE response
+            await writeSSE("[DONE]");
+            await closeClient();
+          };
+
+          // Register event handler for this session
+          const handler: ChatStreamHandler = {
+            onTextDelta: (text: string, _fullText: string) => {
+              resetStreamTimer();
+              // Gateway sends cumulative text in delta events
+              // Extract the new portion by comparing with what we've seen
+              let newText = text;
+              if (text.length > lastTextDelta.length && text.startsWith(lastTextDelta)) {
+                newText = text.slice(lastTextDelta.length);
+              } else if (text === lastTextDelta) {
+                return; // No new content
+              }
+              lastTextDelta = text;
+
+              if (newText) {
+                fullContent += newText;
+                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: newText });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: newText } }] }));
+                fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
+                if (!topicSwitchDetected && (fullContent.includes('{{TOPIC_SWITCH:') || fullContent.includes('{{TOPIC_NEW:'))) {
+                  const result = detectAndBroadcastTopicSwitch(fullContent, matchedTopic);
+                  fullContent = result.content;
+                  if (result.switchedToTopicId) { topicSwitchDetected = true; switchTargetTopicId = result.switchedToTopicId; }
                 }
               }
-            }
-            if (delta?.content) {
-              const content = delta.content;
-              if (content.includes('<thinking>')) { isInThinking = true; updateStreamActivity(sessionKey, true); broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
-              if (content.includes('</thinking>')) { isInThinking = false; updateStreamActivity(sessionKey, false); broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-              if (isInThinking) {
-                const cleaned = content.replace(/<\/?thinking>/g, '');
-                fullThinking += cleaned;
-                broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
-              } else {
-                const cleaned = content.replace(/<\/?thinking>/g, '');
-                if (cleaned) {
-                  fullContent += cleaned;
-                  broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned });
-                  fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
-                  if (!topicSwitchDetected && (fullContent.includes('{{TOPIC_SWITCH:') || fullContent.includes('{{TOPIC_NEW:'))) {
-                    const result = detectAndBroadcastTopicSwitch(fullContent, matchedTopic);
-                    fullContent = result.content;
-                    if (result.switchedToTopicId) {
-                      topicSwitchDetected = true;
-                      switchTargetTopicId = result.switchedToTopicId;
-                    }
-                  }
-                }
-              }
+
               chunkCount++;
               updateStreamContent(sessionKey, fullContent, fullThinking);
               if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) {
                 lastSaveChunk = chunkCount;
                 updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined });
               }
-            }
-          } catch {}
-        };
+            },
 
-        // Background task: read gateway stream to completion (survives client disconnect)
-        const consumeGateway = async () => {
-          const reader = originalBody.getReader();
-          const decoder = new TextDecoder();
-          let sseBuffer = "";
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              // Forward raw bytes to HTTP client (best-effort)
-              await forwardToClient(value);
-              // Parse SSE lines for server-side processing + WS broadcast
-              sseBuffer += decoder.decode(value, { stream: true });
-              const lines = sseBuffer.split("\n");
-              sseBuffer = lines.pop() || "";
-              for (const line of lines) processLine(line);
+            onThinkingDelta: (text: string) => {
+              resetStreamTimer();
+              fullThinking += text;
+              broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: text });
+              updateStreamContent(sessionKey, fullContent, fullThinking);
+            },
+
+            onToolStart: (toolCallId: string, name: string, args?: any) => {
+              resetStreamTimer();
+              console.log(`[StreamWS] Tool start: ${name} (${toolCallId.slice(0,8)}) for ${sessionKey}`);
+              const toolCall: ToolCall = {
+                id: toolCallId, name, args: args || {},
+                status: 'running', contentOffset: fullContent.length,
+              };
+              trackedToolCallIds.push(toolCallId);
+              addToolCallToLastMessage(sessionKey, toolCall);
+              broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+
+              // Also send as SSE for the HTTP client
+              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) } }] } }] }));
+
+              // Track sessions_spawn
+              if (name === 'sessions_spawn' && matchedTopic) {
+                watchSessionForSubagents(matchedTopic.id, sessionKey);
+                console.log(`[SubagentPoll] sessions_spawn detected via WS in topic ${matchedTopic.id.slice(0,8)}`);
+              }
+
+              // Browser isolation monitoring
+              if (name === 'browser' && matchedTopic) {
+                const profile = args?.profile;
+                if (profile === 'topics') {
+                  console.log(`[BrowserIsolation] ✓ Topic ${matchedTopic.id.slice(0,8)} using isolated browser (action: ${args?.action})`);
+                } else {
+                  console.warn(`[BrowserIsolation] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
+                }
+              }
+            },
+
+            onToolUpdate: (toolCallId: string, _partialResult: string) => {
+              resetStreamTimer();
+              // Broadcast partial result to clients
+              broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult });
+            },
+
+            onToolResult: (toolCallId: string, result: string) => {
+              resetStreamTimer();
+              console.log(`[StreamWS] Tool result: ${toolCallId.slice(0,8)} for ${sessionKey}`);
+              updateToolCallResult(sessionKey, toolCallId, result);
+              broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result });
+              // Remove from tracked list (it's already finalized)
+              const idx = trackedToolCallIds.indexOf(toolCallId);
+              if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+            },
+
+            onDone: (message?: any) => {
+              // Extract final content from message if available
+              if (message) {
+                const finalText = extractFinalText(message);
+                if (finalText && finalText.length > fullContent.length) {
+                  const extra = finalText.slice(fullContent.length);
+                  if (extra) {
+                    fullContent = finalText;
+                    broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra });
+                  }
+                }
+              }
+              finalizeStream("done");
+            },
+
+            onError: (error: string) => {
+              console.error(`[StreamWS] Error for ${sessionKey}: ${error}`);
+              finalizeStream("error", error);
+            },
+
+            onAborted: (message?: any) => {
+              // Extract content from aborted message
+              if (message) {
+                const abortedText = extractFinalText(message);
+                if (abortedText && abortedText.length > fullContent.length) {
+                  fullContent = abortedText;
+                }
+              }
+              finalizeStream("aborted");
+            },
+          };
+
+          // Helper to extract text from final/aborted message
+          function extractFinalText(message: any): string | null {
+            if (!message) return null;
+            if (typeof message.text === "string") return message.text;
+            if (typeof message.content === "string") return message.content;
+            if (Array.isArray(message.content)) {
+              return message.content
+                .filter((c: any) => c.type === "text")
+                .map((c: any) => c.text)
+                .join("");
             }
-            // Process remaining buffer
-            if (sseBuffer.trim()) processLine(sseBuffer);
-          } catch (err) {
-            console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err);
-          } finally {
-            reader.releaseLock();
+            return null;
+          }
+
+          registerSessionHandler(sessionKey, undefined, handler);
+          resetStreamTimer();
+
+          // Send chat via WS
+          try {
+            const result = await gatewayWS!.sendChat(sessionKey, lastUserMsg?.content || messages[messages.length - 1]?.content || "");
+            // Update handler with the actual runId to filter stale events
+            if (result.runId) {
+              registerSessionHandler(sessionKey, result.runId, handler);
+            }
+            console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
+          } catch (err: any) {
+            console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
+            if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
+            unregisterSessionHandler(sessionKey);
+            endStream(sessionKey);
+            const errorMsg = `⚠️ Failed to send message: ${err.message}`;
+            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
+            if (matchedTopic) {
+              broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+            }
+            await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
+            await writeSSE("[DONE]");
             await closeClient();
-            // Safety: ensure stream is ended even if [DONE] was missed
-            if (isStreaming(sessionKey)) {
-              console.warn(`[Stream] Force-ending stream for ${sessionKey} (gateway closed without [DONE])`);
+            return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+          }
+
+          // Return SSE response — events will be pushed by the handler
+          return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+
+        } catch (err: any) {
+          console.error(`[StreamWS] Unexpected error for ${sessionKey}:`, err);
+          return json({ error: "Gateway WS error: " + err.message }, 502);
+        }
+
+      } else {
+        // === Fallback: HTTP SSE (original approach — no tool visibility) ===
+        console.log(`[Stream] Using HTTP SSE fallback (WS ${gatewayWS ? 'disconnected' : 'not initialized'})`);
+        try {
+          const abortController = new AbortController();
+          const timeoutId = setTimeout(() => abortController.abort(), 300000);
+          const requestStartMs = Date.now();
+
+          const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": sessionKey },
+            body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
+            signal: abortController.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!resp.ok) {
+            const text = await resp.text();
+            const isRateLimit = resp.status === 429 || /rate.?limit/i.test(text);
+            const errorMsg = isRateLimit
+              ? "⚠️ Rate limit reached. The AI service is temporarily overloaded. Please wait a moment and try again."
+              : `⚠️ AI service error (${resp.status}). Please try again.`;
+            const errorPartial = createPartialMessage(sessionKey, "assistant");
+            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
+            if (matchedTopic) {
+              broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: errorMsg.slice(0, 100) });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id });
+            }
+            return new Response(
+              `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(errorMsg)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`,
+              { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } }
+            );
+          }
+
+          const contentType = resp.headers.get("content-type") || "";
+          if (contentType.includes("application/json")) {
+            const data = await resp.json() as any;
+            let content = data?.choices?.[0]?.message?.content || "";
+            content = detectAndBroadcastBrowserMarker(content, matchedTopic);
+            if (data?.usage) {
+              const model = data.model || "unknown";
+              const inputTokens = data.usage.prompt_tokens || 0;
+              const outputTokens = data.usage.completion_tokens || 0;
+              appendUsageRecord({
+                timestamp: Date.now(), sessionKey, topicId: matchedTopic?.id, model, inputTokens, outputTokens,
+                totalTokens: inputTokens + outputTokens, costUsd: calculateCost(model, inputTokens, outputTokens),
+              }).catch(err => console.warn("[Usage] Failed to record usage:", err));
+            }
+            if (content) appendLocalMessage(sessionKey, "assistant", content);
+            if (matchedTopic) {
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
+              if (!isTopicFocused(matchedTopic.id)) {
+                const unread = loadUnread();
+                if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+                unread[matchedTopic.id].unreadCount += 1;
+                saveUnread(unread);
+                broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
+              }
+            }
+            if (matchedTopic && !matchedTopic.projectPath) setTimeout(() => autoBindProject(matchedTopic!), 100);
+            const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
+            return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
+          }
+
+          // Streaming fallback — simplified version (no tool visibility)
+          const originalBody = resp.body!;
+          let fullContent = "";
+          let fullThinking = "";
+          let isInThinking = false;
+          let chunkCount = 0;
+          let lastSaveChunk = 0;
+          const SAVE_INTERVAL = 10;
+          const partialMsg = createPartialMessage(sessionKey, "assistant");
+          startStream(sessionKey, partialMsg.id, abortController);
+          broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+          const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+          const writer = writable.getWriter();
+          let clientDisconnected = false;
+          const forwardToClient = async (chunk: Uint8Array) => { if (clientDisconnected) return; try { await writer.write(chunk); } catch { clientDisconnected = true; } };
+          const closeClient = async () => { if (clientDisconnected) return; try { await writer.close(); } catch { clientDisconnected = true; } };
+
+          const processLine = (line: string) => {
+            if (!line.startsWith("data: ")) return;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") {
               updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
               endStream(sessionKey);
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+              if (matchedTopic) {
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+              }
+              return;
             }
-          }
-        };
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                const content = delta.content;
+                if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
+                if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
+                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }); }
+                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }); } }
+                chunkCount++;
+                updateStreamContent(sessionKey, fullContent, fullThinking);
+                if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) { lastSaveChunk = chunkCount; updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined }); }
+              }
+            } catch {}
+          };
 
-        // Fire and forget — the gateway is consumed independently of the HTTP response
-        consumeGateway();
+          const consumeGateway = async () => {
+            const reader = originalBody.getReader();
+            const onAbort = () => reader.cancel();
+            abortController.signal.addEventListener("abort", onAbort, { once: true });
+            const decoder = new TextDecoder();
+            let sseBuffer = "";
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                await forwardToClient(value);
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split("\n");
+                sseBuffer = lines.pop() || "";
+                for (const line of lines) processLine(line);
+              }
+              if (sseBuffer.trim()) processLine(sseBuffer);
+            } catch (err) { console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err); }
+            finally {
+              abortController.signal.removeEventListener("abort", onAbort);
+              reader.releaseLock();
+              await closeClient();
+              if (isStreaming(sessionKey)) {
+                updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+                endStream(sessionKey);
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+              }
+            }
+          };
 
-        return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
-      } catch (err: any) {
-        if (err.name === "AbortError") return json({ error: "Request timeout (5 min)" }, 504);
-        return json({ error: "Gateway unreachable: " + err.message }, 502);
+          consumeGateway().catch(err => console.error('[consumeGateway:chat] error:', err));
+          return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+        } catch (err: any) {
+          if (err.name === "AbortError") return json({ error: "Request timeout (5 min)" }, 504);
+          return json({ error: "Gateway unreachable: " + err.message }, 502);
+        }
       }
     }
 
@@ -1342,9 +1769,16 @@ Wait for the user to approve the plan before executing any changes.` };
       const stream = activeStreams.get(sessionKey);
       if (!stream) return json({ ok: false, reason: "no_active_stream" });
 
-      // Abort the gateway request
+      // Abort the gateway request (HTTP fallback)
       if (stream.abortController) {
         try { stream.abortController.abort(); } catch {}
+      }
+
+      // Also abort via WS if connected
+      const gwWS = ctx.gatewayWS;
+      if (gwWS?.connected) {
+        gwWS.abortChat(sessionKey).catch((err: any) => console.warn(`[Abort] WS abort failed:`, err));
+        unregisterSessionHandler(sessionKey);
       }
 
       const topicsData = loadTopics();

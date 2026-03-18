@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 
@@ -77,12 +77,22 @@ function loadState() {
     // Restore recent scripts (completed ones)
     if (Array.isArray(data.recent)) {
       for (const r of data.recent) {
-        recentScripts.push({
+        const sp: ScriptProcess = {
           ...r,
           output: [],
           outputBytes: 0,
           proc: null,
-        });
+        };
+        // Load output from log file
+        const logPath = join(getPersistDir(), "scripts", `${r.processId}.log`);
+        try {
+          if (existsSync(logPath)) {
+            const logContent = readFileSync(logPath, "utf-8");
+            sp.output = logContent.split("\n");
+            sp.outputBytes = logContent.length;
+          }
+        } catch {}
+        recentScripts.push(sp);
       }
     }
 
@@ -96,10 +106,25 @@ function loadState() {
           const sp: ScriptProcess = {
             ...r,
             status: "running",
-            output: ["[server restarted — previous output lost]"],
-            outputBytes: 40,
+            output: [],
+            outputBytes: 0,
             proc: null, // We don't have the handle, but we have the PID
           };
+          // Load output from log file
+          const logPath = join(getPersistDir(), "scripts", `${r.processId}.log`);
+          try {
+            if (existsSync(logPath)) {
+              const logContent = readFileSync(logPath, "utf-8");
+              sp.output = logContent.split("\n");
+              sp.outputBytes = logContent.length;
+            } else {
+              sp.output = ["[server restarted — previous output lost]"];
+              sp.outputBytes = 40;
+            }
+          } catch {
+            sp.output = ["[server restarted — previous output lost]"];
+            sp.outputBytes = 40;
+          }
           runningScripts.set(r.processId, sp);
 
           // Poll for exit in background
@@ -115,10 +140,39 @@ function loadState() {
             outputBytes: 0,
             proc: null,
           };
+          // Load output from log file
+          const deadLogPath = join(getPersistDir(), "scripts", `${r.processId}.log`);
+          try {
+            if (existsSync(deadLogPath)) {
+              const logContent = readFileSync(deadLogPath, "utf-8");
+              sp.output = logContent.split("\n");
+              sp.outputBytes = logContent.length;
+            }
+          } catch {}
           addToRecent(sp);
         }
       }
     }
+
+    // Cleanup old log files for completed processes older than 7 days
+    try {
+      const scriptsDir = join(getPersistDir(), "scripts");
+      if (existsSync(scriptsDir)) {
+        const now = Date.now();
+        const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+        for (const file of readdirSync(scriptsDir)) {
+          if (!file.endsWith('.log')) continue;
+          const processId = file.replace('.log', '');
+          // Keep logs for running processes
+          if (runningScripts.has(processId)) continue;
+          // Check if recent and not old
+          const recent = recentScripts.find(s => s.processId === processId);
+          if (recent?.completedAt && (now - new Date(recent.completedAt).getTime()) < SEVEN_DAYS) continue;
+          // Remove old log
+          try { unlinkSync(join(scriptsDir, file)); } catch {}
+        }
+      }
+    } catch {}
   } catch {}
 }
 
@@ -168,7 +222,7 @@ export async function getListeningPorts(): Promise<{ port: number; pid: number; 
   if (now - cachedPortsAt < PORT_CACHE_TTL) return cachedPorts;
 
   try {
-    const proc = Bun.spawn(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["/usr/sbin/lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "pipe" });
     const output = await new Response(proc.stdout).text();
     await proc.exited;
 
@@ -242,11 +296,25 @@ function appendOutput(sp: ScriptProcess, text: string) {
     sp.output.push(line);
     sp.outputBytes += line.length;
   }
+  // Persist to log file
+  try {
+    const logPath = join(getPersistDir(), "scripts", `${sp.processId}.log`);
+    appendFileSync(logPath, text);
+    // Rotation: if > 1MB, keep last 500KB
+    try {
+      const stat = statSync(logPath);
+      if (stat.size > 1024 * 1024) {
+        const content = readFileSync(logPath);
+        writeFileSync(logPath, content.slice(content.length - 500 * 1024));
+      }
+    } catch {}
+  } catch {}
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 loadState();
+mkdirSync(join(getPersistDir(), "scripts"), { recursive: true });
 
 // ── Router ───────────────────────────────────────────────────────────────────
 
@@ -336,7 +404,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
           cwd: projectPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...process.env, FORCE_COLOR: "0" },
+          env: { ...process.env, FORCE_COLOR: "0", HOST: "0.0.0.0" },
         });
       } catch (err: any) {
         return json({ error: `Failed to spawn: ${err.message}` }, 500);
