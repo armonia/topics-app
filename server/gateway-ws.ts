@@ -1,0 +1,486 @@
+/**
+ * Gateway WebSocket Client for Topics
+ * 
+ * Connects to the OpenClaw gateway via WebSocket to send chat messages
+ * and receive streaming events (text deltas, tool calls, etc.)
+ * 
+ * Protocol reverse-engineered from the Control UI source.
+ */
+
+import { EventEmitter } from "events";
+
+// --- Types ---
+
+interface GatewayWSOptions {
+  url: string;       // ws://127.0.0.1:18789/
+  token: string;     // gateway auth token
+  onEvent?: (event: GatewayEvent) => void;
+  onConnect?: () => void;
+  onDisconnect?: (reason: string) => void;
+}
+
+interface GatewayRequest {
+  type: "req";
+  id: string;
+  method: string;
+  params: any;
+}
+
+interface GatewayResponse {
+  type: "res";
+  id: string;
+  ok: boolean;
+  payload?: any;
+  error?: { code?: string; message?: string; details?: any };
+}
+
+export interface GatewayEvent {
+  type: "event";
+  event: string;    // "chat", "agent", "connect.challenge", etc.
+  payload?: any;
+  seq?: number;
+}
+
+// Tool event data shape (from agent events with stream === "tool")
+export interface ToolEventData {
+  toolCallId: string;
+  name: string;
+  phase: "start" | "update" | "result";
+  args?: any;
+  partialResult?: string;
+  result?: string;
+}
+
+// Chat event payload shape
+export interface ChatEventPayload {
+  sessionKey?: string;
+  runId?: string;
+  state: "delta" | "final" | "aborted" | "error";
+  message?: any;
+  errorMessage?: string;
+}
+
+// Agent event payload shape  
+export interface AgentEventPayload {
+  sessionKey?: string;
+  runId?: string;
+  stream: string;     // "tool", "compaction", "lifecycle", "fallback", "output", "thought"
+  data?: any;
+  ts?: number;
+}
+
+// --- Helpers ---
+
+function extractText(message: any): string | null {
+  if (!message) return null;
+  if (typeof message.text === "string") return message.text;
+  if (typeof message.content === "string") return message.content;
+  if (Array.isArray(message.content)) {
+    return message.content
+      .filter((c: any) => c.type === "text")
+      .map((c: any) => c.text)
+      .join("");
+  }
+  return null;
+}
+
+// --- Client ---
+
+export class GatewayWS {
+  private ws: WebSocket | null = null;
+  private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+  private closed = false;
+  private connectSent = false;
+  private connectNonce: string | null = null;
+  private backoffMs = 800;
+  private opts: GatewayWSOptions;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private _connected = false;
+
+  constructor(opts: GatewayWSOptions) {
+    this.opts = opts;
+  }
+
+  get connected(): boolean {
+    return this._connected && this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  start(): void {
+    this.closed = false;
+    this.connect();
+  }
+
+  stop(): void {
+    this.closed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.ws?.close();
+    this.ws = null;
+    this._connected = false;
+    this.flushPending(new Error("gateway client stopped"));
+  }
+
+  private connect(): void {
+    if (this.closed) return;
+    
+    try {
+      // Pass origin header so gateway accepts the connection
+      this.ws = new WebSocket(this.opts.url, {
+        headers: { "Origin": "https://localhost:3333" }
+      } as any);
+    } catch (err) {
+      console.error("[GatewayWS] Failed to create WebSocket:", err);
+      this.scheduleReconnect();
+      return;
+    }
+
+    this.ws.addEventListener("open", () => {
+      console.log("[GatewayWS] WebSocket opened, waiting for challenge...");
+      this.connectNonce = null;
+      this.connectSent = false;
+      // Wait a bit for challenge, then send connect anyway
+      setTimeout(() => {
+        if (!this.connectSent && !this.closed) {
+          this.sendConnect();
+        }
+      }, 1000);
+    });
+
+    this.ws.addEventListener("message", (ev) => {
+      this.handleMessage(String(ev.data ?? ""));
+    });
+
+    this.ws.addEventListener("close", (ev) => {
+      const reason = ev.reason || "unknown";
+      console.log(`[GatewayWS] WebSocket closed (${ev.code}): ${reason}`);
+      this.ws = null;
+      this._connected = false;
+      this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
+      this.opts.onDisconnect?.(reason);
+      this.scheduleReconnect();
+    });
+
+    this.ws.addEventListener("error", (err) => {
+      console.error("[GatewayWS] WebSocket error");
+    });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closed) return;
+    const delay = this.backoffMs;
+    this.backoffMs = Math.min(this.backoffMs * 1.7, 15000);
+    console.log(`[GatewayWS] Reconnecting in ${delay}ms...`);
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  private flushPending(err: Error): void {
+    for (const [, p] of this.pending) p.reject(err);
+    this.pending.clear();
+  }
+
+  private async sendConnect(): Promise<void> {
+    if (this.connectSent) return;
+    this.connectSent = true;
+
+    const connectParams: any = {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: "openclaw-control-ui",
+        version: "1.0.0",
+        platform: "server",
+        mode: "webchat",
+        instanceId: crypto.randomUUID(),
+      },
+      role: "operator",
+      scopes: ["operator.admin"],
+      caps: ["tool-events"],
+      auth: {
+        token: this.opts.token,
+      },
+    };
+    // nonce is used for device auth only, not needed for token auth
+
+    try {
+      const result = await this.request("connect", connectParams);
+      console.log("[GatewayWS] Connected to gateway successfully");
+      this._connected = true;
+      this.backoffMs = 800;
+      this.opts.onConnect?.();
+    } catch (err: any) {
+      console.error("[GatewayWS] Connect failed:", err.message);
+      this.ws?.close(4008, "connect failed");
+    }
+  }
+
+  private handleMessage(raw: string): void {
+    let msg: any;
+    try { msg = JSON.parse(raw); } catch { return; }
+    
+    if (msg.type === "event") {
+      const event = msg as GatewayEvent;
+      
+      // Handle connect challenge
+      if (event.event === "connect.challenge") {
+        const nonce = event.payload?.nonce;
+        if (typeof nonce === "string") {
+          this.connectNonce = nonce;
+          this.connectSent = false;
+          this.sendConnect();
+        }
+        return;
+      }
+
+      // Forward to event handler
+      try {
+        this.opts.onEvent?.(event);
+      } catch (err) {
+        console.error("[GatewayWS] Event handler error:", err);
+      }
+      return;
+    }
+
+    if (msg.type === "res") {
+      const res = msg as GatewayResponse;
+      const pending = this.pending.get(res.id);
+      if (!pending) return;
+      this.pending.delete(res.id);
+      if (res.ok) {
+        pending.resolve(res.payload);
+      } else {
+        const err = new Error(res.error?.message ?? "request failed");
+        (err as any).code = res.error?.code;
+        (err as any).details = res.error?.details;
+        pending.reject(err);
+      }
+    }
+  }
+
+  request(method: string, params: any): Promise<any> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error("gateway not connected"));
+    }
+
+    const id = crypto.randomUUID();
+    const req: GatewayRequest = { type: "req", id, method, params };
+
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.ws!.send(JSON.stringify(req));
+      
+      // Timeout after 30s for non-streaming requests
+      if (method !== "chat.send") {
+        setTimeout(() => {
+          if (this.pending.has(id)) {
+            this.pending.delete(id);
+            reject(new Error(`request timeout: ${method}`));
+          }
+        }, 30000);
+      }
+    });
+  }
+
+  // --- High-level API ---
+
+  async sendChat(sessionKey: string, message: string): Promise<{ runId?: string }> {
+    const idempotencyKey = crypto.randomUUID();
+    const result = await this.request("chat.send", {
+      sessionKey,
+      message,
+      deliver: false,
+      idempotencyKey,
+    });
+    return { runId: result?.runId || idempotencyKey };
+  }
+
+  async getHistory(sessionKey: string, limit = 200): Promise<any> {
+    return this.request("chat.history", { sessionKey, limit });
+  }
+
+  async abortChat(sessionKey: string, runId?: string): Promise<any> {
+    return this.request("chat.abort", runId ? { sessionKey, runId } : { sessionKey });
+  }
+}
+
+// --- Per-session event routing ---
+
+export interface ChatStreamHandler {
+  onTextDelta: (text: string, fullText: string) => void;
+  onThinkingDelta?: (text: string) => void;
+  onToolStart: (toolCallId: string, name: string, args?: any) => void;
+  onToolUpdate?: (toolCallId: string, partialResult: string) => void;
+  onToolResult: (toolCallId: string, result: string) => void;
+  onDone: (message?: any) => void;
+  onError: (error: string) => void;
+  onAborted: (message?: any) => void;
+}
+
+/** 
+ * Maps sessionKey → active stream handler.
+ * When a chat.send is in progress, events for that session are routed here.
+ */
+const sessionHandlers = new Map<string, { runId?: string; handler: ChatStreamHandler }>();
+
+/** Normalize gateway session key (agent:main:topic:xxx → topic:xxx) */
+function normalizeSessionKey(key: string | undefined): string | undefined {
+  if (!key) return key;
+  // Gateway uses "agent:main:topic:xxx", Topics uses "topic:xxx"
+  const match = key.match(/topic:[a-zA-Z0-9_-]+$/);
+  return match ? match[0] : key;
+}
+
+export function registerSessionHandler(sessionKey: string, runId: string | undefined, handler: ChatStreamHandler): void {
+  sessionHandlers.set(sessionKey, { runId, handler });
+}
+
+export function unregisterSessionHandler(sessionKey: string): void {
+  sessionHandlers.delete(sessionKey);
+}
+
+/**
+ * Route a gateway event to the appropriate session handler.
+ * Returns true if handled.
+ */
+export function routeGatewayEvent(event: GatewayEvent): boolean {
+  if (event.event === "chat") {
+    const payload = event.payload as ChatEventPayload;
+    const sessionKey = normalizeSessionKey(payload?.sessionKey);
+    if (!sessionKey) return false;
+    
+    console.log(`[GatewayWS:Route] chat event for ${sessionKey}, state=${payload.state}, handlers=[${[...sessionHandlers.keys()].join(',')}]`);
+    
+    const entry = sessionHandlers.get(sessionKey);
+    if (!entry) return false;
+    
+    // Ignore events from a different runId (stale runs)
+    if (entry.runId && payload.runId && payload.runId !== entry.runId) {
+      console.log(`[GatewayWS:Route] ignoring stale chat event runId=${payload.runId?.slice(0,8)} (expected ${entry.runId?.slice(0,8)})`);
+      return true; // consumed but ignored
+    }
+
+    const handler = entry.handler;
+
+    switch (payload.state) {
+      case "delta": {
+        const text = extractText(payload.message);
+        if (typeof text === "string") {
+          handler.onTextDelta(text, text);
+        }
+        break;
+      }
+      case "final": {
+        handler.onDone(payload.message);
+        break;
+      }
+      case "aborted": {
+        handler.onAborted(payload.message);
+        break;
+      }
+      case "error": {
+        handler.onError(payload.errorMessage ?? "chat error");
+        break;
+      }
+    }
+    return true;
+  }
+
+  if (event.event === "agent") {
+    const payload = event.payload as AgentEventPayload;
+    if (payload?.stream !== "tool") return false;
+    
+    const sessionKey = normalizeSessionKey(payload.sessionKey);
+    if (!sessionKey) return false;
+    
+    const entry = sessionHandlers.get(sessionKey);
+    if (!entry) return false;
+    
+    // Ignore stale run events
+    if (entry.runId && payload.runId && payload.runId !== entry.runId) return true;
+
+    const handler = entry.handler;
+    const data = payload.data;
+    if (!data?.toolCallId) return false;
+    
+    const phase = data.phase as string;
+    const toolCallId = data.toolCallId as string;
+    const name = (data.name as string) || "tool";
+    
+    switch (phase) {
+      case "start":
+        handler.onToolStart(toolCallId, name, data.args);
+        break;
+      case "update":
+        handler.onToolUpdate?.(toolCallId, typeof data.partialResult === "string" ? data.partialResult : JSON.stringify(data.partialResult ?? ""));
+        break;
+      case "result":
+        handler.onToolResult(toolCallId, typeof data.result === "string" ? data.result : JSON.stringify(data.result ?? ""));
+        break;
+    }
+    return true;
+  }
+
+  // Handle "thought" stream events from agent
+  if (event.event === "agent") {
+    const payload = event.payload as AgentEventPayload;
+    if (payload?.stream !== "thought" && payload?.stream !== "thinking") return false;
+    
+    const sessionKey = normalizeSessionKey(payload.sessionKey);
+    if (!sessionKey) return false;
+    
+    const entry = sessionHandlers.get(sessionKey);
+    if (!entry) return false;
+    
+    const text = payload.data?.text || payload.data?.content;
+    if (typeof text === "string") {
+      entry.handler.onThinkingDelta?.(text);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+// --- Singleton ---
+
+let instance: GatewayWS | null = null;
+
+export function getGatewayWS(): GatewayWS | null {
+  return instance;
+}
+
+export interface InitGatewayWSOptions {
+  gatewayUrl: string;
+  token: string;
+  onEvent?: (event: GatewayEvent) => void;
+  onConnect?: () => void;
+  onDisconnect?: (reason: string) => void;
+}
+
+export function initGatewayWS(opts: InitGatewayWSOptions): GatewayWS {
+  if (instance) {
+    instance.stop();
+  }
+
+  // Convert HTTP URL to WS URL
+  let wsUrl = opts.gatewayUrl;
+  wsUrl = wsUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+  if (!wsUrl.endsWith("/")) wsUrl += "/";
+
+  console.log(`[GatewayWS] Initializing connection to ${wsUrl}`);
+
+  instance = new GatewayWS({
+    url: wsUrl,
+    token: opts.token,
+    onEvent: opts.onEvent,
+    onConnect: opts.onConnect,
+    onDisconnect: opts.onDisconnect,
+  });
+
+  instance.start();
+  return instance;
+}
+
+// --- Utility: extract text from chat event message ---
+export { extractText };

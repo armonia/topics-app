@@ -1,13 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { ThemeMode } from '../types';
-
-function getStoredTheme(): ThemeMode {
-  try {
-    return (localStorage.getItem('theme') as ThemeMode) || 'system';
-  } catch {
-    return 'system';
-  }
-}
+import type { ThemeMode, WSMessage } from '../types';
+import { useServerState } from './useServerState';
 
 function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
@@ -16,23 +9,24 @@ function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
   return mode;
 }
 
-export function useTheme() {
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme);
-  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => getEffectiveTheme(getStoredTheme()));
+export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () => void) {
+  const [themeMode, setThemeMode] = useServerState<ThemeMode>('theme', 'system', {
+    localStorageKey: 'theme',
+    debounceMs: 300,
+    onMessage,
+  });
+  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => getEffectiveTheme(themeMode));
 
   useEffect(() => {
     const effective = getEffectiveTheme(themeMode);
     setEffectiveTheme(effective);
-    
-    // Apply to document
     document.documentElement.classList.toggle('dark', effective === 'dark');
-    localStorage.setItem('theme', themeMode);
   }, [themeMode]);
 
   // Listen for system theme changes
   useEffect(() => {
     if (themeMode !== 'system') return;
-    
+
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => {
       const effective = getEffectiveTheme('system');
@@ -49,11 +43,11 @@ export function useTheme() {
       if (prev === 'dark') return 'system';
       return 'light';
     });
-  }, []);
+  }, [setThemeMode]);
 
   const setTheme = useCallback((mode: ThemeMode) => {
     setThemeMode(mode);
-  }, []);
+  }, [setThemeMode]);
 
   return { themeMode, effectiveTheme, toggleTheme, setTheme };
 }

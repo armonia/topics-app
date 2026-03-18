@@ -16,6 +16,7 @@ export interface ToolCall {
   status?: 'pending' | 'running' | 'success' | 'error';
   result?: string;
   error?: string;
+  contentOffset?: number;
 }
 
 export interface StoredMessage {
@@ -85,6 +86,9 @@ export interface ErrorResponseOptions {
 }
 
 export interface AppContext {
+  // Gateway WebSocket client (optional — lazy init)
+  gatewayWS?: import("./gateway-ws").GatewayWS;
+
   // Database
   db: Database;
 
