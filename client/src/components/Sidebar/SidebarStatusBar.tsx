@@ -6,6 +6,29 @@ import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 
 declare const __BUILD_TIME__: string;
 
+// Track last code update time — updates on HMR in dev, uses __BUILD_TIME__ in prod
+let _lastUpdateTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
+if (import.meta.hot) {
+  // Update timestamp on every HMR event (dev only)
+  _lastUpdateTime = new Date().toISOString();
+  import.meta.hot.on('vite:afterUpdate', () => {
+    _lastUpdateTime = new Date().toISOString();
+    // Trigger re-render via custom event
+    window.dispatchEvent(new CustomEvent('hmr-update'));
+  });
+}
+
+function useLastChangeTime(): string {
+  const [time, setTime] = useState(_lastUpdateTime);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const handler = () => setTime(new Date().toISOString());
+    window.addEventListener('hmr-update', handler);
+    return () => window.removeEventListener('hmr-update', handler);
+  }, []);
+  return time;
+}
+
 function formatBuildTime(iso: string): string {
   try {
     const d = new Date(iso);
@@ -51,6 +74,7 @@ export function SidebarStatusBar() {
   const { status } = useSystemStatus(true, 60000);
   const gatewayOnline = status?.gateway.online ?? false;
   const latency = status?.gateway.latencyMs;
+  const lastChangeTime = useLastChangeTime();
   const fps = useFps();
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
@@ -98,12 +122,12 @@ export function SidebarStatusBar() {
 
   return (
     <>
-      <div className="flex items-center gap-2 h-7 px-3 border-t border-app-border flex-shrink-0 bg-surface/80">
+      <div className="flex items-center gap-2 h-7 px-3 border-t border-app-border flex-shrink-0 bg-app-bg">
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-          className={`flex items-center gap-1.5 text-[10px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors ${showStatusDropdown ? 'bg-app-hover' : ''}`}
+          className={`flex items-center gap-1.5 text-[10px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
           title="System Status"
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -129,8 +153,8 @@ export function SidebarStatusBar() {
           )}
         </button>
 
-        <span className="ml-auto flex items-center gap-1 text-[10px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) + ' ago' : 'dev'}`}>
-          {typeof __BUILD_TIME__ !== 'undefined' ? formatBuildTime(__BUILD_TIME__) : 'dev'}
+        <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-[10px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' ago' : 'dev'}`}>
+          {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
           <button
             onClick={handleRefresh}
             disabled={refreshing}

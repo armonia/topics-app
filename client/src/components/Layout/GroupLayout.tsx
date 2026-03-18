@@ -12,8 +12,9 @@ interface GroupLayoutProps {
   focusedGroupId: string | null;
   onActivatePane: (groupId: string, paneId: string) => void;
   onClosePane: (groupId: string, paneId: string) => void;
-  onAddPaneToGroup: (groupId: string, type: PaneType) => void;
+  onAddPaneToGroup: (groupId: string, type: PaneType, subType?: string) => void;
   onNewChatInGroup?: (groupId: string) => void;
+  onAddPaneWhenEmpty?: (type: PaneType, subType?: string) => void;
   onReorderGroupPanes?: (groupId: string, newPaneIds: string[]) => void;
   onMovePaneBetweenGroups?: (sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => void;
   onSplitGroup?: (sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => void;
@@ -21,7 +22,7 @@ interface GroupLayoutProps {
   onUpdateRows: (rows: GroupLayoutRow[]) => void;
   onUpdateRowHeights: (heights: number[]) => void;
   renderPane: (pane: Pane, isFocused: boolean) => React.ReactNode;
-  availableTypesForGroup: (groupType: PaneGroupType) => PaneType[];
+  availableTypesForGroup: (groupType: PaneGroupType, groupId: string) => PaneType[];
   contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
   streamingPaneIds?: Set<string>;
@@ -35,7 +36,7 @@ type EdgeZone = 'left' | 'right' | 'top' | 'bottom' | null;
 
 export function GroupLayout({
   panes, groups, rows, rowHeights, focusedGroupId,
-  onActivatePane, onClosePane, onAddPaneToGroup, onNewChatInGroup, onReorderGroupPanes,
+  onActivatePane, onClosePane, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, contextPercent, onContextRingClick, streamingPaneIds, onStopStreaming,
@@ -198,6 +199,36 @@ export function GroupLayout({
     setRowDropTarget(null);
   }, []);
 
+  if (rows.length === 0) {
+    const emptyAvailableTypes = availableTypesForGroup('chat', '');
+    return (
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+        <div className="border-b border-app-border flex-shrink-0">
+          <PaneTabBar
+            panes={[]}
+            activePaneId={null}
+            onActivate={() => {}}
+            onClose={() => {}}
+            onAddPane={(type, subType) => (onAddPaneWhenEmpty ?? (() => {}))(type, subType)}
+            availableTypes={emptyAvailableTypes}
+            onNewChat={onNewChatInGroup ? () => onNewChatInGroup('') : undefined}
+          />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
+          <div className="text-sm">No chats open</div>
+          {onNewChatInGroup && (
+            <button
+              onClick={() => onNewChatInGroup('')}
+              className="px-3 py-1.5 text-xs rounded-md bg-app-surface border border-app-border hover:bg-app-hover transition-colors text-app-text"
+            >
+              New Chat
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" onDragEnd={handleRowDragEnd}>
       {rows.map((row, rowIdx) => {
@@ -206,11 +237,14 @@ export function GroupLayout({
         const isRowDropBottom = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'bottom';
 
         return (
-          <div key={rowIdx} className={`flex flex-col flex-1 min-h-0 ${isDraggingRow ? 'opacity-40' : ''}`}>
+          <div
+            key={rowIdx}
+            className={`flex flex-col min-h-0 ${isDraggingRow ? 'opacity-40' : ''}`}
+            style={{ flex: `${rowHeights[rowIdx] ?? 1 / rows.length} 1 0%` }}
+          >
             <div
               className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
               style={{
-                flex: `${rowHeights[rowIdx] ?? 1 / rows.length} 1 0%`,
                 boxShadow: isRowDropTop ? `inset 0 4px 0 0 var(--primary)` : isRowDropBottom ? `inset 0 -4px 0 0 var(--primary)` : undefined,
               }}
               onDragOver={handleRowDragOver(rowIdx)}
@@ -252,8 +286,8 @@ export function GroupLayout({
                           activePaneId={group.activePaneId}
                           onActivate={(paneId) => onActivatePane(groupId, paneId)}
                           onClose={(paneId) => onClosePane(groupId, paneId)}
-                          onAddPane={(type) => onAddPaneToGroup(groupId, type)}
-                          availableTypes={availableTypesForGroup(group.type)}
+                          onAddPane={(type, subType) => onAddPaneToGroup(groupId, type, subType)}
+                          availableTypes={availableTypesForGroup(group.type, groupId)}
                           groupType={group.type}
                           groupId={groupId}
                           onNewChat={group.type === 'chat' && onNewChatInGroup

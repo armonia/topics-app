@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Settings, Pin, X, ExternalLink, PanelLeft, Layers } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Layers } from 'lucide-react';
+import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
@@ -94,12 +95,18 @@ export function ChatPanel({
 
   return (
     <>
-      <div role="region" aria-label={`${topic.name} panel`} className={`flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
-        {/* Header */}
-        <div className={`flex items-center gap-1.5 ${headerLeft ? 'pr-2' : 'px-2'} h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region`}>
-          {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0" title="Toggle sidebar" aria-label="Toggle sidebar"><PanelLeft size={16} /></button>}
+      <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+        {/* Header — on mobile with tabs: floating overlay with blur for scroll-through effect */}
+        <div className={`flex items-center ${headerLeft
+          ? 'pr-1 h-12 md:h-10 md:border-b md:border-app-border'
+          : 'gap-1.5 px-2 border-b border-app-border h-10'
+        } select-none flex-shrink-0 bg-surface app-drag-region`}>
+          {onToggleSidebar && !headerLeft && <SidebarToggleButton onClick={onToggleSidebar} />}
           {headerLeft ? (
-            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>{headerLeft}</div>
+            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
+              {headerLeft}
+            </div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
               <span className="leading-none flex items-center justify-center w-6 h-6 flex-shrink-0"><TopicIcon name={topic.icon} size={16} color={topic.color || undefined} /></span>

@@ -37,6 +37,9 @@ interface PanelGridProps {
   switchBranch?: (sessionKey: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
   chatError: string | null;
+  expiredMessages?: { sessionKey: string; content: string; timestamp: string; options?: { planMode?: boolean } }[];
+  retryExpired?: (item: { sessionKey: string; content: string; timestamp: string; options?: { planMode?: boolean } }) => void;
+  clearExpired?: () => void;
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
@@ -50,7 +53,7 @@ interface PanelGridProps {
   panelInitialTab?: Record<string, import('../../types').PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
   // Pending pane request for project windows
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
   onNewChatInProject?: (projectPath: string) => void;
@@ -59,11 +62,12 @@ interface PanelGridProps {
   // Pending focus for project tabs (navigate to a topic inside a project)
   pendingProjectFocus?: { projectPath: string; topicId: string } | null;
   onPendingProjectFocusConsumed?: () => void;
-  // Report which topic is active inside the focused project
-  onProjectActiveTopicChange?: (topicId: string | null) => void;
-  // Pending terminal pane request (from App quick-create)
-  pendingTerminalPane?: { sessionId: string; name: string } | null;
-  onPendingTerminalPaneConsumed?: () => void;
+  // Report which topic is active inside a project (keyed by projectPath)
+  onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
+  // Terminal sessions for label resolution
+  terminalSessions?: import('../../types').TerminalSessionInfo[];
+  // Create a new terminal (delegates to App)
+  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
   pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;
@@ -95,6 +99,9 @@ export function PanelGrid({
   switchBranch,
   loadHistory,
   chatError,
+  expiredMessages,
+  retryExpired,
+  clearExpired,
   sendWS,
   onWSMessage,
   onUpdateTopic,
@@ -111,8 +118,8 @@ export function PanelGrid({
   pendingProjectFocus,
   onPendingProjectFocusConsumed,
   onProjectActiveTopicChange,
-  pendingTerminalPane,
-  onPendingTerminalPaneConsumed,
+  terminalSessions,
+  onCreateTerminal,
   pendingBrowserPane,
   onPendingBrowserPaneConsumed,
   onOpenBrowserContextIds,
@@ -163,7 +170,7 @@ export function PanelGrid({
     // Non-solo panels go into main standalone group
     // Also create it when a browser/terminal pane is pending (needs a group to land in)
     const regularPanels = openPanels.filter(id => !soloSet.has(id));
-    if (regularPanels.length > 0 || standaloneHasUtility || pendingBrowserPane || pendingTerminalPane) {
+    if (regularPanels.length > 0 || standaloneHasUtility || pendingBrowserPane) {
       items.push({ key: 'standalone', panelIds: regularPanels });
     }
 
@@ -175,7 +182,7 @@ export function PanelGrid({
     }
 
     return items;
-  }, [openPanels, soloTopicIds, standaloneHasUtility, pendingBrowserPane, pendingTerminalPane]);
+  }, [openPanels, soloTopicIds, standaloneHasUtility, pendingBrowserPane]);
 
   /* ---- Item lookup map ---- */
   const itemMap = useMemo(() => {
@@ -260,11 +267,23 @@ export function PanelGrid({
     });
   }, [gridRows.length]);
 
-  // Persist layout to localStorage
+  // Persist layout to localStorage + server (debounced)
+  const gridSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (gridRows.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ gridRows, gridRowHeights, soloTopicIds }));
+      const data = { gridRows, gridRowHeights, soloTopicIds };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      // Debounced server sync (2s to avoid spam during resize)
+      if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current);
+      gridSaveTimerRef.current = setTimeout(() => {
+        fetch('/api/ui-state/grid-layout', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        }).catch(() => {});
+      }, 2000);
     }
+    return () => { if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current); };
   }, [gridRows, gridRowHeights, soloTopicIds]);
 
   /* ---- Resize via useGridResize ---- */
@@ -614,7 +633,7 @@ export function PanelGrid({
     return (
       <div
         ref={containerRef}
-        className={`flex-1 flex items-center justify-center bg-surface dark:bg-app-bg transition-colors ${
+        className={`flex-1 flex items-center justify-center bg-surface transition-colors ${
           emptyDragOver ? 'bg-primary/5 dark:bg-primary/10' : ''
         }`}
         onDragOver={(e) => {
@@ -747,8 +766,8 @@ export function PanelGrid({
                       pendingProjectFocus={pendingProjectFocus}
                       onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
                       onProjectActiveTopicChange={onProjectActiveTopicChange}
-                      pendingTerminalPane={pendingTerminalPane}
-                      onPendingTerminalPaneConsumed={onPendingTerminalPaneConsumed}
+                      terminalSessions={terminalSessions}
+                      onCreateTerminal={onCreateTerminal}
                       onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}
                       pendingBrowserPane={key === 'standalone' ? pendingBrowserPane : undefined}
                       onPendingBrowserPaneConsumed={key === 'standalone' ? onPendingBrowserPaneConsumed : undefined}
@@ -800,6 +819,28 @@ export function PanelGrid({
         </Fragment>
       ))}
 
+      {/* Expired messages banner */}
+      {expiredMessages && expiredMessages.length > 0 && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[12px] shadow-lg backdrop-blur-sm">
+          <span>{expiredMessages.length} message{expiredMessages.length > 1 ? 's' : ''} not sent</span>
+          {retryExpired && (
+            <button
+              onClick={() => expiredMessages.forEach(m => retryExpired(m))}
+              className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 font-medium transition-colors"
+            >
+              Retry
+            </button>
+          )}
+          {clearExpired && (
+            <button
+              onClick={clearExpired}
+              className="px-1.5 py-0.5 rounded hover:bg-amber-500/20 transition-colors"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

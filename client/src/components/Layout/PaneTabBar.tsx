@@ -220,7 +220,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
-    <div className={className ?? "flex items-center bg-elevated/60 flex-shrink-0 p-1 gap-0.5 min-w-0 app-drag-region"}>
+    <div className={className ?? "flex items-center flex-shrink-0 p-1 gap-0.5 min-w-0 app-drag-region"}>
       {/* Scrollable tab area */}
       <div
         className="flex items-center gap-0.5 min-w-0 overflow-x-auto shrink scrollbar-none p-px max-w-full"

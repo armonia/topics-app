@@ -1,9 +1,14 @@
-import { useCallback, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Bot } from 'lucide-react';
+import { useCallback, useRef, useState, memo } from 'react';
+import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { DND_TYPES } from '@/lib/dndTypes';
 import { TopicIcon } from '@/lib/topicIcons';
+import { DropdownPortal } from '@/components/Shared/DropdownPortal';
+
+const isTouchDevice = typeof window !== 'undefined' && (
+  'ontouchstart' in window || navigator.maxTouchPoints > 0
+);
 
 function relativeTime(dateStr: string): string {
   const diffS = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -95,6 +100,9 @@ export const TopicItem = memo(function TopicItem({
     onSidebarDragStart?.();
   }, [topic, onSidebarDragStart]);
 
+  const overflowRef = useRef<HTMLButtonElement>(null);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+
   const handleArchiveClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     onArchive?.(topic.id, !topic.archived);
@@ -148,7 +156,7 @@ export const TopicItem = memo(function TopicItem({
         }
       }}
       className={cn(
-        'group flex items-center gap-2 min-h-[32px] h-8 pr-2 cursor-pointer text-[12px] font-medium transition-colors duration-100 select-none relative md:text-[13px]',
+        'group flex items-center gap-2 min-h-[32px] h-8 pr-1 cursor-pointer text-[12px] font-medium transition-colors duration-100 select-none relative md:text-[13px]',
         // Focused (panel open and focused): accent bg + left border
         isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
         // Open but not focused
@@ -218,33 +226,67 @@ export const TopicItem = memo(function TopicItem({
           <div className="w-2 h-2 bg-primary rounded-[1px] hidden group-hover/stop:block" />
         </button>
       ) : (
-        /* Time / Archive — occupy the same slot, swap on hover */
-        <span className="flex-shrink-0 flex items-center justify-center w-7 h-7">
-          {/* Relative time — default visible, hidden on group hover */}
-          {topic.updatedAt && (
-            <span
-              className="text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
-              title={new Date(topic.updatedAt).toLocaleString()}
-            >
-              {relativeTime(topic.updatedAt)}
-            </span>
-          )}
-          {/* Archive button — hidden by default, visible on group hover */}
-          {onArchive && (
-            <button
-              onClick={handleArchiveClick}
-              className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-              title={topic.archived ? "Unarchive" : "Archive"}
-              aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
-            >
-              {topic.archived ? (
-                <ArchiveRestore size={12} className="text-app-text-tertiary" />
-              ) : (
-                <Archive size={12} className="text-app-text-tertiary" />
-              )}
-            </button>
-          )}
-        </span>
+        isTouchDevice ? (
+          /* Touch: timestamp always visible + ... button always visible */
+          <>
+            {topic.updatedAt && (
+              <span
+                className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums"
+                title={new Date(topic.updatedAt).toLocaleString()}
+              >
+                {relativeTime(topic.updatedAt)}
+              </span>
+            )}
+            {onArchive && (
+              <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 relative">
+                <button
+                  ref={overflowRef}
+                  onClick={(e) => { e.stopPropagation(); setOverflowOpen(o => !o); }}
+                  className="flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all text-app-text-tertiary hover:text-app-text"
+                  title="More options"
+                  aria-label={`More options for ${topic.name}`}
+                >
+                  <MoreHorizontal size={12} />
+                </button>
+                <DropdownPortal open={overflowOpen} anchorRef={overflowRef} onClose={() => setOverflowOpen(false)}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleArchiveClick(e); setOverflowOpen(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    {topic.archived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
+                    <span>{topic.archived ? 'Unarchive' : 'Archive'}</span>
+                  </button>
+                </DropdownPortal>
+              </span>
+            )}
+          </>
+        ) : (
+          /* Desktop: old swap — timestamp visible at rest, archive button on hover */
+          <span className="flex-shrink-0 flex items-center justify-center w-7 h-7">
+            {topic.updatedAt && (
+              <span
+                className="text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
+                title={new Date(topic.updatedAt).toLocaleString()}
+              >
+                {relativeTime(topic.updatedAt)}
+              </span>
+            )}
+            {onArchive && (
+              <button
+                onClick={handleArchiveClick}
+                className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+                title={topic.archived ? 'Unarchive' : 'Archive'}
+                aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
+              >
+                {topic.archived ? (
+                  <ArchiveRestore size={12} className="text-app-text-tertiary" />
+                ) : (
+                  <Archive size={12} className="text-app-text-tertiary" />
+                )}
+              </button>
+            )}
+          </span>
+        )
       )}
 
       {/* Assigned agents badge */}

@@ -1,8 +1,8 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, TerminalSessionInfo } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
-import { PanelLeft } from 'lucide-react';
+import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
@@ -11,6 +11,7 @@ import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
+import { loadPanelOrder, usePanelOrderPersistence } from '../../hooks/usePanelOrder';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
 
@@ -57,7 +58,7 @@ interface StandaloneChatGroupProps {
   // Cross-panel-type: accept topic drops from project windows
   onAcceptProjectTopicDrop?: (topicId: string) => void;
   // Pending pane request for project tabs
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
   onNewChatInProject?: (projectPath: string) => void;
@@ -65,10 +66,11 @@ interface StandaloneChatGroupProps {
   pendingProjectFocus?: { projectPath: string; topicId: string } | null;
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside the focused project
-  onProjectActiveTopicChange?: (topicId: string | null) => void;
-  // Pending terminal pane request (from App quick-create)
-  pendingTerminalPane?: { sessionId: string; name: string } | null;
-  onPendingTerminalPaneConsumed?: () => void;
+  onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
+  // Terminal sessions for label resolution (from server)
+  terminalSessions?: TerminalSessionInfo[];
+  // Create a new terminal (delegates to App)
+  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
   // Report whether this group has utility panes (browser/terminal)
   onUtilityPaneChange?: (has: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
@@ -91,7 +93,7 @@ export function StandaloneChatGroup({
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
   onProjectActiveTopicChange,
-  pendingTerminalPane, onPendingTerminalPaneConsumed,
+  terminalSessions = [], onCreateTerminal,
   onUtilityPaneChange,
   pendingBrowserPane, onPendingBrowserPaneConsumed,
   onOpenBrowserContextIds,
@@ -99,10 +101,43 @@ export function StandaloneChatGroup({
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
   // Track order locally for tab reordering
-  const [orderedIds, setOrderedIds] = useState<string[]>(topicIds);
+  const [orderedIds, setOrderedIds] = useState<string[]>(() => {
+    const saved = loadPanelOrder();
+    if (saved.order.length > 0) {
+      // Merge saved order with current topicIds: keep saved order for known IDs, append new ones
+      const savedSet = new Set(saved.order);
+      const existing = saved.order.filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id));
+      const added = topicIds.filter(id => !savedSet.has(id));
+      return [...existing, ...added];
+    }
+    return topicIds;
+  });
   const [panelDragOver, setPanelDragOver] = useState(false);
   // Track which panes have been pinned (not preview)
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    const saved = loadPanelOrder();
+    return new Set(saved.pinned);
+  });
+  // Persist tab order and pinned state
+  const pinnedArray = useMemo(() => Array.from(pinnedIds), [pinnedIds]);
+  usePanelOrderPersistence(
+    orderedIds,
+    pinnedArray,
+    useCallback((state) => {
+      if (state.order.length > 0) {
+        setOrderedIds(prev => {
+          // Merge external update with current local panes (browser, session-viewer)
+          const localOnly = prev.filter(id => (isBrowserPaneId(id) || isSessionViewerPaneId(id)) && !state.order.includes(id));
+          return [...state.order, ...localOnly];
+        });
+      }
+      if (state.pinned.length > 0) {
+        setPinnedIds(new Set(state.pinned));
+      }
+    }, []),
+    onWSMessage,
+  );
+
   // Effective pinned set: always includes project & utility panes (they must never be replaced)
   const effectivePinnedIds = useMemo(() => {
     const s = new Set(pinnedIds);
@@ -123,8 +158,14 @@ export function StandaloneChatGroup({
   // Browser navigate URL (from WS)
   const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
 
-  // Terminal pane labels (paneId → display name)
-  const [terminalLabels, setTerminalLabels] = useState<Record<string, string>>({});
+  // Terminal pane labels derived from server sessions
+  const terminalLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of terminalSessions) {
+      map[`terminal:${s.id}`] = s.name;
+    }
+    return map;
+  }, [terminalSessions]);
 
   // Sync when topicIds change externally (add/remove)
   // Handles preview replacement: new tab replaces the existing preview tab
@@ -134,10 +175,10 @@ export function StandaloneChatGroup({
     prevTopicCountRef.current = topicIds.length;
 
     setOrderedIds(prev => {
-      // Keep browser/terminal/session-viewer panes (they are managed locally, not via topicIds)
+      // Keep browser/session-viewer panes (they are managed locally, not via topicIds)
+      // Terminal panes are managed via topicIds (openPanels) for persistence
       const existing = prev.filter(id => {
         if (isBrowserPaneId(id)) return true;
-        if (isTerminalPaneId(id)) return true;
         if (isSessionViewerPaneId(id)) return true;
         return topicIds.includes(id);
       });
@@ -146,7 +187,7 @@ export function StandaloneChatGroup({
       // Preview replacement: if a single new tab was added, replace existing preview
       if (wasAdded && added.length === 1) {
         const previewId = findPreviewInList(existing, pinnedIdsRef.current, added[0]);
-        if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isSessionViewerPaneId(previewId)) {
+        if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isSessionViewerPaneId(previewId) && !isDraftPaneId(previewId)) {
           pendingCloseRef.current = previewId;
           return replaceInList(existing, previewId, added[0]);
         }
@@ -156,7 +197,7 @@ export function StandaloneChatGroup({
     });
     // Cleanup pinnedIds for removed topics (keep browser panes)
     setPinnedIds(prev => {
-      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id)));
+      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id)));
       return next.size === prev.size ? prev : next;
     });
   }, [topicIds]);
@@ -231,7 +272,7 @@ export function StandaloneChatGroup({
 
   // Report utility pane status to parent (PanelGrid uses this to keep standalone alive)
   const hasUtilityPanes = useMemo(
-    () => orderedIds.some(id => isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id)),
+    () => orderedIds.some(id => isBrowserPaneId(id) || isSessionViewerPaneId(id)),
     [orderedIds],
   );
   useEffect(() => {
@@ -255,7 +296,18 @@ export function StandaloneChatGroup({
     const unsub = onWSMessage((msg: any) => {
       if (msg.type === 'browser:navigate' && msg.url) {
         if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
-        setBrowserNavigateUrl(msg.url);
+        // Rewrite localhost URLs to use the current hostname (supports Tailscale / remote access)
+        let navigateUrl: string = msg.url;
+        try {
+          const parsed = new URL(navigateUrl);
+          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+            parsed.hostname = window.location.hostname;
+            // Keep protocol consistent with current page
+            parsed.protocol = window.location.protocol;
+            navigateUrl = parsed.toString();
+          }
+        } catch { /* not a valid URL, leave as-is */ }
+        setBrowserNavigateUrl(navigateUrl);
         setOrderedIds(prev => {
           if (msg.topicId && !prev.includes(msg.topicId)) return prev;
           const existing = prev.find(id => isBrowserPaneId(id));
@@ -289,23 +341,12 @@ export function StandaloneChatGroup({
     }
   }, [activePaneId, panelInitialTab, onPanelInitialTabConsumed, onFocusPanel]);
 
-  // Consume pending terminal pane request (from App quick-create)
-  useEffect(() => {
-    if (pendingTerminalPane) {
-      onPendingTerminalPaneConsumed?.();
-      const newId = createPaneId('terminal', pendingTerminalPane.sessionId);
-      setTerminalLabels(prev => ({ ...prev, [newId]: pendingTerminalPane.name }));
-      setOrderedIds(prev => {
-        if (prev.includes(newId)) return prev;
-        return [...prev, newId];
-      });
-      setTimeout(() => onFocusPanel(newId), 0);
-    }
-  }, [pendingTerminalPane, onPendingTerminalPaneConsumed, onFocusPanel]);
-
   // Consume pending browser pane request (from sidebar — contextId string)
   useEffect(() => {
     if (pendingBrowserPane) {
+      // Notify parent that we have utility panes BEFORE consuming the pending request,
+      // so PanelGrid keeps the standalone group alive across the re-render
+      onUtilityPaneChange?.(true);
       onPendingBrowserPaneConsumed?.();
       const targetId = createPaneId('browser', pendingBrowserPane);
       setOrderedIds(prev => {
@@ -414,35 +455,21 @@ export function StandaloneChatGroup({
       }
       const newId = createPaneId('browser');
       setOrderedIds(prev => [...prev, newId]);
-      onFocusPanel(newId);
+      setTimeout(() => onFocusPanel(newId), 0);
     } else if (type === 'terminal') {
-      try {
-        const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
-        const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
-        const body: Record<string, unknown> = { type: termType, name };
-        if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
-        const res = await fetch('/api/terminal/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const newId = createPaneId('terminal', data.id);
-        setTerminalLabels(prev => ({ ...prev, [newId]: data.name || name }));
-        setOrderedIds(prev => [...prev, newId]);
-        onFocusPanel(newId);
-      } catch {}
+      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
+      onCreateTerminal?.(termType, claudeSkipPermissions);
     }
-  }, [orderedIds, onFocusPanel, claudeSkipPermissions]);
+  }, [orderedIds, onFocusPanel, claudeSkipPermissions, onCreateTerminal]);
 
   // Close handler: support closing browser/terminal panes locally (they're not in topicIds)
   const handleClosePane = useCallback((paneId: string) => {
     if (isBrowserPaneId(paneId)) {
       setOrderedIds(prev => prev.filter(id => id !== paneId));
-      // Destroy server browser context
-      if (browserContextIdRef.current) {
-        fetch(`/api/browsers/${encodeURIComponent(browserContextIdRef.current)}`, { method: 'DELETE' }).catch(() => {});
+      // Destroy THIS pane's specific server browser context
+      const paneContextId = getBrowserContextFromPaneId(paneId);
+      if (paneContextId) {
+        fetch(`/api/browsers/${encodeURIComponent(paneContextId)}`, { method: 'DELETE' }).catch(() => {});
       }
       // If the closed pane was active, focus the first remaining
       if (activePaneId === paneId) {
@@ -457,20 +484,10 @@ export function StandaloneChatGroup({
       }
     } else if (isTerminalPaneId(paneId)) {
       const sessionId = getTerminalSessionFromPaneId(paneId);
-      setOrderedIds(prev => prev.filter(id => id !== paneId));
-      setTerminalLabels(prev => {
-        const next = { ...prev };
-        delete next[paneId];
-        return next;
-      });
       if (sessionId) {
         fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
       }
-      // If the closed pane was active, focus the first remaining
-      if (activePaneId === paneId) {
-        const remaining = orderedIds.filter(id => id !== paneId);
-        if (remaining.length > 0) onFocusPanel(remaining[0]);
-      }
+      onClosePanel(paneId);
     } else {
       onClosePanel(paneId);
     }
@@ -598,10 +615,7 @@ export function StandaloneChatGroup({
   if (!activeTopic && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer) return null;
 
   // Available pane types for the "+" menu
-  // Don't offer browser/terminal when a project pane exists (projects manage their own)
-  const hasProjectPane = orderedIds.some(id => isProjectPaneId(id));
   const availableTypes: PaneType[] = (() => {
-    if (hasProjectPane) return []; // Project panes have their own "+" with browser/terminal/git
     const types: PaneType[] = ['browser', 'terminal'];
     // Only offer types that aren't already open (singleton check)
     return types.filter(t => {
@@ -613,7 +627,7 @@ export function StandaloneChatGroup({
   // Tab bar rendered inline in header
   const tabBar = (
     <PaneTabBar
-      className="flex-1 flex items-center bg-elevated/60 p-1 gap-0.5 min-w-0 app-drag-region"
+      className="flex-1 flex items-center py-1 pr-1 gap-0.5 min-w-0 app-drag-region"
       panes={panes}
       activePaneId={activePaneId}
       onActivate={(paneId) => {
@@ -655,8 +669,8 @@ export function StandaloneChatGroup({
         {activeIsTerminal ? (
           /* ---- Terminal pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+            <div className="flex items-center pr-1 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <Suspense fallback={LazySpinner}>
@@ -666,8 +680,8 @@ export function StandaloneChatGroup({
         ) : activeIsSessionViewer && activeSessionKey ? (
           /* ---- Session viewer pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+            <div className="flex items-center pr-1 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <Suspense fallback={LazySpinner}>
@@ -677,8 +691,8 @@ export function StandaloneChatGroup({
         ) : activeIsBrowser ? (
           /* ---- Browser pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+            <div className="flex items-center pr-1 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <Suspense fallback={LazySpinner}>
@@ -692,8 +706,8 @@ export function StandaloneChatGroup({
         ) : activeIsProject && activeProjectPath ? (
           /* ---- Project pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+            <div className="flex items-center pr-1 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <ProjectWindowPane
@@ -716,19 +730,20 @@ export function StandaloneChatGroup({
               onWSMessage={onWSMessage}
               onUpdateTopic={onUpdateTopic}
               pendingPane={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.type : undefined}
+              pendingTerminalSessionId={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.terminalSessionId : undefined}
               onPendingPaneConsumed={onPendingProjectPaneConsumed}
               onNewChat={onNewChatInProject ? () => onNewChatInProject(activeProjectPath) : undefined}
               pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === activeProjectPath ? pendingProjectFocus.topicId : null}
               onPendingFocusConsumed={onPendingProjectFocusConsumed}
-              onActiveTopicChange={onProjectActiveTopicChange}
+              onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(activeProjectPath, topicId) : undefined}
             />
           </div>
         ) : activeIsUtility ? (
           /* ---- Utility pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             {/* Header with tab bar */}
-            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-8 h-8 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+            <div className="flex items-center pr-1 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             {/* Utility panel body */}
@@ -795,8 +810,8 @@ export function StandaloneChatGroup({
         ) : (
           /* ---- Empty state with header ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center gap-1.5 pr-2 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
-              {onToggleSidebar && <button onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0"><PanelLeft size={16} /></button>}
+            <div className="flex items-center pr-1 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region">
+              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-x-auto overflow-y-visible app-no-drag">{tabBar}</div>
             </div>
             <div className="flex-1" />

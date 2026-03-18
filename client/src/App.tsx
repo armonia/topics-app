@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Settings as SettingsIcon, PanelLeft, X, MessageSquare, TerminalSquare, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe } from 'lucide-react';
+import { Plus, Search, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe } from 'lucide-react';
+import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { ClaudeIcon } from './components/Shared/ClaudeIcon';
-import type { Topic, CreateTopicRequest, AppSettings, SidebarTab } from './types';
+import type { Topic, CreateTopicRequest, AppSettings, SidebarTab, TerminalSessionInfo } from './types';
 import { DEFAULT_TOPIC_ICON } from './lib/topicIcons';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
@@ -10,6 +11,9 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
+import { useMobile } from './hooks/useMobile';
+import { useStorageSync } from './hooks/useStorageSync';
+import { useSidebarState } from './hooks/useSidebarState';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { ContextMenu } from './components/Modals/ContextMenu';
@@ -20,8 +24,9 @@ import { ToastProvider } from './components/Shared/Toast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { DropdownPortal } from './components/Shared/DropdownPortal';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
-import { createPaneId, isProjectPaneId, isBrowserPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId } from './lib/paneConfig';
+import { createPaneId, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId, getProjectPathFromPaneId } from './lib/paneConfig';
 import { generateUUID } from './utils/uuid';
 import { globalBoardApi } from './lib/api';
 
@@ -54,10 +59,20 @@ const OPEN_PANELS_KEY = 'topics-open-panels';
 const FOCUSED_PANEL_KEY = 'topics-focused-panel';
 const loadSavedPanels = (): string[] => {
   try {
-    const saved = localStorage.getItem(OPEN_PANELS_KEY);
+    // Try localStorage first, fall back to sessionStorage (Safari PWA reliability)
+    const saved = localStorage.getItem(OPEN_PANELS_KEY) || sessionStorage.getItem(OPEN_PANELS_KEY);
     const panels: string[] = saved ? JSON.parse(saved) : [];
-    // Filter out draft panes — they don't persist across sessions
-    return panels.filter(id => !id.startsWith('draft:'));
+    // Keep drafts that have valid metadata and are < 24h old
+    const draftMetaRaw = localStorage.getItem('draft-meta');
+    const savedDraftMeta = draftMetaRaw ? JSON.parse(draftMetaRaw) : {};
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    return panels.filter(id => {
+      if (!id.startsWith('draft:')) return true;
+      const meta = savedDraftMeta[id];
+      if (!meta?.createdAt) return false;
+      return (now - new Date(meta.createdAt).getTime()) < TWENTY_FOUR_HOURS;
+    });
   } catch {
     return [];
   }
@@ -65,24 +80,82 @@ const loadSavedPanels = (): string[] => {
 
 const loadSavedFocused = (): string | null => {
   try {
-    return localStorage.getItem(FOCUSED_PANEL_KEY);
+    return localStorage.getItem(FOCUSED_PANEL_KEY) || sessionStorage.getItem(FOCUSED_PANEL_KEY);
   } catch {
     return null;
   }
 };
 
+let panelsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
 const savePanelsState = (panels: string[], focused: string | null) => {
   try {
-    localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(panels));
+    const panelsJson = JSON.stringify(panels);
+    localStorage.setItem(OPEN_PANELS_KEY, panelsJson);
+    sessionStorage.setItem(OPEN_PANELS_KEY, panelsJson);
     if (focused) {
       localStorage.setItem(FOCUSED_PANEL_KEY, focused);
+      sessionStorage.setItem(FOCUSED_PANEL_KEY, focused);
     } else {
       localStorage.removeItem(FOCUSED_PANEL_KEY);
+      sessionStorage.removeItem(FOCUSED_PANEL_KEY);
     }
   } catch {
     // Ignore storage errors
   }
+
+  // Debounced server sync (2s)
+  if (panelsSaveTimer) clearTimeout(panelsSaveTimer);
+  panelsSaveTimer = setTimeout(() => {
+    fetch('/api/ui-state/panels', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ openPanels: panels, focusedPanelId: focused }),
+    }).catch(() => {});
+  }, 2000);
 };
+
+export function _SafeAreaFill() {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 'env(safe-area-inset-bottom, 0px)',
+        background: 'var(--bg-surface)',
+        zIndex: 99998,
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}
+
+export function _SafeAreaDebug() {
+  const [info, setInfo] = useState({ safe: '...', bodyBg: '...', appBg: '...' });
+  useEffect(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;bottom:0;left:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;';
+    document.body.appendChild(probe);
+    requestAnimationFrame(() => {
+      const safe = probe.offsetHeight;
+      const bodyBg = getComputedStyle(document.body).backgroundColor;
+      const appEl = document.getElementById('root')?.firstElementChild as HTMLElement;
+      const appBg = appEl ? getComputedStyle(appEl).backgroundColor : '?';
+      document.body.removeChild(probe);
+      setInfo({ safe: safe + 'px', bodyBg, appBg });
+    });
+  }, []);
+  return (
+    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 99999, pointerEvents: 'none', padding: '2px 6px', background: 'rgba(200,0,0,0.9)', color: 'white', fontSize: '10px', fontFamily: 'monospace', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+      <span>safe: {info.safe}</span>
+      <span>body: {info.bodyBg}</span>
+      <span>app: {info.appBg}</span>
+      <span>dvh: {window.innerHeight}px</span>
+    </div>
+  );
+}
 
 function App() {
   // Unique ID for this window (for cross-window drag coordination)
@@ -102,6 +175,9 @@ function App() {
     (window.navigator as any).standalone === true
   );
   
+  // Touch detection
+  const { isTouch } = useMobile();
+
   // Electron detection
   const isElectron = !!(window as any).electronAPI?.isElectron;
   
@@ -127,23 +203,89 @@ function App() {
     }
   }, [openPanels, focusedPanelId, isDetached]);
 
+  // Cross-tab sync for panels via storage events
+  useStorageSync(OPEN_PANELS_KEY, useCallback((panels: string[]) => {
+    if (!isDetached && Array.isArray(panels)) setOpenPanels(panels);
+  }, [isDetached]));
+  useStorageSync(FOCUSED_PANEL_KEY, useCallback((focused: string) => {
+    if (!isDetached) setFocusedPanelId(focused);
+  }, [isDetached]));
+
+  // Save state on visibility change (Safari PWA doesn't always fire beforeunload)
+  useEffect(() => {
+    if (isDetached) return;
+    const saveOnHide = () => {
+      if (document.visibilityState === 'hidden') {
+        savePanelsState(openPanels, focusedPanelId);
+      }
+    };
+    document.addEventListener('visibilitychange', saveOnHide);
+    window.addEventListener('pagehide', () => savePanelsState(openPanels, focusedPanelId));
+    return () => {
+      document.removeEventListener('visibilitychange', saveOnHide);
+    };
+  }, [openPanels, focusedPanelId, isDetached]);
+
+  // Track topic switches initiated by this client (so topic:switch:complete only affects own switches)
+  const ownTopicSwitchesRef = useRef<Set<string>>(new Set());
+
   // Pending focus for a topic inside a project tab
   const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectPath: string; topicId: string } | null>(null);
-  // Active topic inside the focused project (for sidebar highlighting)
-  const [focusedProjectTopicId, setFocusedProjectTopicId] = useState<string | null>(null);
+  // Active topic per project (for sidebar highlighting) — keyed by projectPath
+  const [projectActiveTopics, setProjectActiveTopics] = useState<Record<string, string | null>>({});
+  const handleProjectActiveTopicChange = useCallback((projectPath: string, topicId: string | null) => {
+    setProjectActiveTopics(prev => prev[projectPath] === topicId ? prev : { ...prev, [projectPath]: topicId });
+  }, []);
 
   // Cross-window drag state
   const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
   const [externalDragSourceWindow, setExternalDragSourceWindow] = useState<string | null>(null);
 
   // Pending pane request (e.g. add terminal to a project from sidebar)
-  const [pendingProjectPane, setPendingProjectPane] = useState<{ projectPath: string; type: import('./types').PaneType } | null>(null);
-  // Pending terminal pane request (from quick-create)
-  const [pendingTerminalPane, setPendingTerminalPane] = useState<{ sessionId: string; name: string } | null>(null);
+  const [pendingProjectPane, setPendingProjectPane] = useState<{ projectPath: string; type: import('./types').PaneType; terminalSessionId?: string } | null>(null);
   // Initial tab override for standalone panels (e.g. "New Terminal" opens with terminal tab)
   const [panelInitialTab, setPanelInitialTab] = useState<Record<string, import('./types').PanelTab>>({});
   // Draft chat state: tracks metadata for draft panes (not yet persisted on server)
-  const [draftMeta, setDraftMeta] = useState<Record<string, { projectPath?: string }>>({});
+  const [draftMeta, setDraftMeta] = useState<Record<string, { projectPath?: string; createdAt?: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('draft-meta');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+
+  // Persist draftMeta to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('draft-meta', JSON.stringify(draftMeta)); } catch {}
+  }, [draftMeta]);
+
+  // Terminal sessions state (fetched from server, updated via WS)
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>([]);
+  const terminalSessionsLoaded = useRef(false);
+  const fetchTerminalSessions = useCallback(() => {
+    fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
+      terminalSessionsLoaded.current = true;
+      setTerminalSessions(data);
+    }).catch(() => {});
+  }, []);
+
+  // Cleanup drafts > 24h on mount
+  useEffect(() => {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    setDraftMeta(prev => {
+      const next: typeof prev = {};
+      let changed = false;
+      for (const [id, meta] of Object.entries(prev)) {
+        if (meta.createdAt && (now - new Date(meta.createdAt).getTime()) >= TWENTY_FOUR_HOURS) {
+          changed = true;
+          try { localStorage.removeItem(`draft-content-${id}`); } catch {}
+        } else {
+          next[id] = meta;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
@@ -154,8 +296,7 @@ function App() {
   const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
-  const newMenuRef = useRef<HTMLDivElement>(null);
-  const newMenuDropdownRef = useRef<HTMLDivElement>(null);
+  const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
@@ -163,21 +304,6 @@ function App() {
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const [newMenuPos, setNewMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
-
-  // Close new menu on outside click or Escape
-  useEffect(() => {
-    if (!showNewMenu) return;
-    const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (newMenuRef.current?.contains(t) || newMenuDropdownRef.current?.contains(t)) return;
-      setShowNewMenu(false);
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowNewMenu(false); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k, true);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
-  }, [showNewMenu]);
 
   // Close topics menu on outside click or Escape
   useEffect(() => {
@@ -209,6 +335,11 @@ function App() {
 
   // App settings
   const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);
+
+  // Cross-tab sync for settings
+  useStorageSync('app-settings', useCallback((newSettings: AppSettings) => {
+    if (newSettings) setAppSettings(newSettings);
+  }, []));
 
   // Sidebar resize state - collapsed by default in detached windows and mobile
   const [sidebarWidth, setSidebarWidth] = useState(() => appSettings.sidebarWidth || 256);
@@ -326,6 +457,7 @@ function App() {
     workspaceProjects,
     loading: topicsLoading,
     error: topicsError,
+    loadTopics,
     createTopic,
     updateTopic,
     archiveTopic,
@@ -338,7 +470,7 @@ function App() {
     if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
       const projectPanesToAdd: string[] = [];
       const validPanels = openPanels.filter(id => {
-        if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id) || isDraftPaneId(id)) return true;
+        if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isDraftPaneId(id)) return true;
         const topic = topics[id];
         if (!topic || topic.archived) return false;
         // Topic linked to a project → remove from standalone, ensure project pane is open
@@ -385,8 +517,12 @@ function App() {
     appendMediaToLastAssistant,
     clearSession,
     drainQueue,
+    expiredMessages,
+    retryExpired,
+    clearExpired,
     onWSMessage: chatStreamHandler,
     error: chatError,
+    isOwnStream,
   } = useChat();
 
   const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage } = useWebSocket();
@@ -396,15 +532,22 @@ function App() {
     return onWSMessage(chatStreamHandler);
   }, [onWSMessage, chatStreamHandler]);
 
-  // Drain outbound message queue when WS reconnects
+  // Drain outbound message queue and reload open panel histories when WS reconnects
   const prevWsStatus = useRef(wsStatus);
   useEffect(() => {
     if (prevWsStatus.current !== 'connected' && wsStatus === 'connected') {
       drainQueue();
+      // Re-fetch message history for all open topics to clear stale partial/failed states
+      for (const panelId of openPanels) {
+        const topic = topics[panelId];
+        if (topic) {
+          loadHistory(topic.sessionKey);
+        }
+      }
     }
     prevWsStatus.current = wsStatus;
-  }, [wsStatus, drainQueue]);
-  const { themeMode, toggleTheme, setTheme } = useTheme();
+  }, [wsStatus, drainQueue, openPanels, topics, loadHistory]);
+  const { themeMode, toggleTheme, setTheme } = useTheme(onWSMessage);
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: true });
   const agentLiveCount = activeSessions.length + idleSessions.length;
 
@@ -437,18 +580,54 @@ function App() {
     });
   }, [onWSMessage]);
 
+  // Fetch terminal sessions + reload topics on mount + WS reconnect
+  useEffect(() => { fetchTerminalSessions(); }, [fetchTerminalSessions]);
+  useEffect(() => {
+    if (wsStatus === 'connected') {
+      fetchTerminalSessions();
+      loadTopics();
+    }
+  }, [wsStatus, fetchTerminalSessions, loadTopics]);
+  // Keep terminal sessions in sync via WS
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type === 'terminal:sessions' && Array.isArray(msg.sessions)) {
+        setTerminalSessions(msg.sessions as TerminalSessionInfo[]);
+      }
+    });
+  }, [onWSMessage]);
+
+  // Clean stale terminal panes from openPanels when sessions change (skip until first fetch)
+  useEffect(() => {
+    if (!terminalSessionsLoaded.current) return;
+    const sessionIds = new Set(terminalSessions.map(s => s.id));
+    setOpenPanels(prev => {
+      const filtered = prev.filter(id => {
+        if (!id.startsWith('terminal:')) return true;
+        return sessionIds.has(id.slice('terminal:'.length));
+      });
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [terminalSessions]);
+
   // Browser sidebar section state
   const [browserContextCount, setBrowserContextCount] = useState(0);
-  const [browserExpanded, setBrowserExpanded] = useState(false);
+
   const [pendingBrowserPane, setPendingBrowserPane] = useState<string | null>(null);
   const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(null), []);
+  const openBrowserPane = useCallback((contextId: string) => {
+    setPendingBrowserPane(contextId);
+    if (isMobile) {
+      setSidebarCollapsed(true);
+    }
+  }, [isMobile]);
   const [openBrowserContextIds, setOpenBrowserContextIds] = useState<string[]>([]);
   const focusedBrowserContextId = focusedPanelId ? getBrowserContextFromPaneId(focusedPanelId) : null;
   useEffect(() => {
     fetch('/api/browser/status').then(r => r.ok ? r.json() : null).then(data => {
       if (data?.details?.length) {
         setBrowserContextCount(data.details.length);
-        setBrowserExpanded(true);
+        if (!sidebar.browserExpanded) sidebar.setBrowserExpanded(true);
       }
     }).catch(() => {});
   }, []);
@@ -540,7 +719,13 @@ function App() {
       }
       
       // Notifications for messages in non-focused topics
-      if (msg.type === 'message:new' && msg.topicId !== focusedPanelId) {
+      // Rules: only assistant messages, only when tab is not visible, only when topic is not focused
+      if (
+        msg.type === 'message:new' &&
+        msg.role === 'assistant' &&
+        msg.topicId !== focusedPanelId &&
+        document.visibilityState === 'hidden'
+      ) {
         if ('Notification' in window && Notification.permission === 'granted') {
           const topic = topics[msg.topicId];
           if (topic) {
@@ -552,18 +737,27 @@ function App() {
         }
       }
       // Handle topic auto-switch: open target panel (messages move happens on :complete)
+      // Only handle if this client initiated the stream (prevents ghost panels on LAN clients)
       if (msg.type === 'topic:switch' && msg.toTopicId) {
-        const toId = msg.toTopicId as string;
-        // Open target panel immediately (source stays until :complete removes messages)
-        if (!openPanels.includes(toId)) {
-          setOpenPanels(prev => [...prev, toId]);
+        const fromSK = msg.fromSessionKey as string;
+        if (!fromSK || isOwnStream(fromSK)) {
+          const toId = msg.toTopicId as string;
+          // Track this as our own switch so topic:switch:complete also applies
+          if (fromSK) ownTopicSwitchesRef.current.add(fromSK);
+          // Open target panel immediately (source stays until :complete removes messages)
+          if (!openPanels.includes(toId)) {
+            setOpenPanels(prev => [...prev, toId]);
+          }
+          setFocusedPanelId(toId);
         }
-        setFocusedPanelId(toId);
       }
       // Handle topic switch complete: move messages between sessions and close source
+      // Only handle if we previously processed topic:switch for this session
       if (msg.type === 'topic:switch:complete' && msg.fromSessionKey && msg.toSessionKey) {
-        const fromId = msg.fromTopicId as string;
         const fromSK = msg.fromSessionKey as string;
+        if (!ownTopicSwitchesRef.current.has(fromSK)) return;
+        ownTopicSwitchesRef.current.delete(fromSK);
+        const fromId = msg.fromTopicId as string;
         const toSK = msg.toSessionKey as string;
         const userContent = msg.userContent as string;
         const assistantContent = msg.assistantContent as string;
@@ -830,7 +1024,7 @@ function App() {
     }
     // Standalone: open a draft pane (no API call until first message)
     const draftId = createDraftPaneId();
-    setDraftMeta(prev => ({ ...prev, [draftId]: {} }));
+    setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
     openPanel(draftId, 'permanent', true);
     return null;
   };
@@ -854,6 +1048,7 @@ function App() {
     setDraftMeta(prev => {
       const next = { ...prev };
       delete next[draftId];
+      try { localStorage.removeItem(`draft-content-${draftId}`); } catch {}
       return next;
     });
     // Send the first message with the real session key
@@ -861,7 +1056,7 @@ function App() {
   }, [draftMeta, createTopic, focusedPanelId, sendMessage]);
 
   // Quick-create standalone terminal (creates a terminal session and adds as pane)
-  const handleQuickCreateTerminal = async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
+  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
     try {
       const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
       const body: Record<string, unknown> = { type: termType, name };
@@ -873,9 +1068,49 @@ function App() {
       });
       if (!res.ok) return;
       const data = await res.json();
-      setPendingTerminalPane({ sessionId: data.id, name: data.name || name });
+      const paneId = createPaneId('terminal', data.id);
+      // Optimistic update so label is available immediately
+      setTerminalSessions(prev => prev.some(s => s.id === data.id) ? prev : [...prev, { id: data.id, name: data.name || name, createdAt: data.createdAt, cwd: data.cwd, command: data.command, clients: 0, topicId: data.topicId, type: data.type }]);
+      setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
+      setFocusedPanelId(paneId);
+      if (isMobile) setSidebarCollapsed(true);
     } catch {}
-  };
+  }, [isMobile]);
+
+  // Close a terminal session from the sidebar
+  const handleCloseTerminal = useCallback(async (sessionId: string) => {
+    fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+    setTerminalSessions(prev => prev.filter(s => s.id !== sessionId));
+    const paneId = createPaneId('terminal', sessionId);
+    setOpenPanels(prev => prev.filter(p => p !== paneId));
+  }, []);
+
+  // Open an existing terminal session from the sidebar (reattach)
+  const handleTerminalClick = useCallback((sessionId: string, _sessionName: string) => {
+    // Check if this terminal belongs to a project (cwd matches a project path)
+    const session = terminalSessions.find(s => s.id === sessionId);
+    if (session?.cwd) {
+      // Find an open project pane whose path matches the terminal's cwd
+      const projectPaneId = openPanels.find(id => {
+        if (!isProjectPaneId(id)) return false;
+        const projectPath = getProjectPathFromPaneId(id);
+        return projectPath === session.cwd;
+      });
+      if (projectPaneId) {
+        const projectPath = getProjectPathFromPaneId(projectPaneId)!;
+        setFocusedPanelId(projectPaneId);
+        setPendingProjectPane({ projectPath, type: 'terminal' as import('./types').PaneType, terminalSessionId: sessionId });
+        if (isMobile) setSidebarCollapsed(true);
+        return;
+      }
+    }
+    const paneId = createPaneId('terminal', sessionId);
+    if (!openPanels.includes(paneId)) {
+      setOpenPanels(prev => [...prev, paneId]);
+    }
+    setFocusedPanelId(paneId);
+    if (isMobile) setSidebarCollapsed(true);
+  }, [openPanels, isMobile, terminalSessions]);
 
   // Add a non-chat pane (terminal, browser) to a project window
   const handleAddProjectPane = useCallback((projectPath: string, type: import('./types').PaneType) => {
@@ -911,17 +1146,8 @@ function App() {
 
   // Sidebar state
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const sidebar = useSidebarState(onWSMessage);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; topic: Topic } | null>(null);
-
-  const handleToggleNode = useCallback((topicId: string) => {
-    setExpandedNodes(prev => {
-      const next = new Set(prev);
-      if (next.has(topicId)) next.delete(topicId);
-      else next.add(topicId);
-      return next;
-    });
-  }, []);
 
   const getChildren = useCallback((parentId: string | null): Topic[] => {
     // Don't filter archived here - let the caller decide (renderLevel handles it)
@@ -1036,6 +1262,7 @@ function App() {
         fontSize: `${appSettings.fontSize}px`,
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
+
       }}
     >
       {/* Skip to main content link for keyboard users */}
@@ -1064,10 +1291,10 @@ function App() {
         style={{ 
           width: isMobile ? (sidebarCollapsed ? 0 : '280px') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
+          paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined,
         }}
       >
-        {/* Safe area spacer for PWA notch */}
-        {isPWA && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0 }} />}
+
         
         {/* Header - draggable for window move */}
         <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${'h-10'}`}>
@@ -1151,24 +1378,16 @@ function App() {
             >
               <Radio size={14} />
             </button>
-            <div ref={newMenuRef} className="flex items-center gap-1">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!showNewMenu) {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setNewMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-                  }
-                  setShowNewMenu(!showNewMenu);
-                }}
-                className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
-                style={{ pointerEvents: 'auto' }}
-                title="New (⌘N)"
-                aria-label="New"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
+            <button
+              ref={newMenuBtnRef}
+              onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
+              className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+              style={{ pointerEvents: 'auto' }}
+              title="New (⌘N)"
+              aria-label="New"
+            >
+              <Plus size={14} />
+            </button>
           </div>
         </div>
 
@@ -1199,10 +1418,10 @@ function App() {
               topics={topics}
               workspaceProjects={workspaceProjects}
               searchQuery={searchQuery}
-              expandedNodes={expandedNodes}
-              onToggleNode={handleToggleNode}
+              expandedNodes={sidebar.expandedNodes}
+              onToggleNode={sidebar.toggleNode}
               focusedTopicId={focusedPanelId}
-              focusedProjectTopicId={focusedProjectTopicId}
+              projectActiveTopics={projectActiveTopics}
               previewPanelId={previewPanelId}
               openPanels={openPanels}
               onTopicClick={handleTopicClick}
@@ -1220,6 +1439,22 @@ function App() {
               stopSession={stopSession}
               onOpenProjectBoard={handleOpenProjectBoard}
               boardTaskCounts={boardTaskCounts}
+              onNewChat={() => handleQuickCreateTopic()}
+              onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
+              terminalSessions={terminalSessions}
+              onTerminalClick={handleTerminalClick}
+              onNewTerminal={handleQuickCreateTerminal}
+              onCloseTerminal={handleCloseTerminal}
+              showProjects={sidebar.showProjects}
+              setShowProjects={sidebar.setShowProjects}
+              showChats={sidebar.showChats}
+              setShowChats={sidebar.setShowChats}
+              showTerminals={sidebar.showTerminals}
+              setShowTerminals={sidebar.setShowTerminals}
+              showProjectsArchived={sidebar.showProjectsArchived}
+              setShowProjectsArchived={sidebar.setShowProjectsArchived}
+              showChatsArchived={sidebar.showChatsArchived}
+              setShowChatsArchived={sidebar.setShowChatsArchived}
             />
             )}
             </ErrorBoundary>
@@ -1227,21 +1462,21 @@ function App() {
 
           {/* Resize handle: TopicTree ↔ Browser */}
           <div
-            className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${browserExpanded ? 'cursor-row-resize hover:bg-primary' : ''}`}
-            onMouseDown={browserExpanded ? handleBrowserDragStart : undefined}
+            className={`h-[1px] flex-shrink-0 relative bg-app-border transition-colors z-10 ${sidebar.browserExpanded ? 'cursor-row-resize hover:bg-primary' : ''}`}
+            onMouseDown={sidebar.browserExpanded ? handleBrowserDragStart : undefined}
           >
-            {browserExpanded && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+            {sidebar.browserExpanded && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
           </div>
 
           {/* Browser section — resizable when expanded */}
           <div
-            className={`flex flex-col ${browserExpanded ? 'min-h-0 overflow-hidden' : 'flex-shrink-0'}`}
-            style={browserExpanded ? { height: browserSectionHeight } : undefined}
+            className={`flex flex-col ${sidebar.browserExpanded ? 'min-h-0 overflow-hidden' : 'flex-shrink-0'}`}
+            style={sidebar.browserExpanded ? { height: browserSectionHeight } : undefined}
           >
             <div className="flex-shrink-0 group flex items-center h-8 hover:bg-app-hover transition-colors">
               <button
-                onClick={() => setBrowserExpanded(!browserExpanded)}
-                aria-expanded={browserExpanded}
+                onClick={() => sidebar.setBrowserExpanded(!sidebar.browserExpanded)}
+                aria-expanded={sidebar.browserExpanded}
                 aria-label="Browser section"
                 className="flex items-center gap-2 flex-1 h-full text-left"
                 style={{ paddingLeft: 12 }}
@@ -1251,24 +1486,32 @@ function App() {
                 <ChevronRight
                   size={12}
                   aria-hidden="true"
-                  className={`transition-transform duration-150 text-app-text-tertiary ${browserExpanded ? 'rotate-90' : ''}`}
+                  className={`transition-transform duration-150 text-app-text-tertiary ${sidebar.browserExpanded ? 'rotate-90' : ''}`}
                 />
               </button>
-              <div className="flex items-center gap-1 pr-3">
+              <div className="flex items-center gap-1 pr-1">
                 {browserContextCount > 0 && (
                   <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center leading-[14px]">
                     {browserContextCount}
                   </span>
                 )}
+                <button
+                  onClick={() => openBrowserPane(`new-${Date.now()}`)}
+                  className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded ${isTouch ? 'opacity-100' : 'opacity-0 md:group-hover:opacity-100'} hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-all`}
+                  title="New browser"
+                  aria-label="New browser"
+                >
+                  <Plus size={14} />
+                </button>
               </div>
             </div>
-            {browserExpanded && (
+            {sidebar.browserExpanded && (
               <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
                 <Suspense fallback={<div className="px-3 py-2 text-[10px] text-app-text-muted">Loading...</div>}>
                   <BrowserSidebarControl
                     enabled
                     onContextCount={setBrowserContextCount}
-                    onOpenBrowser={(contextId) => setPendingBrowserPane(contextId)}
+                    onOpenBrowser={(contextId) => openBrowserPane(contextId)}
                     openBrowserContextIds={openBrowserContextIds}
                     focusedBrowserContextId={focusedBrowserContextId}
                   />
@@ -1301,16 +1544,7 @@ function App() {
           className="absolute left-2 z-30 flex items-center gap-1"
           style={{ top: isMobile && isPWA ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
         >
-          <button
-            onClick={toggleSidebar}
-            className={`bg-surface border border-app-border-light rounded-lg flex items-center justify-center text-app-text-secondary hover:bg-app-hover shadow-sm transition-colors ${
-              'w-8 h-8'
-            }`}
-            title="Expand sidebar (⌘B)"
-            aria-label="Expand sidebar"
-          >
-            <PanelLeft size={16} />
-          </button>
+          <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="bg-surface border border-app-border-light rounded-lg shadow-sm" />
         </div>
       )}
 
@@ -1335,9 +1569,10 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-        {/* Safe area spacer for PWA notch when sidebar is closed */}
-        {isPWA && sidebarCollapsed && <div style={{ height: 'env(safe-area-inset-top, 0px)', flexShrink: 0, background: 'inherit' }} />}
+      <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
+        style={{ paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined }}
+>
+
         {/* Connection status is now shown inline in the sidebar top line */}
         <ErrorBoundary fallbackMessage="Panel error">
         <PanelGrid
@@ -1359,6 +1594,9 @@ function App() {
           switchBranch={switchBranch}
           loadHistory={loadHistory}
           chatError={chatError}
+          expiredMessages={expiredMessages}
+          retryExpired={retryExpired}
+          clearExpired={clearExpired}
           sendWS={sendWS}
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}
@@ -1374,9 +1612,9 @@ function App() {
           onNewChat={() => handleQuickCreateTopic()}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
-          onProjectActiveTopicChange={setFocusedProjectTopicId}
-          pendingTerminalPane={pendingTerminalPane}
-          onPendingTerminalPaneConsumed={() => setPendingTerminalPane(null)}
+          onProjectActiveTopicChange={handleProjectActiveTopicChange}
+          terminalSessions={terminalSessions}
+          onCreateTerminal={handleQuickCreateTerminal}
           pendingBrowserPane={pendingBrowserPane}
           onPendingBrowserPaneConsumed={handlePendingBrowserPaneConsumed}
           onOpenBrowserContextIds={setOpenBrowserContextIds}
@@ -1415,32 +1653,25 @@ function App() {
         document.body
       )}
 
-      {showNewMenu && createPortal(
-        <div
-          ref={newMenuDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[150px]"
-          style={{ position: 'fixed', top: newMenuPos.top, right: newMenuPos.right, zIndex: 9999 }}
-        >
-          <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <MessageSquare size={14} /><span className="flex-1 text-left">New Chat</span>
-            {isElectron && <kbd className="kbd text-app-text-muted">⌘N</kbd>}
-          </button>
-          <button onClick={() => { handleQuickCreateTerminal('shell'); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <TerminalSquare size={14} /><span>Shell</span>
-          </button>
-          <button onClick={() => { handleQuickCreateTerminal('claude-code', claudeSkipPermissions); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
-            <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-              <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-              <span>yolo</span>
-            </label>
-          </button>
-          <button onClick={() => { setPendingBrowserPane(`new-${Date.now()}`); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <Globe size={14} /><span>Browser</span>
-          </button>
-        </div>,
-        document.body
-      )}
+      <DropdownPortal open={showNewMenu} anchorRef={newMenuBtnRef} onClose={() => setShowNewMenu(false)}>
+        <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <MessageSquare size={14} /><span className="flex-1 text-left">New Chat</span>
+          {isElectron && <kbd className="kbd text-app-text-muted">⌘N</kbd>}
+        </button>
+        <button onClick={() => { handleQuickCreateTerminal('shell'); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <TerminalSquare size={14} /><span>Shell</span>
+        </button>
+        <button onClick={() => { handleQuickCreateTerminal('claude-code', claudeSkipPermissions); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
+          <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+            <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+            <span>yolo</span>
+          </label>
+        </button>
+        <button onClick={() => { openBrowserPane(`new-${Date.now()}`); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <Globe size={14} /><span>Browser</span>
+        </button>
+      </DropdownPortal>
 
       {expandedTool === 'remote' && !showTopicsMenu && remoteAccessBtnRef.current && createPortal(
         <div

@@ -4,14 +4,16 @@ import { ProjectHeader, getProjectName } from './ProjectHeader';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
-import { createPaneId, createGroupId, PANE_CONFIG } from '../../lib/paneConfig';
+import { createPaneId, createGroupId, PANE_CONFIG, getTerminalSessionFromPaneId } from '../../lib/paneConfig';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
+import { saveProjectLayout, loadProjectLayout } from '../../lib/projectLayoutSync';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
+import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
-const TerminalPanel = lazy(() => import('../Terminal/TerminalPanel').then(m => ({ default: m.TerminalPanel })));
+const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
 const FileExplorer = lazy(() => import('../Project/FileExplorer').then(m => ({ default: m.FileExplorer })));
 const FilePane = lazy(() => import('../Editor/FilePane').then(m => ({ default: m.FilePane })));
 const GitChanges = lazy(() => import('../Project/GitChanges').then(m => ({ default: m.GitChanges })));
@@ -44,20 +46,15 @@ interface PersistedState {
   sidebarCollapsed: boolean;
   closedTopicIds?: string[];       // legacy — no longer written
   openChatTopicIds?: string[];     // topic IDs that were open when last saved
+  activeChatTopicId?: string;      // which chat tab was active when last saved
 }
 
 function loadPersistedState(projectPath: string): PersistedState | null {
-  try {
-    const raw = localStorage.getItem(storageKey(projectPath));
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
+  return loadProjectLayout(storageKey(projectPath), projectPath);
 }
 
 function savePersistedState(projectPath: string, state: PersistedState) {
-  try {
-    localStorage.setItem(storageKey(projectPath), JSON.stringify(state));
-  } catch {}
+  saveProjectLayout(storageKey(projectPath), projectPath, state);
 }
 
 // Map PaneType → PaneGroupType
@@ -108,6 +105,7 @@ export interface ProjectWindowPaneProps {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   pendingPane?: PaneType;
+  pendingTerminalSessionId?: string;
   onPendingPaneConsumed?: () => void;
   onNewChat?: () => void;
   // Navigate to a specific topic inside the project (from external focus)
@@ -122,7 +120,7 @@ export function ProjectWindowPane({
   onFocusPanel, onClosePanel: _onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  pendingPane, onPendingPaneConsumed, onNewChat,
+  pendingPane, pendingTerminalSessionId, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, onPendingFocusConsumed,
   onActiveTopicChange,
 }: ProjectWindowPaneProps) {
@@ -144,7 +142,9 @@ export function ProjectWindowPane({
 
   // --- Core state ---
   const [panes, setPanes] = useState<Pane[]>(() => persisted.current?.nonChatPanes || []);
-  const [groups, setGroups] = useState<PaneGroup[]>(() => persisted.current?.groups || []);
+  const [groups, setGroups] = useState<PaneGroup[]>(() =>
+    (persisted.current?.groups || []).filter(g => g.paneIds.length > 0)
+  );
   const pendingPreviewCloseRef = useRef<string | null>(null);
   const [rows, setRows] = useState<GroupLayoutRow[]>(() => persisted.current?.rows || []);
   const [rowHeights, setRowHeights] = useState<number[]>(() => persisted.current?.rowHeights || [1]);
@@ -157,6 +157,7 @@ export function ProjectWindowPane({
     try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
   });
   const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
+  const [claudeSkipPermissions] = useClaudeSkipPermissions();
 
   // Determine active topic for Context Inspector
   const focusedGroup = groups.find(g => g.id === focusedGroupId);
@@ -219,6 +220,11 @@ export function ProjectWindowPane({
     const openChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);
+    // Find the active chat topic ID from the focused chat group
+    const chatGroup = groups.find(g => g.type === 'chat');
+    const activeChatPane = chatGroup ? panes.find(p => p.id === chatGroup.activePaneId) : null;
+    const activeChatTopicId = activeChatPane?.type === 'chat' ? activeChatPane.topicId : undefined;
+
     savePersistedState(projectPath, {
       nonChatPanes,
       groups: nonChatGroups,
@@ -226,25 +232,50 @@ export function ProjectWindowPane({
       rowHeights,
       sidebarCollapsed,
       openChatTopicIds,
+      activeChatTopicId,
     });
   }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath]);
 
-  // --- Sync chat panes with topicIds ---
-  // Only restore chats that were previously open (persisted), not all project topics.
+  // Clean stale terminal panes when terminal sessions change (via WS broadcast)
+  useEffect(() => {
+    // Validate on mount: fetch current sessions and remove stale terminal panes
+    fetch('/api/terminal/sessions').then(r => r.json()).then((sessions: { id: string }[]) => {
+      const sessionIds = new Set(sessions.map(s => s.id));
+      setPanes(prev => {
+        const filtered = prev.filter(p => p.type !== 'terminal' || sessionIds.has(getTerminalSessionFromPaneId(p.id) || ''));
+        return filtered.length === prev.length ? prev : filtered;
+      });
+    }).catch(() => {});
+
+    // Listen for session updates
+    return onWSMessage((msg: any) => {
+      if (msg.type === 'terminal:sessions' && Array.isArray(msg.sessions)) {
+        const sessionIds = new Set((msg.sessions as { id: string }[]).map(s => s.id));
+        setPanes(prev => {
+          const filtered = prev.filter(p => p.type !== 'terminal' || sessionIds.has(getTerminalSessionFromPaneId(p.id) || ''));
+          return filtered.length === prev.length ? prev : filtered;
+        });
+      }
+    });
+  }, [onWSMessage]);
+
+  // --- Sync chat panes with topicIds + title sync (consolidated) ---
   const initialChatsSyncedRef = useRef(false);
   useEffect(() => {
     const currentSet = new Set(topicIds);
 
     setPanes(prev => {
+      let updated = prev;
+
       // Remove chat panes whose topic no longer exists in the project
-      let updated = prev.filter(p => p.type !== 'chat' || (p.topicId && currentSet.has(p.topicId)));
+      if (prev.some(p => p.type === 'chat' && !(p.topicId && currentSet.has(p.topicId)))) {
+        updated = prev.filter(p => p.type !== 'chat' || (p.topicId && currentSet.has(p.topicId)));
+      }
 
       // On first sync only: restore chats that were open last session
       if (!initialChatsSyncedRef.current) {
         initialChatsSyncedRef.current = true;
         const openSet = new Set(persisted.current?.openChatTopicIds || []);
-        // Backward compat: if openChatTopicIds was never saved but closedTopicIds exists,
-        // open everything except the closed ones (legacy behavior, one-time migration).
         const isLegacy = !persisted.current?.openChatTopicIds && persisted.current?.closedTopicIds;
         const closedSet = new Set(persisted.current?.closedTopicIds || []);
         const chatPaneIds = new Set(updated.filter(p => p.type === 'chat').map(p => p.topicId));
@@ -265,38 +296,48 @@ export function ProjectWindowPane({
         }
         if (newChatPanes.length > 0) updated = [...updated, ...newChatPanes];
       }
-      return updated;
+
+      // Title sync: update chat pane titles when topic names change
+      let titleChanged = false;
+      const titled = updated.map(p => {
+        if (p.type === 'chat' && p.topicId) {
+          const topic = topics[p.topicId];
+          if (topic && topic.name !== p.title) {
+            titleChanged = true;
+            return { ...p, title: topic.name };
+          }
+        }
+        return p;
+      });
+      if (titleChanged) updated = titled;
+
+      return updated === prev ? prev : updated;
     });
   }, [topicIds, topics]);
 
-  // Update chat pane titles when topic names change
-  useEffect(() => {
-    setPanes(prev => prev.map(p => {
-      if (p.type === 'chat' && p.topicId) {
-        const topic = topics[p.topicId];
-        if (topic && topic.name !== p.title) {
-          return { ...p, title: topic.name };
-        }
-      }
-      return p;
-    }));
-  }, [topics]);
-
-  // --- Sync groups with panes ---
+  // --- Sync groups with panes (immutable, no mutations) ---
   useEffect(() => {
     setGroups(prev => {
       const allPaneIds = new Set(panes.map(p => p.id));
+      let anyGroupChanged = false;
       let updated = prev.map(g => {
         const filtered = g.paneIds.filter(id => allPaneIds.has(id));
         if (filtered.length === g.paneIds.length) return g;
+        anyGroupChanged = true;
         const activePaneId = filtered.includes(g.activePaneId)
           ? g.activePaneId
           : filtered[0] || g.activePaneId;
         return { ...g, paneIds: filtered, activePaneId };
-      }).filter(g => g.paneIds.length > 0);
+      });
+      const beforeFilterLen = updated.length;
+      updated = updated.filter(g => g.paneIds.length > 0);
+      if (updated.length !== beforeFilterLen) anyGroupChanged = true;
 
       const usedAfterClean = new Set(updated.flatMap(g => g.paneIds));
       const orphanPanes = panes.filter(p => !usedAfterClean.has(p.id));
+
+      if (!anyGroupChanged && orphanPanes.length === 0) return prev;
+
       const orphansByType = new Map<PaneGroupType, Pane[]>();
       for (const p of orphanPanes) {
         const gt = paneTypeToGroupType(p.type);
@@ -304,14 +345,16 @@ export function ProjectWindowPane({
         orphansByType.get(gt)!.push(p);
       }
 
+      const curFocusedGroupId = focusedGroupIdRef.current;
       for (const [gt, orphans] of orphansByType) {
-        // Always add orphans to an existing group — prefer same-type, then focused, then first.
-        // Never create a new group automatically; only explicit user splits do that.
-        const targetGroup = updated.find(g => g.type === gt)
-          || (focusedGroupId ? updated.find(g => g.id === focusedGroupId) : null)
+        const focusedGroup = curFocusedGroupId ? updated.find(g => g.id === curFocusedGroupId) : null;
+        const targetGroup = (focusedGroup?.type === gt ? focusedGroup : null)
+          || updated.find(g => g.type === gt)
+          || focusedGroup
           || updated[0];
 
         if (targetGroup) {
+          const tIdx = updated.indexOf(targetGroup);
           const previewOrphan = orphans.find(o => o.preview);
           if (previewOrphan) {
             const existingPreview = findPreviewPane(
@@ -319,21 +362,24 @@ export function ProjectWindowPane({
               previewOrphan.id
             );
             if (existingPreview) {
-              targetGroup.paneIds = replacePaneInGroup(targetGroup.paneIds, existingPreview.id, previewOrphan.id);
-              targetGroup.activePaneId = previewOrphan.id;
+              const newPaneIds = replacePaneInGroup(targetGroup.paneIds, existingPreview.id, previewOrphan.id);
               const otherOrphans = orphans.filter(o => o !== previewOrphan);
-              if (otherOrphans.length > 0) {
-                targetGroup.paneIds = [...targetGroup.paneIds, ...otherOrphans.map(p => p.id)];
-              }
+              updated = updated.map((g, i) => i === tIdx ? {
+                ...g,
+                paneIds: otherOrphans.length > 0 ? [...newPaneIds, ...otherOrphans.map(p => p.id)] : newPaneIds,
+                activePaneId: previewOrphan.id,
+              } : g);
               if (gt === 'chat' && existingPreview.topicId) {
                 pendingPreviewCloseRef.current = existingPreview.topicId;
               }
               continue;
             }
           }
-          targetGroup.paneIds = [...targetGroup.paneIds, ...orphans.map(p => p.id)];
+          updated = updated.map((g, i) => i === tIdx ? {
+            ...g,
+            paneIds: [...g.paneIds, ...orphans.map(p => p.id)],
+          } : g);
         } else {
-          // No groups at all — create the first one
           const newGroup: PaneGroup = {
             id: createGroupId(),
             paneIds: orphans.map(p => p.id),
@@ -348,44 +394,77 @@ export function ProjectWindowPane({
     });
   }, [panes]);
 
-  // --- Sync rows with groups ---
+  // --- Restore active chat (once) + sync rows/heights with groups (consolidated) ---
+  const restoredActiveChatRef = useRef(false);
   useEffect(() => {
-    setRows(prev => {
-      const allGroupIds = new Set(groups.map(g => g.id));
-      let newRows = prev.map(r => {
-        const filtered = r.groupIds.filter(id => allGroupIds.has(id));
-        if (filtered.length === r.groupIds.length) return r;
-        const widths = filtered.map(() => 1 / filtered.length);
-        return { groupIds: filtered, widths };
-      }).filter(r => r.groupIds.length > 0);
-
-      const usedAfterClean = new Set(newRows.flatMap(r => r.groupIds));
-      const newGroupIds = groups.filter(g => !usedAfterClean.has(g.id)).map(g => g.id);
-      if (newGroupIds.length > 0) {
-        if (newRows.length === 0) {
-          newRows = [{ groupIds: newGroupIds, widths: newGroupIds.map(() => 1 / newGroupIds.length) }];
-        } else {
-          const firstRow = newRows[0];
-          const all = [...firstRow.groupIds, ...newGroupIds];
-          newRows[0] = { groupIds: all, widths: all.map(() => 1 / all.length) };
+    // Restore active chat tab from persisted state (runs once)
+    if (!restoredActiveChatRef.current) {
+      const savedTopicId = persisted.current?.activeChatTopicId;
+      if (!savedTopicId) {
+        restoredActiveChatRef.current = true;
+      } else {
+        const chatGroup = groups.find(g => g.type === 'chat');
+        if (chatGroup && chatGroup.paneIds.length > 0) {
+          const targetPaneId = createPaneId('chat', savedTopicId);
+          if (chatGroup.paneIds.includes(targetPaneId) && chatGroup.activePaneId !== targetPaneId) {
+            restoredActiveChatRef.current = true;
+            setGroups(prev => {
+              const next = prev.map(g =>
+                g.id === chatGroup.id ? { ...g, activePaneId: targetPaneId } : g
+              );
+              return next.some((g, i) => g !== prev[i]) ? next : prev;
+            });
+            setFocusedGroupId(chatGroup.id);
+          } else if (chatGroup.paneIds.includes(targetPaneId)) {
+            restoredActiveChatRef.current = true;
+          }
         }
       }
+    }
 
-      if (newRows.length === 0 && groups.length > 0) {
-        const gids = groups.map(g => g.id);
-        newRows = [{ groupIds: gids, widths: gids.map(() => 1 / gids.length) }];
+    // Sync rows with groups
+    const curRows = rowsRef.current;
+    const allGroupIds = new Set(groups.map(g => g.id));
+    let anyRowChanged = false;
+    let newRows = curRows.map(r => {
+      const filtered = r.groupIds.filter(id => allGroupIds.has(id));
+      if (filtered.length === r.groupIds.length) return r;
+      anyRowChanged = true;
+      const widths = filtered.map(() => 1 / filtered.length);
+      return { groupIds: filtered, widths };
+    });
+    const beforeLen = newRows.length;
+    newRows = newRows.filter(r => r.groupIds.length > 0);
+    if (newRows.length !== beforeLen) anyRowChanged = true;
+
+    const usedAfterClean = new Set(newRows.flatMap(r => r.groupIds));
+    const newGroupIds = groups.filter(g => !usedAfterClean.has(g.id)).map(g => g.id);
+    if (newGroupIds.length > 0) {
+      anyRowChanged = true;
+      if (newRows.length === 0) {
+        newRows = [{ groupIds: newGroupIds, widths: newGroupIds.map(() => 1 / newGroupIds.length) }];
+      } else {
+        const firstRow = newRows[0];
+        const all = [...firstRow.groupIds, ...newGroupIds];
+        newRows = [{ groupIds: all, widths: all.map(() => 1 / all.length) }, ...newRows.slice(1)];
       }
+    }
 
-      return newRows;
-    });
+    if (newRows.length === 0 && groups.length > 0) {
+      anyRowChanged = true;
+      const gids = groups.map(g => g.id);
+      newRows = [{ groupIds: gids, widths: gids.map(() => 1 / gids.length) }];
+    }
+
+    if (anyRowChanged) {
+      setRows(newRows);
+      // Sync heights: adjust if row count changed
+      const curHeights = rowHeightsRef.current;
+      if (newRows.length !== curHeights.length) {
+        setRowHeights(newRows.map(() => 1 / newRows.length));
+      }
+    }
   }, [groups]);
-
-  useEffect(() => {
-    setRowHeights(prev => {
-      if (prev.length === rows.length) return prev;
-      return rows.map(() => 1 / rows.length);
-    });
-  }, [rows]);
 
   // Migration: if no groups but we have panes, build defaults
   const migrated = useRef(false);
@@ -393,11 +472,11 @@ export function ProjectWindowPane({
     if (migrated.current) return;
     if (groups.length === 0 && panes.length > 0) {
       migrated.current = true;
-      const { groups: defaultGroups, rows: defaultRows } = buildDefaultGroups(panes);
+      const { groups: defaultGroups, rows: defaultRows } = buildDefaultGroups(panesRef.current);
       setGroups(defaultGroups);
       setRows(defaultRows);
     }
-  }, [groups.length, panes]);
+  }, [groups.length, panes.length]);
 
   // Open a topic that isn't currently open (e.g. clicked from sidebar)
   const reopenTopic = useCallback((topicId: string) => {
@@ -416,18 +495,24 @@ export function ProjectWindowPane({
   }, [topics]);
 
   // Set focused group when focusedPanelId changes (external focus)
+  const lastFocusedPanelRef = useRef<string | null>(null);
   useEffect(() => {
-    if (focusedPanelId) {
+    if (focusedPanelId && !focusedPanelId.includes(':') && focusedPanelId !== lastFocusedPanelRef.current) {
+      lastFocusedPanelRef.current = focusedPanelId;
       reopenTopic(focusedPanelId);
-      const chatPane = panes.find(p => p.type === 'chat' && p.topicId === focusedPanelId);
+      const chatPaneId = createPaneId('chat', focusedPanelId);
+      const chatPane = panes.find(p => p.id === chatPaneId);
       if (chatPane) {
         const g = groups.find(g => g.paneIds.includes(chatPane.id));
         if (g) {
           setFocusedGroupId(g.id);
           if (g.activePaneId !== chatPane.id) {
-            setGroups(prev => prev.map(gg =>
-              gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg
-            ));
+            setGroups(prev => {
+              const next = prev.map(gg =>
+                gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg
+              );
+              return next.some((gg, i) => gg !== prev[i]) ? next : prev;
+            });
           }
         }
       }
@@ -438,14 +523,20 @@ export function ProjectWindowPane({
   useEffect(() => {
     if (pendingFocusTopicId) {
       reopenTopic(pendingFocusTopicId);
-      const chatPane = panes.find(p => p.type === 'chat' && p.topicId === pendingFocusTopicId);
+      const chatPaneId = createPaneId('chat', pendingFocusTopicId);
+      const chatPane = panes.find(p => p.id === chatPaneId);
       if (chatPane) {
         const g = groups.find(g => g.paneIds.includes(chatPane.id));
         if (g) {
           setFocusedGroupId(g.id);
-          setGroups(prev => prev.map(gg =>
-            gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg
-          ));
+          if (g.activePaneId !== chatPane.id) {
+            setGroups(prev => {
+              const next = prev.map(gg =>
+                gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg
+              );
+              return next.some((gg, i) => gg !== prev[i]) ? next : prev;
+            });
+          }
           // Consume only after successfully finding the pane AND its group
           onPendingFocusConsumed?.();
         }
@@ -456,8 +547,10 @@ export function ProjectWindowPane({
 
   // If no focused group, set first one
   useEffect(() => {
-    if (!focusedGroupId && groups.length > 0) {
-      setFocusedGroupId(groups[0].id);
+    const focusedExists = focusedGroupId && groups.some(g => g.id === focusedGroupId);
+    if (!focusedExists && groups.length > 0) {
+      const chatGroup = groups.find(g => g.type === 'chat');
+      setFocusedGroupId((chatGroup || groups[0]).id);
     }
   }, [focusedGroupId, groups]);
 
@@ -478,6 +571,14 @@ export function ProjectWindowPane({
   const handleClosePane = useCallback((groupId: string, paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
 
+    // Kill terminal session on the server when closing
+    if (pane?.type === 'terminal') {
+      const sessionId = getTerminalSessionFromPaneId(paneId);
+      if (sessionId) {
+        fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+      }
+    }
+
     // Remove the pane from local state
     setPanes(prev => prev.filter(p => p.id !== paneId));
 
@@ -494,32 +595,56 @@ export function ProjectWindowPane({
     });
   }, [panes]);
 
-  const handleAddPaneToGroup = useCallback((groupId: string, type: PaneType) => {
+  const handleAddPaneToGroup = useCallback(async (groupId: string, type: PaneType, subType?: string) => {
     const config = PANE_CONFIG[type];
     if (config.singleton) {
-      const existing = panes.find(p => p.type === type);
-      if (existing) {
-        const g = groups.find(g => g.paneIds.includes(existing.id));
-        if (g) {
-          setFocusedGroupId(g.id);
-          setGroups(prev => prev.map(gg =>
-            gg.id === g.id ? { ...gg, activePaneId: existing.id } : gg
-          ));
-        }
+      const targetGroup = groups.find(g => g.id === groupId);
+      const groupPaneIds = new Set(targetGroup?.paneIds || []);
+      const existingInGroup = panes.find(p => p.type === type && groupPaneIds.has(p.id));
+      if (existingInGroup) {
+        setFocusedGroupId(groupId);
+        setGroups(prev => prev.map(gg =>
+          gg.id === groupId ? { ...gg, activePaneId: existingInGroup.id } : gg
+        ));
         return;
       }
     }
 
+    let paneId: string;
+    let paneTitle: string;
+
+    if (type === 'terminal') {
+      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
+      paneTitle = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+      try {
+        const body: Record<string, unknown> = { cwd: projectPath, type: termType, name: paneTitle };
+        if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
+        const res = await fetch('/api/terminal/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        paneId = createPaneId('terminal', data.id);
+        paneTitle = data.name || paneTitle;
+      } catch { return; }
+    } else {
+      paneId = createPaneId(type);
+      paneTitle = PANE_CONFIG[type].label;
+    }
+
     const newPane: Pane = {
-      id: createPaneId(type),
+      id: paneId,
       type,
-      title: PANE_CONFIG[type].label,
-      preview: true,
+      title: paneTitle,
+      preview: type === 'terminal' ? false : true,
+      ...(type === 'terminal' && subType ? { terminalType: subType as 'shell' | 'claude-code' } : {}),
     };
 
     const targetGroup = groups.find(g => g.id === groupId);
     const groupPanes = targetGroup?.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p) || [];
-    const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === type), newPane.id);
+    const existingPreview = type !== 'terminal' ? findPreviewPane(groupPanes.filter(p => p.type === type), newPane.id) : null;
 
     if (existingPreview) {
       setPanes(prev => prev.map(p => p.id === existingPreview.id ? newPane : p));
@@ -537,23 +662,69 @@ export function ProjectWindowPane({
       ));
     }
     setFocusedGroupId(groupId);
-  }, [panes, groups]);
+  }, [panes, groups, projectPath, claudeSkipPermissions]);
 
   // Handle pending pane request from sidebar — always add to focused/first group
   useEffect(() => {
     if (pendingPane) {
+      // Terminal reattach: open an existing terminal session instead of creating a new one
+      if (pendingPane === 'terminal' && pendingTerminalSessionId) {
+        const paneId = createPaneId('terminal', pendingTerminalSessionId);
+        const existing = panes.find(p => p.id === paneId);
+        if (existing) {
+          // Already open — just focus it
+          const g = groups.find(g => g.paneIds.includes(paneId));
+          if (g) {
+            setFocusedGroupId(g.id);
+            setGroups(prev => prev.map(gg =>
+              gg.id === g.id ? { ...gg, activePaneId: paneId } : gg
+            ));
+          }
+        } else {
+          // Add as a new terminal pane in the focused/first group
+          const newPane: Pane = { id: paneId, type: 'terminal', title: 'Terminal', preview: false };
+          setPanes(prev => [...prev, newPane]);
+          const targetGroupId = focusedGroupId || groups[0]?.id;
+          if (targetGroupId) {
+            setFocusedGroupId(targetGroupId);
+            setGroups(prev => prev.map(g =>
+              g.id === targetGroupId
+                ? { ...g, paneIds: [...g.paneIds, paneId], activePaneId: paneId }
+                : g
+            ));
+          }
+        }
+        onPendingPaneConsumed?.();
+        return;
+      }
       const targetGroupId = focusedGroupId || groups[0]?.id;
       if (targetGroupId) {
         handleAddPaneToGroup(targetGroupId, pendingPane);
       }
       onPendingPaneConsumed?.();
     }
-  }, [pendingPane, groups, focusedGroupId, handleAddPaneToGroup, onPendingPaneConsumed]);
+  }, [pendingPane, pendingTerminalSessionId, groups, focusedGroupId, panes, handleAddPaneToGroup, onPendingPaneConsumed]);
+
+  // Stable refs for effects and callbacks to avoid re-renders
+  const panesRef = useRef(panes);
+  const groupsRef = useRef(groups);
+  const focusedGroupIdRef = useRef(focusedGroupId);
+  const rowsRef = useRef(rows);
+  const rowHeightsRef = useRef(rowHeights);
+  panesRef.current = panes;
+  groupsRef.current = groups;
+  focusedGroupIdRef.current = focusedGroupId;
+  rowsRef.current = rows;
+  rowHeightsRef.current = rowHeights;
 
   const handleOpenFile = useCallback((path: string) => {
-    const existing = panes.find(p => p.type === 'file' && p.filePath === path);
+    const curPanes = panesRef.current;
+    const curGroups = groupsRef.current;
+    const curFocused = focusedGroupIdRef.current;
+
+    const existing = curPanes.find(p => p.type === 'file' && p.filePath === path);
     if (existing) {
-      const g = groups.find(g => g.paneIds.includes(existing.id));
+      const g = curGroups.find(g => g.paneIds.includes(existing.id));
       if (g) {
         setFocusedGroupId(g.id);
         setGroups(prev => prev.map(gg =>
@@ -573,14 +744,14 @@ export function ProjectWindowPane({
     };
 
     // Add to focused group (or first group) — never create a new group for files
-    const targetGroup = (focusedGroupId ? groups.find(g => g.id === focusedGroupId) : null) || groups[0];
+    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
     if (!targetGroup) {
       // No groups at all — add pane and let orphan sync create a group
       setPanes(prev => [...prev, newPane]);
       return;
     }
 
-    const groupPanes = targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p);
+    const groupPanes = targetGroup.paneIds.map(id => curPanes.find(p => p.id === id)).filter((p): p is Pane => !!p);
     const existingPreview = findPreviewPane(groupPanes.filter(p => p.type === 'file'), newPane.id);
 
     if (existingPreview) {
@@ -599,7 +770,7 @@ export function ProjectWindowPane({
       ));
     }
     setFocusedGroupId(targetGroup.id);
-  }, [panes, groups, focusedGroupId]);
+  }, []); // stable — reads from refs
 
   const handleOpenProcessLog = useCallback((processId: string, scriptName: string) => {
     const paneKey = `process-log:${processId}`;
@@ -691,6 +862,16 @@ export function ProjectWindowPane({
     setFocusedGroupId(targetGroup.id);
   }, [panes, groups, focusedGroupId]);
 
+  // Listen for open-file events (e.g. from breadcrumb navigation)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { path } = (e as CustomEvent).detail;
+      if (path) handleOpenFile(path);
+    };
+    window.addEventListener('open-file', handler);
+    return () => window.removeEventListener('open-file', handler);
+  }, [handleOpenFile]);
+
   // Listen for open-file-diff events from GitChanges sidebar
   useEffect(() => {
     const handler = (e: Event) => {
@@ -726,6 +907,55 @@ export function ProjectWindowPane({
     onNewChat?.();
   }, [onNewChat]);
 
+  const handleAddPaneWhenEmpty = useCallback(async (type: PaneType, subType?: string) => {
+    const config = PANE_CONFIG[type];
+    if (!config || config.fixed) return;
+
+    let paneId: string;
+    let paneTitle: string;
+
+    if (type === 'terminal') {
+      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
+      paneTitle = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+      try {
+        const body: Record<string, unknown> = { cwd: projectPath, type: termType, name: paneTitle };
+        if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
+        const res = await fetch('/api/terminal/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        paneId = createPaneId('terminal', data.id);
+        paneTitle = data.name || paneTitle;
+      } catch { return; }
+    } else {
+      paneId = createPaneId(type);
+      paneTitle = config.label;
+    }
+
+    const newGroupId = createGroupId();
+    const newPane: Pane = {
+      id: paneId,
+      type,
+      title: paneTitle,
+      preview: false,
+      ...(type === 'terminal' && subType ? { terminalType: subType as 'shell' | 'claude-code' } : {}),
+    };
+    const newGroup: PaneGroup = {
+      id: newGroupId,
+      type: paneTypeToGroupType(type),
+      paneIds: [newPane.id],
+      activePaneId: newPane.id,
+    };
+    setPanes(prev => [...prev, newPane]);
+    setGroups([newGroup]);
+    setRows([{ groupIds: [newGroupId], widths: [1] }]);
+    setRowHeights([1]);
+    setFocusedGroupId(newGroupId);
+  }, [projectPath, claudeSkipPermissions]);
+
   const handlePinPane = useCallback((_groupId: string, paneId: string) => {
     setPanes(prev => prev.map(p => p.id === paneId ? { ...p, preview: false } : p));
   }, []);
@@ -746,9 +976,10 @@ export function ProjectWindowPane({
       return prev.map(g => {
         if (g.id === sourceGroupId) {
           const remaining = g.paneIds.filter(id => id !== paneId);
-          if (remaining.length === 0) return g;
-          const newActive = g.activePaneId === paneId
-            ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
+          const newActive = remaining.length > 0
+            ? (g.activePaneId === paneId
+              ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
+              : g.activePaneId)
             : g.activePaneId;
           return { ...g, paneIds: remaining, activePaneId: newActive };
         }
@@ -779,9 +1010,10 @@ export function ProjectWindowPane({
       const updated = prev.map(g => {
         if (g.id === sourceGroupId) {
           const remaining = g.paneIds.filter(id => id !== paneId);
-          if (remaining.length === 0) return g;
-          const newActive = g.activePaneId === paneId
-            ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
+          const newActive = remaining.length > 0
+            ? (g.activePaneId === paneId
+              ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
+              : g.activePaneId)
             : g.activePaneId;
           return { ...g, paneIds: remaining, activePaneId: newActive };
         }
@@ -809,6 +1041,14 @@ export function ProjectWindowPane({
         const newRows = [...prev];
         const insertAt = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
         newRows.splice(insertAt, 0, newRow);
+        // Split target row's height in half for the new row
+        setRowHeights(prevH => {
+          const newHeights = [...prevH];
+          const halfHeight = (newHeights[targetRowIdx] || 1 / prevH.length) / 2;
+          newHeights[targetRowIdx] = halfHeight;
+          newHeights.splice(insertAt, 0, halfHeight);
+          return newHeights;
+        });
         return newRows;
       }
     });
@@ -827,18 +1067,20 @@ export function ProjectWindowPane({
     });
   }, []);
 
-  const availableTypesForGroup = useCallback((groupType: PaneGroupType): PaneType[] => {
+  const availableTypesForGroup = useCallback((groupType: PaneGroupType, groupId: string): PaneType[] => {
     const types: PaneType[] = ['browser', 'terminal', 'git'];
     if (groupType === 'file') {
       types.unshift('files');
     }
+    const targetGroup = groups.find(g => g.id === groupId);
+    const groupPaneIds = new Set(targetGroup?.paneIds || []);
     return types.filter(t => {
       const config = PANE_CONFIG[t];
       if (config.fixed) return false;
-      if (config.singleton && panes.some(p => p.type === t)) return false;
+      if (config.singleton && panes.some(p => p.type === t && groupPaneIds.has(p.id))) return false;
       return true;
     });
-  }, [panes]);
+  }, [panes, groups]);
 
   const handlePaneSettings = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
@@ -894,12 +1136,15 @@ export function ProjectWindowPane({
             <RemoteBrowserPanel contextId={projectPath} />
           </Suspense>
         );
-      case 'terminal':
+      case 'terminal': {
+        const sessionId = getTerminalSessionFromPaneId(pane.id);
+        if (!sessionId) return null;
         return (
           <Suspense fallback={LazySpinner}>
-            <TerminalPanel projectPath={projectPath} />
+            <SingleTerminalPane sessionId={sessionId} />
           </Suspense>
         );
+      }
       case 'file':
         return pane.filePath ? (
           <Suspense fallback={LazySpinner}>
@@ -983,7 +1228,7 @@ export function ProjectWindowPane({
           projectPath={projectPath}
           topicId={primaryTopicId}
           collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
           onOpenFile={handleOpenFile}
           onWSMessage={onWSMessage}
           onOpenProcessLog={handleOpenProcessLog}
@@ -1003,6 +1248,7 @@ export function ProjectWindowPane({
             onClosePane={handleClosePane}
             onAddPaneToGroup={handleAddPaneToGroup}
             onNewChatInGroup={onNewChat ? handleNewChatInGroup : undefined}
+            onAddPaneWhenEmpty={handleAddPaneWhenEmpty}
             onReorderGroupPanes={handleReorderGroupPanes}
             onMovePaneBetweenGroups={handleMovePaneBetweenGroups}
             onSplitGroup={handleSplitGroup}

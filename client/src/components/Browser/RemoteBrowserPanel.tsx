@@ -48,7 +48,7 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
         tabIndex={0}
         onKeyDown={browser.onKeyDown}
       >
-        {browser.screenshotSrc ? (
+        {browser.screenshotSrc && !(browser.connected && (!browser.url || browser.url === 'about:blank')) ? (
           <img
             ref={browser.imgRef}
             src={browser.screenshotSrc}
@@ -58,6 +58,14 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
             onWheel={browser.onWheel}
             draggable={false}
           />
+        ) : browser.connected && (!browser.url || browser.url === 'about:blank') ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <Globe size={36} className="mx-auto mb-3 text-app-spinner" />
+              <p className="text-[13px] text-app-text-muted mb-1">Browser ready</p>
+              <p className="text-[11px] text-app-text-faint">Enter a URL above to navigate</p>
+            </div>
+          </div>
         ) : browser.connected || browser.loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -71,12 +79,6 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
               <Globe size={36} className="mx-auto mb-3 text-app-spinner" />
               <p className="text-[13px] text-app-text-muted mb-1">No browser session</p>
               <p className="text-[11px] text-app-text-faint">Enter a URL above to start</p>
-              <button
-                onClick={() => browser.navigate('http://localhost:3000')}
-                className="mt-3 text-[12px] text-primary hover:underline"
-              >
-                Open localhost:3000
-              </button>
             </div>
           </div>
         )}

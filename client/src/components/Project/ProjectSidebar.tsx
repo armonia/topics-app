@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { ChevronRight, FolderTree, GitBranch, Zap, PanelLeftClose, LayoutPanelLeft, RefreshCw } from 'lucide-react';
+import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer } from './FileExplorer';
 import { TaskBoard } from './TaskBoard';
@@ -149,13 +150,7 @@ export function ProjectSidebar({
     const btnClass = `${'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
     return (
       <div className="w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
-        <button
-          onClick={onToggleCollapse}
-          className={`${btnClass} hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover`}
-          title="Expand sidebar"
-        >
-          <LayoutPanelLeft size={16} />
-        </button>
+        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Expand sidebar" icon={PanelLeftOpen} />
         <div className="w-6 h-px bg-app-border my-1" />
         <button
           onClick={() => { onToggleCollapse(); setExpandedSections(prev => ({ ...prev, files: true })); }}
@@ -191,13 +186,7 @@ export function ProjectSidebar({
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
             <span className="text-[12px] font-medium text-app-text">Project</span>
-            <button
-              onClick={onToggleCollapse}
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
-              title="Hide sidebar"
-            >
-              <PanelLeftClose size={16} />
-            </button>
+            <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Hide sidebar" icon={PanelLeftClose} />
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom */}
           <div className="flex-1 flex flex-col min-h-0">
@@ -217,7 +206,7 @@ export function ProjectSidebar({
               </button>
               {expandedSections.files && (
                 <div className="flex-1 min-h-0 overflow-y-auto">
-                  <FileExplorer projectPath={projectPath} compact onOpenFile={(path) => { onOpenFile?.(path); onToggleCollapse(); }} />
+                  <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
                 </div>
               )}
             </div>
@@ -273,13 +262,7 @@ export function ProjectSidebar({
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border">
         <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wide">Project</span>
-        <button
-          onClick={onToggleCollapse}
-          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-muted hover:text-app-text-hover transition-colors"
-          title="Hide sidebar"
-        >
-          <PanelLeftClose size={14} />
-        </button>
+        <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Hide sidebar" icon={PanelLeftClose} />
       </div>
 
       {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom */}

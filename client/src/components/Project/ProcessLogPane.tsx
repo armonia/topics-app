@@ -2,6 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 
+// Strip ANSI escape sequences (colors, bold, cursor, etc.)
+// Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
+const stripAnsi = (text: string) =>
+  text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
+      .replace(/\[([0-9;]*)[a-zA-Z]/g, '');
+
 interface ProcessLogPaneProps {
   processId: string;
   scriptName?: string;
@@ -131,7 +137,7 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
         onScroll={handleScroll}
         className="flex-1 overflow-auto p-3 text-[12px] leading-relaxed text-app-text font-mono whitespace-pre-wrap break-words select-text"
       >
-        {output || (error ? `Error: ${error}` : 'Waiting for output...')}
+        {output ? stripAnsi(output) : (error ? `Error: ${error}` : 'Waiting for output...')}
       </pre>
 
       {/* Status bar */}

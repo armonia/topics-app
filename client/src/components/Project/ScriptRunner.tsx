@@ -130,7 +130,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               {!isStopping && ports.map(port => (
                 <a
                   key={port}
-                  href={`http://localhost:${port}`}
+                  href={`http://${window.location.hostname}:${port}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[10px] text-primary hover:underline flex-shrink-0"
@@ -142,7 +142,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               {running && !isStopping && (
                 <button
                   onClick={(e) => handleStopScript(running.processId, name, e)}
-                  className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-40 group-hover:opacity-100"
                   title="Stop"
                 >
                   <Square size={10} />
