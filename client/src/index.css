@@ -163,7 +163,11 @@ html, body, #root {
   height: 100%;
   height: 100dvh;
   overflow: hidden;
+  background-color: var(--bg);
 }
+
+/* Dark mode: force exact match to eliminate safe-area color mismatch on OLED */
+.dark html, .dark body, .dark #root { background-color: #111111; }
 
 #root > div {
   max-width: 100vw;
