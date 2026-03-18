@@ -223,7 +223,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
   }, [interact, markActive, fetchScreenshot, fetchInfo]);
 
   const goHome = useCallback(() => {
-    navigate('http://localhost:3000');
+    navigate('about:blank');
   }, [navigate]);
 
   const onClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {

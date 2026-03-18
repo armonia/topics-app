@@ -23,23 +23,36 @@ export function useTopics() {
     try {
       setLoading(true);
       setError(null);
-      const data = await topicsApi.getAll();
+      // Timeout after 6s — fall back to cache instead of hanging forever
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      let data: Awaited<ReturnType<typeof topicsApi.getAll>>;
+      try {
+        data = await topicsApi.getAll(controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
       setTopics(data.topics);
       if (data.workspaceProjects) setWorkspaceProjects(data.workspaceProjects);
       // Cache to localStorage
       try { localStorage.setItem('topics-cache', JSON.stringify(data.topics)); } catch {}
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load topics:', err);
-      // If we have cached data, show a less alarming error
+      const isTimeout = err?.name === 'AbortError';
       setTopics(prev => {
         const hasCachedData = Object.keys(prev).length > 0;
         if (hasCachedData) {
-          setError('Using cached data -- server unreachable');
+          setError(isTimeout ? 'Server slow — showing cached data' : 'Using cached data -- server unreachable');
         } else {
-          setError(err instanceof Error ? err.message : 'Failed to load topics');
+          setError(isTimeout ? 'Server not responding — retrying…' : (err instanceof Error ? err.message : 'Failed to load topics'));
         }
         return prev;
       });
+      // Auto-retry once after timeout or network error
+      const isNetworkError = err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError');
+      if (isTimeout || isNetworkError) {
+        setTimeout(() => loadTopics(), 3000);
+      }
     } finally {
       setLoading(false);
     }

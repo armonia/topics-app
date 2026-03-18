@@ -1,6 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WSMessage } from '../types';
 
+const AGENTS_CACHE_KEY = 'agents-sessions-cache';
+
+function getCachedSessions(): AgentSession[] {
+  try {
+    const raw = localStorage.getItem(AGENTS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function setCachedSessions(sessions: AgentSession[]) {
+  try { localStorage.setItem(AGENTS_CACHE_KEY, JSON.stringify(sessions)); } catch {}
+}
+
 export interface AgentSession {
   key: string;
   kind: 'main' | 'group' | 'cron' | 'hook' | 'node' | 'subagent' | 'other';
@@ -31,13 +44,23 @@ const POLL_INTERVAL_BACKGROUND = 30000;
 const POLL_INTERVAL_WS_CONNECTED = 60000; // WS is primary source; poll rarely as consistency check
 
 export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: UseAgentsOptions = {}) {
-  const [sessions, setSessions] = useState<AgentSession[]>([]);
+  const [sessions, setSessions] = useState<AgentSession[]>(getCachedSessions);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
   const fetchingRef = useRef(false);
   const lastUpdateRef = useRef<number>(0);
+
+  // Cross-tab sync for agent sessions cache
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key !== AGENTS_CACHE_KEY || !e.newValue) return;
+      try { setSessions(JSON.parse(e.newValue)); } catch {}
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
 
   const fetchSessions = useCallback(async () => {
     if (fetchingRef.current) return;
@@ -61,6 +84,7 @@ export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: Us
         return merged;
       });
       lastUpdateRef.current = fetchTime;
+      setCachedSessions(fetched);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agents');

@@ -27,11 +27,7 @@ const gitCache = {
 // ── Shared per-projectPath fetching ─────────────────────────────────────────
 // Multiple components for the same project share one poll timer.
 
-const activePollers = new Map<string, {
-  refCount: number;
-  timer: ReturnType<typeof setInterval> | null;
-  wsConnected: boolean;
-}>();
+// activePollers removed — was unused
 
 interface UseGitStatusOptions {
   projectPath: string;
@@ -65,11 +61,10 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
     } catch (err: any) {
       if (err?.notGit) {
         setNotGit(true);
-        // Stop polling for non-git directories
-        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-      } else {
-        setError(err.message || 'Git error');
       }
+      setError(err.message || 'Git error');
+      // Stop polling on persistent errors (notGit, missing dir, etc.)
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     } finally {
       setLoading(false);
     }

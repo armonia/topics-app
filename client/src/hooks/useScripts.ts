@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { scriptsApi } from '../lib/api';
 import type { ScriptProcessInfo } from '../lib/api';
 import type { WSMessage } from '../types';

@@ -119,12 +119,16 @@ export function useWebSocket(): UseWebSocketReturn {
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       clearOfflineTimer();
       if (wsRef.current) {
-        wsRef.current.onclose = null; // prevent reconnect on cleanup
-        // Only close if past the CONNECTING state to avoid
-        // "WebSocket is closed before the connection is established" in Strict Mode
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.close();
+        const ws = wsRef.current;
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
         }
+        // CONNECTING sockets: handlers are nullified so they'll silently die
+        // without triggering reconnect or the "closed before established" warning
       }
     };
   }, [connect, clearOfflineTimer]);
