@@ -46,8 +46,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 // Topics API
 export const topicsApi = {
-  async getAll(): Promise<TopicsData> {
-    return request<TopicsData>('/topics');
+  async getAll(signal?: AbortSignal): Promise<TopicsData> {
+    return request<TopicsData>('/topics', { signal });
   },
 
   async create(data: CreateTopicRequest): Promise<Topic> {
@@ -225,6 +225,8 @@ export const uploadApi = {
 
 // Media API
 export function getMediaUrl(path: string): string {
+  // /uploads/ paths are served directly by the Topics server
+  if (path.startsWith('/uploads/')) return path;
   return `${API_BASE}/media?path=${encodeURIComponent(path)}`;
 }
 
@@ -286,6 +288,27 @@ export const filesApi = {
   async remove(path: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('/files/delete', {
       method: 'DELETE',
+      body: JSON.stringify({ path }),
+    });
+  },
+
+  async move(from: string, to: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/files/move', {
+      method: 'POST',
+      body: JSON.stringify({ from, to }),
+    });
+  },
+
+  async copy(from: string, to: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/files/copy', {
+      method: 'POST',
+      body: JSON.stringify({ from, to }),
+    });
+  },
+
+  async duplicate(path: string): Promise<{ ok: boolean; newPath: string }> {
+    return request<{ ok: boolean; newPath: string }>('/files/duplicate', {
+      method: 'POST',
       body: JSON.stringify({ path }),
     });
   },
@@ -399,6 +422,27 @@ export const gitApi = {
     return request<{ ok: boolean }>('/git/discard', {
       method: 'POST',
       body: JSON.stringify({ path, file }),
+    });
+  },
+
+  async stageFiles(path: string, files: string[]): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/stage', {
+      method: 'POST',
+      body: JSON.stringify({ path, files }),
+    });
+  },
+
+  async unstageFiles(path: string, files: string[]): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/unstage', {
+      method: 'POST',
+      body: JSON.stringify({ path, files }),
+    });
+  },
+
+  async discardFiles(path: string, files: string[]): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/git/discard', {
+      method: 'POST',
+      body: JSON.stringify({ path, files }),
     });
   },
 

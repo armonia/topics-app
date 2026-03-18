@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Virtuoso } from 'react-virtuoso';
-import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link } from 'lucide-react';
-import type { GitStatus } from '../../types';
+import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText } from 'lucide-react';
+import type { GitStatus as _GitStatus } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
 import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
@@ -51,6 +51,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [newRemoteName, setNewRemoteName] = useState('origin');
   const [newRemoteUrl, setNewRemoteUrl] = useState('');
   const [addingRemote, setAddingRemote] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [discardConfirm, setDiscardConfirm] = useState<{ files: string[]; group: 'staged' | 'unstaged' } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged' } | null>(null);
+  const lastClickedRef = useRef<string | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const branchBtnRef = useRef<HTMLButtonElement>(null);
@@ -210,15 +215,136 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     }
   }, [projectPath, loadStatus]);
 
-  const handleDiscard = useCallback(async (filePath: string, e: React.MouseEvent) => {
+  const handleDiscard = useCallback((filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setDiscardConfirm({ files: [filePath], group: 'unstaged' });
+  }, []);
+
+  const executeDiscard = useCallback(async (files: string[]) => {
     try {
-      await gitApi.discard(projectPath, filePath);
+      if (files.length === 1) {
+        await gitApi.discard(projectPath, files[0]);
+      } else {
+        await gitApi.discardFiles(projectPath, files);
+      }
       await loadStatus();
     } catch (err: any) {
       showTemporaryMessage(`Error: ${err.message}`);
     }
+    setDiscardConfirm(null);
   }, [projectPath, loadStatus]);
+
+  // --- Multi-select helpers ---
+  const getFileList = useCallback((group: 'staged' | 'unstaged') => {
+    if (!gitStatus) return [];
+    if (group === 'staged') {
+      return gitStatus.files.filter(f => {
+        const s = f.status;
+        return s.length >= 1 && s[0] !== ' ' && s[0] !== '?';
+      });
+    }
+    return gitStatus.files.filter(f => {
+      const s = f.status;
+      return s === '??' || (s.length >= 2 && s[1] !== ' ');
+    });
+  }, [gitStatus]);
+
+  const handleFileSelect = useCallback((filePath: string, group: 'staged' | 'unstaged', e: React.MouseEvent) => {
+    const isMultiKey = e.metaKey || e.ctrlKey;
+    const isRange = e.shiftKey;
+
+    if (isRange && lastClickedRef.current) {
+      // Shift+click: range select within the same group
+      const files = getFileList(group).map(f => f.path);
+      const lastIdx = files.indexOf(lastClickedRef.current);
+      const curIdx = files.indexOf(filePath);
+      if (lastIdx !== -1 && curIdx !== -1) {
+        const start = Math.min(lastIdx, curIdx);
+        const end = Math.max(lastIdx, curIdx);
+        const range = files.slice(start, end + 1);
+        setSelectedFiles(prev => {
+          const next = new Set(prev);
+          for (const f of range) next.add(f);
+          return next;
+        });
+      }
+    } else if (isMultiKey) {
+      // Cmd/Ctrl+click: toggle single item
+      setSelectedFiles(prev => {
+        const next = new Set(prev);
+        if (next.has(filePath)) next.delete(filePath);
+        else next.add(filePath);
+        return next;
+      });
+      lastClickedRef.current = filePath;
+    } else {
+      // Plain click: single select + open file
+      setSelectedFiles(new Set([filePath]));
+      lastClickedRef.current = filePath;
+      handleFileClick(filePath);
+      return;
+    }
+  }, [getFileList, handleFileClick]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, filePath: string, group: 'staged' | 'unstaged') => {
+    e.preventDefault();
+    e.stopPropagation();
+    // If right-clicked file is not in selection, select only it
+    if (!selectedFiles.has(filePath)) {
+      setSelectedFiles(new Set([filePath]));
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, group });
+  }, [selectedFiles]);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  // Close context menu on outside click / escape
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) closeContextMenu();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeContextMenu(); };
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onMouseDown); document.removeEventListener('keydown', onKey); };
+  }, [contextMenu, closeContextMenu]);
+
+  // Clear selection when the set of changed files changes
+  const fileKeys = useMemo(() => gitStatus?.files.map(f => f.path).sort().join('\n') ?? '', [gitStatus]);
+  useEffect(() => { setSelectedFiles(new Set()); }, [fileKeys]);
+
+  // --- Batch context menu actions ---
+  const handleBatchStage = useCallback(async () => {
+    const files = [...selectedFiles];
+    closeContextMenu();
+    try {
+      await gitApi.stageFiles(projectPath, files);
+      await loadStatus();
+    } catch (err: any) { showTemporaryMessage(`Error: ${err.message}`); }
+  }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
+
+  const handleBatchUnstage = useCallback(async () => {
+    const files = [...selectedFiles];
+    closeContextMenu();
+    try {
+      await gitApi.unstageFiles(projectPath, files);
+      await loadStatus();
+    } catch (err: any) { showTemporaryMessage(`Error: ${err.message}`); }
+  }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
+
+  const handleBatchDiscard = useCallback(() => {
+    const files = [...selectedFiles];
+    closeContextMenu();
+    setDiscardConfirm({ files, group: 'unstaged' });
+  }, [selectedFiles, closeContextMenu]);
+
+  const handleBatchOpen = useCallback(() => {
+    closeContextMenu();
+    if (selectedFiles.size === 1) {
+      handleFileClick([...selectedFiles][0]);
+    }
+  }, [selectedFiles, handleFileClick, closeContextMenu]);
 
   const handleGenerateMessage = useCallback(async () => {
     try {
@@ -242,7 +368,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     if (!commitMessage.trim()) return;
     try {
       setCommitting(true);
-      setError(null);
       await gitApi.commit(projectPath, commitMessage);
       setCommitMessage('');
       await loadStatus();
@@ -283,6 +408,71 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const showTemporaryMessage = (msg: string) => {
     setActionMessage(msg);
     setTimeout(() => setActionMessage(null), 3000);
+  };
+
+  // --- Context menu portal ---
+  const renderContextMenu = () => {
+    if (!contextMenu) return null;
+    const count = selectedFiles.size;
+    const label = count > 1 ? `${count} files` : [...selectedFiles][0]?.split('/').pop() || '';
+    const isUnstaged = contextMenu.group === 'unstaged';
+
+    // Clamp menu to viewport
+    const menuWidth = 200;
+    const menuHeight = 160;
+    const x = Math.min(contextMenu.x, window.innerWidth - menuWidth - 8);
+    const y = Math.min(contextMenu.y, window.innerHeight - menuHeight - 8);
+
+    return createPortal(
+      <div
+        ref={contextMenuRef}
+        className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
+        style={{ left: x, top: y }}
+      >
+        <div className="px-3 py-1 text-[10px] text-app-text-muted truncate border-b border-app-border mb-0.5">
+          {label}
+        </div>
+        {count === 1 && (
+          <button
+            onClick={handleBatchOpen}
+            className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-app-text-body"
+          >
+            <FileText size={13} className="text-app-text-muted flex-shrink-0" />
+            Open Diff
+          </button>
+        )}
+        {isUnstaged ? (
+          <button
+            onClick={handleBatchStage}
+            className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-app-text-body"
+          >
+            <Plus size={13} className="text-green-500 flex-shrink-0" />
+            Stage {count > 1 ? `${count} Files` : 'File'}
+          </button>
+        ) : (
+          <button
+            onClick={handleBatchUnstage}
+            className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-app-text-body"
+          >
+            <Minus size={13} className="text-red-500 flex-shrink-0" />
+            Unstage {count > 1 ? `${count} Files` : 'File'}
+          </button>
+        )}
+        {isUnstaged && (
+          <>
+            <div className="border-t border-app-border my-0.5" />
+            <button
+              onClick={handleBatchDiscard}
+              className="w-full text-left px-3 py-1.5 hover:bg-app-hover flex items-center gap-2 text-red-500"
+            >
+              <Undo2 size={13} className="flex-shrink-0" />
+              Discard {count > 1 ? `${count} Changes` : 'Changes'}
+            </button>
+          </>
+        )}
+      </div>,
+      document.body
+    );
   };
 
   const isFileStaged = (status: string): boolean => {
@@ -429,12 +619,16 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 const st = statusLabel(file.status);
                 const basename = file.path.split('/').pop() || file.path;
                 const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
+                const isSelected = selectedFiles.has(file.path);
                 return (
                   <div
                     key={`${group}-${file.path}`}
-                    className="flex items-center gap-1.5 px-3 py-[3px] hover:bg-app-hover transition-colors group/file cursor-pointer"
+                    className={`flex items-center gap-1.5 px-3 py-[3px] transition-colors group/file cursor-pointer select-none ${
+                      isSelected ? 'bg-primary/15 dark:bg-primary/25' : 'hover:bg-app-hover'
+                    }`}
                     title={file.path}
-                    onClick={() => handleFileClick(file.path)}
+                    onClick={(e) => handleFileSelect(file.path, group, e)}
+                    onContextMenu={(e) => handleContextMenu(e, file.path, group)}
                   >
                     <span className={`${st.color} ${st.bg} text-[8px] font-bold px-0.5 py-[1px] rounded leading-none flex-shrink-0 min-w-[14px] text-center`}>
                       {st.text}
@@ -611,6 +805,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           </div>,
           document.body,
         )}
+        {renderContextMenu()}
+        {discardConfirm && createPortal(
+          <DiscardConfirmDialog
+            files={discardConfirm.files}
+            onConfirm={() => executeDiscard(discardConfirm.files)}
+            onCancel={() => setDiscardConfirm(null)}
+          />,
+          document.body,
+        )}
       </div>
     );
   }
@@ -622,16 +825,18 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
   const renderFullModeFileRow = (file: { path: string; status: string }, group: 'staged' | 'unstaged') => {
     const st = statusLabel(file.status);
-    const isSelected = selectedFile === file.path;
+    const isMultiSelected = selectedFiles.has(file.path);
+    const isDiffOpen = selectedFile === file.path;
     const basename = file.path.split('/').pop() || file.path;
     const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
     return (
       <div
         key={`${group}-${file.path}`}
-        className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group ${
-          isSelected ? 'bg-primary/10 dark:bg-primary/20' : 'hover:bg-app-hover'
+        className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group select-none ${
+          isMultiSelected ? 'bg-primary/15 dark:bg-primary/25' : isDiffOpen ? 'bg-primary/10 dark:bg-primary/20' : 'hover:bg-app-hover'
         }`}
-        onClick={() => handleFileClick(file.path)}
+        onClick={(e) => handleFileSelect(file.path, group, e)}
+        onContextMenu={(e) => handleContextMenu(e, file.path, group)}
       >
         <span className={`${st.color} ${st.bg} text-[10px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
           {st.text}
@@ -801,7 +1006,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               {/* Staged files */}
               {fullStagedFiles.length > 0 && (
                 <div className="border-t border-app-border">
-                  <div className="flex items-center justify-between px-2 py-1 group/hdr">
+                  <div className="flex items-center justify-between px-2 py-1 group/hdr select-none">
                     <button
                       onClick={() => setStagedExpanded(v => !v)}
                       className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
@@ -824,7 +1029,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               {/* Unstaged files */}
               {fullUnstagedFiles.length > 0 && (
                 <div className="border-t border-app-border">
-                  <div className="flex items-center justify-between px-2 py-1 group/hdr">
+                  <div className="flex items-center justify-between px-2 py-1 group/hdr select-none">
                     <button
                       onClick={() => setUnstagedExpanded(v => !v)}
                       className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
@@ -928,6 +1133,76 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         </div>,
         document.body,
       )}
+      {renderContextMenu()}
+      {discardConfirm && createPortal(
+        <DiscardConfirmDialog
+          files={discardConfirm.files}
+          onConfirm={() => executeDiscard(discardConfirm.files)}
+          onCancel={() => setDiscardConfirm(null)}
+        />,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+// ── Discard confirmation dialog ──────────────────────────────────────
+
+function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[]; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  const fileNames = files.map(f => {
+    const parts = f.split('/');
+    return parts[parts.length - 1];
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-surface border border-app-border rounded-lg shadow-xl p-5 max-w-md w-full mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-app-text-heading mb-2">
+          Discard Changes
+        </h3>
+        <p className="text-xs text-app-text-body mb-3">
+          This will permanently discard uncommitted changes.
+        </p>
+        <div className="bg-app-hover rounded px-3 py-2 mb-4 max-h-[120px] overflow-y-auto">
+          {files.length === 1 ? (
+            <span className="text-xs text-app-text-body font-mono">{fileNames[0]}</span>
+          ) : (
+            <ul className="space-y-0.5">
+              {fileNames.map((name, i) => (
+                <li key={i} className="text-xs text-app-text-body font-mono">{name}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Discard
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1027,7 +1302,7 @@ function CompactFileList({
       case 'staged-header':
         return (
           <div className="border-t border-app-border">
-            <div className="flex items-center justify-between px-3 py-1 group/hdr">
+            <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleStaged}
                 className="flex items-center gap-1 text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
@@ -1048,7 +1323,7 @@ function CompactFileList({
       case 'unstaged-header':
         return (
           <div className="border-t border-app-border">
-            <div className="flex items-center justify-between px-3 py-1 group/hdr">
+            <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleUnstaged}
                 className="flex items-center gap-1 text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"

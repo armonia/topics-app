@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { GitBranch, Download, ZoomIn, ZoomOut } from 'lucide-react';
+import { GitBranch, Download, ZoomIn, ZoomOut, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { filesApi, gitApi } from '../../lib/api';
-import { getFileIconDef } from '../../lib/fileIcons';
+import { markdownComponents } from '../MessageContent';
+import { BreadcrumbNav } from './BreadcrumbNav';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
@@ -36,17 +39,35 @@ interface FilePaneProps {
 
 export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }: FilePaneProps) {
   const [content, setContent] = useState('');
-  const [originalContent, setOriginalContent] = useState('');
+  const [, setOriginalContent] = useState('');
   const [diffOriginal, setDiffOriginal] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [darkMode, setDarkMode] = useState(false);
 
+  const handleBreadcrumbOpen = useCallback((path: string, _name: string) => {
+    window.dispatchEvent(new CustomEvent('open-file', { detail: { path } }));
+  }, []);
+
+  const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('editor-word-wrap') === '1');
+  const [mdPreview, setMdPreview] = useState(false);
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+
   const filename = filePath.split('/').pop() || filePath;
-  const relativePath = filePath.replace(projectPath, '').replace(/^\//, '');
   const mediaType = getMediaType(filename);
   const isMedia = mediaType !== 'text';
+  const isMd = /\.(md|mdx|markdown)$/i.test(filename);
+
+  const toggleWrap = useCallback(() => {
+    setWordWrap(prev => {
+      const next = !prev;
+      localStorage.setItem('editor-word-wrap', next ? '1' : '0');
+      return next;
+    });
+  }, []);
+
+  const togglePreview = useCallback(() => setMdPreview(prev => !prev), []);
 
   // Dark mode observer
   useEffect(() => {
@@ -120,7 +141,6 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
     }
   }, [filePath]);
 
-  const isModified = content !== originalContent;
 
   if (loading) {
     return (
@@ -147,24 +167,23 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   return (
     <div className="flex flex-col h-full">
       {/* Breadcrumb path bar */}
-      <div className="flex items-center gap-1.5 px-3 py-1 border-b border-app-border bg-elevated flex-shrink-0">
-        {diff ? (
-          <GitBranch size={14} className="text-amber-500 flex-shrink-0" />
-        ) : (
-          <span className="flex items-center justify-center w-4 h-4 flex-shrink-0">{(() => { const d = getFileIconDef(filename); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
-        )}
-        <span className="text-[11px] text-app-text-muted truncate">{relativePath}</span>
-        {diff && (
-          <div className="flex items-center gap-2 text-[10px] text-app-text-muted ml-auto">
-            <span>Original (HEAD)</span>
-            <span>|</span>
-            <span>Modified (Working)</span>
-          </div>
-        )}
-        {!diff && !isMedia && isModified && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 ml-auto" title="Unsaved changes" />}
-        {saveStatus === 'saved' && <span className="text-[10px] text-green-500 flex-shrink-0 ml-auto">Saved</span>}
-        {saveStatus === 'error' && <span className="text-[10px] text-red-500 flex-shrink-0 ml-auto">Save failed</span>}
-      </div>
+      <BreadcrumbNav filePath={filePath} projectPath={projectPath} openFile={handleBreadcrumbOpen} actions={
+        <>
+          {!isMedia && !mdPreview && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+          {!isMedia && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
+          {isMd && <PreviewBtn previewing={mdPreview} onClick={togglePreview} />}
+          <CopyPathBtn filePath={filePath} projectPath={projectPath} />
+        </>
+      } />
+
+      {diff && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-app-border bg-elevated flex-shrink-0 text-[10px] text-app-text-muted">
+          <GitBranch size={12} className="text-amber-500 flex-shrink-0" />
+          <span>Original (HEAD)</span>
+          <span>|</span>
+          <span>Modified (Working)</span>
+        </div>
+      )}
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden">
@@ -179,6 +198,12 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
               darkMode={darkMode}
             />
           </Suspense>
+        ) : mdPreview && isMd ? (
+          <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {content}
+            </ReactMarkdown>
+          </div>
         ) : (
           <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
             <CodeEditor
@@ -188,11 +213,46 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
               darkMode={darkMode}
               onSave={handleSave}
               onChange={handleChange}
+              wordWrap={wordWrap}
+              onCursorChange={(l, c) => setCursorPos(prev => prev.line === l && prev.col === c ? prev : { line: l, col: c })}
             />
           </Suspense>
         )}
       </div>
     </div>
+  );
+}
+
+// ── Toolbar Buttons ──
+
+function CopyPathBtn({ filePath, projectPath }: { filePath: string; projectPath: string }) {
+  const [copied, setCopied] = useState(false);
+  const copyPath = () => {
+    const rel = filePath.replace(projectPath, '').replace(/^\//, '');
+    navigator.clipboard.writeText(rel);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button onClick={copyPath} title="Copy Path" className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
+  );
+}
+
+function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title="Word Wrap" className={`p-0.5 rounded hover:bg-app-hover transition-colors ${active ? 'text-primary' : 'text-app-text-muted'}`}>
+      <WrapText size={13} />
+    </button>
+  );
+}
+
+function PreviewBtn({ previewing, onClick }: { previewing: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={previewing ? 'Show Editor' : 'Preview Markdown'} className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
+      {previewing ? <Code size={13} /> : <Eye size={13} />}
+    </button>
   );
 }
 

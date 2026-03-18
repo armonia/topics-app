@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -26,7 +26,7 @@ interface TreeNodeProps {
   expandedOverflow: Set<string>;
   onToggleDir: (path: string) => void;
   onExpandOverflow: (path: string) => void;
-  onSelectFile: (node: FileNode) => void;
+  onSelectFile: (node: FileNode, e: React.MouseEvent) => void;
   focusedPath: string | null;
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
   renamingPath: string | null;
@@ -38,6 +38,18 @@ interface TreeNodeProps {
   onNewItemCancel: () => void;
   gitFileMap: Map<string, string>;
   gitDirSet: Set<string>;
+  selectedPaths: Set<string>;
+  cutPaths: Set<string>;
+  dragOverPath: string | null;
+  onDragStart: (e: React.DragEvent, node: FileNode) => void;
+  onDragOver: (e: React.DragEvent, node: FileNode) => void;
+  onDragEnter: (e: React.DragEvent, node: FileNode) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent, node: FileNode) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+  onNewFile?: (dirPath: string) => void;
+  onNewFolder?: (dirPath: string) => void;
+  onCollapseDir?: (dirPath: string) => void;
 }
 
 function InlineInput({ depth, icon, onSubmit, onCancel }: {
@@ -78,7 +90,7 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
         onChange={e => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => { if (value.trim()) onSubmit(value.trim()); else onCancel(); }}
-        className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-[12px] text-app-text outline-none focus:border-primary"
+        className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-[12px] text-app-text-body outline-none focus:border-primary"
       />
     </div>
   );
@@ -101,11 +113,14 @@ function getGitStatusLabel(status: string): string {
   return 'M';
 }
 
-function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet }: TreeNodeProps) {
+function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
   const isDir = node.type === 'dir';
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedPath === node.path;
+  const isMultiSelected = selectedPaths.has(node.path);
   const isFocused = focusedPath === node.path;
+  const isCut = cutPaths.has(node.path);
+  const isDragOver = isDir && dragOverPath === node.path;
   const gitStatus = isDir ? undefined : gitFileMap.get(node.path);
   const dirHasChanges = isDir && gitDirSet.has(node.path);
   const isRenaming = renamingPath === node.path;
@@ -131,13 +146,12 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
     }
   }, [isRenaming, node.name, isDir]);
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
     if (isRenaming) return;
-    if (isDir) {
+    if (isDir && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
       onToggleDir(node.path);
-    } else {
-      onSelectFile(node);
     }
+    onSelectFile(node, e);
   };
 
   const handleDoubleClick = () => {
@@ -171,19 +185,29 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
   return (
     <>
       <div
-        className={`flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
+        className={`group/node flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
           isSelected
             ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-dark'
-            : isFocused
-              ? 'bg-app-hover'
-              : 'hover:bg-app-hover text-app-text-body'
-        }`}
+            : isMultiSelected
+              ? 'bg-primary/15 dark:bg-primary/25 text-app-text-body'
+              : isFocused
+                ? 'bg-app-hover'
+                : 'hover:bg-app-hover text-app-text-body'
+        } ${isDragOver ? 'ring-1 ring-primary/50 bg-primary/10' : ''} ${isCut ? 'opacity-50' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 12}px` }}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={e => onContextMenu(e, node)}
+        draggable={!isRenaming}
+        onDragStart={e => onDragStart(e, node)}
+        onDragOver={e => onDragOver(e, node)}
+        onDragEnter={e => onDragEnter(e, node)}
+        onDragLeave={onDragLeave}
+        onDrop={e => onDrop(e, node)}
+        onDragEnd={onDragEnd}
         role="treeitem"
         tabIndex={-1}
+        data-path={node.path}
       >
         {isDir ? (
           <span className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-app-text-tertiary">
@@ -201,13 +225,13 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
             onKeyDown={handleRenameKeyDown}
             onBlur={handleRenameBlur}
             onClick={e => e.stopPropagation()}
-            className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-[12px] text-app-text outline-none focus:border-primary"
+            className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-[12px] text-app-text-body outline-none focus:border-primary"
           />
         ) : (
           <>
             <span className={`truncate ${isDir ? 'font-medium' : ''} ${
-              !isSelected && gitStatus ? getGitStatusColor(gitStatus)
-              : !isSelected && dirHasChanges ? 'text-amber-400'
+              !isSelected && !isMultiSelected && gitStatus ? getGitStatusColor(gitStatus)
+              : !isSelected && !isMultiSelected && dirHasChanges ? 'text-amber-400'
               : ''
             }`}>{node.name}</span>
             {gitStatus && !isSelected && (
@@ -219,6 +243,22 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
               <span className="ml-auto text-[10px] text-app-text-faint flex-shrink-0">
                 {node.size < 1024 ? `${node.size}B` : node.size < 1048576 ? `${(node.size / 1024).toFixed(1)}K` : `${(node.size / 1048576).toFixed(1)}M`}
               </span>
+            )}
+            {isDir && (
+              <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/node:opacity-100 transition-opacity flex-shrink-0"
+                   onClick={e => e.stopPropagation()}>
+                <button onClick={() => onNewFile?.(node.path)} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New File">
+                  <FilePlus size={12} />
+                </button>
+                <button onClick={() => onNewFolder?.(node.path)} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New Folder">
+                  <FolderPlus size={12} />
+                </button>
+                {isExpanded && (
+                  <button onClick={() => onCollapseDir?.(node.path)} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Collapse">
+                    <ChevronsDownUp size={12} />
+                  </button>
+                )}
+              </div>
             )}
           </>
         )}
@@ -265,6 +305,18 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
                     onNewItemCancel={onNewItemCancel}
                     gitFileMap={gitFileMap}
                     gitDirSet={gitDirSet}
+                    selectedPaths={selectedPaths}
+                    cutPaths={cutPaths}
+                    dragOverPath={dragOverPath}
+                    onDragStart={onDragStart}
+                    onDragOver={onDragOver}
+                    onDragEnter={onDragEnter}
+                    onDragLeave={onDragLeave}
+                    onDrop={onDrop}
+                    onDragEnd={onDragEnd}
+                    onNewFile={onNewFile}
+                    onNewFolder={onNewFolder}
+                    onCollapseDir={onCollapseDir}
                   />
                 ))}
                 {!showAll && remaining > 0 && (
@@ -298,12 +350,18 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
   const [newItemParent, setNewItemParent] = useState<string | null>(null);
   const [newItemType, setNewItemType] = useState<'file' | 'dir' | null>(null);
   const [expandedOverflow, setExpandedOverflow] = useState<Set<string>>(new Set());
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const { gitStatus: feGitStatus } = useGitStatus({ projectPath });
   const [gitFileMap, setGitFileMap] = useState<Map<string, string>>(new Map());
   const [gitDirSet, setGitDirSet] = useState<Set<string>>(new Set());
   const treeRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void; pinTab: (path: string) => void } | null>(null);
+  const lastClickedPathRef = useRef<string | null>(null);
+  const draggedPathsRef = useRef<string[]>([]);
+  const clipboardRef = useRef<{ paths: string[]; mode: 'copy' | 'cut' } | null>(null);
+  const [cutPaths, setCutPaths] = useState<Set<string>>(new Set());
 
   const closeContextMenu = useCallback(() => {
     setContextMenuPos(null);
@@ -364,22 +422,76 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
     });
   }, []);
 
-  const handleSelectFile = useCallback((node: FileNode) => {
-    if (compact && onOpenFile) {
-      onOpenFile(node.path);
+  // Flatten tree for keyboard navigation and shift-select
+  const flattenTree = useCallback((nodes: FileNode[]): FileNode[] => {
+    const result: FileNode[] = [];
+    for (const node of nodes) {
+      result.push(node);
+      if (node.type === 'dir' && expandedDirs.has(node.path) && node.children) {
+        result.push(...flattenTree(node.children));
+      }
+    }
+    return result;
+  }, [expandedDirs]);
+
+  const handleSelectFile = useCallback((node: FileNode, e: React.MouseEvent) => {
+    const isMeta = e.metaKey || e.ctrlKey;
+    const isShift = e.shiftKey;
+
+    if (isMeta) {
+      // Toggle individual selection
+      setSelectedPaths(prev => {
+        const next = new Set(prev);
+        if (next.has(node.path)) next.delete(node.path);
+        else next.add(node.path);
+        return next;
+      });
+      lastClickedPathRef.current = node.path;
       return;
     }
-    setSelectedFile(node);
-    editorTabsRef.current?.openFile(node.path, node.name);
-  }, [compact, onOpenFile]);
+
+    if (isShift && lastClickedPathRef.current) {
+      // Range select
+      const flat = flattenTree(files);
+      const lastIdx = flat.findIndex(f => f.path === lastClickedPathRef.current);
+      const curIdx = flat.findIndex(f => f.path === node.path);
+      if (lastIdx !== -1 && curIdx !== -1) {
+        const start = Math.min(lastIdx, curIdx);
+        const end = Math.max(lastIdx, curIdx);
+        const next = new Set<string>();
+        for (let i = start; i <= end; i++) {
+          next.add(flat[i].path);
+        }
+        setSelectedPaths(next);
+      }
+      return;
+    }
+
+    // Plain click — single select, clear multi-select
+    setSelectedPaths(new Set([node.path]));
+    lastClickedPathRef.current = node.path;
+
+    if (node.type !== 'dir') {
+      if (compact && onOpenFile) {
+        onOpenFile(node.path);
+        return;
+      }
+      setSelectedFile(node);
+      editorTabsRef.current?.openFile(node.path, node.name);
+    }
+  }, [compact, onOpenFile, flattenTree, files]);
 
   // Context menu handlers
   const handleContextMenu = useCallback((e: React.MouseEvent, node: FileNode) => {
     e.preventDefault();
     e.stopPropagation();
+    // If right-clicking on a node not in the selection, make it the only selection
+    if (!selectedPaths.has(node.path)) {
+      setSelectedPaths(new Set([node.path]));
+    }
     setContextMenuPos({ x: e.clientX, y: e.clientY });
     setContextMenuNode(node);
-  }, []);
+  }, [selectedPaths]);
 
   const getParentDir = useCallback((path: string) => {
     const lastSlash = path.lastIndexOf('/');
@@ -441,17 +553,206 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
   }, []);
 
   const handleDelete = useCallback(async () => {
-    if (!contextMenuNode) return;
-    const confirmed = window.confirm(`Delete "${contextMenuNode.name}"? This cannot be undone.`);
+    const pathsToDelete = selectedPaths.size > 1
+      ? Array.from(selectedPaths)
+      : contextMenuNode ? [contextMenuNode.path] : [];
+    if (pathsToDelete.length === 0) { closeContextMenu(); return; }
+
+    const msg = pathsToDelete.length === 1
+      ? `Delete "${pathsToDelete[0].split('/').pop()}"? This cannot be undone.`
+      : `Delete ${pathsToDelete.length} items? This cannot be undone.`;
+    const confirmed = window.confirm(msg);
     if (!confirmed) { closeContextMenu(); return; }
     try {
-      await filesApi.remove(contextMenuNode.path);
+      await Promise.all(pathsToDelete.map(p => filesApi.remove(p)));
+      setSelectedPaths(new Set());
       await loadFiles();
     } catch (err: any) {
       console.error('Failed to delete:', err);
     }
     closeContextMenu();
-  }, [contextMenuNode, closeContextMenu, loadFiles]);
+  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles]);
+
+  const handleOpenFile = useCallback(() => {
+    if (!contextMenuNode || contextMenuNode.type === 'dir') { closeContextMenu(); return; }
+    if (compact && onOpenFile) {
+      onOpenFile(contextMenuNode.path);
+    } else {
+      setSelectedFile(contextMenuNode);
+      editorTabsRef.current?.openFile(contextMenuNode.path, contextMenuNode.name);
+    }
+    closeContextMenu();
+  }, [contextMenuNode, compact, onOpenFile, closeContextMenu]);
+
+  const handleCopyPath = useCallback(() => {
+    if (!contextMenuNode) { closeContextMenu(); return; }
+    navigator.clipboard.writeText(contextMenuNode.path);
+    closeContextMenu();
+  }, [contextMenuNode, closeContextMenu]);
+
+  const handleCopyRelativePath = useCallback(() => {
+    if (!contextMenuNode) { closeContextMenu(); return; }
+    const rel = contextMenuNode.path.startsWith(projectPath)
+      ? contextMenuNode.path.slice(projectPath.length + 1)
+      : contextMenuNode.path;
+    navigator.clipboard.writeText(rel);
+    closeContextMenu();
+  }, [contextMenuNode, projectPath, closeContextMenu]);
+
+  const handleDuplicate = useCallback(async () => {
+    const pathsToDuplicate = selectedPaths.size > 1
+      ? Array.from(selectedPaths)
+      : contextMenuNode ? [contextMenuNode.path] : [];
+    if (pathsToDuplicate.length === 0) { closeContextMenu(); return; }
+    try {
+      await Promise.all(pathsToDuplicate.map(p => filesApi.duplicate(p)));
+      await loadFiles();
+    } catch (err: any) {
+      console.error('Failed to duplicate:', err);
+    }
+    closeContextMenu();
+  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles]);
+
+  // Collapse all
+  const handleCollapseAll = useCallback(() => {
+    setExpandedDirs(new Set());
+  }, []);
+
+  // Collapse a specific directory and all its descendants
+  const handleCollapseDir = useCallback((dirPath: string) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev);
+      for (const p of prev) {
+        if (p === dirPath || p.startsWith(dirPath + '/')) {
+          next.delete(p);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  // Drag and drop
+  const handleDragStart = useCallback((e: React.DragEvent, node: FileNode) => {
+    // If dragging a selected item, drag all selected; otherwise just this one
+    if (selectedPaths.has(node.path) && selectedPaths.size > 1) {
+      draggedPathsRef.current = Array.from(selectedPaths);
+    } else {
+      draggedPathsRef.current = [node.path];
+    }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggedPathsRef.current.join('\n'));
+    // Make the drag image slightly transparent
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  }, [selectedPaths]);
+
+  const isChildOf = useCallback((childPath: string, parentPath: string) => {
+    return childPath.startsWith(parentPath + '/');
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, node: FileNode) => {
+    e.preventDefault();
+    if (node.type !== 'dir') return;
+    // Prevent dropping into self or own children
+    const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
+    if (invalid) {
+      e.dataTransfer.dropEffect = 'none';
+      return;
+    }
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverPath(node.path);
+  }, [isChildOf]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent, node: FileNode) => {
+    e.preventDefault();
+    if (node.type === 'dir') {
+      const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
+      if (!invalid) setDragOverPath(node.path);
+    }
+  }, [isChildOf]);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear if leaving the actual element (not entering a child)
+    const related = e.relatedTarget as Node | null;
+    if (e.currentTarget instanceof HTMLElement && related && e.currentTarget.contains(related)) return;
+    setDragOverPath(null);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent, node: FileNode) => {
+    e.preventDefault();
+    setDragOverPath(null);
+    if (node.type !== 'dir') return;
+    const paths = draggedPathsRef.current;
+    if (paths.length === 0) return;
+    // Prevent dropping into self or own children
+    const invalid = paths.some(p => p === node.path || isChildOf(node.path, p));
+    if (invalid) return;
+
+    try {
+      await Promise.all(paths.map(p => {
+        const basename = p.split('/').pop()!;
+        return filesApi.move(p, node.path + '/' + basename);
+      }));
+      setSelectedPaths(new Set());
+      await loadFiles();
+    } catch (err: any) {
+      console.error('Failed to move:', err);
+    }
+  }, [isChildOf, loadFiles]);
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '';
+    }
+    setDragOverPath(null);
+    draggedPathsRef.current = [];
+  }, []);
+
+  // Copy / Cut / Paste keyboard shortcuts
+  const getTargetDir = useCallback((): string => {
+    // Target directory for paste: focused/selected directory, or parent of selected file
+    const sel = Array.from(selectedPaths);
+    if (sel.length === 1) {
+      // Find the node to check if it's a dir
+      const flat = flattenTree(files);
+      const node = flat.find(f => f.path === sel[0]);
+      if (node?.type === 'dir') return node.path;
+      return getParentDir(sel[0]);
+    }
+    if (focusedPath) {
+      const flat = flattenTree(files);
+      const node = flat.find(f => f.path === focusedPath);
+      if (node?.type === 'dir') return node.path;
+      return getParentDir(focusedPath);
+    }
+    return projectPath;
+  }, [selectedPaths, focusedPath, flattenTree, files, getParentDir, projectPath]);
+
+  const handlePaste = useCallback(async () => {
+    const cb = clipboardRef.current;
+    if (!cb || cb.paths.length === 0) return;
+    const targetDir = getTargetDir();
+    try {
+      if (cb.mode === 'copy') {
+        await Promise.all(cb.paths.map(p => {
+          const basename = p.split('/').pop()!;
+          return filesApi.copy(p, targetDir + '/' + basename);
+        }));
+      } else {
+        // cut = move
+        await Promise.all(cb.paths.map(p => {
+          const basename = p.split('/').pop()!;
+          return filesApi.move(p, targetDir + '/' + basename);
+        }));
+        clipboardRef.current = null;
+        setCutPaths(new Set());
+      }
+      await loadFiles();
+    } catch (err: any) {
+      console.error('Failed to paste:', err);
+    }
+  }, [getTargetDir, loadFiles]);
 
   // Close context menu on outside click or Escape
   useEffect(() => {
@@ -472,11 +773,42 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
     };
   }, [contextMenuPos, closeContextMenu]);
 
+  // Keyboard shortcuts for copy/cut/paste
+  useEffect(() => {
+    const el = treeRef.current;
+    if (!el) return;
+    const handler = (e: KeyboardEvent) => {
+      // Only when tree is focused
+      if (!el.contains(document.activeElement) && document.activeElement !== el) return;
+      const isMeta = e.metaKey || e.ctrlKey;
+      if (isMeta && e.key === 'c') {
+        e.preventDefault();
+        const paths = Array.from(selectedPaths);
+        if (paths.length > 0) {
+          clipboardRef.current = { paths, mode: 'copy' };
+          setCutPaths(new Set());
+        }
+      } else if (isMeta && e.key === 'x') {
+        e.preventDefault();
+        const paths = Array.from(selectedPaths);
+        if (paths.length > 0) {
+          clipboardRef.current = { paths, mode: 'cut' };
+          setCutPaths(new Set(paths));
+        }
+      } else if (isMeta && e.key === 'v') {
+        e.preventDefault();
+        handlePaste();
+      }
+    };
+    el.addEventListener('keydown', handler);
+    return () => el.removeEventListener('keydown', handler);
+  }, [selectedPaths, handlePaste]);
+
   // Compute adjusted context menu position to stay within viewport
   const contextMenuStyle = useCallback(() => {
     if (!contextMenuPos) return { left: 0, top: 0 };
-    const menuWidth = 180;
-    const menuHeight = 160;
+    const menuWidth = 200;
+    const menuHeight = 320;
     let x = contextMenuPos.x;
     let y = contextMenuPos.y;
     if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
@@ -513,19 +845,11 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
     return () => clearInterval(interval);
   }, [pendingFile, onPendingFileConsumed, compact]);
 
-  // Flatten tree for keyboard navigation
-  const flattenTree = useCallback((nodes: FileNode[]): FileNode[] => {
-    const result: FileNode[] = [];
-    for (const node of nodes) {
-      result.push(node);
-      if (node.type === 'dir' && expandedDirs.has(node.path) && node.children) {
-        result.push(...flattenTree(node.children));
-      }
-    }
-    return result;
-  }, [expandedDirs]);
-
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Let copy/cut/paste bubble to the native handler above
+    const isMeta = e.metaKey || e.ctrlKey;
+    if (isMeta && (e.key === 'c' || e.key === 'x' || e.key === 'v')) return;
+
     const flat = flattenTree(files);
     const currentIdx = flat.findIndex(f => f.path === focusedPath);
 
@@ -554,10 +878,33 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
       const node = flat[currentIdx];
       if (node) {
         if (node.type === 'dir') handleToggleDir(node.path);
-        else handleSelectFile(node);
+        else {
+          setSelectedPaths(new Set([node.path]));
+          lastClickedPathRef.current = node.path;
+          if (compact && onOpenFile) {
+            onOpenFile(node.path);
+          } else {
+            setSelectedFile(node);
+            editorTabsRef.current?.openFile(node.path, node.name);
+          }
+        }
       }
     }
-  }, [files, focusedPath, expandedDirs, flattenTree, handleToggleDir, handleSelectFile]);
+  }, [files, focusedPath, expandedDirs, flattenTree, handleToggleDir, compact, onOpenFile]);
+
+  // Hover button handlers for new file/folder on directory rows
+  // MUST be before any early returns to respect Rules of Hooks
+  const handleHoverNewFile = useCallback((dirPath: string) => {
+    setExpandedDirs(prev => { const next = new Set(prev); next.add(dirPath); return next; });
+    setNewItemParent(dirPath);
+    setNewItemType('file');
+  }, []);
+
+  const handleHoverNewFolder = useCallback((dirPath: string) => {
+    setExpandedDirs(prev => { const next = new Set(prev); next.add(dirPath); return next; });
+    setNewItemParent(dirPath);
+    setNewItemType('dir');
+  }, []);
 
   if (loading) {
     return (
@@ -579,46 +926,134 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
     );
   }
 
+  const multiSelectCount = selectedPaths.size;
+  const isMultiSelect = multiSelectCount > 1;
+
   // Render the context menu portal
   const contextMenuPortal = contextMenuPos && contextMenuNode && createPortal(
     <div
       ref={contextMenuRef}
       role="menu"
-      className="fixed z-50 bg-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[170px]"
+      className="fixed z-50 bg-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[200px]"
       style={contextMenuStyle()}
     >
+      {/* Header */}
+      <div className="px-3 py-1.5 text-[11px] text-app-text-tertiary font-medium truncate border-b border-app-border mb-1">
+        {isMultiSelect ? `${multiSelectCount} items selected` : contextMenuNode.name}
+      </div>
+
+      {/* Open */}
+      {!isMultiSelect && contextMenuNode.type !== 'dir' && (
+        <button
+          role="menuitem"
+          onClick={handleOpenFile}
+          className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+        >
+          <FileText size={14} className="text-app-text-tertiary" /> Open
+        </button>
+      )}
+
+      {/* Copy Path / Copy Relative Path */}
+      {!isMultiSelect && (
+        <>
+          <button
+            role="menuitem"
+            onClick={handleCopyPath}
+            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+          >
+            <Copy size={14} className="text-app-text-tertiary" /> Copy Path
+          </button>
+          <button
+            role="menuitem"
+            onClick={handleCopyRelativePath}
+            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+          >
+            <Copy size={14} className="text-app-text-tertiary" /> Copy Relative Path
+          </button>
+          <div className="border-t border-app-border my-1" />
+        </>
+      )}
+
+      {/* New File / New Folder */}
       <button
         role="menuitem"
         onClick={() => handleNewItem('file')}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors flex items-center gap-2"
+        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
         <FilePlus size={14} className="text-app-text-tertiary" /> New File
       </button>
       <button
         role="menuitem"
         onClick={() => handleNewItem('dir')}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors flex items-center gap-2"
+        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
         <FolderPlus size={14} className="text-app-text-tertiary" /> New Folder
       </button>
+
       <div className="border-t border-app-border my-1" />
+
+      {/* Duplicate */}
       <button
         role="menuitem"
-        onClick={handleRename}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors flex items-center gap-2"
+        onClick={handleDuplicate}
+        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
-        <Pencil size={14} className="text-app-text-tertiary" /> Rename
+        <Copy size={14} className="text-app-text-tertiary" /> Duplicate{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
+
+      {/* Rename — single only */}
+      {!isMultiSelect && (
+        <button
+          role="menuitem"
+          onClick={handleRename}
+          className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+        >
+          <Pencil size={14} className="text-app-text-tertiary" /> Rename
+        </button>
+      )}
+
+      {/* Delete */}
       <button
         role="menuitem"
         onClick={handleDelete}
         className="w-full text-left px-3 py-1.5 text-[12px] text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
       >
-        <Trash2 size={14} /> Delete
+        <Trash2 size={14} /> Delete{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
     </div>,
     document.body
   );
+
+  const treeNodeProps = {
+    expandedDirs,
+    expandedOverflow,
+    onToggleDir: handleToggleDir,
+    onExpandOverflow: handleExpandOverflow,
+    onSelectFile: handleSelectFile,
+    focusedPath,
+    onContextMenu: handleContextMenu,
+    renamingPath,
+    onRenameSubmit: handleRenameSubmit,
+    onRenameCancel: handleRenameCancel,
+    newItemParent,
+    newItemType,
+    onNewItemSubmit: handleNewItemSubmit,
+    onNewItemCancel: handleNewItemCancel,
+    gitFileMap,
+    gitDirSet,
+    selectedPaths,
+    cutPaths,
+    dragOverPath,
+    onDragStart: handleDragStart,
+    onDragOver: handleDragOver,
+    onDragEnter: handleDragEnter,
+    onDragLeave: handleDragLeave,
+    onDrop: handleDrop,
+    onDragEnd: handleDragEnd,
+    onNewFile: handleHoverNewFile,
+    onNewFolder: handleHoverNewFolder,
+    onCollapseDir: handleCollapseDir,
+  };
 
   if (compact) {
     return (
@@ -636,22 +1071,7 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
               node={node}
               depth={0}
               selectedPath={selectedFile?.path || null}
-              expandedDirs={expandedDirs}
-              expandedOverflow={expandedOverflow}
-              onToggleDir={handleToggleDir}
-              onExpandOverflow={handleExpandOverflow}
-              onSelectFile={handleSelectFile}
-              focusedPath={focusedPath}
-              onContextMenu={handleContextMenu}
-              renamingPath={renamingPath}
-              onRenameSubmit={handleRenameSubmit}
-              onRenameCancel={handleRenameCancel}
-              newItemParent={newItemParent}
-              newItemType={newItemType}
-              onNewItemSubmit={handleNewItemSubmit}
-              onNewItemCancel={handleNewItemCancel}
-              gitFileMap={gitFileMap}
-              gitDirSet={gitDirSet}
+              {...treeNodeProps}
             />
           ))}
         </div>
@@ -673,13 +1093,36 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
         >
           <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border sticky top-0 bg-surface z-10">
             <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">Explorer</span>
-            <button
-              onClick={loadFiles}
-              className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw size={12} />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => handleNewItem('file')}
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
+                title="New file"
+              >
+                <FilePlus size={12} />
+              </button>
+              <button
+                onClick={() => handleNewItem('dir')}
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
+                title="New folder"
+              >
+                <FolderPlus size={12} />
+              </button>
+              <button
+                onClick={handleCollapseAll}
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
+                title="Collapse All"
+              >
+                <ChevronsDownUp size={12} />
+              </button>
+              <button
+                onClick={loadFiles}
+                className="p-1 rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text-hover transition-colors"
+                title="Refresh"
+              >
+                <RefreshCw size={12} />
+              </button>
+            </div>
           </div>
           {files.map(node => (
             <TreeNode
@@ -687,22 +1130,7 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
               node={node}
               depth={0}
               selectedPath={selectedFile?.path || null}
-              expandedDirs={expandedDirs}
-              expandedOverflow={expandedOverflow}
-              onToggleDir={handleToggleDir}
-              onExpandOverflow={handleExpandOverflow}
-              onSelectFile={handleSelectFile}
-              focusedPath={focusedPath}
-              onContextMenu={handleContextMenu}
-              renamingPath={renamingPath}
-              onRenameSubmit={handleRenameSubmit}
-              onRenameCancel={handleRenameCancel}
-              newItemParent={newItemParent}
-              newItemType={newItemType}
-              onNewItemSubmit={handleNewItemSubmit}
-              onNewItemCancel={handleNewItemCancel}
-              gitFileMap={gitFileMap}
-              gitDirSet={gitDirSet}
+              {...treeNodeProps}
             />
           ))}
         </div>

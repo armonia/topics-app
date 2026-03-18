@@ -474,13 +474,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       } catch (err: any) { return json({ error: "Git log error: " + err.message }, 500); }
     }
 
-    // --- Git stage ---
+    // --- Git stage (single file or batch) ---
     if (method === "POST" && pathname === "/api/git/stage") {
       const body = await readJSON(req);
-      if (!body?.path || !body?.file) return json({ error: "path and file required" }, 400);
+      const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
+      if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
-      try { const proc = Bun.spawn(["git", "add", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Stage error: " + err.message }, 500); }
+      try { for (const f of files) { const proc = Bun.spawn(["git", "add", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; } return json({ ok: true }); } catch (err: any) { return json({ error: "Stage error: " + err.message }, 500); }
     }
 
     // --- Git stage all ---
@@ -541,13 +542,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       } catch (err: any) { return json({ error: "Diff summary error: " + err.message }, 500); }
     }
 
-    // --- Git unstage ---
+    // --- Git unstage (single file or batch) ---
     if (method === "POST" && pathname === "/api/git/unstage") {
       const body = await readJSON(req);
-      if (!body?.path || !body?.file) return json({ error: "path and file required" }, 400);
+      const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
+      if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
-      try { const proc = Bun.spawn(["git", "reset", "HEAD", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage error: " + err.message }, 500); }
+      try { for (const f of files) { const proc = Bun.spawn(["git", "reset", "HEAD", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; } return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage error: " + err.message }, 500); }
     }
 
     // --- Git unstage all ---
@@ -559,24 +561,24 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try { const proc = Bun.spawn(["git", "reset", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage-all error: " + err.message }, 500); }
     }
 
-    // --- Git discard file changes (restore working tree) ---
+    // --- Git discard file changes (single or batch, restore working tree) ---
     if (method === "POST" && pathname === "/api/git/discard") {
       const body = await readJSON(req);
-      if (!body?.path || !body?.file) return json({ error: "path and file required" }, 400);
+      const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
+      if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        // For untracked files, remove them; for tracked files, restore from HEAD
-        const statusProc = Bun.spawn(["git", "status", "--porcelain", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const statusOut = (await new Response(statusProc.stdout).text()).trim();
-        if (statusOut.startsWith("??")) {
-          // Untracked: remove file
-          const rmProc = Bun.spawn(["rm", "-rf", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-          await rmProc.exited;
-        } else {
-          // Tracked: restore from HEAD
-          const proc = Bun.spawn(["git", "checkout", "--", body.file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-          await proc.exited;
+        for (const file of files) {
+          const statusProc = Bun.spawn(["git", "status", "--porcelain", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const statusOut = (await new Response(statusProc.stdout).text()).trim();
+          if (statusOut.startsWith("??")) {
+            const rmProc = Bun.spawn(["rm", "-rf", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            await rmProc.exited;
+          } else {
+            const proc = Bun.spawn(["git", "checkout", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            await proc.exited;
+          }
         }
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Discard error: " + err.message }, 500); }
@@ -711,6 +713,116 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         return json({ ok: true });
       } catch (err: any) {
         return json({ error: "Failed to delete: " + err.message }, 500);
+      }
+    }
+
+    // --- File move ---
+    if (method === "POST" && pathname === "/api/files/move") {
+      const body = await readJSON(req);
+      if (!body?.from || !body?.to) return json({ error: "from and to required" }, 400);
+      const resolvedFrom = resolveProjectPath(body.from);
+      const resolvedTo = resolveProjectPath(body.to);
+      if (!resolvedFrom || !resolvedTo) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedFrom)) return json({ error: "Source path not found" }, 404);
+      if (existsSync(resolvedTo)) return json({ error: "Destination already exists" }, 409);
+      try {
+        renameSync(resolvedFrom, resolvedTo);
+        return json({ ok: true });
+      } catch (err: any) {
+        return json({ error: "Failed to move: " + err.message }, 500);
+      }
+    }
+
+    // --- File copy ---
+    if (method === "POST" && pathname === "/api/files/copy") {
+      const body = await readJSON(req);
+      if (!body?.from || !body?.to) return json({ error: "from and to required" }, 400);
+      const resolvedFrom = resolveProjectPath(body.from);
+      const resolvedTo = resolveProjectPath(body.to);
+      if (!resolvedFrom || !resolvedTo) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedFrom)) return json({ error: "Source path not found" }, 404);
+      if (existsSync(resolvedTo)) return json({ error: "Destination already exists" }, 409);
+      try {
+        const stat = statSync(resolvedFrom);
+        const args = stat.isDirectory() ? ["cp", "-r", resolvedFrom, resolvedTo] : ["cp", resolvedFrom, resolvedTo];
+        const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        if (proc.exitCode !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          return json({ error: "Failed to copy: " + stderr }, 500);
+        }
+        return json({ ok: true });
+      } catch (err: any) {
+        return json({ error: "Failed to copy: " + err.message }, 500);
+      }
+    }
+
+    // --- File duplicate ---
+    if (method === "POST" && pathname === "/api/files/duplicate") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedFile = resolveProjectPath(body.path);
+      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
+      try {
+        const stat = statSync(resolvedFile);
+        const isDir = stat.isDirectory();
+
+        // Generate duplicate name
+        const lastSlash = resolvedFile.lastIndexOf("/");
+        const parentDir = resolvedFile.substring(0, lastSlash);
+        const baseName = resolvedFile.substring(lastSlash + 1);
+
+        let name: string, ext: string;
+        if (isDir) {
+          name = baseName;
+          ext = "";
+        } else {
+          const dotIdx = baseName.lastIndexOf(".");
+          if (dotIdx > 0) {
+            name = baseName.substring(0, dotIdx);
+            ext = baseName.substring(dotIdx);
+          } else {
+            name = baseName;
+            ext = "";
+          }
+        }
+
+        // Parse existing "copy" / "copy N" suffix
+        const copyMatch = name.match(/^(.*?) copy(?: (\d+))?$/);
+        let newPath: string;
+        if (copyMatch) {
+          const base = copyMatch[1];
+          const num = copyMatch[2] ? parseInt(copyMatch[2], 10) + 1 : 2;
+          newPath = join(parentDir, `${base} copy ${num}${ext}`);
+          // Increment until unique
+          let counter = num;
+          while (existsSync(newPath)) {
+            counter++;
+            newPath = join(parentDir, `${base} copy ${counter}${ext}`);
+          }
+        } else {
+          newPath = join(parentDir, `${name} copy${ext}`);
+          if (existsSync(newPath)) {
+            let counter = 2;
+            newPath = join(parentDir, `${name} copy ${counter}${ext}`);
+            while (existsSync(newPath)) {
+              counter++;
+              newPath = join(parentDir, `${name} copy ${counter}${ext}`);
+            }
+          }
+        }
+
+        const args = isDir ? ["cp", "-r", resolvedFile, newPath] : ["cp", resolvedFile, newPath];
+        const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        if (proc.exitCode !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          return json({ error: "Failed to duplicate: " + stderr }, 500);
+        }
+        return json({ ok: true, newPath });
+      } catch (err: any) {
+        return json({ error: "Failed to duplicate: " + err.message }, 500);
       }
     }
 

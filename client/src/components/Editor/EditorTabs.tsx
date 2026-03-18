@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, lazy, Suspense, Fragment } from 'react';
-import { X, File, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, lazy, Suspense } from 'react';
+import { X, File, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
+import { markdownComponents } from '../MessageContent';
+import { BreadcrumbNav } from './BreadcrumbNav';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -24,6 +28,9 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   const [activeIndex, setActiveIndex] = useState(-1);
   const [darkMode, setDarkMode] = useState(false);
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saved' | 'error'>>({});
+  const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('editor-word-wrap') === '1');
+  const [mdPreviewTabs, setMdPreviewTabs] = useState<Record<string, boolean>>({});
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
   useEffect(() => {
     const check = () => setDarkMode(document.documentElement.classList.contains('dark'));
@@ -114,7 +121,23 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
     }
   }, [tabs, activeIndex]);
 
+  const toggleWrap = useCallback(() => {
+    setWordWrap(prev => {
+      const next = !prev;
+      localStorage.setItem('editor-word-wrap', next ? '1' : '0');
+      return next;
+    });
+  }, []);
+
+  const togglePreview = useCallback(() => {
+    const tab = tabs[activeIndex];
+    if (!tab) return;
+    setMdPreviewTabs(prev => ({ ...prev, [tab.path]: !prev[tab.path] }));
+  }, [tabs, activeIndex]);
+
   const activeTab = tabs[activeIndex];
+  const activeIsMd = activeTab ? /\.(md|mdx|markdown)$/i.test(activeTab.name) : false;
+  const activeMdPreview = activeTab ? !!mdPreviewTabs[activeTab.path] : false;
 
   if (tabs.length === 0) {
     return (
@@ -165,28 +188,14 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
       {/* Breadcrumb path bar */}
       {activeTab && (
-        <div className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 overflow-hidden">
-          {(() => {
-            const relativePath = activeTab.path.replace(projectPath, '').replace(/^\//, '');
-            const segments = relativePath.split('/');
-            return segments.map((seg, i) => (
-              <Fragment key={i}>
-                {i > 0 && <ChevronRight size={10} className="text-app-text-faint mx-0.5 flex-shrink-0" />}
-                <button
-                  onClick={() => {
-                    const dirPath = projectPath + '/' + segments.slice(0, i + 1).join('/');
-                    window.dispatchEvent(new CustomEvent('navigate-explorer', { detail: { path: dirPath } }));
-                  }}
-                  className={`text-[11px] hover:text-primary hover:underline transition-colors flex-shrink-0 ${
-                    i === segments.length - 1 ? 'text-app-text-secondary' : 'text-app-text-muted'
-                  }`}
-                >
-                  {seg}
-                </button>
-              </Fragment>
-            ));
-          })()}
-        </div>
+        <BreadcrumbNav filePath={activeTab.path} projectPath={projectPath} openFile={openFile} actions={
+          <>
+            {!activeMdPreview && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+            <WrapBtn active={wordWrap} onClick={toggleWrap} />
+            {activeIsMd && <PreviewBtn previewing={activeMdPreview} onClick={togglePreview} />}
+            <CopyPathBtn filePath={activeTab.path} projectPath={projectPath} />
+          </>
+        } />
       )}
 
       {/* Editor */}
@@ -194,6 +203,12 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
         {activeTab?.loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : activeTab && activeMdPreview && activeIsMd ? (
+          <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {activeTab.content}
+            </ReactMarkdown>
           </div>
         ) : activeTab ? (
           <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
@@ -205,6 +220,8 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               onSave={handleSave}
               onChange={(c) => handleContentChange(activeTab.path, c)}
               initialLine={activeTab.lineNumber}
+              wordWrap={wordWrap}
+              onCursorChange={(l, c) => setCursorPos(prev => prev.line === l && prev.col === c ? prev : { line: l, col: c })}
             />
           </Suspense>
         ) : null}
@@ -212,6 +229,39 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
     </div>
   );
 });
+
+// ── Toolbar Buttons ──
+
+function CopyPathBtn({ filePath, projectPath }: { filePath: string; projectPath: string }) {
+  const [copied, setCopied] = useState(false);
+  const copyPath = () => {
+    const rel = filePath.replace(projectPath, '').replace(/^\//, '');
+    navigator.clipboard.writeText(rel);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button onClick={copyPath} title="Copy Path" className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
+  );
+}
+
+function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title="Word Wrap" className={`p-0.5 rounded hover:bg-app-hover transition-colors ${active ? 'text-primary' : 'text-app-text-muted'}`}>
+      <WrapText size={13} />
+    </button>
+  );
+}
+
+function PreviewBtn({ previewing, onClick }: { previewing: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={previewing ? 'Show Editor' : 'Preview Markdown'} className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
+      {previewing ? <Code size={13} /> : <Eye size={13} />}
+    </button>
+  );
+}
 
 // Expose imperative open method via ref-like pattern
 export type EditorTabsHandle = {

@@ -28,6 +28,8 @@ interface CodeEditorProps {
   darkMode?: boolean;
   initialLine?: number;
   gitChanges?: LineChange[];
+  wordWrap?: boolean;
+  onCursorChange?: (line: number, col: number) => void;
 }
 
 // Git gutter decorations
@@ -184,12 +186,15 @@ const darkThemeOverrides = EditorView.theme({
   },
 });
 
-export function CodeEditor({ content, filename, readOnly = true, onSave, onChange, darkMode = false, initialLine, gitChanges }: CodeEditorProps) {
+export function CodeEditor({ content, filename, readOnly = true, onSave, onChange, darkMode = false, initialLine, gitChanges, wordWrap = false, onCursorChange }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const readOnlyCompartment = useRef(new Compartment());
   const themeCompartment = useRef(new Compartment());
   const langCompartment = useRef(new Compartment());
+  const wrapCompartment = useRef(new Compartment());
+  const onCursorChangeRef = useRef(onCursorChange);
+  onCursorChangeRef.current = onCursorChange;
   const [currentContent, setCurrentContent] = useState(content);
 
   // Get current content from editor
@@ -236,6 +241,7 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
       readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
       themeCompartment.current.of(themeExts),
       langCompartment.current.of(langExt ? [langExt] : []),
+      wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
       keymap.of([
         ...closeBracketsKeymap,
         ...defaultKeymap,
@@ -255,6 +261,11 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
           const text = update.state.doc.toString();
           setCurrentContent(text);
           onChange?.(text);
+        }
+        if (update.selectionSet || update.docChanged) {
+          const head = update.state.selection.main.head;
+          const line = update.state.doc.lineAt(head);
+          onCursorChangeRef.current?.(line.number, head - line.from + 1);
         }
       }),
     ];
@@ -323,6 +334,18 @@ export function CodeEditor({ content, filename, readOnly = true, onSave, onChang
       view.dispatch({ effects: setGitChanges.of(gitChanges) });
     }
   }, [gitChanges]);
+
+  // Toggle word wrap
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view) {
+      view.dispatch({
+        effects: wrapCompartment.current.reconfigure(
+          wordWrap ? EditorView.lineWrapping : []
+        ),
+      });
+    }
+  }, [wordWrap]);
 
   // Scroll to line when initialLine changes
   useEffect(() => {
