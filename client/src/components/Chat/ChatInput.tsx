@@ -666,23 +666,36 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={onTogglePlanMode}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
+                  className={`h-8 flex items-center justify-center rounded-lg transition-all gap-1 ${
                     planMode
-                      ? 'text-indigo-500 bg-indigo-500/10'
-                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                      ? 'text-indigo-500 bg-indigo-500/10 px-2'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover w-8'
                   }`}
                   title={planMode ? 'Plan Mode ON' : 'Plan Mode OFF'}
                   aria-label="Toggle plan mode"
                 >
                   <ClipboardList size={16} />
+                  {planMode && (
+                    <span className="text-[9px] font-semibold uppercase tracking-wider">Plan</span>
+                  )}
                 </button>
-                {planMode && (
-                  <span className="text-[9px] font-semibold text-indigo-500 uppercase tracking-wider ml-0.5">Plan</span>
-                )}
               </div>
 
               {/* Right: voice + send */}
               <div className="flex items-center gap-0.5">
+                {/* Direct mic button — always visible on all screen sizes */}
+                <button
+                  type="button"
+                  onClick={() => { if (isRecording) stopRecording(); else startRecording(); }}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
+                    isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
+                  }`}
+                  title={isRecording ? 'Stop recording (⌘⇧R)' : 'Record voice (⌘⇧R)'}
+                  aria-label={isRecording ? 'Stop recording' : 'Record voice'}
+                  disabled={currentStreaming || uploading}
+                >
+                  {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+                </button>
                 {!isMobile && (
                   <OverflowMenu
                     isCallActive={isCallActive}

@@ -15,7 +15,8 @@ export function useVoiceRecording(
   const streamRef = useRef<MediaStream | null>(null);
 
   const getSupportedMimeType = useCallback((): string => {
-    const types = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
+    // Safari supports mp4/aac, Chrome/Firefox support webm/opus
+    const types = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
     for (const type of types) { if (MediaRecorder.isTypeSupported(type)) return type; }
     return '';
   }, []);
@@ -34,7 +35,16 @@ export function useVoiceRecording(
       setIsRecording(true);
       setRecordingTime(0);
       recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
-    } catch (err) { console.error('Failed to start recording:', err); }
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      // On mobile Safari over HTTP, getUserMedia is blocked silently
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('secure') || msg.includes('NotAllowed') || msg.includes('Permission')) {
+        alert('Microphone access requires HTTPS. Try accessing Topics via HTTPS or use Chrome on Android.');
+      } else {
+        alert(`Recording failed: ${msg}`);
+      }
+    }
   }, [getSupportedMimeType]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
@@ -45,12 +55,11 @@ export function useVoiceRecording(
         if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
         if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
         const mimeType = recorder.mimeType || 'audio/webm';
-        const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+        const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
         setIsRecording(false);
         setRecordingTime(0);
-        if (currentStreaming) { resolve(); return; }
         setUploading(true);
         try {
           const result = await uploadApi.uploadFile(file);

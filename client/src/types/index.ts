@@ -40,6 +40,7 @@ export interface ToolCall {
   status?: 'pending' | 'running' | 'success' | 'error';
   result?: string;
   error?: string;
+  contentOffset?: number;
 }
 
 export interface ChatMessage extends Message {
@@ -51,6 +52,7 @@ export interface ChatMessage extends Message {
   toolCalls?: ToolCall[];         // Tool calls made in this message
   media?: string[];               // Media file paths
   partial?: boolean;              // True if message is still streaming
+  queued?: boolean;               // True if message is queued to send (offline)
   streamedAt?: string;            // When streaming started (for recovery)
   // Branching support
   parentId?: string | null;       // ID of parent message in tree
@@ -206,6 +208,17 @@ export interface GitLogEntry {
 
 export type PanelTab = 'chat' | 'files' | 'changes' | 'processes' | 'browser' | 'terminal';
 
+export interface TerminalSessionInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  cwd: string;
+  command: string;
+  clients: number;
+  topicId?: string;
+  type: 'shell' | 'claude-code';
+}
+
 // Pane types for ProjectWindow layout
 export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project' | 'process-log' | 'session-viewer';
 
@@ -221,6 +234,7 @@ export interface Pane {
   color?: string;        // accent color for the tab (used by project tabs)
   processId?: string;    // only for type='process-log'
   sessionKey?: string;   // only for type='session-viewer'
+  terminalType?: 'shell' | 'claude-code'; // only for type='terminal'
 }
 
 export interface PaneLayoutRow {

@@ -72,6 +72,7 @@ interface MessageBubbleProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
+  onRetry?: () => void;
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -92,6 +93,7 @@ export const MessageBubble = memo(function MessageBubble({
   onEdit,
   onSwitchBranch,
   onOpenSessionViewer,
+  onRetry,
 }: MessageBubbleProps) {
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
   const dateSep = getDateSeparator(msg.timestamp, prev?.timestamp);
@@ -184,7 +186,9 @@ export const MessageBubble = memo(function MessageBubble({
             className={`px-3 py-2 text-[13px] leading-relaxed overflow-hidden ${
               msg.role === 'user'
                 ? 'user-bubble bg-primary text-white shadow-sm'
-                : 'bg-app-hover text-app-text dark:bg-elevated'
+                : msg.role === 'assistant' && msg.content.startsWith('⚠️')
+                  ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-700'
+                  : 'bg-app-hover text-app-text dark:bg-elevated'
             } ${grouped ? (msg.role === 'user' ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl rounded-tl-md') : 'rounded-2xl'}`}
             style={{ fontSize: `${fontSize}px`, overflowWrap: 'break-word', wordBreak: 'break-word' }}
           >
@@ -203,8 +207,17 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           </div>
           )}
+          {/* Retry button for error messages */}
+          {onRetry && msg.role === 'assistant' && msg.content.startsWith('⚠️') && (
+            <button
+              onClick={onRetry}
+              className="mt-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
+            >
+              ↻ Retry
+            </button>
+          )}
           {/* Queued indicator for offline messages */}
-          {msg.role === 'user' && msg.partial && (
+          {msg.role === 'user' && (msg.queued || msg.partial) && (
             <div className="text-[10px] text-amber-500 mt-0.5 text-right">
               Queued
             </div>
@@ -240,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {/* Timestamp on hover */}
-          {msg.timestamp && !(msg.role === 'user' && msg.partial) && (
+          {msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div className={`text-[10px] text-app-placeholder mt-0.5 transition-opacity ${isTouchDevice ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'} ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
               {formatTimestamp(msg.timestamp)}
             </div>

@@ -1,10 +1,13 @@
+// VoiceMessagePlayer v2 - custom player for voice messages
 import React, { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
-import { ThinkingBlock, ToolCallsList, PartialIndicator } from './MessageParts';
+import { ThinkingBlock, ToolCallsList, ToolCallBadge, PartialIndicator } from './MessageParts';
+import type { ToolCall } from '../types';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { isPlanResponse, PlanView } from './Chat/PlanView';
@@ -89,8 +92,9 @@ function FileIcon({ path, size = 24 }: { path: string; size?: number }) {
   return <I size={size} style={{ color: def.color }} />;
 }
 
-function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[] } {
+function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[]; voicePaths: Set<string> } {
   const mediaPaths: string[] = [];
+  const voicePaths = new Set<string>();
   const mediaPattern = /MEDIA:([^\s\n]+)/g;
   let match;
   while ((match = mediaPattern.exec(text)) !== null) mediaPaths.push(match[1]);
@@ -99,7 +103,7 @@ function extractMediaPaths(text: string): { cleanText: string; mediaPaths: strin
   while ((match = attachedPattern.exec(text)) !== null) mediaPaths.push(match[1].trim());
 
   const voicePattern = /\[Voice message:\s*([^\]]+)\]/g;
-  while ((match = voicePattern.exec(text)) !== null) mediaPaths.push(match[1].trim());
+  while ((match = voicePattern.exec(text)) !== null) { const p = match[1].trim(); mediaPaths.push(p); voicePaths.add(p); }
 
   const cleanText = text
     .replace(/MEDIA:([^\s\n]+)/g, '')
@@ -107,15 +111,90 @@ function extractMediaPaths(text: string): { cleanText: string; mediaPaths: strin
     .replace(/\[Voice message:\s*[^\]]+\]/g, '')
     .trim();
 
-  return { cleanText, mediaPaths };
+  return { cleanText, mediaPaths, voicePaths };
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer" onClick={onClose}>
-      <img src={src} alt={alt} className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()} />
-      <button className="absolute top-4 right-4 text-white text-2xl bg-black/50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-black/70" onClick={onClose}>×</button>
-    </div>
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const lastTouchDist = useRef<number | null>(null);
+  const lastTouchMid = useRef<{ x: number; y: number } | null>(null);
+  const isDragging = useRef(false);
+  const lastSingleTouch = useRef<{ x: number; y: number } | null>(null);
+
+  const getTouchDist = (t: React.TouchList) =>
+    Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      lastTouchDist.current = getTouchDist(e.touches);
+      lastTouchMid.current = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+    } else if (e.touches.length === 1 && scale > 1) {
+      isDragging.current = true;
+      lastSingleTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (e.touches.length === 2 && lastTouchDist.current !== null) {
+      const newDist = getTouchDist(e.touches);
+      const ratio = newDist / lastTouchDist.current;
+      setScale(s => Math.min(Math.max(s * ratio, 1), 5));
+      lastTouchDist.current = newDist;
+    } else if (e.touches.length === 1 && isDragging.current && lastSingleTouch.current) {
+      const dx = e.touches[0].clientX - lastSingleTouch.current.x;
+      const dy = e.touches[0].clientY - lastSingleTouch.current.y;
+      setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
+      lastSingleTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  };
+
+  const handleTouchEnd = () => {
+    lastTouchDist.current = null;
+    lastTouchMid.current = null;
+    isDragging.current = false;
+    lastSingleTouch.current = null;
+    if (scale < 1.05) { setScale(1); setOffset({ x: 0, y: 0 }); }
+  };
+
+  const handleBackdropClick = () => {
+    if (scale > 1) { setScale(1); setOffset({ x: 0, y: 0 }); }
+    else onClose();
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center overflow-hidden"
+      style={{ touchAction: 'none' }}
+      onClick={handleBackdropClick}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-full object-contain rounded-lg select-none"
+        style={{ transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`, transformOrigin: 'center', transition: scale === 1 ? 'transform 0.2s' : 'none', cursor: scale > 1 ? 'grab' : 'zoom-in' }}
+        onClick={(e) => e.stopPropagation()}
+        draggable={false}
+      />
+      <button
+        className="absolute top-4 right-4 text-white text-2xl bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+      >×</button>
+      {scale > 1 && (
+        <button
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-xs bg-black/50 rounded-full px-3 py-1"
+          onClick={(e) => { e.stopPropagation(); setScale(1); setOffset({ x: 0, y: 0 }); }}
+        >Reset zoom</button>
+      )}
+    </div>,
+    document.body
   );
 }
 
@@ -140,7 +219,105 @@ function MediaImage({ path }: { path: string }) {
   );
 }
 
-function MediaAudio({ path }: { path: string }) {
+function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessage?: boolean }) {
+  const src = getMediaUrl(path);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onMeta = () => { if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration); };
+    const onTime = () => {
+      setCurrentTime(audio.currentTime);
+      // Safari sometimes only reports duration after playback starts
+      if (audio.duration && isFinite(audio.duration) && duration === 0) setDuration(audio.duration);
+    };
+    const onEnded = () => { setPlaying(false); setCurrentTime(0); };
+    const onError = (e: Event) => console.error('Audio error:', (e.target as HTMLAudioElement)?.error);
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('durationchange', onMeta);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
+    return () => {
+      audio.removeEventListener('loadedmetadata', onMeta);
+      audio.removeEventListener('durationchange', onMeta);
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
+    };
+  }, []);
+
+  const toggle = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) { audio.pause(); setPlaying(false); }
+    else { audio.play(); setPlaying(true); }
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = pct * duration;
+    setCurrentTime(audio.currentTime);
+  };
+
+  const fmt = (s: number) => {
+    if (!s || !isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div className="flex items-center gap-2.5 py-1 min-w-[180px] max-w-[260px]">
+      <audio ref={audioRef} src={src} preload="auto" />
+      <button
+        onClick={toggle}
+        className={`w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full transition-colors ${
+          isUserMessage
+            ? 'bg-white/20 hover:bg-white/30 text-white'
+            : 'bg-primary/15 hover:bg-primary/25 text-primary'
+        }`}
+      >
+        {playing ? (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="2" y="1" width="4" height="12" rx="1" /><rect x="8" y="1" width="4" height="12" rx="1" /></svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M3 1.5v11l9-5.5z" /></svg>
+        )}
+      </button>
+      <div className="flex-1 flex flex-col gap-1 min-w-0">
+        <div
+          className="h-1.5 rounded-full cursor-pointer relative overflow-hidden"
+          style={{ backgroundColor: isUserMessage ? 'rgba(255,255,255,0.2)' : 'rgba(var(--primary-rgb, 59,130,246),0.15)' }}
+          onClick={seek}
+        >
+          <div
+            className="absolute inset-y-0 left-0 rounded-full transition-all"
+            style={{
+              width: `${progress}%`,
+              backgroundColor: isUserMessage ? 'rgba(255,255,255,0.8)' : 'var(--primary, #3b82f6)',
+            }}
+          />
+        </div>
+        <div className={`flex justify-between text-[10px] tabular-nums ${isUserMessage ? 'text-white/60' : 'text-app-text-muted'}`}>
+          <span>{fmt(currentTime)}</span>
+          <span>{fmt(duration)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MediaAudio({ path, isVoice, isUserMessage }: { path: string; isVoice?: boolean; isUserMessage?: boolean }) {
+  if (isVoice) return <VoiceMessagePlayer path={path} isUserMessage={isUserMessage} />;
   const src = getMediaUrl(path);
   return (
     <div className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
@@ -173,9 +350,9 @@ function MediaFile({ path }: { path: string }) {
   );
 }
 
-function MediaRenderer({ path }: { path: string }) {
+function MediaRenderer({ path, isVoice, isUserMessage }: { path: string; isVoice?: boolean; isUserMessage?: boolean }) {
   if (isImage(path)) return <MediaImage path={path} />;
-  if (isAudio(path)) return <MediaAudio path={path} />;
+  if (isAudio(path) || isVoice) return <MediaAudio path={path} isVoice={isVoice} isUserMessage={isUserMessage} />;
   if (isDocument(path)) return <MediaFile path={path} />;
   return <MediaFile path={path} />;
 }
@@ -312,10 +489,16 @@ export const markdownComponents = {
   ),
   img: ({ src, alt }: any) => {
     if (!src) return null;
-    const isAbsolute = src.startsWith('/');
-    const isMediaPath = src.startsWith('/Users/') || src.startsWith('/tmp/');
-    if (isAbsolute || isMediaPath) return <MediaImage path={src} />;
-    return <img src={src} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
+    // Normalize upload paths (handle both /uploads/x.png and topics-app/uploads/x.png)
+    let normalizedSrc = src;
+    if (src.includes('uploads/') && !src.startsWith('/') && !src.startsWith('http')) {
+      normalizedSrc = '/uploads/' + src.split('uploads/').pop();
+    }
+    // Serve /uploads/ paths directly (screenshots, attachments hosted by Topics server)
+    if (normalizedSrc.startsWith('/uploads/')) return <MediaImage path={normalizedSrc} />;
+    const isMediaPath = normalizedSrc.startsWith('/Users/') || normalizedSrc.startsWith('/tmp/');
+    if (isMediaPath) return <MediaImage path={normalizedSrc} />;
+    return <img src={normalizedSrc} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
   },
   a: ({ href, children }: any) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 underline">{children}</a>
@@ -472,6 +655,98 @@ function highlightMentions(text: string): (string | React.JSX.Element)[] {
   return parts.length > 0 ? parts : [text];
 }
 
+/** Split content into segments interleaved with inline tool call badges */
+function renderContentWithInlineTools(
+  cleanText: string,
+  toolCalls: ToolCall[],
+  markdownComponents: any
+): React.ReactNode[] {
+  // Separate tool calls with contentOffset (inline) from those without (legacy)
+  const inlineTools = toolCalls
+    .filter(tc => typeof tc.contentOffset === 'number')
+    .sort((a, b) => (a.contentOffset ?? 0) - (b.contentOffset ?? 0));
+
+  if (inlineTools.length === 0) return [];
+
+  // Find nearest paragraph boundary (\n\n) for each offset
+  const splitPoints: number[] = [];
+  for (const tc of inlineTools) {
+    const offset = tc.contentOffset!;
+    // Search for nearest \n\n at or after offset
+    const afterIdx = cleanText.indexOf('\n\n', offset);
+    // Search for nearest \n\n before offset
+    const beforeIdx = cleanText.lastIndexOf('\n\n', offset);
+    let splitAt: number;
+    if (afterIdx === -1 && beforeIdx === -1) {
+      splitAt = offset;
+    } else if (afterIdx === -1) {
+      splitAt = beforeIdx + 2; // after the \n\n
+    } else if (beforeIdx === -1) {
+      splitAt = afterIdx + 2;
+    } else {
+      // Pick the closest boundary
+      splitAt = (offset - beforeIdx <= afterIdx - offset) ? beforeIdx + 2 : afterIdx + 2;
+    }
+    // Avoid duplicate split points
+    if (splitPoints.length === 0 || splitAt > splitPoints[splitPoints.length - 1]) {
+      splitPoints.push(splitAt);
+    }
+  }
+
+  // Build segments: content → badge → content → badge → ...
+  const elements: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let toolIdx = 0;
+
+  for (let i = 0; i < splitPoints.length; i++) {
+    const splitAt = splitPoints[i];
+    const segment = cleanText.slice(lastIdx, splitAt).trim();
+    if (segment) {
+      elements.push(
+        <div key={`seg-${i}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {segment}
+          </ReactMarkdown>
+        </div>
+      );
+    }
+    // Add tool call badges that map to this split point
+    // Multiple tool calls might share the same split point
+    while (toolIdx < inlineTools.length) {
+      const tc = inlineTools[toolIdx];
+      const tcOffset = tc.contentOffset!;
+      // This tool call belongs at or before this split point
+      if (i + 1 >= splitPoints.length || tcOffset < splitPoints[i + 1]) {
+        elements.push(<ToolCallBadge key={`tc-${tc.id}`} toolCall={tc} compact />);
+        toolIdx++;
+      } else {
+        break;
+      }
+    }
+    lastIdx = splitAt;
+  }
+
+  // Remaining content after last split
+  const remaining = cleanText.slice(lastIdx).trim();
+  if (remaining) {
+    elements.push(
+      <div key="seg-last" className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          {remaining}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  // Any remaining tool calls (shouldn't happen, but safety)
+  while (toolIdx < inlineTools.length) {
+    elements.push(<ToolCallBadge key={`tc-${inlineTools[toolIdx].id}`} toolCall={inlineTools[toolIdx]} compact />);
+    toolIdx++;
+  }
+
+  return elements;
+}
+
 interface MessageContentProps {
   content: string;
   role: 'user' | 'assistant' | 'system';
@@ -488,7 +763,10 @@ interface MessageContentProps {
 }
 
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject, onOpenSessionViewer }: MessageContentProps) {
-  const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths } = useMemo(() => extractMediaPaths(content), [content]);
+  const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
+    const result = extractMediaPaths(content);
+    return result;
+  }, [content]);
 
   // During streaming, close any incomplete markdown tokens to prevent rendering glitches
   const cleanText = useMemo(
@@ -543,7 +821,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
     return (
       <div>
-        {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} /></div>)}
+        {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={role === "user"} /></div>)}
         {cleanText && renderUserText(cleanText)}
       </div>
     );
@@ -561,43 +839,56 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       {/* Thinking block - always show if present */}
       {thinking && <ThinkingBlock content={thinking} />}
 
-      {/* Tool calls */}
-      {toolCalls && toolCalls.length > 0 && <ToolCallsList toolCalls={toolCalls} />}
+      {/* Tool calls - split into legacy (no offset) and inline (with offset) */}
+      {(() => {
+        const legacyTools = toolCalls?.filter(tc => typeof tc.contentOffset !== 'number') ?? [];
+        const inlineTools = toolCalls?.filter(tc => typeof tc.contentOffset === 'number') ?? [];
+        const hasInline = inlineTools.length > 0;
 
-      {/* Media */}
-      {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} /></div>)}
+        return (
+          <>
+            {/* Legacy tool calls (no contentOffset) shown above content */}
+            {legacyTools.length > 0 && <ToolCallsList toolCalls={legacyTools} />}
 
-      {/* Inline typing indicator for empty streaming message */}
-      {!cleanText && !thinking && partial && (
-        <div className="flex gap-1.5 items-center py-0.5">
-          <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-          <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-          <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-        </div>
-      )}
+            {/* Inline typing indicator for empty streaming message */}
+            {!cleanText && !thinking && partial && (
+              <div className="flex gap-1.5 items-center py-0.5">
+                <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            )}
 
-      {/* Plan view - detect plan-format responses */}
-      {cleanText && !partial && isPlanResponse(cleanText) && onPlanApprove && (
-        <PlanView
-          content={cleanText}
-          onApprove={onPlanApprove}
-          onReject={onPlanReject || (() => {})}
-          isStreaming={partial}
-        />
-      )}
+            {/* Plan view - detect plan-format responses */}
+            {cleanText && !partial && isPlanResponse(cleanText) && onPlanApprove && (
+              <PlanView
+                content={cleanText}
+                onApprove={onPlanApprove}
+                onReject={onPlanReject || (() => {})}
+                isStreaming={partial}
+              />
+            )}
 
-      {/* Main content */}
-      {cleanText && (!isPlanResponse(cleanText) || !onPlanApprove || partial) && (
-        hasDiffBlocks(cleanText) ? (
-          <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
-        ) : (
-          <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {cleanText}
-            </ReactMarkdown>
-          </div>
-        )
-      )}
+            {/* Main content - inline tool calls or plain */}
+            {cleanText && (!isPlanResponse(cleanText) || !onPlanApprove || partial) && (
+              hasDiffBlocks(cleanText) ? (
+                <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
+              ) : hasInline ? (
+                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents)}</div>
+              ) : (
+                <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {cleanText}
+                  </ReactMarkdown>
+                </div>
+              )
+            )}
+          </>
+        );
+      })()}
+
+      {/* Media — rendered after content so images appear inline */}
+      {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
 
       {/* Streaming indicator - only when content has started */}
       {partial && (cleanText || thinking) && <PartialIndicator />}

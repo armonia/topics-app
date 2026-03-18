@@ -76,10 +76,47 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
 
   if (compact) {
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${statusColor()}`}>
-        {statusIcon()}
-        <Wrench size={10} className="text-app-text-secondary" />
-        {toolCall.name}
+      <span className="inline-block align-middle">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border cursor-pointer hover:brightness-95 dark:hover:brightness-110 transition-all ${statusColor()}`}
+        >
+          {statusIcon()}
+          <Wrench size={10} className="text-app-text-secondary" />
+          {toolCall.name}
+          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        </button>
+        {expanded && (
+          <div className={`mt-1 mb-2 border rounded-lg overflow-hidden text-left ${statusColor()}`}>
+            {Object.keys(toolCall.args).length > 0 && (
+              <div className="px-3 py-2 border-b border-inherit">
+                <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
+                <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
+                  {JSON.stringify(toolCall.args, null, 2)}
+                </pre>
+              </div>
+            )}
+            {toolCall.result && (
+              <div className="px-3 py-2 border-b border-inherit">
+                <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
+                <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
+                  {toolCall.result}
+                </pre>
+              </div>
+            )}
+            {toolCall.error && (
+              <div className="px-3 py-2">
+                <div className="text-[10px] uppercase text-red-500 mb-1 font-semibold">Error</div>
+                <pre className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
+                  {toolCall.error}
+                </pre>
+              </div>
+            )}
+            {!toolCall.result && !toolCall.error && toolCall.status === 'success' && (
+              <div className="px-3 py-2 text-[11px] text-app-text-muted italic">No output</div>
+            )}
+          </div>
+        )}
       </span>
     );
   }

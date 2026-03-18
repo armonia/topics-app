@@ -9,6 +9,7 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { useVoiceRecording } from './useVoiceRecording';
+import { SubAgentBar } from './SubAgentBar';
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
@@ -118,6 +119,8 @@ export function ChatPane({
   const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming);
   const isUploading = uploading || voiceUploading;
 
+  // Tool activity tracking for SubAgentBar
+
   // Scroll management is handled entirely by Virtuoso in MessageList
   // (followOutput="smooth" for new items, explicit scrollToIndex for streaming updates)
   useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
@@ -184,6 +187,13 @@ export function ChatPane({
   const handlePlanReject = useCallback(() => {
     sendMessage(topic.sessionKey, 'Plan rejected. Please propose an alternative approach.');
   }, [sendMessage, topic.sessionKey]);
+
+  const handleRetry = useCallback(() => {
+    const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
+    if (lastUserMsg) {
+      sendMessage(topic.sessionKey, lastUserMsg.content);
+    }
+  }, [currentMessages, sendMessage, topic.sessionKey]);
 
   const handleRememberMessage = useCallback(async (msg: ChatMessage) => {
     const snippet = msg.content.length > 300 ? msg.content.slice(0, 300) + '...' : msg.content;
@@ -300,9 +310,11 @@ export function ChatPane({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onRetry={handleRetry} />
       <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
+      <SubAgentBar messages={currentMessages} isStreaming={currentStreaming} />
       <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} />
+
     </div>
   );
 }

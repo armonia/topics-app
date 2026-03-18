@@ -146,6 +146,7 @@ export function useTextToSpeech() {
 
     setIsSpeaking(true);
 
+    let url: string | undefined;
     try {
       // Call server TTS endpoint
       const response = await fetch('/api/tts', {
@@ -159,7 +160,7 @@ export function useTextToSpeech() {
       }
 
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      url = URL.createObjectURL(blob);
 
       if (ttsAudioRef.current) {
         ttsAudioRef.current.pause();
@@ -171,18 +172,19 @@ export function useTextToSpeech() {
 
       audio.onended = () => {
         setIsSpeaking(false);
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(url!);
       };
 
       audio.onerror = () => {
         setIsSpeaking(false);
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(url!);
       };
 
       await audio.play();
     } catch (e) {
       console.error('TTS error:', e);
       setIsSpeaking(false);
+      if (url) URL.revokeObjectURL(url);
     }
   }, []);
 
@@ -245,60 +247,67 @@ export function useVoiceCall(
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm';
-      
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
-      
-      audioChunksRef.current = [];
-      
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-      
-      mediaRecorder.onstop = async () => {
-        if (audioChunksRef.current.length === 0) {
-          setCallStatus('listening');
-          setTimeout(() => startRecording(), 500);
-          return;
-        }
-        
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      try {
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
+
+        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+
         audioChunksRef.current = [];
-        
-        setCallStatus('processing');
-        
-        try {
-          const transcript = await transcribeAudio(audioBlob);
-          if (transcript.trim()) {
-            await sendMessage(transcript.trim());
-          } else {
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          if (audioChunksRef.current.length === 0) {
+            setCallStatus('listening');
+            setTimeout(() => startRecording(), 500);
+            return;
+          }
+
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          audioChunksRef.current = [];
+
+          setCallStatus('processing');
+
+          try {
+            const transcript = await transcribeAudio(audioBlob);
+            if (transcript.trim()) {
+              await sendMessage(transcript.trim());
+            } else {
+              setCallStatus('listening');
+              setTimeout(() => startRecording(), 500);
+            }
+          } catch (e) {
+            console.error('[VoiceCall] Transcription error:', e);
             setCallStatus('listening');
             setTimeout(() => startRecording(), 500);
           }
-        } catch (e) {
-          console.error('[VoiceCall] Transcription error:', e);
-          setCallStatus('listening');
-          setTimeout(() => startRecording(), 500);
-        }
-      };
-      
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(1000); // Request data every second
+        };
 
-      // Auto-stop after 5 seconds of recording
-      silenceTimeoutRef.current = setTimeout(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.stop();
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach(t => t.stop());
+        mediaRecorderRef.current = mediaRecorder;
+        mediaRecorder.start(1000); // Request data every second
+
+        // Auto-stop after 5 seconds of recording
+        silenceTimeoutRef.current = setTimeout(() => {
+          if (mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach(t => t.stop());
+              streamRef.current = null;
+            }
           }
-        }
-      }, 5000);
-      
+        }, 5000);
+      } catch (innerErr) {
+        stream.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        throw innerErr;
+      }
+
     } catch (e) {
       console.error('[VoiceCall] Failed to start recording:', e);
     }
@@ -395,8 +404,9 @@ export function useVoiceCall(
     
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
-    
+
     if (ttsAudioRef.current) {
       ttsAudioRef.current.pause();
       URL.revokeObjectURL(ttsAudioRef.current.src);

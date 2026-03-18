@@ -12,6 +12,7 @@ interface QueuedMessage {
   content: string;
   timestamp: string;
   options?: { planMode?: boolean };
+  id?: string; // unique id for dedup — prevents re-sending already-delivered messages
 }
 
 function cacheMessages(sessionKey: string, msgs: ChatMessage[]) {
@@ -86,15 +87,39 @@ export function useChat() {
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
   const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
   const [pendingQueue, setPendingQueue] = useState<QueuedMessage[]>(getOutboundQueue);
+  const [expiredMessages, setExpiredMessages] = useState<QueuedMessage[]>([]);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
+  // Per-session send lock — prevents concurrent sendMessage calls for the same session
+  // Stores timestamp of lock acquisition; auto-expires after SEND_LOCK_TIMEOUT_MS
+  const sendLockRef = useRef<Map<string, number>>(new Map());
+  const SEND_LOCK_TIMEOUT_MS = 60_000; // 60s — auto-release stale locks
+  // Helpers for send lock with auto-expiry
+  const isSendLocked = (sk: string) => {
+    const t = sendLockRef.current.get(sk);
+    if (!t) return false;
+    if (Date.now() - t > SEND_LOCK_TIMEOUT_MS) {
+      console.warn(`[useChat] Auto-releasing stale send lock for ${sk} (>${SEND_LOCK_TIMEOUT_MS}ms)`);
+      sendLockRef.current.delete(sk);
+      return false;
+    }
+    return true;
+  };
+  const acquireSendLock = (sk: string) => sendLockRef.current.set(sk, Date.now());
+  const releaseSendLock = (sk: string) => sendLockRef.current.delete(sk);
+  // DrainQueue concurrency guard
+  const drainingRef = useRef(false);
+  // Stream queue: messages queued while AI is streaming (auto-sent on stream:end)
+  const streamQueueRef = useRef<Record<string, { content: string; options?: { planMode?: boolean } }[]>>({});
 
   // Keep a ref to the latest messages to avoid stale closure in sendMessage
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Ref for sendMessage to allow stream:end to trigger next queued message
+  const sendMessageRef = useRef<((sk: string, content: string, opts?: { planMode?: boolean }) => Promise<boolean>) | null>(null);
 
   // Auto-clear stuck streams after 3 minutes of no activity
   const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -282,10 +307,41 @@ export function useChat() {
         }
         break;
 
+      case 'stream:tool_result':
+        if (event.toolCallId) {
+          setMessages(prev => {
+            const msgs = [...(prev[sessionKey] || [])];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
+                const tc = msgs[i].toolCalls!.find(t => t.id === event.toolCallId);
+                if (tc) {
+                  tc.status = event.status || 'success';
+                  tc.result = event.result;
+                  msgs[i] = { ...msgs[i] };
+                  break;
+                }
+              }
+            }
+            return { ...prev, [sessionKey]: msgs };
+          });
+        }
+        break;
+
+      case 'stream:error':
+        clearStreamTimeout(sessionKey);
+        setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+        setThinking(prev => ({ ...prev, [sessionKey]: false }));
+        if (event.error) {
+          updateLastMessage(sessionKey, { partial: false });
+        }
+        break;
+
       case 'stream:end':
         clearStreamTimeout(sessionKey); // Clear watchdog
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
+        // Clear any stale "queued" error banner on successful stream completion
+        setError(prev => (prev?.includes('queued') ? null : prev));
         // Strip any remaining browser markers (handles split-across-chunks case)
         setMessages(prev => {
           const msgs = prev[sessionKey] || [];
@@ -302,6 +358,18 @@ export function useChat() {
           return prev;
         });
         updateLastMessage(sessionKey, { partial: false });
+        // Auto-send next queued message for this session (if any)
+        {
+          const queue = streamQueueRef.current[sessionKey];
+          if (queue && queue.length > 0) {
+            const next = queue.shift()!;
+            if (queue.length === 0) delete streamQueueRef.current[sessionKey];
+            // Delay slightly to let state settle before next send
+            setTimeout(() => {
+              sendMessageRef.current?.(sessionKey, next.content, next.options);
+            }, 100);
+          }
+        }
         break;
 
       case 'stream:catchup':
@@ -369,6 +437,17 @@ export function useChat() {
   }, [handleStreamEvent]);
 
   const sendMessage = useCallback(async (sessionKey: string, content: string, options?: { planMode?: boolean }): Promise<boolean> => {
+    // If there's an active send/stream for this session, queue the message for later
+    if (isSendLocked(sessionKey)) {
+      // Show user message immediately, queue content for auto-send on stream:end
+      addMessage(sessionKey, { role: 'user', content, timestamp: new Date().toISOString() });
+      if (!streamQueueRef.current[sessionKey]) streamQueueRef.current[sessionKey] = [];
+      streamQueueRef.current[sessionKey].push({ content, options });
+      console.log(`[useChat] Message queued (send-locked) for ${sessionKey} — will auto-send on stream:end`);
+      return true;
+    }
+    acquireSendLock(sessionKey);
+
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
 
@@ -414,7 +493,13 @@ export function useChat() {
       // Server received the request — do NOT re-queue on stream read errors
       streamStarted = true;
 
-      const reader = stream.getReader();
+      let reader: ReadableStreamDefaultReader<Uint8Array>;
+      try {
+        reader = stream.getReader();
+      } catch (e) {
+        await stream.cancel();
+        throw e;
+      }
       const decoder = new TextDecoder();
       let buffer = '';
       let assistantMessageCreated = true;
@@ -553,6 +638,18 @@ export function useChat() {
         setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
       } catch {}
 
+      // Auto-send next queued message (Claude Code-style queue drain)
+      {
+        const queue = streamQueueRef.current[sessionKey];
+        if (queue && queue.length > 0) {
+          const next = queue.shift()!;
+          if (queue.length === 0) delete streamQueueRef.current[sessionKey];
+          setTimeout(() => {
+            sendMessageRef.current?.(sessionKey, next.content, next.options);
+          }, 200);
+        }
+      }
+
       return true;
     } catch (err) {
       // User-initiated abort — just finalize, no error
@@ -563,11 +660,32 @@ export function useChat() {
 
       console.error('Failed to send message:', err);
 
+      // 409 = stream already active for this session — queue the message for auto-send
+      // when the current stream ends (Claude Code-style message queuing)
+      const is409 = err && typeof err === 'object' && 'status' in err && (err as any).status === 409;
+      if (is409) {
+        // Remove the optimistic assistant placeholder but keep the user message visible
+        setMessages(prev => {
+          const sessionMessages = prev[sessionKey] || [];
+          const last = sessionMessages[sessionMessages.length - 1];
+          // Remove assistant placeholder (last added), keep user message
+          if (last?.role === 'assistant' && last.partial && !last.content) {
+            return { ...prev, [sessionKey]: sessionMessages.slice(0, -1) };
+          }
+          return prev;
+        });
+        // Queue for auto-send on stream:end
+        if (!streamQueueRef.current[sessionKey]) streamQueueRef.current[sessionKey] = [];
+        streamQueueRef.current[sessionKey].push({ content, options });
+        console.log(`[useChat] Message queued for ${sessionKey} — will auto-send on stream:end`);
+        return true; // Return true since we accepted the message
+      }
+
       // Only queue if the server never received the request (fetch itself failed).
       // If streamStarted=true, the server already has the message — do NOT re-queue.
       const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
       if (isNetworkError && !streamStarted) {
-        const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options };
+        const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options, id: crypto.randomUUID() };
         pushToOutboundQueue(queued);
         setPendingQueue(prev => [...prev, queued]);
         // Mark the user message as queued (keep it visible)
@@ -576,7 +694,7 @@ export function useChat() {
           const lastMsg = sessionMessages[sessionMessages.length - 1];
           if (lastMsg?.role === 'user') {
             const updated = [...sessionMessages];
-            updated[updated.length - 1] = { ...lastMsg, partial: true }; // partial = queued indicator
+            updated[updated.length - 1] = { ...lastMsg, partial: true, queued: true };
             return { ...prev, [sessionKey]: updated };
           }
           return prev;
@@ -603,6 +721,7 @@ export function useChat() {
 
       return false;
     } finally {
+      releaseSendLock(sessionKey); // Release send lock
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
@@ -610,6 +729,9 @@ export function useChat() {
       delete abortControllersRef.current[sessionKey];
     }
   }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage]);
+
+  // Keep sendMessage ref in sync for stream:end auto-drain
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
   const getSessionMessages = useCallback((sessionKey: string): ChatMessage[] => {
     return (messages[sessionKey] || []).filter(msg => !isContextMessage(msg.content));
@@ -657,6 +779,9 @@ export function useChat() {
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
+      // Clear any stale streaming/thinking state before server confirms the real state
+      setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+      setThinking(prev => ({ ...prev, [sessionKey]: false }));
       
       const response = await chatApi.getHistory(sessionKey, { limit: 100 });
       
@@ -681,6 +806,15 @@ export function useChat() {
         next.delete(sessionKey);
         return next;
       });
+
+      // Clear any queued outbound messages for this session — the server already has them
+      const queue = getOutboundQueue();
+      const filtered = queue.filter(q => q.sessionKey !== sessionKey);
+      if (filtered.length !== queue.length) {
+        if (filtered.length === 0) clearOutboundQueue();
+        else try { localStorage.setItem(QUEUE_KEY, JSON.stringify(filtered)); } catch {}
+        setPendingQueue(filtered);
+      }
 
       // Restore streaming state from server (for cross-device sync)
       if (response.isStreaming) {
@@ -730,6 +864,13 @@ export function useChat() {
 
   /** Edit a user message — creates a new branch and streams the assistant response. */
   const editMessage = useCallback(async (sessionKey: string, messageId: string, newContent: string): Promise<boolean> => {
+    // Prevent concurrent edits/sends for the same session
+    if (isSendLocked(sessionKey)) {
+      console.warn(`[useChat] editMessage blocked — already sending for ${sessionKey}`);
+      return false;
+    }
+    acquireSendLock(sessionKey);
+
     localSSESessionsRef.current.add(sessionKey);
     const abortController = new AbortController();
     abortControllersRef.current[sessionKey] = abortController;
@@ -760,7 +901,13 @@ export function useChat() {
       }));
 
       // Now process the SSE stream for the assistant response
-      const reader = stream.getReader();
+      let reader: ReadableStreamDefaultReader<Uint8Array>;
+      try {
+        reader = stream.getReader();
+      } catch (e) {
+        await stream.cancel();
+        throw e;
+      }
       const decoder = new TextDecoder();
       let buffer = '';
       let currentContent = '';
@@ -827,6 +974,7 @@ export function useChat() {
       setError(err instanceof Error ? err.message : 'Failed to edit message');
       return false;
     } finally {
+      releaseSendLock(sessionKey); // Release send lock
       localSSESessionsRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
@@ -889,44 +1037,89 @@ export function useChat() {
 
   // Drain outbound queue on reconnect
   const drainQueue = useCallback(async () => {
-    const queue = getOutboundQueue();
-    if (queue.length === 0) return;
+    // Prevent concurrent drains (e.g. rapid WS reconnects)
+    if (drainingRef.current) return;
+    drainingRef.current = true;
 
-    clearOutboundQueue();
-    setPendingQueue([]);
+    try {
+      const queue = getOutboundQueue();
+      if (queue.length === 0) return;
 
-    // Discard stale queued messages (>30s old = likely from interrupted streams, not real offline)
-    const MAX_QUEUE_AGE_MS = 30_000;
-    const now = Date.now();
+      clearOutboundQueue();
+      setPendingQueue([]);
 
-    for (const item of queue) {
-      const age = now - new Date(item.timestamp).getTime();
-      if (age > MAX_QUEUE_AGE_MS) {
-        continue;
-      }
-      // Un-mark the queued user message
-      setMessages(prev => {
-        const sessionMessages = prev[item.sessionKey] || [];
-        const idx = sessionMessages.findIndex(
-          m => m.role === 'user' && m.partial && m.content === item.content
-        );
-        if (idx >= 0) {
-          const updated = [...sessionMessages];
-          updated[idx] = { ...updated[idx], partial: false };
-          return { ...prev, [item.sessionKey]: updated };
+      // Discard stale queued messages (>5min old)
+      const MAX_QUEUE_AGE_MS = 5 * 60 * 1000;
+      const now = Date.now();
+
+      for (const item of queue) {
+        const age = now - new Date(item.timestamp).getTime();
+        if (age > MAX_QUEUE_AGE_MS) {
+          setExpiredMessages(prev => [...prev, item]);
+          continue;
         }
-        return prev;
-      });
 
-      try {
-        await sendMessage(item.sessionKey, item.content, item.options);
-      } catch {
-        // If still failing, re-queue
-        pushToOutboundQueue(item);
-        setPendingQueue(prev => [...prev, item]);
+        // Skip if session already has an active send (sendMessage guard will also block, but avoid the UI churn)
+        if (isSendLocked(item.sessionKey)) {
+          continue;
+        }
+
+        // Dedup: skip if this message was already delivered or is currently being processed.
+        const sessionMsgs = messagesRef.current[item.sessionKey] || [];
+        const userMsgIdx = sessionMsgs.findLastIndex(m => m.role === 'user' && m.content === item.content && !m.queued);
+        if (userMsgIdx >= 0) {
+          const msgsAfter = sessionMsgs.slice(userMsgIdx + 1);
+          // Already delivered (has assistant response)
+          const alreadyDelivered = msgsAfter.some(m => m.role === 'assistant' && m.content);
+          // Still in-flight: assistant is streaming (partial) or user msg was already un-queued (partial: false)
+          const inFlight = msgsAfter.some(m => m.role === 'assistant') || isSendLocked(item.sessionKey);
+          if (alreadyDelivered || inFlight) {
+            console.log(`[useChat] Skipping queued message (${alreadyDelivered ? 'delivered' : 'in-flight'}) for ${item.sessionKey}`);
+            continue;
+          }
+        }
+
+        // Un-mark the queued user message
+        setMessages(prev => {
+          const sessionMessages = prev[item.sessionKey] || [];
+          const idx = sessionMessages.findIndex(
+            m => m.role === 'user' && m.partial && m.content === item.content
+          );
+          if (idx >= 0) {
+            const updated = [...sessionMessages];
+            updated[idx] = { ...updated[idx], partial: false };
+            return { ...prev, [item.sessionKey]: updated };
+          }
+          return prev;
+        });
+
+        try {
+          await sendMessageRef.current!(item.sessionKey, item.content, item.options);
+        } catch {
+          // If still failing, re-queue
+          pushToOutboundQueue(item);
+          setPendingQueue(prev => [...prev, item]);
+        }
       }
+    } finally {
+      drainingRef.current = false;
+      // Clear any "queued" error banner now that we've processed the queue
+      setError(prev => (prev?.includes('queued') ? null : prev));
     }
-  }, [sendMessage]);
+  }, []);
+
+  const retryExpired = useCallback(async (item: QueuedMessage) => {
+    setExpiredMessages(prev => prev.filter(m => m !== item));
+    try {
+      await sendMessageRef.current?.(item.sessionKey, item.content, item.options);
+    } catch {
+      setExpiredMessages(prev => [...prev, item]);
+    }
+  }, []);
+
+  const clearExpired = useCallback(() => {
+    setExpiredMessages([]);
+  }, []);
 
   const isSessionCached = useCallback((sessionKey: string): boolean => {
     return cachedSessions.has(sessionKey);
@@ -949,8 +1142,13 @@ export function useChat() {
     onWSMessage,
     registerWSHandler,
     drainQueue,
+    expiredMessages,
+    retryExpired,
+    clearExpired,
     pendingQueueSize: pendingQueue.length,
+    getStreamQueueSize: (sessionKey: string) => streamQueueRef.current[sessionKey]?.length || 0,
     error,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
+    isOwnStream: (sessionKey: string) => localSSESessionsRef.current.has(sessionKey),
   };
 }

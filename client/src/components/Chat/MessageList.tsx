@@ -31,6 +31,7 @@ interface MessageListProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
+  onRetry?: () => void;
 }
 
 export function MessageList({
@@ -57,6 +58,7 @@ export function MessageList({
   onEdit,
   onSwitchBranch,
   onOpenSessionViewer,
+  onRetry,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -68,6 +70,7 @@ export function MessageList({
   const prevMsgCountRef = useRef(currentMessages.length);
   const prevTopicIdRef = useRef(topic.id);
   const needsScrollRef = useRef(false);
+  const prevLoadingRef = useRef(false);
   const settings = loadSettings();
   const isCompact = settings.messageDensity === 'compact';
 
@@ -108,6 +111,20 @@ export function MessageList({
       return () => clearTimeout(timer);
     }
   }, [filteredMessages.length, currentLoading]);
+
+  // Scroll to bottom after loadHistory completes (loading: true → false).
+  // On page refresh or tab switch, Virtuoso mounts at the bottom via
+  // initialTopMostItemIndex, but loadHistory then replaces the messages array
+  // which can shift the scroll position.
+  useEffect(() => {
+    const wasLoading = prevLoadingRef.current;
+    prevLoadingRef.current = currentLoading;
+    if (wasLoading && !currentLoading && filteredMessages.length > 0) {
+      setTimeout(() => {
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+      }, 100);
+    }
+  }, [currentLoading, filteredMessages.length]);
 
   // Force scroll anchor when streaming starts (user just sent a message).
   // When new items are added (user msg + assistant placeholder), Virtuoso may
@@ -150,7 +167,12 @@ export function MessageList({
   }, [currentMessages.length, isScrolledUp]);
 
   const scrollToBottom = useCallback(() => {
+    // First scroll smooth, then ensure we're truly at the bottom
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+    // Follow up with a forced scroll after animation completes
+    setTimeout(() => {
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+    }, 400);
     setNewMsgCount(0);
     setShowNewBanner(false);
   }, []);
@@ -275,6 +297,7 @@ export function MessageList({
                   onEdit={onEdit}
                   onSwitchBranch={onSwitchBranch}
                   onOpenSessionViewer={onOpenSessionViewer}
+                  onRetry={isLastAssistant ? onRetry : undefined}
                 />
               </div>
             );
