@@ -29,12 +29,22 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'create': {
       const { id, shell, args, cwd, cols, rows, env } = msg;
+      const mergedEnv = { ...process.env, ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
+      // Remove keys explicitly set to null/undefined (used to unset inherited env vars like CLAUDECODE)
+      for (const key of Object.keys(mergedEnv)) {
+        if (mergedEnv[key] == null) delete mergedEnv[key];
+      }
+      // Augment PATH with common user binary locations so tools like 'claude' are found
+      const home = process.env.HOME || '';
+      const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin'];
+      const currentPath = mergedEnv.PATH || '/usr/local/bin';
+      mergedEnv.PATH = [...extraPaths, currentPath].filter(Boolean).join(':');
       const p = pty.spawn(shell, args, {
         name: 'xterm-256color',
         cols: cols || 120,
         rows: rows || 30,
         cwd: cwd || process.env.HOME,
-        env: { ...process.env, ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+        env: mergedEnv,
       });
       sessions.set(id, p);
       p.onData((data) => {

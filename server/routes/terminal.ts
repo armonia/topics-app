@@ -2,6 +2,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { spawn } from "child_process";
 import { resolve } from "path";
 import { createInterface } from "readline";
+import { getDatabase } from "../db";
 
 interface TerminalSession {
   id: string;
@@ -15,6 +16,7 @@ interface TerminalSession {
   rows: number;
   topicId?: string;
   type: 'shell' | 'claude-code';
+  skipPermissions: boolean;
 }
 
 const MAX_BUFFER_SIZE = 100 * 1024;
@@ -28,7 +30,7 @@ const pendingCallbacks = new Map<string, Function>();
 
 function ensureBridge() {
   if (bridge && !bridge.killed) return;
-  
+
   const bridgePath = resolve(import.meta.dir, "../pty-bridge.mjs");
   bridge = spawn("node", [bridgePath], {
     stdio: ["pipe", "pipe", "inherit"],
@@ -77,6 +79,7 @@ function handleBridgeMessage(msg: any) {
       break;
     }
     case "exit": {
+      const exitedSession = sessions.get(msg.id);
       sessions.delete(msg.id);
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
@@ -85,6 +88,11 @@ function handleBridgeMessage(msg: any) {
         }
         sessionSockets.delete(msg.id);
       }
+      // Remove from DB
+      if (exitedSession) {
+        try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]); } catch {}
+      }
+      broadcastTerminalSessions();
       break;
     }
   }
@@ -128,7 +136,19 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
   }
 
   ensureBridge();
-  sendToBridge({ type: "create", id, shell: file, args, cwd, cols, rows });
+
+  let env: Record<string, string | null> | undefined;
+  if (sessionType === 'claude-code') {
+    const home = process.env.HOME || '';
+    // Augment PATH to include user's .local/bin (where claude CLI typically lives)
+    // and unset CLAUDECODE to allow nesting
+    const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin'];
+    const currentPath = process.env.PATH || '/usr/local/bin';
+    const augmentedPath = [...extraPaths, currentPath].filter(Boolean).join(':');
+    env = { CLAUDECODE: null, PATH: augmentedPath };
+  }
+
+  sendToBridge({ type: "create", id, shell: file, args, cwd, cols, rows, ...(env ? { env } : {}) });
 
   const session: TerminalSession = {
     id,
@@ -142,18 +162,72 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
     rows,
     topicId,
     type: sessionType,
+    skipPermissions,
   };
 
   sessions.set(id, session);
   sessionSockets.set(id, new Set());
+
+  // Persist to DB
+  try {
+    getDatabase().run(
+      `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt]
+    );
+  } catch {}
+
   return session;
+}
+
+// Restore persisted sessions from DB on startup
+function restoreSessions() {
+  try {
+    const db = getDatabase();
+    const rows = db.query("SELECT * FROM terminal_sessions").all() as any[];
+    if (rows.length === 0) return;
+    console.log(`[Terminal] Restoring ${rows.length} terminal session(s)...`);
+    for (const row of rows) {
+      try {
+        createSession(
+          row.id,
+          row.name,
+          row.cwd,
+          row.type === 'claude-code' ? undefined : row.command,
+          row.cols || 120,
+          row.rows || 30,
+          row.topic_id || undefined,
+          row.type || 'shell',
+          row.skip_permissions !== 0,
+        );
+      } catch (err: any) {
+        console.warn(`[Terminal] Failed to restore session ${row.id}: ${err.message}`);
+        // Remove failed session from DB
+        try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch {}
+      }
+    }
+  } catch {}
+}
+
+// Broadcast current terminal sessions list via WS
+let _broadcastToAll: ((msg: any) => void) | null = null;
+function broadcastTerminalSessions() {
+  if (!_broadcastToAll) return;
+  const list = Array.from(sessions.values()).map(s => ({
+    id: s.id, name: s.name, createdAt: s.createdAt, cwd: s.cwd,
+    command: s.command, clients: sessionSockets.get(s.id)?.size || 0,
+    topicId: s.topicId, type: s.type,
+  }));
+  _broadcastToAll({ type: 'terminal:sessions', sessions: list });
 }
 
 export function createTerminalRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
-  
-  // Start bridge on first load
+  _broadcastToAll = ctx.broadcastToAll;
+
+  // Start bridge and restore persisted sessions
   ensureBridge();
+  restoreSessions();
 
   return async function terminalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -185,6 +259,7 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
 
       try {
         const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
+        broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type });
       } catch (err: any) {
         return errorResponse(500, `Failed to create terminal: ${err.message}`);
@@ -229,6 +304,9 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
         }
       }
       sessionSockets.delete(deleteMatch.id);
+      // Remove from DB
+      try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [deleteMatch.id]); } catch {}
+      broadcastTerminalSessions();
       return json({ ok: true });
     }
 

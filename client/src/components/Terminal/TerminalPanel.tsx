@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2 } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
+import { DropdownPortal } from '../Shared/DropdownPortal';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 
 interface TerminalTab {
@@ -28,6 +29,7 @@ interface RemoteSession {
 interface TerminalPanelProps {
   projectPath?: string;
   topicId?: string;
+  initialType?: 'shell' | 'claude-code';
 }
 
 const DARK_THEME = {
@@ -82,7 +84,7 @@ function getTerminalTheme(isDark: boolean) {
   return isDark ? DARK_THEME : LIGHT_THEME;
 }
 
-export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
+export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPanelProps) {
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +97,12 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
   const isDarkRef = useRef(isDark);
   const terminalsRef = useRef<Map<string, { term: Terminal; fit: FitAddon; ws: WebSocket }>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
-  const newMenuRef = useRef<HTMLDivElement>(null);
+  const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const sessionPickerRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
   const shellCounterRef = useRef(0);
   const connectedIdsRef = useRef(new Set<string>());
+  const fitTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
 
@@ -117,16 +120,6 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
       entry.term.options.theme = { ...theme };
     }
   }, [isDark]);
-
-  // Close new menu on outside click
-  useEffect(() => {
-    if (!showNewMenu) return;
-    const h = (e: MouseEvent) => {
-      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) setShowNewMenu(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [showNewMenu]);
 
   // Close session picker on outside click
   useEffect(() => {
@@ -159,10 +152,11 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
     term.open(el);
 
     const doFit = () => { try { fitAddon.fit(); } catch {} };
-    setTimeout(doFit, 50);
-    setTimeout(doFit, 200);
-    setTimeout(doFit, 500);
-    setTimeout(() => { doFit(); term.focus(); }, 600);
+    const t1 = setTimeout(doFit, 50);
+    const t2 = setTimeout(doFit, 200);
+    const t3 = setTimeout(doFit, 500);
+    const t4 = setTimeout(() => { doFit(); term.focus(); }, 600);
+    fitTimersRef.current.push(t1, t2, t3, t4);
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${id}`);
@@ -333,7 +327,7 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
     setShowSessionPicker(true);
   }, [fetchRemoteSessions]);
 
-  // On mount: reconnect to existing sessions, or show empty state (choice screen)
+  // On mount: reconnect to existing sessions, auto-create if initialType set, or show choice screen
   useEffect(() => {
     if (initialLoadDone.current) return;
     initialLoadDone.current = true;
@@ -356,8 +350,11 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
           for (const s of sessions) {
             connectToSession(s.id, s.name, s.type || 'shell');
           }
+        } else if (initialType) {
+          // Auto-create terminal of the requested type — skip the choice screen
+          createTerminal(initialType);
         }
-        // If no sessions, show empty state (user picks Shell or Claude Code)
+        // If no sessions and no initialType, show empty state (user picks Shell or Claude Code)
       })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -387,9 +384,10 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
       const entry = terminalsRef.current.get(activeTabId);
       if (entry) {
         const doFit = () => { try { entry.fit.fit(); } catch {} };
-        setTimeout(() => { doFit(); entry.term.focus(); }, 50);
-        setTimeout(doFit, 200);
-        setTimeout(doFit, 500);
+        const t1 = setTimeout(() => { doFit(); entry.term.focus(); }, 50);
+        const t2 = setTimeout(doFit, 200);
+        const t3 = setTimeout(doFit, 500);
+        return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
       }
     }
   }, [activeTabId]);
@@ -397,6 +395,8 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
   // Cleanup on unmount — only close WS, don't kill sessions
   useEffect(() => {
     return () => {
+      for (const t of fitTimersRef.current) clearTimeout(t);
+      fitTimersRef.current = [];
       for (const [, entry] of terminalsRef.current) {
         entry.ws.close();
         entry.term.dispose();
@@ -528,36 +528,35 @@ export function TerminalPanel({ projectPath, topicId }: TerminalPanelProps) {
               </div>
             )}
           </div>
-          <div className="relative" ref={newMenuRef}>
+          <div className="relative">
             <button
+              ref={newMenuBtnRef}
               onClick={() => setShowNewMenu(!showNewMenu)}
               className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               title="New terminal"
             >
               <Plus size={14} />
             </button>
-            {showNewMenu && (
-              <div className="absolute top-full right-0 mt-1 bg-surface border border-app-border rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
-                <button
-                  onClick={() => createTerminal('claude-code')}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                >
-                  <ClaudeIcon size={14} className="text-[#D97757]" />
-                  <span className="flex-1 text-left">Claude Code</span>
-                  <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-                    <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-                    <span>yolo</span>
-                  </label>
-                </button>
-                <button
-                  onClick={() => createTerminal('shell')}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                >
-                  <TerminalSquare size={14} />
-                  <span>Shell</span>
-                </button>
-              </div>
-            )}
+            <DropdownPortal open={showNewMenu} anchorRef={newMenuBtnRef} onClose={() => setShowNewMenu(false)}>
+              <button
+                onClick={() => createTerminal('claude-code')}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <ClaudeIcon size={14} className="text-[#D97757]" />
+                <span className="flex-1 text-left">Claude Code</span>
+                <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                  <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+                  <span>yolo</span>
+                </label>
+              </button>
+              <button
+                onClick={() => createTerminal('shell')}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <TerminalSquare size={14} />
+                <span>Shell</span>
+              </button>
+            </DropdownPortal>
           </div>
         </div>
       )}
