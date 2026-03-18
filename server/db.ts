@@ -11,7 +11,7 @@ let _db: Database | null = null;
 export function initDatabase(baseDir: string): Database {
   if (_db) return _db;
 
-  const dataDir = join(baseDir, "data");
+  const dataDir = process.env.DATA_DIR || join(baseDir, "data");
   mkdirSync(dataDir, { recursive: true });
 
   const dbPath = join(dataDir, "topics.db");

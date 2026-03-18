@@ -47,6 +47,8 @@ data/
 memory/
 .state/
 .backups/
+.browser-cookies/
+checkpoints/
 /journal/
 pids
 *.pid
@@ -70,6 +72,7 @@ research/
 competitor-screenshots/
 backups/
 tasks/
+docs/
 
 # Reference repos (local only)
 .reference/

@@ -11,7 +11,8 @@ import { initDatabase } from "./db";
 import { maybeSendPush } from "./push-triggers";
 
 export function createAppContext(baseDir: string): AppContext {
-  const PORT = parseInt(process.env.PORT || "3333");
+  // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
+  const PORT = parseInt(process.env.BUN_PORT || process.env.PORT || "3333");
   const GATEWAY_URL = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
   const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN!;
 

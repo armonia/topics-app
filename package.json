@@ -20,7 +20,10 @@
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
     "dev:electron": "DEV_URL=http://localhost:5173 npm --prefix electron-app run dev",
-    "build:electron": "cd electron-app && npm run build"
+    "build:electron": "cd electron-app && npm run build",
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:report": "npx playwright show-report test-results/html-report"
   },
   "dependencies": {
     "node-pty": "^1.0.0",
@@ -28,6 +31,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/web-push": "^3.6.4"
   }
 }

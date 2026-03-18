@@ -28,9 +28,11 @@ import { createApprovalsRouter } from "./server/routes/approvals";
 import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
+import { initGatewayWS, routeGatewayEvent } from "./server/gateway-ws";
 import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
+import { createUiStateRouter, loadAllUiState } from "./server/routes/ui-state";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
@@ -45,6 +47,22 @@ const ctx = createAppContext(import.meta.dir);
 const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
   loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
   isStreaming, activeStreams, getMimeType, logRequest, db } = ctx;
+
+// Init Gateway WebSocket connection (for chat with tool event visibility)
+const gatewayWS = initGatewayWS({
+  gatewayUrl: ctx.GATEWAY_URL,
+  token: ctx.GATEWAY_TOKEN,
+  onEvent: (event) => {
+    routeGatewayEvent(event);
+  },
+  onConnect: () => {
+    console.log("[Server] Gateway WS connected");
+  },
+  onDisconnect: (reason) => {
+    console.log(`[Server] Gateway WS disconnected: ${reason}`);
+  },
+});
+ctx.gatewayWS = gatewayWS;
 
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService();
@@ -76,6 +94,7 @@ const dashboardRouter = createDashboardRouter(ctx);
 const agentApiRouter = createAgentApiRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
 const pushRouter = createPushRouter(ctx);
+const uiStateRouter = createUiStateRouter(ctx);
 // Initialize VAPID keys on startup
 initVapid();
 // Start agent heartbeat checker
@@ -129,11 +148,21 @@ setInterval(() => {
   }
 }
 
+const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
+const tlsKey = join(import.meta.dir, "certs", "key.pem");
+const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
+
 const server = Bun.serve<WSData>({
   port: PORT,
   hostname: "0.0.0.0",
   reusePort: true,
   idleTimeout: 255,
+  ...(useTls ? {
+    tls: {
+      cert: Bun.file(tlsCert),
+      key: Bun.file(tlsKey),
+    },
+  } : {}),
 
   async fetch(req, server) {
     const url = new URL(req.url);
@@ -158,21 +187,76 @@ const server = Bun.serve<WSData>({
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    // Dev mode proxy: ?dev=true proxies to Topics Vite dev server on :3332
+    const isDevMode = url.searchParams.get("dev") === "true" || req.headers.get("cookie")?.includes("topics-dev=true");
+    if (isDevMode && method === "GET" && !pathname.startsWith("/api/") && !pathname.startsWith("/ws")) {
+      try {
+        const viteUrl = `https://localhost:3332${pathname}${url.search}`;
+        const viteResp = await fetch(viteUrl, { headers: req.headers, tls: { rejectUnauthorized: false } } as any);
+        if (viteResp.ok) {
+          const respHeaders = new Headers(viteResp.headers);
+          if (url.searchParams.get("dev") === "true") {
+            respHeaders.set("Set-Cookie", "topics-dev=true; Path=/; SameSite=Lax");
+          }
+          return new Response(viteResp.body, { status: viteResp.status, headers: respHeaders });
+        }
+      } catch {
+        // Vite not running, fall through to static files
+      }
+    }
+    // Exit dev mode: ?dev=false clears cookie
+    if (url.searchParams.get("dev") === "false") {
+      return new Response(null, { status: 302, headers: { "Location": "/", "Set-Cookie": "topics-dev=; Path=/; Max-Age=0" } });
+    }
+
     // Static files
+    const isDevPort = PORT === 3330;
     if (method === "GET" && (pathname === "/" || pathname === "/index.html")) {
-      return new Response(Bun.file(join(PUBLIC_DIR, "index.html")), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+      let html = await Bun.file(join(PUBLIC_DIR, "index.html")).text();
+      if (isDevPort) {
+        html = html
+          .replace(/\/icons\/icon-180\.png/g, '/icons/icon-180-dev.png')
+          .replace(/\/icons\/icon-192\.png/g, '/icons/icon-192-dev.png')
+          .replace('href="/manifest.json"', 'href="/manifest-dev.json"');
+      }
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
     }
     if (method === "GET" && pathname.endsWith(".html")) {
       const file = Bun.file(join(PUBLIC_DIR, pathname));
       if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
     }
-    if (method === "GET" && (pathname.startsWith("/assets/") || pathname.startsWith("/icons/") || pathname === "/vite.svg" || pathname === "/manifest.json" || pathname === "/sw.js")) {
+    if (method === "GET" && (pathname.startsWith("/assets/") || pathname.startsWith("/icons/") || pathname === "/vite.svg" || pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js")) {
       const filePath = join(PUBLIC_DIR, pathname);
       const file = Bun.file(filePath);
       if (await file.exists()) {
-        const cacheControl = pathname === "/manifest.json" || pathname === "/sw.js" ? "no-cache" : "public, max-age=31536000, immutable";
+        const cacheControl = pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js" ? "no-cache" : "public, max-age=31536000, immutable";
         return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": cacheControl } });
       }
+    }
+
+    // Serve uploaded files (screenshots, attachments)
+    if (method === "GET" && pathname.startsWith("/uploads/")) {
+      const filePath = join(import.meta.dir, "uploads", pathname.slice("/uploads/".length));
+      const file = Bun.file(filePath);
+      if (await file.exists()) {
+        return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": "public, max-age=3600" } });
+      }
+      return new Response("Not Found", { status: 404 });
+    }
+
+    // Serve OpenClaw media files (browser screenshots, etc.)
+    // Handles paths like /media/browser/uuid.jpg → ~/.openclaw/media/browser/uuid.jpg
+    if (method === "GET" && pathname.startsWith("/media/") && !pathname.includes("..")) {
+      const mediaBase = join(process.env.HOME || "/tmp", ".openclaw", "media");
+      const filePath = join(mediaBase, pathname.slice("/media/".length));
+      // Security: ensure resolved path stays within media directory
+      if (resolve(filePath).startsWith(resolve(mediaBase))) {
+        const file = Bun.file(filePath);
+        if (await file.exists()) {
+          return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": "public, max-age=86400" } });
+        }
+      }
+      return new Response("Not Found", { status: 404 });
     }
 
     // Preview endpoint: serve local files for browser panel
@@ -216,6 +300,7 @@ const server = Bun.serve<WSData>({
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
+        || await uiStateRouter(req, url, pathname, method)
 ;
 
       if (response) return response;
@@ -240,6 +325,7 @@ const server = Bun.serve<WSData>({
       console.log(`[WS] Client connected: ${ws.data.id} (total: ${wsClients.size})`);
       ws.send(JSON.stringify({ type: "connected", clientId: ws.data.id }));
       ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
+      ws.send(JSON.stringify({ type: "ui-state:init", data: loadAllUiState(db) }));
 
       // Send catch-up for any active streams so new clients can join mid-stream
       const topicsData = loadTopics();
@@ -286,6 +372,7 @@ const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 setInterval(() => {
   const now = Date.now();
   for (const [sessionKey, stream] of activeStreams.entries()) {
+    if (!activeStreams.has(sessionKey)) continue;
     const lastActivity = new Date(stream.lastActivity).getTime();
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
@@ -300,8 +387,11 @@ setInterval(() => {
   }
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
-console.log(`🚀 Topics App running at http://localhost:${PORT}`);
-console.log(`📡 WebSocket available at ws://localhost:${PORT}/ws`);
+const proto = useTls ? "https" : "http";
+const wsProto = useTls ? "wss" : "ws";
+console.log(`🚀 Topics App running at ${proto}://localhost:${PORT}`);
+console.log(`📡 WebSocket available at ${wsProto}://localhost:${PORT}/ws`);
+if (useTls) console.log(`🔒 TLS enabled (cert: ${tlsCert})`);
 console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/browser/:id)`);
 
 // Graceful shutdown
