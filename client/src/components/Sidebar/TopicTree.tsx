@@ -378,6 +378,181 @@ export function TopicTree({
   const hasProjects = Object.keys(projectGroups).length > 0;
   // Chats section is anchored at bottom with fixed pixel height (like Browser/Git/Processes)
 
+  // ── Shared project header row — used in both Projects section and pinned section ──
+  const renderProjectHeader = (opts: {
+    projectName: string; path: string; allChats: Topic[]; allArchived: boolean; isTemp: boolean;
+    isExpanded: boolean; isProjectFocused: boolean; isProjectOpen: boolean; groupUnread: number;
+  }) => {
+    const { projectName, path, allChats, allArchived, isTemp, isExpanded, isProjectFocused, isProjectOpen, groupUnread } = opts;
+    return (
+      <div
+        className={`group/proj flex items-center h-8 transition-colors relative select-none ${
+          isProjectFocused ? 'bg-primary/8 dark:bg-primary/15' : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
+        }`}
+        onContextMenu={(e) => {
+          if (!onArchiveProject) return;
+          e.preventDefault();
+          setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: path, projectName, allArchived });
+        }}
+      >
+        {isProjectFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
+        <button
+          onClick={() => {
+            const wasExpanded = expandedProjects.has(projectName);
+            toggleProject(projectName);
+            if (!wasExpanded && onProjectClick) onProjectClick(path);
+          }}
+          className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
+            isProjectFocused ? 'text-primary dark:text-primary-dark' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+          }`}
+          style={{ paddingLeft: 28 }}
+          title={path}
+        >
+          <ChevronRight size={12} className={`transition-transform duration-150 flex-shrink-0 ${isTemp ? 'text-amber-500' : 'text-app-text-secondary'} ${isExpanded ? 'rotate-90' : ''}`} />
+          <span className="truncate flex-1">{projectName}</span>
+        </button>
+        <div className="flex items-center pr-1 flex-shrink-0">
+          {(() => {
+            const ps = projectTabStatus[path];
+            const showBranch = ps?.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
+            const hasStatus = ps && (showBranch || ps.gitFileCount > 0 || ps.gitAhead > 0 || ps.gitBehind > 0 || ps.runningProcessCount > 0);
+            return hasStatus ? (
+              <span className={`flex items-center gap-1 text-[10px] font-medium mr-1.5 min-w-0 ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
+                {showBranch && <span className="truncate max-w-[60px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>}
+                {ps.gitFileCount > 0 && <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>}
+                {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
+                  <span className="text-blue-500 dark:text-blue-400 leading-none whitespace-nowrap">
+                    {ps.gitAhead > 0 && <>{ps.gitAhead}↑</>}{ps.gitBehind > 0 && <>{ps.gitAhead > 0 ? ' ' : ''}{ps.gitBehind}↓</>}
+                  </span>
+                )}
+                {ps.runningProcessCount > 0 && (
+                  <span className="flex items-center gap-0.5 text-green-500 dark:text-green-400 leading-none">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />{ps.runningProcessCount}
+                  </span>
+                )}
+              </span>
+            ) : null;
+          })()}
+          {groupUnread > 0 ? (
+            <span className={`text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{groupUnread}</span>
+          ) : (
+            <span className={`text-[10px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{allChats.length}</span>
+          )}
+          {isTouch && (onNewTopicInProject || onAddProjectPane || onOpenProjectBoard || onArchiveProject) && (
+            <div className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); overflowBtnRef.current = e.currentTarget; setProjectOverflowMenu(projectOverflowMenu === path ? null : path); }}
+                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+                title="More options"
+              >
+                <MoreHorizontal size={12} />
+              </button>
+              <DropdownPortal open={projectOverflowMenu === path} anchorRef={overflowBtnRef} onClose={() => setProjectOverflowMenu(null)}>
+                {onNewTopicInProject && (
+                  <button onClick={() => { onNewTopicInProject(path); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    <MessageSquare size={14} className="flex-shrink-0" /><span>New Chat</span>
+                  </button>
+                )}
+                {onAddProjectPane && (
+                  <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    <TerminalSquare size={14} className="flex-shrink-0" /><span>Shell</span>
+                  </button>
+                )}
+                {onAddProjectPane && (
+                  <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    <ClaudeIcon size={14} className="text-[#D97757] flex-shrink-0" /><span className="flex-1 text-left">Claude Code</span>
+                    <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+                      <span>yolo</span>
+                    </label>
+                  </button>
+                )}
+                {onAddProjectPane && (
+                  <button onClick={() => { onAddProjectPane(path, 'browser'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    <Globe size={14} className="flex-shrink-0" /><span>Browser</span>
+                  </button>
+                )}
+                {onAddProjectPane && (
+                  <button onClick={() => { onAddProjectPane(path, 'git'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    <GitBranch size={14} className="flex-shrink-0" /><span>Git</span>
+                  </button>
+                )}
+                {(onOpenProjectBoard || onArchiveProject) && (onNewTopicInProject || onAddProjectPane) && <div className="h-px bg-app-border mx-2 my-1" />}
+                {onOpenProjectBoard && (
+                  <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(path); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    <LayoutGrid size={14} className="flex-shrink-0 text-emerald-500" /><span>Open Board</span>
+                  </button>
+                )}
+                {onArchiveProject && (
+                  <button onClick={(e) => { e.stopPropagation(); onArchiveProject(path, !allArchived); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                    {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
+                    <span>{allArchived ? 'Restore Project' : 'Archive Project'}</span>
+                  </button>
+                )}
+              </DropdownPortal>
+            </div>
+          )}
+          {!isTouch && (
+            <>
+              {onOpenProjectBoard && (
+                <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(path); }} className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-500 hover:text-emerald-400 transition-colors" title="Open Board">
+                  <LayoutGrid size={12} />
+                </button>
+              )}
+              {onArchiveProject && (
+                <button onClick={(e) => { e.stopPropagation(); onArchiveProject(path, !allArchived); }} className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors" title={allArchived ? 'Restore Project' : 'Archive Project'}>
+                  {allArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                </button>
+              )}
+              {(onNewTopicInProject || onAddProjectPane) && (
+                <div className="relative hidden group-hover/proj:block">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); addBtnRef.current = e.currentTarget; setProjectAddMenu(projectAddMenu === path ? null : path); }}
+                    className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+                    title="Add to project"
+                  >
+                    <Plus size={12} />
+                  </button>
+                  <DropdownPortal open={projectAddMenu === path} anchorRef={addBtnRef} onClose={() => setProjectAddMenu(null)}>
+                    {onNewTopicInProject && (
+                      <button onClick={() => { onNewTopicInProject(path); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <MessageSquare size={14} /><span>New Chat</span>
+                      </button>
+                    )}
+                    {onAddProjectPane && (
+                      <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <TerminalSquare size={14} /><span>Shell</span>
+                      </button>
+                    )}
+                    {onAddProjectPane && (
+                      <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
+                        <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+                          <span>yolo</span>
+                        </label>
+                      </button>
+                    )}
+                    {onAddProjectPane && (
+                      <button onClick={() => { onAddProjectPane(path, 'browser'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <Globe size={14} /><span>Browser</span>
+                      </button>
+                    )}
+                    {onAddProjectPane && (
+                      <button onClick={() => { onAddProjectPane(path, 'git'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <GitBranch size={14} /><span>Git</span>
+                      </button>
+                    )}
+                  </DropdownPortal>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div ref={treeContainerRef} role="tree" aria-label="Topics" className="flex flex-col h-full min-h-0">
       {/* Board — always visible above Projects */}
@@ -493,214 +668,7 @@ export function TopicTree({
                 return (
                   <div key={projectName}>
                     {/* Project folder item */}
-                    <div
-                      className={`group/proj flex items-center h-8 transition-colors relative select-none ${
-                        isProjectFocused
-                          ? 'bg-primary/8 dark:bg-primary/15'
-                          : isProjectOpen
-                            ? 'bg-app-hover'
-                            : 'hover:bg-app-hover'
-                      }`}
-                      onContextMenu={(e) => {
-                        if (!onArchiveProject) return;
-                        e.preventDefault();
-                        setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: path, projectName, allArchived });
-                      }}
-                    >
-                      {isProjectFocused && (
-                        <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />
-                      )}
-                      <button
-                        onClick={() => {
-                          const wasExpanded = expandedProjects.has(projectName);
-                          toggleProject(projectName);
-                          if (!wasExpanded && onProjectClick) {
-                            onProjectClick(path);
-                          }
-                        }}
-                        className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-                          isProjectFocused
-                            ? 'text-primary dark:text-primary-dark'
-                            : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
-                        }`}
-                        style={{ paddingLeft: 28 }}
-                        title={path}
-                      >
-                        <ChevronRight
-                          size={12}
-                          className={`transition-transform duration-150 flex-shrink-0 ${isTemp ? 'text-amber-500' : 'text-app-text-secondary'} ${isExpanded ? 'rotate-90' : ''}`}
-                        />
-                        <span className="truncate flex-1">{projectName}</span>
-                      </button>
-                      {/* Right side */}
-                      <div className="flex items-center pr-1 flex-shrink-0">
-                        {/* Status indicators — always visible on touch, hidden on hover on desktop */}
-                        {(() => {
-                          const ps = projectTabStatus[path];
-                          const showBranch = ps?.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
-                          const hasStatus = ps && (showBranch || ps.gitFileCount > 0 || ps.gitAhead > 0 || ps.gitBehind > 0 || ps.runningProcessCount > 0);
-                          return hasStatus ? (
-                            <span className={`flex items-center gap-1 text-[10px] font-medium mr-1.5 min-w-0 ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
-                              {showBranch && (
-                                <span className="truncate max-w-[60px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>
-                              )}
-                              {ps.gitFileCount > 0 && (
-                                <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>
-                              )}
-                              {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
-                                <span className="text-blue-500 dark:text-blue-400 leading-none whitespace-nowrap">
-                                  {ps.gitAhead > 0 && <>{ps.gitAhead}↑</>}
-                                  {ps.gitBehind > 0 && <>{ps.gitAhead > 0 ? ' ' : ''}{ps.gitBehind}↓</>}
-                                </span>
-                              )}
-                              {ps.runningProcessCount > 0 && (
-                                <span className="flex items-center gap-0.5 text-green-500 dark:text-green-400 leading-none">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                  {ps.runningProcessCount}
-                                </span>
-                              )}
-                            </span>
-                          ) : null;
-                        })()}
-                        {/* Unread / chat count — always visible on touch, hidden on hover on desktop */}
-                        {groupUnread > 0 ? (
-                          <span className={`text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
-                            {groupUnread}
-                          </span>
-                        ) : (
-                          <span className={`text-[10px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
-                            {allChats.length}
-                          </span>
-                        )}
-                        {/* Touch: single ... button with all options */}
-                        {isTouch && (onNewTopicInProject || onAddProjectPane || onOpenProjectBoard || onArchiveProject) && (
-                          <div className="relative">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); overflowBtnRef.current = e.currentTarget; setProjectOverflowMenu(projectOverflowMenu === path ? null : path); }}
-                              className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
-                              title="More options"
-                              aria-label={`More options for ${projectName}`}
-                            >
-                              <MoreHorizontal size={12} />
-                            </button>
-                            <DropdownPortal open={projectOverflowMenu === path} anchorRef={overflowBtnRef} onClose={() => setProjectOverflowMenu(null)}>
-                              {onNewTopicInProject && (
-                                <button onClick={() => { onNewTopicInProject(path); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  <MessageSquare size={14} className="flex-shrink-0" /><span>New Chat</span>
-                                </button>
-                              )}
-                              {onAddProjectPane && (
-                                <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  <TerminalSquare size={14} className="flex-shrink-0" /><span>Shell</span>
-                                </button>
-                              )}
-                              {onAddProjectPane && (
-                                <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  <ClaudeIcon size={14} className="text-[#D97757] flex-shrink-0" /><span className="flex-1 text-left">Claude Code</span>
-                                  <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-                                    <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-                                    <span>yolo</span>
-                                  </label>
-                                </button>
-                              )}
-                              {onAddProjectPane && (
-                                <button onClick={() => { onAddProjectPane(path, 'browser'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  <Globe size={14} className="flex-shrink-0" /><span>Browser</span>
-                                </button>
-                              )}
-                              {onAddProjectPane && (
-                                <button onClick={() => { onAddProjectPane(path, 'git'); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  <GitBranch size={14} className="flex-shrink-0" /><span>Git</span>
-                                </button>
-                              )}
-                              {(onOpenProjectBoard || onArchiveProject) && (onNewTopicInProject || onAddProjectPane) && (
-                                <div className="h-px bg-app-border mx-2 my-1" />
-                              )}
-                              {onOpenProjectBoard && (
-                                <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(path); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  <LayoutGrid size={14} className="flex-shrink-0 text-emerald-500" /><span>Open Board</span>
-                                </button>
-                              )}
-                              {onArchiveProject && (
-                                <button onClick={(e) => { e.stopPropagation(); onArchiveProject(path, !allArchived); setProjectOverflowMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                  {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
-                                  <span>{allArchived ? 'Restore Project' : 'Archive Project'}</span>
-                                </button>
-                              )}
-                            </DropdownPortal>
-                          </div>
-                        )}
-                        {/* Desktop: individual action buttons on hover */}
-                        {!isTouch && (
-                          <>
-                            {onOpenProjectBoard && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(path); }}
-                                className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-500 hover:text-emerald-400 transition-colors"
-                                title="Open Board"
-                                aria-label={`Board for ${projectName}`}
-                              >
-                                <LayoutGrid size={12} />
-                              </button>
-                            )}
-                            {onArchiveProject && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onArchiveProject(path, !allArchived); }}
-                                className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
-                                title={allArchived ? 'Restore Project' : 'Archive Project'}
-                                aria-label={allArchived ? `Restore ${projectName}` : `Archive ${projectName}`}
-                              >
-                                {allArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
-                              </button>
-                            )}
-                            {(onNewTopicInProject || onAddProjectPane) && (
-                              <div className="relative hidden group-hover/proj:block">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); addBtnRef.current = e.currentTarget; setProjectAddMenu(projectAddMenu === path ? null : path); }}
-                                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
-                                  title="Add to project"
-                                  aria-label={`Add to ${projectName}`}
-                                >
-                                  <Plus size={12} />
-                                </button>
-                                <DropdownPortal open={projectAddMenu === path} anchorRef={addBtnRef} onClose={() => setProjectAddMenu(null)}>
-                                  {onNewTopicInProject && (
-                                    <button onClick={() => { onNewTopicInProject(path); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                      <MessageSquare size={14} /><span>New Chat</span>
-                                    </button>
-                                  )}
-                                  {onAddProjectPane && (
-                                    <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                      <TerminalSquare size={14} /><span>Shell</span>
-                                    </button>
-                                  )}
-                                  {onAddProjectPane && (
-                                    <button onClick={() => { onAddProjectPane(path, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                      <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
-                                      <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-                                        <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-                                        <span>yolo</span>
-                                      </label>
-                                    </button>
-                                  )}
-                                  {onAddProjectPane && (
-                                    <button onClick={() => { onAddProjectPane(path, 'browser'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                      <Globe size={14} /><span>Browser</span>
-                                    </button>
-                                  )}
-                                  {onAddProjectPane && (
-                                    <button onClick={() => { onAddProjectPane(path, 'git'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                                      <GitBranch size={14} /><span>Git</span>
-                                    </button>
-                                  )}
-                                </DropdownPortal>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-
+                    {renderProjectHeader({ projectName, path, allChats, allArchived, isTemp, isExpanded, isProjectFocused, isProjectOpen, groupUnread })}
                     {/* Chats under this project - all inline */}
                     {isExpanded && (
                       <div>
@@ -812,42 +780,7 @@ export function TopicTree({
                   const isProjectOpen = openPanels.includes(projectPaneId);
                   return (
                     <div key={projectName}>
-                      <div
-                        className={`group/proj flex items-center h-8 transition-colors relative select-none ${
-                          isProjectFocused ? 'bg-primary/8 dark:bg-primary/15' : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
-                        }`}
-                      >
-                        {isProjectFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
-                        <button
-                          onClick={() => {
-                            const wasExpanded = expandedProjects.has(projectName);
-                            toggleProject(projectName);
-                            if (!wasExpanded && onProjectClick) onProjectClick(path);
-                          }}
-                          className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-                            isProjectFocused ? 'text-primary dark:text-primary-dark' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
-                          }`}
-                          style={{ paddingLeft: 28 }}
-                          title={path}
-                        >
-                          <ChevronRight
-                            size={12}
-                            className={`transition-transform duration-150 flex-shrink-0 ${isTemp ? 'text-amber-500' : 'text-app-text-secondary'} ${isExpanded ? 'rotate-90' : ''}`}
-                          />
-                          <span className="truncate flex-1">{projectName}</span>
-                        </button>
-                        <div className="flex items-center pr-1 flex-shrink-0">
-                          {groupUnread > 0 ? (
-                            <span className={`text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
-                              {groupUnread}
-                            </span>
-                          ) : (
-                            <span className={`text-[10px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
-                              {allChats.length}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      {renderProjectHeader({ projectName, path, allChats, allArchived, isTemp, isExpanded, isProjectFocused, isProjectOpen, groupUnread })}
                       {isExpanded && (
                         <div>
                           {allChats.map(topic => (
