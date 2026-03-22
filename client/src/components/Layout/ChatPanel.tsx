@@ -98,13 +98,13 @@ export function ChatPanel({
       <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header — on mobile with tabs: floating overlay with blur for scroll-through effect */}
         <div className={`flex items-center ${headerLeft
-          ? 'pr-1 h-12 md:h-10 md:border-b md:border-app-border'
+          ? 'pr-0 h-12 md:h-10 md:border-b md:border-app-border'
           : 'gap-1.5 px-2 border-b border-app-border h-10'
         } select-none flex-shrink-0 bg-surface app-drag-region`}>
           {onToggleSidebar && !headerLeft && <SidebarToggleButton onClick={onToggleSidebar} />}
           {headerLeft ? (
-            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()}>
-              {onToggleSidebar && <div className="w-10 flex items-center justify-center flex-shrink-0"><SidebarToggleButton onClick={onToggleSidebar} size="sm" /></div>}
+            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               {headerLeft}
             </div>
           ) : (

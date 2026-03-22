@@ -10,6 +10,7 @@ import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
 import { saveProjectLayout, loadProjectLayout } from '../../lib/projectLayoutSync';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
+import { ToastOutlet } from '../Shared/Toast';
 
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
@@ -1361,7 +1362,7 @@ export function ProjectWindow({
 
   return (
     <div
-      className={`flex flex-col min-h-0 min-w-[200px] overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+      className={`relative flex flex-col min-h-0 min-w-[200px] overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
       style={{ flex: 1 }}
       onDragOver={handleProjectDragOver}
       onDragLeave={handleProjectDragLeave}
@@ -1404,6 +1405,7 @@ export function ProjectWindow({
         onPendingPaneConsumed={onPendingPaneConsumed}
         onNewChat={onNewChat}
       />
+      <ToastOutlet />
     </div>
   );
 }

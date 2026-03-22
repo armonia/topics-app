@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
@@ -37,6 +38,8 @@ interface PaneTabBarProps {
   onStopStreaming?: (paneId: string) => void;
   onPinPane?: (paneId: string) => void;
   projectStatus?: Record<string, ProjectTabStatus>;
+  /** Reserve left padding for a floating sidebar toggle overlay */
+  hasLeftOverlay?: boolean;
 }
 
 // Mini context ring SVG for chat tabs
@@ -67,7 +70,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -220,11 +223,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
-    <div className={className ?? "flex items-center flex-shrink-0 p-1 gap-0.5 min-w-0 app-drag-region"}>
+    <div className={className ?? "flex-shrink-0 pt-1 pb-1 pl-1 pr-0 min-w-0 app-drag-region"} style={{ position: 'relative' }}>
       {/* Scrollable tab area */}
       <div
-        className="flex items-center gap-0.5 min-w-0 overflow-x-auto shrink scrollbar-none p-px max-w-full"
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
+        className="flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-thin"
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', padding: '1px 0 1px 1px', paddingLeft: hasLeftOverlay ? 30 : 1, paddingRight: hasMenuItems ? 30 : 0 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           e.preventDefault();
@@ -334,87 +337,93 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       })}
       </div>
 
-      {/* Add pane button — pinned right, hidden when no menu items */}
+      {/* Add pane button — floating at the right edge with fade mask */}
       {hasMenuItems && (
-        <div className="relative flex items-center app-no-drag" ref={menuRef}>
+        <div
+          className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1"
+          ref={menuRef}
+        >
           <button
             ref={buttonRef}
             onClick={() => {
               if (!showAddMenu && buttonRef.current) {
                 const rect = buttonRef.current.getBoundingClientRect();
-                const menuWidth = 160; // min-w-[140px] + padding
+                const menuWidth = 160;
                 const left = Math.min(rect.left, window.innerWidth - menuWidth - 8);
                 setMenuPos({ top: rect.bottom + 4, left: Math.max(8, left) });
               }
               setShowAddMenu(!showAddMenu);
             }}
-            className={`${'w-7 h-7'} flex items-center justify-center rounded-md hover:bg-black/[0.06] dark:hover:bg-white/[0.08] text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`}
+            className="w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
             title="Add pane"
           >
             <Plus size={14} />
           </button>
-          {showAddMenu && (isMobile || menuPos) && (
-            <>
-            {isMobile && <div className="fixed inset-0 z-[9998]" onClick={() => setShowAddMenu(false)} />}
-            <div
-              className={isMobile
-                ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-                : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[140px]'}
-              style={!isMobile ? { top: menuPos!.top, left: menuPos!.left } : { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
-            >
-              {onNewChat && (
+        </div>
+      )}
+
+      {/* Add pane dropdown menu — portaled to avoid overflow clipping */}
+      {hasMenuItems && showAddMenu && (isMobile || menuPos) && createPortal(
+        <>
+          {isMobile && <div className="fixed inset-0 z-[9998]" onClick={() => setShowAddMenu(false)} />}
+          <div
+            ref={menuRef}
+            className={isMobile
+              ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
+              : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[140px]'}
+            style={!isMobile ? { top: menuPos!.top, left: menuPos!.left } : { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
+          >
+            {onNewChat && (
+              <button
+                onClick={() => { onNewChat(); setShowAddMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <MessageSquare size={14} />
+                <span className="flex-1 text-left">New Chat</span>
+                {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>}
+              </button>
+            )}
+            {availableTypes.map(type => {
+              if (type === 'terminal') {
+                return (
+                  <div key={type}>
+                    <button
+                      onClick={() => { onAddPane('terminal', 'shell'); setShowAddMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    >
+                      <TerminalSquare size={14} />
+                      <span>Shell</span>
+                    </button>
+                    <button
+                      onClick={() => { onAddPane('terminal', 'claude-code'); setShowAddMenu(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    >
+                      <ClaudeIcon size={14} className="text-[#D97757]" />
+                      <span className="flex-1 text-left">Claude Code</span>
+                      <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
+                        <span>yolo</span>
+                      </label>
+                    </button>
+                  </div>
+                );
+              }
+              const config = PANE_CONFIG[type];
+              const Icon = ICONS[config.icon];
+              return (
                 <button
-                  onClick={() => { onNewChat(); setShowAddMenu(false); }}
+                  key={type}
+                  onClick={() => { onAddPane(type); setShowAddMenu(false); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
-                  <MessageSquare size={14} />
-                  <span className="flex-1 text-left">New Chat</span>
-                  {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>}
+                  {Icon && <Icon size={14} />}
+                  <span>{config.label}</span>
                 </button>
-              )}
-              {availableTypes.map(type => {
-                if (type === 'terminal') {
-                  // Terminal has sub-types: Shell and Claude Code
-                  return (
-                    <div key={type}>
-                      <button
-                        onClick={() => { onAddPane('terminal', 'shell'); setShowAddMenu(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                      >
-                        <TerminalSquare size={14} />
-                        <span>Shell</span>
-                      </button>
-                      <button
-                        onClick={() => { onAddPane('terminal', 'claude-code'); setShowAddMenu(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                      >
-                        <ClaudeIcon size={14} className="text-[#D97757]" />
-                        <span className="flex-1 text-left">Claude Code</span>
-                        <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-                          <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-                          <span>yolo</span>
-                        </label>
-                      </button>
-                    </div>
-                  );
-                }
-                const config = PANE_CONFIG[type];
-                const Icon = ICONS[config.icon];
-                return (
-                  <button
-                    key={type}
-                    onClick={() => { onAddPane(type); setShowAddMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    {Icon && <Icon size={14} />}
-                    <span>{config.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            </>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        </>,
+        document.body
       )}
 
       {/* Right-click context menu */}
