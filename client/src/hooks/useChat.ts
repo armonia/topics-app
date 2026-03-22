@@ -594,10 +594,33 @@ export function useChat() {
                       id: tc.id || generateMessageId(),
                       name: tc.function.name,
                       args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-                      status: 'pending',
+                      status: 'running',
+                      contentOffset: tc.contentOffset,
                     };
                     addToolCallToLastMessage(sessionKey, toolCall);
                   }
+                }
+              }
+
+              // Handle tool results
+              if (delta?.tool_result) {
+                const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
+                if (trId) {
+                  setMessages(prev => {
+                    const msgs = [...(prev[sessionKey] || [])];
+                    for (let i = msgs.length - 1; i >= 0; i--) {
+                      if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
+                        const tc = msgs[i].toolCalls!.find(t => t.id === trId);
+                        if (tc) {
+                          tc.status = trStatus || 'success';
+                          tc.result = trResult;
+                          msgs[i] = { ...msgs[i] };
+                          break;
+                        }
+                      }
+                    }
+                    return { ...prev, [sessionKey]: msgs };
+                  });
                 }
               }
             } catch (parseErr) {
@@ -776,10 +799,13 @@ export function useChat() {
   }, [updateLastMessage]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
+    // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
+    if (localSSESessionsRef.current.has(sessionKey)) return true;
+
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
-      // Clear any stale streaming/thinking state before server confirms the real state
+      // Clear stale streaming/thinking state before server confirms the real state
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       

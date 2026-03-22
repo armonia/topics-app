@@ -23,6 +23,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     ALLOWED_UPLOAD_MIMES,
     getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage,
     switchActiveBranch, getSiblingMessages, loadActiveThread,
+    activeStreams,
   } = ctx;
 
   // ── Sub-agent completion polling via JSONL transcript ──────────────────
@@ -1368,6 +1369,7 @@ Wait for the user to approve the plan before executing any changes.` };
             for (const tcId of trackedToolCallIds) {
               updateToolCallResult(sessionKey, tcId, 'completed');
               broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success' });
+              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
             }
 
             updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
@@ -1494,7 +1496,7 @@ Wait for the user to approve the plan before executing any changes.` };
               broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
 
               // Also send as SSE for the HTTP client
-              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) } }] } }] }));
+              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) }, contentOffset: fullContent.length }] } }] }));
 
               // Track sessions_spawn
               if (name === 'sessions_spawn' && matchedTopic) {
@@ -1524,6 +1526,8 @@ Wait for the user to approve the plan before executing any changes.` };
               console.log(`[StreamWS] Tool result: ${toolCallId.slice(0,8)} for ${sessionKey}`);
               updateToolCallResult(sessionKey, toolCallId, result);
               broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result });
+              // Also send as SSE for the HTTP client
+              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               // Remove from tracked list (it's already finalized)
               const idx = trackedToolCallIds.indexOf(toolCallId);
               if (idx >= 0) trackedToolCallIds.splice(idx, 1);
