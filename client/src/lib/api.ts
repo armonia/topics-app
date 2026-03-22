@@ -21,9 +21,11 @@ import type {
 const API_BASE = '/api';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  [key: string]: any;
+  constructor(public status: number, message: string, extra?: Record<string, any>) {
     super(message);
     this.name = 'ApiError';
+    if (extra) Object.assign(this, extra);
   }
 }
 
@@ -38,7 +40,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     const text = await response.text();
-    throw new ApiError(response.status, text || response.statusText);
+    let message = text || response.statusText;
+    let extra: Record<string, any> | undefined;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.error) message = parsed.error;
+      const { error: _, ...rest } = parsed;
+      if (Object.keys(rest).length) extra = rest;
+    } catch {}
+    throw new ApiError(response.status, message, extra);
   }
 
   return response.json();

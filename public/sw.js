@@ -1,6 +1,6 @@
 // Topics PWA Service Worker
 // Bump this version to force cache refresh
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 const CACHE_NAME = `topics-v${CACHE_VERSION}`;
 
 // Install: skip waiting immediately
