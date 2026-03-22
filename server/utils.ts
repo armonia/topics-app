@@ -589,7 +589,19 @@ export function createAppContext(baseDir: string): AppContext {
     return { content: stream.content, thinking: stream.thinking, messageId: stream.messageId };
   }
 
-  function endStream(sessionKey: string) { activeStreams.delete(sessionKey); }
+  function endStream(sessionKey: string) {
+    const stream = activeStreams.get(sessionKey);
+    if (stream?.messageId) {
+      // Mark any "running" tool calls as "error" in the DB so clients don't show stale spinners
+      try {
+        const msg = db.prepare(`SELECT tool_calls FROM messages WHERE id = ?`).get(stream.messageId) as any;
+        if (msg?.tool_calls && msg.tool_calls.includes('"status":"running"')) {
+          db.prepare(`UPDATE messages SET tool_calls = REPLACE(tool_calls, '"status":"running"', '"status":"error"') WHERE id = ?`).run(stream.messageId);
+        }
+      } catch {}
+    }
+    activeStreams.delete(sessionKey);
+  }
 
   function isStreaming(sessionKey: string): ActiveStream | undefined {
     const stream = activeStreams.get(sessionKey);

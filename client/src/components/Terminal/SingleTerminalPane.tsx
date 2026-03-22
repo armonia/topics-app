@@ -138,6 +138,52 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
       return true;
     });
 
+    // Intercept paste events with images — upload to server, copy to system clipboard,
+    // then trigger a paste so Claude Code can detect the image via clipboard read
+    const handleImagePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      let imageItem: DataTransferItem | null = null;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          imageItem = item;
+          break;
+        }
+      }
+      if (!imageItem) return; // no image, let xterm handle text paste normally
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const blob = imageItem.getAsFile();
+      if (!blob) return;
+
+      // Convert to base64 data URL
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = reader.result as string;
+        try {
+          // Upload to server — saves temp file and copies to macOS clipboard
+          await fetch('/api/terminal/paste-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataUrl, sessionId }),
+          });
+
+          // Send Ctrl+V (0x16) to the PTY to trigger Claude Code's clipboard read
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send('\x16');
+          }
+        } catch (err) {
+          console.error('Image paste failed:', err);
+        }
+      };
+      reader.readAsDataURL(blob);
+    };
+
+    el.addEventListener('paste', handleImagePaste as EventListener, true);
+
     const doFit = () => { try { fitAddon.fit(); } catch {} };
     setTimeout(doFit, 50);
     setTimeout(doFit, 200);
@@ -198,6 +244,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
 
     return () => {
       intentionalClose = true;
+      el.removeEventListener('paste', handleImagePaste as EventListener, true);
       ws.close();
       term.dispose();
       termRef.current = null;

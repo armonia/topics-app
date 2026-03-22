@@ -6,7 +6,7 @@ import { scriptsApi } from '../../lib/api';
 // Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
 const stripAnsi = (text: string) =>
   text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
-      .replace(/\[([0-9;]*)[a-zA-Z]/g, '');
+      .replace(/\[(?:\d+;)*\d*[A-HJKSTfm]/g, '');
 
 interface ProcessLogPaneProps {
   processId: string;

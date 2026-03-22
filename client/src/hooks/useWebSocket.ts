@@ -164,5 +164,27 @@ export function useWebSocket(): UseWebSocketReturn {
     connect();
   }, [connect, clearOfflineTimer]);
 
+  // Auto-reconnect when app comes back to foreground (mobile/tab switch)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden && wsRef.current?.readyState !== WebSocket.OPEN) {
+        reconnect();
+      }
+    };
+    const handleOnline = () => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) {
+        reconnect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [reconnect]);
+
   return { status, unreadData, sendWS, onMessage, reconnect, lastConnectedAt };
 }

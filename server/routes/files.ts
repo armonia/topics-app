@@ -624,7 +624,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        const proc = Bun.spawn(["git", "push"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        // Resolve current branch and remote explicitly to avoid "multiple upstream branches" errors
+        const branchProc = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await branchProc.exited;
+        const branch = (await new Response(branchProc.stdout).text()).trim();
+        const remoteProc = Bun.spawn(["git", "config", `branch.${branch}.remote`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        await remoteProc.exited;
+        const remote = (await new Response(remoteProc.stdout).text()).trim() || "origin";
+        const proc = Bun.spawn(["git", "push", remote, branch], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await proc.exited;
         const stdout = await new Response(proc.stdout).text();
         const stderr = await new Response(proc.stderr).text();
