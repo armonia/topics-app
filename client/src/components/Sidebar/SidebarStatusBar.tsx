@@ -8,14 +8,22 @@ declare const __BUILD_TIME__: string;
 
 // Track last code update time — updates on HMR in dev, uses __BUILD_TIME__ in prod
 let _lastUpdateTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
-if (import.meta.hot) {
-  // Update timestamp on every HMR event (dev only)
+if (import.meta.env.DEV) {
   _lastUpdateTime = new Date().toISOString();
-  import.meta.hot.on('vite:afterUpdate', () => {
-    _lastUpdateTime = new Date().toISOString();
-    // Trigger re-render via custom event
-    window.dispatchEvent(new CustomEvent('hmr-update'));
-  });
+  // Listen for ANY HMR update via Vite's WebSocket (not just this module)
+  try {
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const hmrWs = new WebSocket(`${protocol}://${location.host}`, 'vite-hmr');
+    hmrWs.addEventListener('message', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'update') {
+          _lastUpdateTime = new Date().toISOString();
+          window.dispatchEvent(new CustomEvent('hmr-update'));
+        }
+      } catch {}
+    });
+  } catch {}
 }
 
 function useLastChangeTime(): string {

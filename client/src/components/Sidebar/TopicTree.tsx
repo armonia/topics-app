@@ -751,11 +751,172 @@ export function TopicTree({
                         })()}
                       </div>
                     )}
+                    {/* Pinned active topic when project is collapsed */}
+                    {!isExpanded && (() => {
+                      const activeTopicId = projectActiveTopics?.[path];
+                      if (!activeTopicId || (!isProjectOpen && !isProjectFocused)) return null;
+                      const activeTopic = allChats.find(t => t.id === activeTopicId);
+                      if (!activeTopic) return null;
+                      return (
+                        <TopicItem
+                          key={`pinned-active-${activeTopic.id}`}
+                          topic={activeTopic}
+                          depth={2}
+                          hasChildren={false}
+                          isExpanded={false}
+                          isOpen={isProjectOpen && projectActiveTopics?.[path] === activeTopic.id}
+                          isFocused={isProjectFocused && projectActiveTopics?.[path] === activeTopic.id}
+                          isPreview={previewPanelId === activeTopic.id}
+                          isStreaming={isSessionStreaming ? isSessionStreaming(activeTopic.sessionKey) : false}
+                          unreadCount={unreadData[activeTopic.id]?.unreadCount || 0}
+                          assignedAgentCount={activeTopic.assignedAgents?.length || 0}
+                          onToggle={() => {}}
+                          onClick={(e) => onTopicClick(activeTopic.id, e)}
+                          onDoubleClick={(e) => onTopicDoubleClick(activeTopic.id, e)}
+                          onContextMenu={(e) => onTopicContextMenu(e, activeTopic)}
+                          onArchive={handleArchive}
+                          onStopStreaming={stopSession ? () => {
+                            const isFirst = stopSession(activeTopic.sessionKey);
+                            if (isFirst) onArchiveTopic(activeTopic.id, true);
+                          } : undefined}
+                          isArchived={activeTopic.archived}
+                          hideIcon
+                        />
+                      );
+                    })()}
                   </div>
                 );
               })}
             </div>
           )}
+          {/* Pinned: open/focused projects when section is collapsed — full accordion */}
+          {!showProjects && (() => {
+            const pinnedEntries = sortedProjectEntries.filter(([, { path }]) => {
+              const paneId = createPaneId('project', path);
+              return openPanels.includes(paneId) || focusedTopicId === paneId;
+            });
+            if (!pinnedEntries.length) return null;
+            return (
+              <div className="flex-shrink-0">
+                {pinnedEntries.map(([projectName, { path, activeTopics, archivedTopics: projectArchived, isTemp }]) => {
+                  const isExpanded = expandedProjects.has(projectName);
+                  const sortByRecent = (a: Topic, b: Topic) =>
+                    (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
+                  const allChats = showProjectsArchived
+                    ? [...activeTopics, ...projectArchived].sort(sortByRecent)
+                    : [...activeTopics].sort(sortByRecent);
+                  const allArchived = activeTopics.length === 0 && projectArchived.length > 0;
+                  const groupUnread = allChats.reduce((sum, t) => sum + (unreadData[t.id]?.unreadCount || 0), 0);
+                  const projectPaneId = createPaneId('project', path);
+                  const isProjectFocused = focusedTopicId === projectPaneId;
+                  const isProjectOpen = openPanels.includes(projectPaneId);
+                  return (
+                    <div key={projectName}>
+                      <div
+                        className={`group/proj flex items-center h-8 transition-colors relative select-none ${
+                          isProjectFocused ? 'bg-primary/8 dark:bg-primary/15' : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
+                        }`}
+                      >
+                        {isProjectFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
+                        <button
+                          onClick={() => {
+                            const wasExpanded = expandedProjects.has(projectName);
+                            toggleProject(projectName);
+                            if (!wasExpanded && onProjectClick) onProjectClick(path);
+                          }}
+                          className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
+                            isProjectFocused ? 'text-primary dark:text-primary-dark' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+                          }`}
+                          style={{ paddingLeft: 28 }}
+                          title={path}
+                        >
+                          <ChevronRight
+                            size={12}
+                            className={`transition-transform duration-150 flex-shrink-0 ${isTemp ? 'text-amber-500' : 'text-app-text-secondary'} ${isExpanded ? 'rotate-90' : ''}`}
+                          />
+                          <span className="truncate flex-1">{projectName}</span>
+                        </button>
+                        <div className="flex items-center pr-1 flex-shrink-0">
+                          {groupUnread > 0 ? (
+                            <span className={`text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
+                              {groupUnread}
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
+                              {allChats.length}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div>
+                          {allChats.map(topic => (
+                            <TopicItem
+                              key={`pinned-project-${topic.id}`}
+                              topic={topic}
+                              depth={2}
+                              hasChildren={false}
+                              isExpanded={false}
+                              isOpen={isProjectOpen && projectActiveTopics?.[path] === topic.id}
+                              isFocused={isProjectFocused && projectActiveTopics?.[path] === topic.id}
+                              isPreview={previewPanelId === topic.id}
+                              isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
+                              unreadCount={unreadData[topic.id]?.unreadCount || 0}
+                              assignedAgentCount={topic.assignedAgents?.length || 0}
+                              onToggle={() => {}}
+                              onClick={(e) => onTopicClick(topic.id, e)}
+                              onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
+                              onContextMenu={(e) => onTopicContextMenu(e, topic)}
+                              onArchive={handleArchive}
+                              onStopStreaming={stopSession ? () => {
+                                const isFirst = stopSession(topic.sessionKey);
+                                if (isFirst) onArchiveTopic(topic.id, true);
+                              } : undefined}
+                              isArchived={topic.archived}
+                              hideIcon
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {/* Pinned active topic when project is collapsed */}
+                      {!isExpanded && (() => {
+                        const activeTopicId = projectActiveTopics?.[path];
+                        if (!activeTopicId || (!isProjectOpen && !isProjectFocused)) return null;
+                        const activeTopic = allChats.find(t => t.id === activeTopicId);
+                        if (!activeTopic) return null;
+                        return (
+                          <TopicItem
+                            key={`pinned-section-active-${activeTopic.id}`}
+                            topic={activeTopic}
+                            depth={2}
+                            hasChildren={false}
+                            isExpanded={false}
+                            isOpen={isProjectOpen && projectActiveTopics?.[path] === activeTopic.id}
+                            isFocused={isProjectFocused && projectActiveTopics?.[path] === activeTopic.id}
+                            isPreview={previewPanelId === activeTopic.id}
+                            isStreaming={isSessionStreaming ? isSessionStreaming(activeTopic.sessionKey) : false}
+                            unreadCount={unreadData[activeTopic.id]?.unreadCount || 0}
+                            assignedAgentCount={activeTopic.assignedAgents?.length || 0}
+                            onToggle={() => {}}
+                            onClick={(e) => onTopicClick(activeTopic.id, e)}
+                            onDoubleClick={(e) => onTopicDoubleClick(activeTopic.id, e)}
+                            onContextMenu={(e) => onTopicContextMenu(e, activeTopic)}
+                            onArchive={handleArchive}
+                            onStopStreaming={stopSession ? () => {
+                              const isFirst = stopSession(activeTopic.sessionKey);
+                              if (isFirst) onArchiveTopic(activeTopic.id, true);
+                            } : undefined}
+                            isArchived={activeTopic.archived}
+                            hideIcon
+                          />
+                        );
+                      })()}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -836,6 +997,39 @@ export function TopicTree({
               {renderLevel(null, 1, showChatsArchived, true)}
             </div>
           )}
+          {/* Pinned: open/focused chats when section is collapsed */}
+          {!showChats && (() => {
+            const pinned = Object.values(topics).filter(t =>
+              !t.projectPath && (openPanels.includes(t.id) || focusedTopicId === t.id)
+            );
+            if (!pinned.length) return null;
+            return (
+              <div className="flex-shrink-0">
+                {pinned.map(t => (
+                  <TopicItem
+                    key={t.id}
+                    topic={t}
+                    depth={1}
+                    hasChildren={false}
+                    isExpanded={false}
+                    isOpen={openPanels.includes(t.id)}
+                    isFocused={focusedTopicId === t.id}
+                    isPreview={previewPanelId === t.id}
+                    isStreaming={isSessionStreaming ? isSessionStreaming(t.sessionKey) : false}
+                    unreadCount={unreadData[t.id]?.unreadCount || 0}
+                    assignedAgentCount={t.assignedAgents?.length || 0}
+                    onToggle={() => {}}
+                    onClick={(e) => onTopicClick(t.id, e)}
+                    onDoubleClick={(e) => onTopicDoubleClick(t.id, e)}
+                    onContextMenu={(e) => onTopicContextMenu(e, t)}
+                    onArchive={handleArchive}
+                    isArchived={t.archived}
+                    hideIcon
+                  />
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -913,6 +1107,32 @@ export function TopicTree({
               })}
             </div>
           )}
+          {/* Pinned: open/focused terminals when section is collapsed */}
+          {!showTerminals && (() => {
+            const pinned = terminalSessions.filter(s => {
+              const paneId = `terminal:${s.id}`;
+              return openPanels.includes(paneId) || focusedTopicId === paneId;
+            });
+            if (!pinned.length) return null;
+            return (
+              <div className="flex-shrink-0">
+                {pinned.map(s => {
+                  const paneId = `terminal:${s.id}`;
+                  const isActive = focusedTopicId === paneId || openPanels.includes(paneId);
+                  return (
+                    <TerminalSidebarItem
+                      key={s.id}
+                      session={s}
+                      isActive={isActive}
+                      isTouch={isTouch}
+                      onTerminalClick={onTerminalClick}
+                      onCloseTerminal={onCloseTerminal}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
