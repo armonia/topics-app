@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ScriptRunner } from './ScriptRunner';
-import { FileExplorer } from './FileExplorer';
+import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { TaskBoard } from './TaskBoard';
 import { useScripts } from '../../hooks/useScripts';
 import type { WSMessage } from '../../types';
@@ -55,6 +55,8 @@ export function ProjectSidebar({
   useEffect(() => {
     try { sessionStorage.setItem('sidebar-sections', JSON.stringify(expandedSections)); } catch {}
   }, [expandedSections]);
+
+  const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
   // Use same projectId as KanbanBoard (encodeURIComponent of projectPath)
   const projectId = projectPath ? encodeURIComponent(projectPath) : null;
@@ -196,17 +198,25 @@ export function ProjectSidebar({
               )}
             </div>
             <div className="flex flex-col flex-1 min-h-0">
-              <button
+              <div
                 onClick={() => toggleSection('files')}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+                className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
               >
-                <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.files ? 'rotate-90' : ''}`} />
-                <FolderTree size={14} />
+                <FolderTree size={14} className="flex-shrink-0" />
                 <span>Files</span>
-              </button>
+                <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
+                {expandedSections.files && (
+                  <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/files:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New File"><FilePlus size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New Folder"><FolderPlus size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Collapse All"><ChevronsDownUp size={12} /></button>
+                    <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Refresh"><RefreshCw size={12} /></button>
+                  </div>
+                )}
+              </div>
               {expandedSections.files && (
                 <div className="flex-1 min-h-0 overflow-y-auto">
-                  <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
+                  <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} />
                 </div>
               )}
             </div>
@@ -218,9 +228,9 @@ export function ProjectSidebar({
               <Suspense fallback={
                 <div onClick={() => toggleSection('git')} className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expandedSections.git ? 'rotate-90' : ''}`} />
-                    <GitBranch size={14} className="flex-shrink-0" />
+                    <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
                     <span>Git</span>
+                    <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                   </div>
                 </div>
               }>
@@ -236,11 +246,11 @@ export function ProjectSidebar({
                 onClick={() => toggleSection('processes')}
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               >
-                <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.processes ? 'rotate-90' : ''}`} />
-                <Zap size={14} />
-                <span className="flex-1 text-left">Processes</span>
+                <Zap size={14} className="flex-shrink-0" />
+                <span>Processes</span>
+                <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 {runningCount > 0 && (
-                  <span className="text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                  <span className="ml-auto text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                     {runningCount}
                   </span>
                 )}
@@ -276,17 +286,25 @@ export function ProjectSidebar({
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
         <div className="flex flex-col flex-1 min-h-0">
-          <button
+          <div
             onClick={() => toggleSection('files')}
-            className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+            className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
           >
-            <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.files ? 'rotate-90' : ''}`} />
-            <FolderTree size={14} />
+            <FolderTree size={14} className="flex-shrink-0" />
             <span>Files</span>
-          </button>
+            <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.files ? 'rotate-90' : ''}`} />
+            {expandedSections.files && (
+              <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/files:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                <button onClick={() => fileExplorerRef.current?.newFile()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New File"><FilePlus size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.newFolder()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="New Folder"><FolderPlus size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.collapseAll()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Collapse All"><ChevronsDownUp size={12} /></button>
+                <button onClick={() => fileExplorerRef.current?.refresh()} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary" title="Refresh"><RefreshCw size={12} /></button>
+              </div>
+            )}
+          </div>
           {expandedSections.files && (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <FileExplorer projectPath={projectPath} compact onOpenFile={onOpenFile} />
+              <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} />
             </div>
           )}
         </div>
@@ -316,9 +334,9 @@ export function ProjectSidebar({
               className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
-                <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expandedSections.git ? 'rotate-90' : ''}`} />
                 <GitBranch size={14} className={`flex-shrink-0 ${cachedGit ? 'text-primary' : 'text-app-text-muted'}`} />
                 <span>Git</span>
+                <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
                 {cachedGit && (
                   <span className="text-app-text-muted truncate">{cachedGit.branch}</span>
                 )}
@@ -378,11 +396,11 @@ export function ProjectSidebar({
             onClick={() => toggleSection('processes')}
             className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
           >
-            <ChevronRight size={12} className={`transition-transform duration-150 ${expandedSections.processes ? 'rotate-90' : ''}`} />
-            <Zap size={14} />
-            <span className="flex-1 text-left">Processes</span>
+            <Zap size={14} className="flex-shrink-0" />
+            <span>Processes</span>
+            <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             {runningCount > 0 && (
-              <span className="text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+              <span className="ml-auto text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                 {runningCount}
               </span>
             )}

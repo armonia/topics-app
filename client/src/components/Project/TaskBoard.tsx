@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2, CheckSquare, Circle, Clock, CheckCircle2, Loader2, LayoutGrid } from 'lucide-react';
+import { ChevronRight, Plus, Trash2, CheckSquare, Circle, Clock, CheckCircle2, Loader2, LayoutGrid } from 'lucide-react';
 import { boardsApi, type BoardTask, type TaskStatus } from '../../lib/api';
 import type { WSMessage } from '../../types';
 
@@ -64,9 +64,9 @@ export function TaskBoard({ topicId, projectId, onWSMessage, onOpenBoard }: Task
         onClick={toggleCollapse}
         className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
       >
-        {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-        <CheckSquare size={14} />
+        <CheckSquare size={14} className="flex-shrink-0" />
         <span>Tasks</span>
+        <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${!collapsed ? 'rotate-90' : ''}`} />
         {pendingCount > 0 && (
           <span className="ml-1 bg-primary text-white text-[9px] px-1.5 py-0.5 rounded-full leading-none font-bold">
             {pendingCount}

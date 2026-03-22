@@ -7,6 +7,7 @@ import { gitApi, filesApi } from '../../lib/api';
 import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
+import { useToast } from '../Shared/Toast';
 
 interface GitChangesProps {
   projectPath: string;
@@ -30,6 +31,7 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
 
 export function GitChanges({ projectPath, compact = false, expanded = true, onToggle }: GitChangesProps) {
   const { gitStatus, loading, error, notGit, reload: loadStatus } = useGitStatus({ projectPath });
+  const toast = useToast();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<string>('');
   const [modifiedContent, setModifiedContent] = useState<string>('');
@@ -37,7 +39,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [showBranches, setShowBranches] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pushing, setPushing] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
   const [generatingMsg, setGeneratingMsg] = useState(false);
@@ -125,7 +126,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setShowAddRemote(false);
       await loadRemotes();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     } finally {
       setAddingRemote(false);
     }
@@ -136,7 +137,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.removeRemote(projectPath, name);
       await loadRemotes();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     }
   }, [projectPath, loadRemotes]);
 
@@ -180,7 +181,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.stage(projectPath, filePath);
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     }
   }, [projectPath, loadStatus]);
 
@@ -190,7 +191,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.unstage(projectPath, filePath);
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     }
   }, [projectPath, loadStatus]);
 
@@ -200,7 +201,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.stageAll(projectPath);
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     } finally {
       setStagingAll(false);
     }
@@ -211,7 +212,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.unstageAll(projectPath);
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     }
   }, [projectPath, loadStatus]);
 
@@ -229,7 +230,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       }
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     }
     setDiscardConfirm(null);
   }, [projectPath, loadStatus]);
@@ -321,7 +322,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.stageFiles(projectPath, files);
       await loadStatus();
-    } catch (err: any) { showTemporaryMessage(`Error: ${err.message}`); }
+    } catch (err: any) { toast.error(err.message); }
   }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
 
   const handleBatchUnstage = useCallback(async () => {
@@ -330,7 +331,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.unstageFiles(projectPath, files);
       await loadStatus();
-    } catch (err: any) { showTemporaryMessage(`Error: ${err.message}`); }
+    } catch (err: any) { toast.error(err.message); }
   }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
 
   const handleBatchDiscard = useCallback(() => {
@@ -358,7 +359,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         setCommitMessage(result.message);
       }
     } catch (err: any) {
-      showTemporaryMessage(`Error: ${err.message}`);
+      toast.error(err.message);
     } finally {
       setGeneratingMsg(false);
     }
@@ -371,9 +372,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.commit(projectPath, commitMessage);
       setCommitMessage('');
       await loadStatus();
-      showTemporaryMessage('Committed!');
+      toast.success('Committed!');
     } catch (err: any) {
-      showTemporaryMessage(`Commit failed: ${err.message}`);
+      toast.error(`Commit failed: ${err.message}`);
     } finally {
       setCommitting(false);
     }
@@ -383,10 +384,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       setPulling(true);
       const result = await gitApi.pull(projectPath);
-      showTemporaryMessage(result.output || 'Pull complete');
+      toast.success(result.output || 'Pull complete');
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Pull failed: ${err.message}`);
+      toast.error(`Pull failed: ${err.message}`);
     } finally {
       setPulling(false);
     }
@@ -396,19 +397,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       setPushing(true);
       const result = await gitApi.push(projectPath);
-      showTemporaryMessage(result.output || 'Push complete');
+      toast.success(result.output || 'Push complete');
       await loadStatus();
     } catch (err: any) {
-      showTemporaryMessage(`Push failed: ${err.message}`);
+      toast.error(`Push failed: ${err.message}`);
     } finally {
       setPushing(false);
     }
   }, [projectPath, loadStatus]);
-
-  const showTemporaryMessage = (msg: string) => {
-    setActionMessage(msg);
-    setTimeout(() => setActionMessage(null), 3000);
-  };
 
   // --- Context menu portal ---
   const renderContextMenu = () => {
@@ -536,26 +532,26 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {/* Header — two-part layout: left flexible, right fixed (no shift) */}
         <div
           onClick={onToggle}
-          className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none"
+          className="w-full flex items-center h-8 px-3 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/git"
         >
-          {/* Left: icon + label + branch (flexible, absorbs changes) */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`} />
+          {/* Left: icon + label + chevron */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             <GitBranch size={14} className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : 'text-primary'}`} />
             <span className={`flex-shrink-0 ${notGit ? 'text-app-text-muted' : ''}`}>Git</span>
+            <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
+          </div>
+          {/* Right: branch + badges + refresh */}
+          <div className="flex items-center gap-1 flex-shrink-0 ml-auto" onClick={e => e.stopPropagation()}>
             {hasData && (
               <button
                 ref={branchBtnRef}
                 onClick={(e) => { e.stopPropagation(); setShowBranches(!showBranches); }}
                 className="flex items-center gap-0.5 min-w-0 hover:text-primary transition-colors text-app-text-muted"
               >
-                <span className="truncate">{gitStatus!.branch}</span>
-                <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform ${showBranches ? 'rotate-180' : ''}`} />
+                <span className="truncate max-w-[80px]">{gitStatus!.branch}</span>
+                <ChevronDown size={10} className={`text-app-text-muted flex-shrink-0 transition-transform opacity-0 group-hover/git:opacity-100 ${showBranches ? 'rotate-180 !opacity-100' : ''}`} />
               </button>
             )}
-          </div>
-          {/* Right: badges + refresh (fixed position, never shifts) */}
-          <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
             {hasData && fileCount > 0 && (
               <span className="text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full" title={`${fileCount} changed files`}>
                 {fileCount}
@@ -940,11 +936,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
           )}
 
-          {actionMessage && (
-            <div className="text-[10px] text-primary truncate mt-1">
-              {actionMessage}
-            </div>
-          )}
         </div>
 
         {/* Inline commit area for full mode too */}

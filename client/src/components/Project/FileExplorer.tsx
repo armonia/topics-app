@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText } from 'lucide-react';
 import type { FileNode } from '../../types';
@@ -14,6 +14,13 @@ interface FileExplorerProps {
   onOpenFile?: (path: string) => void;
   pendingFile?: string | null;
   onPendingFileConsumed?: () => void;
+}
+
+export interface FileExplorerHandle {
+  newFile: () => void;
+  newFolder: () => void;
+  collapseAll: () => void;
+  refresh: () => void;
 }
 
 const DIR_CHILDREN_LIMIT = 300;
@@ -337,7 +344,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
   );
 }
 
-export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed }: FileExplorerProps) {
+export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed }, ref) {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -906,6 +913,14 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
     setNewItemType('dir');
   }, []);
 
+  // Imperative handle for parent components (e.g. ProjectSidebar toolbar)
+  useImperativeHandle(ref, () => ({
+    newFile: () => handleHoverNewFile(projectPath),
+    newFolder: () => handleHoverNewFolder(projectPath),
+    collapseAll: handleCollapseAll,
+    refresh: loadFiles,
+  }), [projectPath, handleHoverNewFile, handleHoverNewFolder, handleCollapseAll, loadFiles]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1145,4 +1160,4 @@ export function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, on
       {contextMenuPortal}
     </>
   );
-}
+});
