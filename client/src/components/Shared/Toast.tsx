@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
 
@@ -17,6 +18,8 @@ interface ToastContextType {
   error: (message: string, duration?: number) => void;
   info: (message: string, duration?: number) => void;
   warning: (message: string, duration?: number) => void;
+  toasts: Toast[];
+  removeToast: (id: string) => void;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -24,58 +27,43 @@ const ToastContext = createContext<ToastContextType | null>(null);
 export function useToast(): ToastContextType {
   const ctx = useContext(ToastContext);
   if (!ctx) {
-    // Return a no-op version if not in provider
-    return {
-      toast: () => {},
-      success: () => {},
-      error: () => {},
-      info: () => {},
-      warning: () => {},
-    };
+    return { toast: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {}, toasts: [], removeToast: () => {} };
   }
   return ctx;
 }
 
-const iconMap = {
-  success: <Check size={14} className="text-emerald-500" />,
-  error: <X size={14} className="text-red-500" />,
-  warning: <AlertTriangle size={14} className="text-amber-500" />,
-  info: <Info size={14} className="text-blue-500" />,
+const styles: Record<ToastType, { bg: string; icon: React.ReactNode }> = {
+  success: { bg: 'bg-emerald-600', icon: <Check size={13} strokeWidth={2.5} /> },
+  error:   { bg: 'bg-red-600',     icon: <X size={13} strokeWidth={2.5} /> },
+  warning: { bg: 'bg-amber-500',   icon: <AlertTriangle size={13} strokeWidth={2.5} /> },
+  info:    { bg: 'bg-blue-500',    icon: <Info size={13} strokeWidth={2.5} /> },
 };
 
-const bgMap = {
-  success: 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/40',
-  error: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40',
-  warning: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40',
-  info: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/40',
-};
-
-function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) => void }) {
-  const [exiting, setExiting] = useState(false);
+function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string) => void }) {
+  const [state, setState] = useState<'enter' | 'visible' | 'exit'>('enter');
 
   useEffect(() => {
-    const dur = toast.duration || 3000;
-    const exitTimer = setTimeout(() => setExiting(true), dur - 300);
-    const removeTimer = setTimeout(() => onRemove(toast.id), dur);
-    return () => {
-      clearTimeout(exitTimer);
-      clearTimeout(removeTimer);
-    };
-  }, [toast.id, toast.duration, onRemove]);
+    requestAnimationFrame(() => setState('visible'));
+    const dur = t.duration || 3000;
+    const exitTimer = setTimeout(() => setState('exit'), dur - 300);
+    const removeTimer = setTimeout(() => onRemove(t.id), dur);
+    return () => { clearTimeout(exitTimer); clearTimeout(removeTimer); };
+  }, [t.id, t.duration, onRemove]);
+
+  const { bg, icon } = styles[t.type];
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg border shadow-lg text-[12px] transition-all duration-300 ${bgMap[toast.type]} ${
-        exiting ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium text-white transition-all duration-300 ${bg} ${
+        state === 'enter' ? 'opacity-0 translate-y-2' :
+        state === 'exit'  ? 'opacity-0 -translate-y-1' :
+                            'opacity-100 translate-y-0'
       }`}
     >
-      {iconMap[toast.type]}
-      <span className="text-app-text font-medium">{toast.message}</span>
-      <button
-        onClick={() => onRemove(toast.id)}
-        className="ml-auto w-4 h-4 flex items-center justify-center text-app-text-muted hover:text-app-text-secondary"
-      >
-        <X size={10} />
+      <span className="flex-shrink-0 opacity-90">{icon}</span>
+      <span className="flex-1 min-w-0 truncate">{t.message}</span>
+      <button onClick={() => onRemove(t.id)} className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+        <X size={12} />
       </button>
     </div>
   );
@@ -90,7 +78,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const addToast = useCallback((type: ToastType, message: string, duration = 3000) => {
     const id = generateUUID();
-    setToasts(prev => [...prev.slice(-4), { id, type, message, duration }]); // max 5 toasts
+    setToasts(prev => [...prev.slice(-4), { id, type, message, duration }]);
   }, []);
 
   const contextValue: ToastContextType = {
@@ -99,19 +87,33 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     error: (msg, dur) => addToast('error', msg, dur || 5000),
     info: (msg, dur) => addToast('info', msg, dur),
     warning: (msg, dur) => addToast('warning', msg, dur || 4000),
+    toasts,
+    removeToast,
   };
 
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      {/* Toast container */}
-      {toasts.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 pointer-events-auto">
-          {toasts.map(t => (
-            <ToastItem key={t.id} toast={t} onRemove={removeToast} />
-          ))}
-        </div>
-      )}
     </ToastContext.Provider>
+  );
+}
+
+/**
+ * Renders toasts inside the nearest relative-positioned ancestor.
+ * Place this inside the project container to scope toasts to that area.
+ * Falls back to fixed bottom-right if used without a positioned parent.
+ */
+export function ToastOutlet({ fixed = false }: { fixed?: boolean }) {
+  const { toasts, removeToast } = useToast();
+  if (toasts.length === 0) return null;
+
+  const posClass = fixed
+    ? 'fixed bottom-4 right-4 z-[100] max-w-xs'
+    : 'absolute bottom-3 left-3 right-3 z-50';
+
+  return (
+    <div className={`${posClass} flex flex-col gap-1.5 pointer-events-auto`}>
+      {toasts.map(t => <ToastItem key={t.id} toast={t} onRemove={removeToast} />)}
+    </div>
   );
 }
