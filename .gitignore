@@ -84,3 +84,20 @@ package-lock.json
 test-browser.js
 BACKLOG.md
 server/vapid-keys.json
+
+# Staging/dev environment
+.env.staging
+certs/
+client/certs/
+data-dev/
+data-staging/
+
+# Local database
+topics.db
+
+# Test artifacts
+test-results/
+tests/
+
+# Debug screenshots
+tabbar-*.png
