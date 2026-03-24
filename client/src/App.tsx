@@ -1090,14 +1090,23 @@ function App() {
     // Check if this terminal belongs to a project (cwd matches a project path)
     const session = terminalSessions.find(s => s.id === sessionId);
     if (session?.cwd) {
-      // Find an open project pane whose path matches the terminal's cwd
-      const projectPaneId = openPanels.find(id => {
-        if (!isProjectPaneId(id)) return false;
-        const projectPath = getProjectPathFromPaneId(id);
-        return projectPath === session.cwd;
-      });
-      if (projectPaneId) {
-        const projectPath = getProjectPathFromPaneId(projectPaneId)!;
+      // Check if cwd matches any known project path
+      const knownProjectPaths = new Set<string>();
+      for (const t of Object.values(topics)) {
+        if (t.projectPath) knownProjectPaths.add(t.projectPath);
+      }
+      for (const p of workspaceProjects) knownProjectPaths.add(p);
+
+      if (knownProjectPaths.has(session.cwd)) {
+        const projectPath = session.cwd;
+        const projectPaneId = createPaneId('project', projectPath);
+        // Open project pane if not already open
+        if (isMobile) {
+          setOpenPanels([projectPaneId]);
+          setSidebarCollapsed(true);
+        } else if (!openPanels.includes(projectPaneId)) {
+          setOpenPanels(prev => [...prev, projectPaneId]);
+        }
         setFocusedPanelId(projectPaneId);
         setPendingProjectPane({ projectPath, type: 'terminal' as import('./types').PaneType, terminalSessionId: sessionId });
         if (isMobile) setSidebarCollapsed(true);
@@ -1110,7 +1119,7 @@ function App() {
     }
     setFocusedPanelId(paneId);
     if (isMobile) setSidebarCollapsed(true);
-  }, [openPanels, isMobile, terminalSessions]);
+  }, [openPanels, isMobile, terminalSessions, topics, workspaceProjects]);
 
   // Add a non-chat pane (terminal, browser) to a project window
   const handleAddProjectPane = useCallback((projectPath: string, type: import('./types').PaneType) => {
