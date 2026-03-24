@@ -131,6 +131,16 @@ export function TopicTree({
   const projectTabStatus = useProjectTabStatus(sidebarProjectPaths);
   const { isTouch } = useMobile();
 
+  // Map cwd → project name for terminal items
+  const cwdToProjectName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of sidebarProjectPaths) {
+      const { name } = getProjectLabel(p);
+      map[p] = name;
+    }
+    return map;
+  }, [sidebarProjectPaths]);
+
   // Close project context menu on outside click
   useEffect(() => {
     if (!projectContextMenu) return;
@@ -1033,6 +1043,7 @@ export function TopicTree({
                     session={s}
                     isActive={isActive}
                     isTouch={isTouch}
+                    projectName={cwdToProjectName[s.cwd]}
                     onTerminalClick={onTerminalClick}
                     onCloseTerminal={onCloseTerminal}
                   />
@@ -1058,6 +1069,7 @@ export function TopicTree({
                       session={s}
                       isActive={isActive}
                       isTouch={isTouch}
+                      projectName={cwdToProjectName[s.cwd]}
                       onTerminalClick={onTerminalClick}
                       onCloseTerminal={onCloseTerminal}
                     />
@@ -1105,11 +1117,12 @@ interface TerminalSidebarItemProps {
   session: TerminalSessionInfo;
   isActive: boolean;
   isTouch: boolean;
+  projectName?: string;
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
   onCloseTerminal?: (sessionId: string) => void;
 }
 
-function TerminalSidebarItem({ session: s, isActive, isTouch, onTerminalClick, onCloseTerminal }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isActive, isTouch, projectName, onTerminalClick, onCloseTerminal }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
 
@@ -1129,6 +1142,11 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, onTerminalClick, o
           ? <ClaudeIcon size={13} className="flex-shrink-0 text-[#D97757]" />
           : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
         <span className="text-[12px] truncate flex-1">{s.name}</span>
+        {projectName && (
+          <span className="text-[10px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
+            {projectName}
+          </span>
+        )}
         {s.clients > 0 && (
           <span className="text-[10px] text-app-text-tertiary" title={`${s.clients} connected`}>
             {s.clients}
