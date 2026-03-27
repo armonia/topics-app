@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, GitBranch, LayoutGrid, FolderOpen, MoreHorizontal, X } from 'lucide-react';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
 import { createPaneId } from '@/lib/paneConfig';
@@ -196,26 +198,18 @@ export function TopicTree({
     };
   }, []);
 
-  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
-  const handleSidebarDragStart = useCallback((topicId: string) => {
-    setDraggedId(topicId);
-  }, []);
-
-  const handleSidebarDragOver = useCallback((topicId: string) => {
-    if (draggedId && draggedId !== topicId) {
-      setDragOverId(topicId);
-    }
-  }, [draggedId]);
-
-  const handleSidebarDrop = useCallback((targetId: string) => {
-    if (!draggedId || draggedId === targetId) {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
       setDragOverId(null);
-      setDraggedId(null);
       return;
     }
 
-    // Get sorted list of chat topics (non-project, non-archived) — same order as rendered
+    // Get sorted list of chat topics (non-project, non-archived) -- same order as rendered
     const chatTopics = Object.values(topics)
       .filter(t => !t.projectPath && !t.archived)
       .sort((a, b) => {
@@ -224,8 +218,8 @@ export function TopicTree({
         return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
       });
 
-    const fromIdx = chatTopics.findIndex(t => t.id === draggedId);
-    const toIdx = chatTopics.findIndex(t => t.id === targetId);
+    const fromIdx = chatTopics.findIndex(t => t.id === active.id);
+    const toIdx = chatTopics.findIndex(t => t.id === over.id);
 
     if (fromIdx >= 0 && toIdx >= 0) {
       const reordered = [...chatTopics];
@@ -236,13 +230,19 @@ export function TopicTree({
     }
 
     setDragOverId(null);
-    setDraggedId(null);
-  }, [draggedId, topics]);
+  }, [topics]);
 
-  const handleSidebarDragEnd = useCallback(() => {
-    setDragOverId(null);
-    setDraggedId(null);
-  }, []);
+  // Compute sorted chat topic IDs for SortableContext
+  const chatTopicIds = useMemo(() => {
+    return Object.values(topics)
+      .filter(t => !t.projectPath && !t.archived)
+      .sort((a, b) => {
+        const so = (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
+        if (so !== 0) return so;
+        return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
+      })
+      .map(t => t.id);
+  }, [topics]);
 
   const toggleProject = (projectName: string) => {
     setExpandedProjects(prev => {
@@ -313,11 +313,7 @@ export function TopicTree({
           } : undefined}
           isArchived={topic.archived}
           hideIcon={hideIcon}
-          isDragOver={dragOverId === topic.id}
-          onSidebarDragStart={() => handleSidebarDragStart(topic.id)}
-          onSidebarDragOver={() => handleSidebarDragOver(topic.id)}
-          onSidebarDrop={() => handleSidebarDrop(topic.id)}
-          onSidebarDragEnd={handleSidebarDragEnd}
+          sortable={!topic.archived}
         />
       );
 
@@ -937,7 +933,11 @@ export function TopicTree({
           {/* Chats list — scrollable */}
           {showChats && (
             <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
-              {renderLevel(null, 1, showChatsArchived, true)}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={chatTopicIds} strategy={verticalListSortingStrategy}>
+                  {renderLevel(null, 1, showChatsArchived, true)}
+                </SortableContext>
+              </DndContext>
             </div>
           )}
           {/* Pinned: open/focused chats when section is collapsed */}

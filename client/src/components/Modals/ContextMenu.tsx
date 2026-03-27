@@ -20,7 +20,7 @@ const COLOR_OPTIONS = [
   '#16a34a', '#eab308',
 ];
 
-type SubMenu = 'none' | 'rename' | 'icon' | 'color';
+type SubMenu = 'none' | 'rename' | 'icon' | 'color' | 'confirm-delete';
 
 export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, onOpenBoard }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
@@ -96,7 +96,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
             <MenuItem icon={Kanban} label="Open Board" onClick={() => { onOpenBoard(topic.projectPath!); onClose(); }} />
           )}
           <div className="border-t border-app-border my-1" />
-          <MenuItem icon={Trash2} label="Archive / Delete" onClick={handleDelete} danger />
+          <MenuItem icon={Trash2} label="Archive / Delete" onClick={() => setSubMenu('confirm-delete')} danger />
         </>
       )}
 
@@ -156,6 +156,19 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
                 style={{ backgroundColor: color }}
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {subMenu === 'confirm-delete' && (
+        <div className="p-3">
+          <div className="text-[11px] font-semibold text-red-600 mb-2">Delete topic?</div>
+          <p className="text-[12px] text-app-text-secondary mb-3">
+            Are you sure you want to delete <strong>{topic.name}</strong>? This will archive the topic.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Cancel</button>
+            <button onClick={handleDelete} className="text-[12px] bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-colors">Delete</button>
           </div>
         </div>
       )}
