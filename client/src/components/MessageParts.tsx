@@ -175,7 +175,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
 // Partial/streaming indicator
 export function PartialIndicator() {
   return (
-    <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted mt-1">
+    <div data-testid="chat-streaming-indicator" className="flex items-center gap-1.5 text-[11px] text-app-text-muted mt-1">
       <Loader2 size={12} className="animate-spin" />
       <span>Streaming...</span>
     </div>
