@@ -21,8 +21,10 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   const [loading, setLoading] = useState<boolean>(false);
   const [useRegex, setUseRegex] = useState<boolean>(false);
   const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
+  const [selectedIdx, setSelectedIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const resultRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -50,9 +52,41 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, doSearch]);
 
+  // Reset selection when results change
+  useEffect(() => { setSelectedIdx(-1); }, [results]);
+
+  const openResult = useCallback((r: SearchResult) => {
+    const fullPath = projectPath + '/' + r.file;
+    onOpenFile?.(fullPath, r.lineNumber);
+    onClose();
+  }, [projectPath, onOpenFile, onClose]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       onClose();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIdx(prev => {
+        const next = Math.min(prev + 1, results.length - 1);
+        resultRefs.current[next]?.scrollIntoView({ block: 'nearest' });
+        return next;
+      });
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIdx(prev => {
+        const next = Math.max(prev - 1, 0);
+        resultRefs.current[next]?.scrollIntoView({ block: 'nearest' });
+        return next;
+      });
+      return;
+    }
+    if (e.key === 'Enter' && selectedIdx >= 0 && selectedIdx < results.length) {
+      e.preventDefault();
+      openResult(results[selectedIdx]);
     }
   };
 
@@ -96,7 +130,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search in files…"
+            placeholder={`Search in ${projectPath.split('/').pop() || 'files'}…`}
             className="flex-1 bg-transparent text-sm outline-none text-app-text-heading placeholder-app-text-faint"
           />
           {/* Toggles */}
@@ -129,31 +163,36 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
           {!loading && query && results.length === 0 && (
             <div className="text-center text-app-text-muted text-xs py-6">No results found</div>
           )}
-          {!loading && Object.entries(grouped).map(([file, fileResults]) => (
-            <div key={file} className="border-b border-app-border-subtle last:border-b-0">
-              <div className="px-3 py-1 text-[11px] font-medium text-app-text-secondary bg-app-inset sticky top-0">
-                {file}
+          {!loading && (() => {
+            let flatIdx = 0;
+            return Object.entries(grouped).map(([file, fileResults]) => (
+              <div key={file} className="border-b border-app-border-subtle last:border-b-0">
+                <div className="px-3 py-1 text-[11px] font-medium text-app-text-secondary bg-app-inset sticky top-0">
+                  {file}
+                </div>
+                {fileResults.map((r, i) => {
+                  const idx = flatIdx++;
+                  return (
+                    <button
+                      key={`${r.lineNumber}-${i}`}
+                      ref={el => { resultRefs.current[idx] = el; }}
+                      onClick={() => openResult(r)}
+                      className={`w-full text-left px-3 py-1 flex items-start gap-2 transition-colors ${
+                        idx === selectedIdx ? 'bg-primary/15' : 'hover:bg-app-hover'
+                      }`}
+                    >
+                      <span className="text-[10px] text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
+                        {r.lineNumber}
+                      </span>
+                      <span className="text-xs text-app-text-body font-mono truncate">
+                        {highlightMatch(r.line.trim(), r.match)}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-              {fileResults.map((r, i) => (
-                <button
-                  key={`${r.lineNumber}-${i}`}
-                  onClick={() => {
-                    const fullPath = projectPath + '/' + r.file;
-                    onOpenFile?.(fullPath, r.lineNumber);
-                    onClose();
-                  }}
-                  className="w-full text-left px-3 py-1 hover:bg-app-hover flex items-start gap-2 transition-colors"
-                >
-                  <span className="text-[10px] text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
-                    {r.lineNumber}
-                  </span>
-                  <span className="text-xs text-app-text-body font-mono truncate">
-                    {highlightMatch(r.line.trim(), r.match)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ))}
+            ));
+          })()}
           {!loading && results.length >= 100 && (
             <div className="text-center text-app-text-muted text-[10px] py-2">Showing first 100 results</div>
           )}

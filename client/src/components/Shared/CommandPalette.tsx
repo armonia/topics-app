@@ -32,6 +32,7 @@ interface CommandPaletteProps {
   onNewTopic: () => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
+  onOpenFileSearch?: () => void;
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
@@ -46,6 +47,7 @@ export function CommandPalette({
   onNewTopic,
   onToggleTheme,
   onOpenSettings,
+  onOpenFileSearch,
   themeMode,
   projectPath,
   onOpenFile,
@@ -139,6 +141,17 @@ export function CommandPalette({
       category: 'action',
       action: () => { onToggleTheme(); onClose(); },
     });
+    if (onOpenFileSearch) {
+      items.push({
+        id: 'search-in-files',
+        label: 'Search in Files',
+        description: 'Find text in project files',
+        icon: <Search size={14} />,
+        category: 'action',
+        shortcut: '⌘⇧F',
+        action: () => { onOpenFileSearch(); onClose(); },
+      });
+    }
 
     // Topics
     Object.values(topics)
