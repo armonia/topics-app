@@ -2,9 +2,10 @@ import { useCallback, useRef, useState, memo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
-import { DND_TYPES } from '@/lib/dndTypes';
 import { TopicIcon } from '@/lib/topicIcons';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || navigator.maxTouchPoints > 0
@@ -41,12 +42,8 @@ interface TopicItemProps {
   onContextMenu: (e: React.MouseEvent) => void;
   onArchive?: (topicId: string, archive: boolean) => void;
   onStopStreaming?: () => void;
-  isDragOver?: boolean;
+  sortable?: boolean;
   hideIcon?: boolean;
-  onSidebarDragStart?: () => void;
-  onSidebarDragOver?: () => void;
-  onSidebarDrop?: () => void;
-  onSidebarDragEnd?: () => void;
 }
 
 export const TopicItem = memo(function TopicItem({
@@ -68,37 +65,22 @@ export const TopicItem = memo(function TopicItem({
   onContextMenu,
   onArchive,
   onStopStreaming,
+  sortable,
   hideIcon,
-  isDragOver,
-  onSidebarDragStart,
-  onSidebarDragOver,
-  onSidebarDrop,
-  onSidebarDragEnd,
 }: TopicItemProps) {
   const paddingLeft = 12 + depth * 16;
 
-  const handleDragStart = useCallback((e: React.DragEvent) => {
-    e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
-    e.dataTransfer.setData(DND_TYPES.SIDEBAR_REORDER, topic.id);
-    e.dataTransfer.effectAllowed = 'move';
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: topic.id,
+    disabled: !sortable,
+  });
 
-    // Compact ghost
-    const ghost = document.createElement('div');
-    ghost.style.cssText = `
-      position:fixed; left:-9999px; top:-9999px;
-      display:flex; align-items:center; gap:6px;
-      padding:6px 12px; border-radius:8px;
-      background:color-mix(in srgb, var(--primary) 90%, transparent); color:#fff;
-      font:500 13px/1 Inter,system-ui,sans-serif;
-      box-shadow:0 4px 12px rgba(0,0,0,0.15);
-      white-space:nowrap; pointer-events:none;
-    `;
-    ghost.textContent = topic.name;
-    document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => document.body.removeChild(ghost));
-    onSidebarDragStart?.();
-  }, [topic, onSidebarDragStart]);
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    paddingLeft,
+  };
 
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -110,27 +92,14 @@ export const TopicItem = memo(function TopicItem({
 
   return (
     <div
+      ref={setNodeRef}
       role="treeitem"
       aria-selected={isFocused}
       aria-expanded={hasChildren ? isExpanded : undefined}
       aria-label={topic.name}
       tabIndex={isFocused ? 0 : -1}
-      draggable={!isArchived}
-      onDragStart={handleDragStart}
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(DND_TYPES.SIDEBAR_REORDER)) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          onSidebarDragOver?.();
-        }
-      }}
-      onDrop={(e) => {
-        if (e.dataTransfer.types.includes(DND_TYPES.SIDEBAR_REORDER)) {
-          e.preventDefault();
-          onSidebarDrop?.();
-        }
-      }}
-      onDragEnd={() => onSidebarDragEnd?.()}
+      {...attributes}
+      {...listeners}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -166,10 +135,9 @@ export const TopicItem = memo(function TopicItem({
         // Preview panels show italic name
         isPreview && 'italic',
         isArchived && 'opacity-60',
-        // Drag over indicator
-        isDragOver && 'border-t-2 border-primary'
+        isDragging && 'opacity-50'
       )}
-      style={{ paddingLeft }}
+      style={sortableStyle}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
