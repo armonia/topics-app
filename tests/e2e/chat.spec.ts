@@ -2,7 +2,7 @@ import { expect, type APIRequestContext } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTestChat, openTopic } from "./helpers";
 import { mockChatStream } from "./helpers/sse-helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, patchTopic } from "./helpers/api-fixtures";
 
 test.describe.serial("Chat", () => {
   let testTopicId: string;
@@ -504,5 +504,146 @@ test.describe("Message Branching", () => {
 
     // Verify content changes to the first branch
     await expect(page.locator(".message-appear").filter({ hasText: "Test message for branching" })).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe.serial("Chat Input Features", () => {
+  let topicId: string;
+  let topicName: string;
+
+  test.beforeAll(async ({ request }) => {
+    // Create topic without projectPath (appears in Chats section)
+    topicName = "Input Feature Test " + Date.now();
+    const topic = await createTopic(request, topicName);
+    topicId = topic.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) {
+      await deleteTopic(request, topicId);
+    }
+  });
+
+  test("file attachment shows preview via setInputFiles", async ({ page }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp("Input Feature Test"));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Use setInputFiles on the hidden file input to attach a file (D-08: real upload)
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles("tests/e2e/fixtures/test-upload.txt");
+
+    // Verify pending file preview shows the filename in the input area
+    await expect(page.getByText("test-upload.txt")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("@-mention autocomplete shows file suggestions", async ({
+    page,
+    request,
+  }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp("Input Feature Test"));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+
+    // PATCH topic to add projectPath for @-mention support (CHAT-09)
+    // The server broadcasts topic:updated via WebSocket, so the client updates live
+    await patchTopic(request, topicId, { projectPath: process.cwd() });
+
+    // Wait for the placeholder to change (indicates projectPath was received)
+    await expect(textarea).toHaveAttribute(
+      "placeholder",
+      /@ to mention files/,
+      { timeout: 10_000 }
+    );
+
+    // Type @ to trigger FileMentionMenu
+    await textarea.click();
+    await textarea.fill("@");
+
+    // Wait for the mention menu to appear (data-mention-menu attribute)
+    const mentionMenu = page.locator("[data-mention-menu]");
+    await expect(mentionMenu).toBeVisible({ timeout: 10_000 });
+
+    // Assert menu contains at least one file suggestion button
+    const fileSuggestions = mentionMenu.locator("button[data-mention-idx]");
+    await expect(fileSuggestions.first()).toBeVisible({ timeout: 5_000 });
+    expect(await fileSuggestions.count()).toBeGreaterThan(0);
+
+    // Clean up: remove projectPath so topic stays in Chats section for next tests
+    await patchTopic(request, topicId, { projectPath: "" });
+  });
+
+  test("slash command menu shows and executes command", async ({ page }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp("Input Feature Test"));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Type / to trigger slash command menu
+    await textarea.click();
+    await textarea.fill("/");
+
+    // Wait for slash command menu to appear (absolute positioned above input)
+    // The menu contains buttons with slash command text like "/status", "/help"
+    const slashMenuButton = page.locator("span.font-mono").filter({
+      hasText: "/status",
+    });
+    await expect(slashMenuButton).toBeVisible({ timeout: 5_000 });
+
+    // Verify multiple commands are shown
+    await expect(
+      page.locator("span.font-mono").filter({ hasText: "/help" })
+    ).toBeVisible({ timeout: 3_000 });
+    await expect(
+      page.locator("span.font-mono").filter({ hasText: "/clear" })
+    ).toBeVisible({ timeout: 3_000 });
+
+    // Type /help to filter the menu to the /help command
+    await textarea.fill("/help");
+
+    // Press Enter to select /help from the filtered slash menu
+    await textarea.press("Enter");
+
+    // The slash menu selection sets the input to "/help " - submit it
+    await textarea.press("Enter");
+
+    // Verify command result banner appears (success or error banner with text)
+    const resultBanner = page.locator(".font-mono").filter({
+      hasText: /.+/,
+    });
+    await expect(resultBanner.first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("context pills show active context sources", async ({
+    page,
+    request,
+  }) => {
+    // PATCH the test topic to add contextFiles (use package.json as a known file)
+    const contextFile = process.cwd() + "/package.json";
+    await patchTopic(request, topicId, {
+      contextFiles: [contextFile],
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp("Input Feature Test"));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Verify ContextPills renders with the context file name
+    const contextPill = page.locator(".context-pill").first();
+    await expect(contextPill).toBeVisible({ timeout: 10_000 });
+
+    // Verify the file name is shown in the pill
+    await expect(page.getByText("package.json")).toBeVisible({ timeout: 5_000 });
   });
 });

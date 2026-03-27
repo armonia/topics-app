@@ -7,7 +7,7 @@ const BASE = "https://localhost:3333";
 export async function createTopic(
   request: APIRequestContext,
   name: string,
-  opts?: { parentId?: string; systemPrompt?: string }
+  opts?: { parentId?: string; systemPrompt?: string; projectPath?: string }
 ): Promise<{ id: string; name: string; slug: string }> {
   const res = await request.post(`${BASE}/api/topics`, {
     data: { name, ...opts },
@@ -15,6 +15,18 @@ export async function createTopic(
   });
   if (!res.ok()) throw new Error(`Failed to create topic: ${res.status()}`);
   return res.json() as Promise<{ id: string; name: string; slug: string }>;
+}
+
+export async function patchTopic(
+  request: APIRequestContext,
+  id: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const res = await request.patch(`${BASE}/api/topics/${id}`, {
+    data,
+    ignoreHTTPSErrors: true,
+  });
+  if (!res.ok()) throw new Error(`Failed to patch topic: ${res.status()}`);
 }
 
 export async function deleteTopic(
