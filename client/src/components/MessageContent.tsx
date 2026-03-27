@@ -92,12 +92,13 @@ function FileIcon({ path, size = 24 }: { path: string; size?: number }) {
   return <I size={size} style={{ color: def.color }} />;
 }
 
-function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[]; voicePaths: Set<string> } {
+function extractMediaPaths(text: string): { cleanText: string; mediaPaths: string[]; inlineMediaPaths: string[]; voicePaths: Set<string> } {
   const mediaPaths: string[] = [];
+  const inlineMediaPaths: string[] = []; // MEDIA: markers found inline in text
   const voicePaths = new Set<string>();
   const mediaPattern = /MEDIA:([^\s\n]+)/g;
   let match;
-  while ((match = mediaPattern.exec(text)) !== null) mediaPaths.push(match[1]);
+  while ((match = mediaPattern.exec(text)) !== null) { mediaPaths.push(match[1]); inlineMediaPaths.push(match[1]); }
 
   const attachedPattern = /\[Attached file:\s*([^\]]+)\]/g;
   while ((match = attachedPattern.exec(text)) !== null) mediaPaths.push(match[1].trim());
@@ -105,13 +106,13 @@ function extractMediaPaths(text: string): { cleanText: string; mediaPaths: strin
   const voicePattern = /\[Voice message:\s*([^\]]+)\]/g;
   while ((match = voicePattern.exec(text)) !== null) { const p = match[1].trim(); mediaPaths.push(p); voicePaths.add(p); }
 
+  // Keep MEDIA: markers in text — they'll be rendered inline by renderContentWithInlineTools
   const cleanText = text
-    .replace(/MEDIA:([^\s\n]+)/g, '')
     .replace(/\[Attached file:\s*[^\]]+\]/g, '')
     .replace(/\[Voice message:\s*[^\]]+\]/g, '')
     .trim();
 
-  return { cleanText, mediaPaths, voicePaths };
+  return { cleanText, mediaPaths, inlineMediaPaths, voicePaths };
 }
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
@@ -655,39 +656,84 @@ function highlightMentions(text: string): (string | React.JSX.Element)[] {
   return parts.length > 0 ? parts : [text];
 }
 
-/** Split content into segments interleaved with inline tool call badges */
+/** Render a markdown segment (strips MEDIA: markers which are rendered separately) */
+function renderMarkdownSegment(text: string, key: string, markdownComponents: any, voicePaths?: Set<string>): React.ReactNode[] {
+  // Split on MEDIA: markers and render them inline
+  const mediaPattern = /MEDIA:([^\s\n]+)/g;
+  const parts: React.ReactNode[] = [];
+  let lastEnd = 0;
+  let mediaMatch;
+  let partIdx = 0;
+
+  while ((mediaMatch = mediaPattern.exec(text)) !== null) {
+    const before = text.slice(lastEnd, mediaMatch.index).trim();
+    if (before) {
+      parts.push(
+        <div key={`${key}-md-${partIdx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{before}</ReactMarkdown>
+        </div>
+      );
+    }
+    const mediaPath = mediaMatch[1];
+    parts.push(<div key={`${key}-media-${partIdx}`} className="my-2"><MediaRenderer path={mediaPath} isVoice={voicePaths?.has(mediaPath) ?? false} isUserMessage={false} /></div>);
+    lastEnd = mediaMatch.index + mediaMatch[0].length;
+    partIdx++;
+  }
+
+  const remaining = text.slice(lastEnd).trim();
+  if (remaining) {
+    parts.push(
+      <div key={`${key}-md-last`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{remaining}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  // If no MEDIA: markers, return the whole text as one block
+  if (parts.length === 0 && text.trim()) {
+    parts.push(
+      <div key={`${key}-md-only`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{text.trim()}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  return parts;
+}
+
+/** Split content into segments interleaved with inline tool call badges and media */
 function renderContentWithInlineTools(
   cleanText: string,
   toolCalls: ToolCall[],
-  markdownComponents: any
+  markdownComponents: any,
+  voicePaths?: Set<string>
 ): React.ReactNode[] {
   // Separate tool calls with contentOffset (inline) from those without (legacy)
   const inlineTools = toolCalls
     .filter(tc => typeof tc.contentOffset === 'number')
     .sort((a, b) => (a.contentOffset ?? 0) - (b.contentOffset ?? 0));
 
-  if (inlineTools.length === 0) return [];
+  if (inlineTools.length === 0) {
+    // No inline tools — still render MEDIA: markers inline
+    return renderMarkdownSegment(cleanText, 'seg', markdownComponents, voicePaths);
+  }
 
   // Find nearest paragraph boundary (\n\n) for each offset
   const splitPoints: number[] = [];
   for (const tc of inlineTools) {
     const offset = tc.contentOffset!;
-    // Search for nearest \n\n at or after offset
     const afterIdx = cleanText.indexOf('\n\n', offset);
-    // Search for nearest \n\n before offset
     const beforeIdx = cleanText.lastIndexOf('\n\n', offset);
     let splitAt: number;
     if (afterIdx === -1 && beforeIdx === -1) {
       splitAt = offset;
     } else if (afterIdx === -1) {
-      splitAt = beforeIdx + 2; // after the \n\n
+      splitAt = beforeIdx + 2;
     } else if (beforeIdx === -1) {
       splitAt = afterIdx + 2;
     } else {
-      // Pick the closest boundary
       splitAt = (offset - beforeIdx <= afterIdx - offset) ? beforeIdx + 2 : afterIdx + 2;
     }
-    // Avoid duplicate split points
     if (splitPoints.length === 0 || splitAt > splitPoints[splitPoints.length - 1]) {
       splitPoints.push(splitAt);
     }
@@ -702,20 +748,11 @@ function renderContentWithInlineTools(
     const splitAt = splitPoints[i];
     const segment = cleanText.slice(lastIdx, splitAt).trim();
     if (segment) {
-      elements.push(
-        <div key={`seg-${i}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {segment}
-          </ReactMarkdown>
-        </div>
-      );
+      elements.push(...renderMarkdownSegment(segment, `seg-${i}`, markdownComponents, voicePaths));
     }
-    // Add tool call badges that map to this split point
-    // Multiple tool calls might share the same split point
     while (toolIdx < inlineTools.length) {
       const tc = inlineTools[toolIdx];
       const tcOffset = tc.contentOffset!;
-      // This tool call belongs at or before this split point
       if (i + 1 >= splitPoints.length || tcOffset < splitPoints[i + 1]) {
         elements.push(<ToolCallBadge key={`tc-${tc.id}`} toolCall={tc} compact />);
         toolIdx++;
@@ -726,19 +763,11 @@ function renderContentWithInlineTools(
     lastIdx = splitAt;
   }
 
-  // Remaining content after last split
   const remaining = cleanText.slice(lastIdx).trim();
   if (remaining) {
-    elements.push(
-      <div key="seg-last" className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-          {remaining}
-        </ReactMarkdown>
-      </div>
-    );
+    elements.push(...renderMarkdownSegment(remaining, 'seg-last', markdownComponents, voicePaths));
   }
 
-  // Any remaining tool calls (shouldn't happen, but safety)
   while (toolIdx < inlineTools.length) {
     elements.push(<ToolCallBadge key={`tc-${inlineTools[toolIdx].id}`} toolCall={inlineTools[toolIdx]} compact />);
     toolIdx++;
@@ -763,7 +792,7 @@ interface MessageContentProps {
 }
 
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject, onOpenSessionViewer }: MessageContentProps) {
-  const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
+  const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, inlineMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
   }, [content]);
@@ -869,12 +898,12 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               />
             )}
 
-            {/* Main content - inline tool calls or plain */}
+            {/* Main content - inline tool calls, media, or plain */}
             {cleanText && (!isPlanResponse(cleanText) || !onPlanApprove || partial) && (
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
-              ) : hasInline ? (
-                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents)}</div>
+              ) : (hasInline || inlineMediaPaths.length > 0) ? (
+                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, voicePaths)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -887,8 +916,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         );
       })()}
 
-      {/* Media — rendered after content so images appear inline */}
-      {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
+      {/* Media — only non-inline media rendered at the end (from msg.media array without MEDIA: marker) */}
+      {allMediaPaths.filter(p => !inlineMediaPaths.includes(p)).map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
 
       {/* Streaming indicator - only when content has started */}
       {partial && (cleanText || thinking) && <PartialIndicator />}
