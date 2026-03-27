@@ -7,7 +7,7 @@ const BASE = "https://localhost:3333";
 export async function createTopic(
   request: APIRequestContext,
   name: string,
-  opts?: { parentId?: string; systemPrompt?: string; projectPath?: string }
+  opts?: { parentId?: string; systemPrompt?: string; projectPath?: string; color?: string; icon?: string }
 ): Promise<{ id: string; name: string; slug: string }> {
   const res = await request.post(`${BASE}/api/topics`, {
     data: { name, ...opts },
