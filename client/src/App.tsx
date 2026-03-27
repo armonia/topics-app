@@ -104,13 +104,14 @@ const savePanelsState = (panels: string[], focused: string | null) => {
     // Ignore storage errors
   }
 
-  // Debounced server sync (2s)
+  // Debounced server sync (2s) — only sync openPanels, NOT focusedPanelId
+  // focusedPanelId is per-device state and must not be broadcast to other clients
   if (panelsSaveTimer) clearTimeout(panelsSaveTimer);
   panelsSaveTimer = setTimeout(() => {
     fetch('/api/ui-state/panels', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ openPanels: panels, focusedPanelId: focused }),
+      body: JSON.stringify({ openPanels: panels }),
     }).catch(() => {});
   }, 2000);
 };
@@ -195,12 +196,20 @@ function App() {
     if (isDetached && detachedTopicId) return detachedTopicId;
     return loadSavedFocused();
   });
-  
+  const focusedPanelIdRef = useRef(focusedPanelId);
+  focusedPanelIdRef.current = focusedPanelId;
+
   // Persist panels state to localStorage (main window only)
   useEffect(() => {
-    if (!isDetached) {
-      savePanelsState(openPanels, focusedPanelId);
+    if (isDetached) return;
+    // Skip save if the change came from server/WS (avoid echo loop)
+    if (panelsFromServerRef.current) {
+      panelsFromServerRef.current = false;
+      return;
     }
+    // Don't push stale local panels to server before initial sync completes
+    if (!serverSyncedRef.current) return;
+    savePanelsState(openPanels, focusedPanelId);
   }, [openPanels, focusedPanelId, isDetached]);
 
   // Cross-tab sync for panels via storage events
@@ -211,6 +220,35 @@ function App() {
     if (!isDetached) setFocusedPanelId(focused);
   }, [isDetached]));
 
+  // Server fetch on mount: always apply server's openPanels as canonical source
+  const panelsServerFetchedRef = useRef(false);
+  const panelsFromServerRef = useRef(false); // guard to skip saving echo from server/WS
+  const serverSyncedRef = useRef(false); // true once initial server state is received (prevents stale overwrites)
+  useEffect(() => {
+    if (isDetached || panelsServerFetchedRef.current) return;
+    panelsServerFetchedRef.current = true;
+    fetch('/api/ui-state/panels')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || !Array.isArray(data.openPanels)) {
+          serverSyncedRef.current = true;
+          return;
+        }
+        // Always apply server's openPanels (canonical cross-device state)
+        // focusedPanelId stays per-device (from localStorage only)
+        panelsFromServerRef.current = true;
+        try { localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(data.openPanels)); } catch {}
+        setOpenPanels(data.openPanels);
+        // If current focus is stale (not in synced panels), auto-focus first panel
+        setFocusedPanelId(prev => {
+          if (prev && data.openPanels.includes(prev)) return prev;
+          return data.openPanels[0] || null;
+        });
+        serverSyncedRef.current = true;
+      })
+      .catch(() => { serverSyncedRef.current = true; });
+  }, [isDetached]);
+
   // Save state on visibility change (Safari PWA doesn't always fire beforeunload)
   useEffect(() => {
     if (isDetached) return;
@@ -219,10 +257,12 @@ function App() {
         savePanelsState(openPanels, focusedPanelId);
       }
     };
+    const saveOnPageHide = () => savePanelsState(openPanels, focusedPanelId);
     document.addEventListener('visibilitychange', saveOnHide);
-    window.addEventListener('pagehide', () => savePanelsState(openPanels, focusedPanelId));
+    window.addEventListener('pagehide', saveOnPageHide);
     return () => {
       document.removeEventListener('visibilitychange', saveOnHide);
+      window.removeEventListener('pagehide', saveOnPageHide);
     };
   }, [openPanels, focusedPanelId, isDetached]);
 
@@ -292,7 +332,7 @@ function App() {
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showFileSearch, setShowFileSearch] = useState(false);
+  const [showFileSearch, setShowFileSearch] = useState<false | { projectPath: string }>(false);
   const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
@@ -531,6 +571,30 @@ function App() {
   useEffect(() => {
     return onWSMessage(chatStreamHandler);
   }, [onWSMessage, chatStreamHandler]);
+
+  // Cross-device panels sync via WS (ui-state:updated / ui-state:init with "panels" key)
+  // Only sync openPanels — focusedPanelId is per-device and must not be overwritten by other clients
+  useEffect(() => {
+    if (isDetached) return;
+    return onWSMessage((msg: any) => {
+      let data: { openPanels?: string[] } | null = null;
+      if (msg.type === 'ui-state:updated' && msg.key === 'panels') {
+        data = msg.value;
+      } else if (msg.type === 'ui-state:init' && msg.data?.panels) {
+        data = msg.data.panels;
+      }
+      if (!data || !Array.isArray(data.openPanels)) return;
+      panelsFromServerRef.current = true;
+      serverSyncedRef.current = true;
+      try { localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(data.openPanels)); } catch {}
+      setOpenPanels(data.openPanels);
+      // If current focus is not in the new panel list, auto-focus the first panel
+      setFocusedPanelId(prev => {
+        if (prev && data!.openPanels!.includes(prev)) return prev; // keep current focus
+        return data!.openPanels![0] || null;
+      });
+    });
+  }, [onWSMessage, isDetached]);
 
   // Drain outbound message queue and reload open panel histories when WS reconnects
   const prevWsStatus = useRef(wsStatus);
@@ -926,7 +990,7 @@ function App() {
   const handleClosePanel = useCallback((topicId: string) => {
     setOpenPanels(prev => {
       const next = prev.filter(id => id !== topicId);
-      if (focusedPanelId === topicId) {
+      if (focusedPanelIdRef.current === topicId) {
         setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
       }
       return next;
@@ -939,7 +1003,7 @@ function App() {
         return next;
       });
     }
-  }, [focusedPanelId]);
+  }, []);
 
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
@@ -956,12 +1020,12 @@ function App() {
     const paneId = createPaneId('project', projectPath);
     setOpenPanels(prev => {
       const next = prev.filter(id => id !== paneId);
-      if (focusedPanelId === paneId) {
+      if (focusedPanelIdRef.current === paneId) {
         setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
       }
       return next;
     });
-  }, [focusedPanelId]);
+  }, []);
 
   const handleFocusPanel = useCallback((topicId: string) => {
     setFocusedPanelId(topicId);
@@ -1197,7 +1261,17 @@ function App() {
 
       if (isMod && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
-        setShowFileSearch(prev => !prev);
+        setShowFileSearch(prev => {
+          if (prev) return false;
+          // Try focused topic's projectPath first
+          const focusedProject = focusedPanelId && topics[focusedPanelId]?.projectPath;
+          if (focusedProject) return { projectPath: focusedProject };
+          // Fallback: find any topic with a projectPath
+          const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
+          if (projectPaths.length === 1) return { projectPath: projectPaths[0] };
+          if (projectPaths.length > 1) return { projectPath: projectPaths[0] }; // use first available
+          return false; // no projects
+        });
         return;
       }
 
@@ -1232,7 +1306,7 @@ function App() {
       }
 
       if (e.key === 'Escape') {
-        if (showFileSearch) { setShowFileSearch(false); e.preventDefault(); return; }
+        if (showFileSearch !== false) { setShowFileSearch(false); e.preventDefault(); return; }
         if (showShortcuts) { setShowShortcuts(false); e.preventDefault(); return; }
         if (showSearch) { setShowSearch(false); e.preventDefault(); return; }
         if (showNewTopic) { setShowNewTopic(false); e.preventDefault(); return; }
@@ -1241,7 +1315,7 @@ function App() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [focusedPanelId, openPanels, handleClosePanel, showSearch, showNewTopic, showFileSearch, toggleSidebar, isElectron]);
+  }, [focusedPanelId, openPanels, handleClosePanel, showSearch, showNewTopic, showFileSearch, toggleSidebar, isElectron, topics]);
 
   // Listen for "open-all-boards" custom event from sidebar
   useEffect(() => {
@@ -1762,6 +1836,14 @@ function App() {
             onNewTopic={handleQuickCreateTopic}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
+            onOpenFileSearch={() => {
+              setShowSearch(false);
+              // Resolve projectPath the same way as Cmd+Shift+F
+              const focusedProject = focusedPanelId && topics[focusedPanelId]?.projectPath;
+              if (focusedProject) { setShowFileSearch({ projectPath: focusedProject }); return; }
+              const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
+              if (projectPaths.length >= 1) { setShowFileSearch({ projectPath: projectPaths[0] }); }
+            }}
             themeMode={themeMode}
             projectPath={focusedPanelId ? topics[focusedPanelId]?.projectPath || undefined : undefined}
             onOpenFile={(path) => {
@@ -1784,13 +1866,12 @@ function App() {
         </Suspense>
       )}
 
-      {showFileSearch && focusedPanelId && topics[focusedPanelId]?.projectPath && (
+      {showFileSearch !== false && (
         <Suspense fallback={null}>
           <FileSearch
-            projectPath={topics[focusedPanelId].projectPath!}
-            onOpenFile={(path) => {
-              // Dispatch to the focused panel's file opener
-              window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId: focusedPanelId } }));
+            projectPath={showFileSearch.projectPath}
+            onOpenFile={(path, lineNumber) => {
+              window.dispatchEvent(new CustomEvent('open-file', { detail: { path, lineNumber, topicId: focusedPanelId } }));
             }}
             onClose={() => setShowFileSearch(false)}
           />

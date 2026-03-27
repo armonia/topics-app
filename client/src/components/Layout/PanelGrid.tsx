@@ -774,6 +774,7 @@ export function PanelGrid({
                       onOpenBrowserContextIds={key === 'standalone' ? onOpenBrowserContextIds : undefined}
                       promoteDraft={promoteDraft}
                       draftMeta={draftMeta}
+                      persistOrder={key === 'standalone'}
                     />
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}

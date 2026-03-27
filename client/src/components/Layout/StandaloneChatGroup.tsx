@@ -81,6 +81,8 @@ interface StandaloneChatGroupProps {
   // Draft chat support
   promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
+  // Only the main standalone group should persist panel order (solo groups skip)
+  persistOrder?: boolean;
 }
 
 export function StandaloneChatGroup({
@@ -98,10 +100,12 @@ export function StandaloneChatGroup({
   pendingBrowserPane, onPendingBrowserPaneConsumed,
   onOpenBrowserContextIds,
   promoteDraft, draftMeta: _draftMeta,
+  persistOrder = true,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
   // Track order locally for tab reordering
   const [orderedIds, setOrderedIds] = useState<string[]>(() => {
+    if (!persistOrder) return topicIds;
     const saved = loadPanelOrder();
     if (saved.order.length > 0) {
       // Merge saved order with current topicIds: keep saved order for known IDs, append new ones
@@ -115,27 +119,34 @@ export function StandaloneChatGroup({
   const [panelDragOver, setPanelDragOver] = useState(false);
   // Track which panes have been pinned (not preview)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    if (!persistOrder) return new Set();
     const saved = loadPanelOrder();
     return new Set(saved.pinned);
   });
-  // Persist tab order and pinned state
+  // Ref for topicIds to use in the external update callback without recreating it
+  const topicIdsRef = useRef(topicIds);
+  topicIdsRef.current = topicIds;
+  // Persist tab order and pinned state (only for main group, not solo groups)
   const pinnedArray = useMemo(() => Array.from(pinnedIds), [pinnedIds]);
   usePanelOrderPersistence(
-    orderedIds,
-    pinnedArray,
+    persistOrder ? orderedIds : [],
+    persistOrder ? pinnedArray : [],
     useCallback((state) => {
       if (state.order.length > 0) {
         setOrderedIds(prev => {
-          // Merge external update with current local panes (browser, session-viewer)
+          // Filter incoming order by our actual topicIds to prevent cross-group contamination
+          const validSet = new Set(topicIdsRef.current);
+          const filtered = state.order.filter(id => validSet.has(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id));
+          // Keep local-only panes not in the external state
           const localOnly = prev.filter(id => (isBrowserPaneId(id) || isSessionViewerPaneId(id)) && !state.order.includes(id));
-          return [...state.order, ...localOnly];
+          return [...filtered, ...localOnly];
         });
       }
       if (state.pinned.length > 0) {
         setPinnedIds(new Set(state.pinned));
       }
     }, []),
-    onWSMessage,
+    persistOrder ? onWSMessage : undefined,
   );
 
   // Effective pinned set: always includes project & utility panes (they must never be replaced)
