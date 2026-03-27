@@ -68,7 +68,7 @@ COMPETITOR-*.md
 FEATURE-MATRIX.md
 INNOVATIVE-UX-PATTERNS.md
 UX-AUDIT-REPORT.md
-/research/
+research/
 competitor-screenshots/
 backups/
 tasks/
@@ -97,7 +97,7 @@ topics.db
 
 # Test artifacts
 test-results/
-# Track test source files but not generated output
+tests/
 !tests/
 tests/**/node_modules/
 
