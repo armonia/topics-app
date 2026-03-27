@@ -256,6 +256,7 @@ export function MessageList({
         </div>
       ) : (
         <Virtuoso
+          data-testid="chat-message-list"
           key={topic.id}
           ref={virtuosoRef}
           scrollerRef={(ref) => { scrollerElRef.current = ref as HTMLElement | null; }}

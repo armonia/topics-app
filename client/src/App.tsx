@@ -1416,7 +1416,7 @@ function App() {
           {topicsError && <div className="text-red-500 text-[11px] mt-1">{topicsError}</div>}
         </div>
 
-        <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0">
+        <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
           {/* TopicTree — fills remaining space above browser */}
           <div className="flex-1 flex flex-col min-h-0">
             <ErrorBoundary fallbackMessage="Sidebar error">

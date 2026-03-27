@@ -635,6 +635,7 @@ export function ChatInput({
             {/* Row 1: Textarea (full width, borderless) */}
             <textarea
               ref={textareaRef}
+              data-testid="chat-message-input"
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}

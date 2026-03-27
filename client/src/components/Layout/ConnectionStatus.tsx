@@ -30,6 +30,7 @@ export function ConnectionStatusBadge({ status }: ConnectionStatusProps) {
       title={title}
       role="status"
       aria-label={`Connection status: ${title}`}
+      data-testid="connection-status"
     />
   );
 }
