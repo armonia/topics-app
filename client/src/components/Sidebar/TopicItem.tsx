@@ -70,10 +70,13 @@ export const TopicItem = memo(function TopicItem({
 }: TopicItemProps) {
   const paddingLeft = 12 + depth * 16;
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: topic.id,
     disabled: !sortable,
   });
+  // Exclude aria-disabled from sortable attributes — it prevents Playwright clicks
+  // and isn't meaningful for treeitem semantics (the item is always interactive, just not always draggable)
+  const { 'aria-disabled': _ariaDisabled, role: _role, ...attributes } = sortableAttributes;
 
   const sortableStyle = {
     transform: CSS.Transform.toString(transform),
@@ -93,13 +96,13 @@ export const TopicItem = memo(function TopicItem({
   return (
     <div
       ref={setNodeRef}
+      {...attributes}
+      {...listeners}
       role="treeitem"
       aria-selected={isFocused}
       aria-expanded={hasChildren ? isExpanded : undefined}
       aria-label={topic.name}
       tabIndex={isFocused ? 0 : -1}
-      {...attributes}
-      {...listeners}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
