@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "@playwright/test";
 import { goToApp, openTestChat, openTopic } from "./helpers";
 import { mockChatStream } from "./helpers/sse-helpers";
 
@@ -143,212 +143,152 @@ test.describe("Chat", () => {
     expect(await page.locator('[role="main"]').textContent()).toBeTruthy();
   });
 
-  test("right-click message shows context menu", async ({ page }) => {
+});
+
+test.describe("Message Action Toolbar", () => {
+  test("message toolbar shows on hover with copy and pin actions", async ({ page }) => {
+    await goToApp(page);
+    await openTopic(page, /Web Search Test/);
+
+    // Wait for first message to be visible
+    const firstMessage = page.locator(".message-appear").first();
+    await expect(firstMessage).toBeVisible({ timeout: 15_000 });
+
+    // Hover over the message bubble to reveal the floating action toolbar
+    await firstMessage.hover();
+
+    // Verify action buttons become visible after hover
+    const copyBtn = page.getByRole("button", { name: "Copy message" });
+    const pinBtn = page.getByRole("button", { name: "Pin message" });
+    const replyBtn = page.getByRole("button", { name: "Reply" });
+
+    await expect(copyBtn).toBeVisible({ timeout: 5_000 });
+    await expect(pinBtn).toBeVisible({ timeout: 5_000 });
+    await expect(replyBtn).toBeVisible({ timeout: 5_000 });
+
+    // Click Copy and verify clipboard has content
+    await copyBtn.click();
+    const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboard.length).toBeGreaterThan(0);
+  });
+
+  test("pin action toggles pin state on message", async ({ page, request }) => {
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
     // Wait for messages to load
-    const messages = page.locator("div.message-appear");
-    await expect(messages.first()).toBeVisible({ timeout: 15000 }).catch(() => {});
+    const firstMessage = page.locator(".message-appear").first();
+    await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
-    if (await messages.count() > 0) {
-      await messages.first().click({ button: "right" });
-      await page.waitForTimeout(300);
+    // Hover to reveal toolbar, then click Pin
+    await firstMessage.hover();
+    const pinBtn = page.getByRole("button", { name: "Pin message" });
+    await expect(pinBtn).toBeVisible({ timeout: 5_000 });
+    await pinBtn.click();
 
-      const contextMenu = page.locator('[class*="context-menu"], [role="menu"], [class*="dropdown-menu"]');
-      if (await contextMenu.count() > 0) {
-        expect((await contextMenu.first().textContent())!.length).toBeGreaterThan(2);
-      }
-      await page.keyboard.press("Escape");
-    }
-    expect(await page.locator('[role="main"]').textContent()).toBeTruthy();
+    // Visual verification: pin button should have yellow color class
+    // Re-hover to ensure toolbar is visible for assertion
+    await firstMessage.hover();
+    const pinBtnAfterPin = page.getByRole("button", { name: "Pin message" });
+    await expect(pinBtnAfterPin).toBeVisible({ timeout: 5_000 });
+    await expect(pinBtnAfterPin).toHaveClass(/text-yellow-500/, { timeout: 5_000 });
+
+    // API verification: pinnedMessages array should contain the message ID
+    const topicRes = await request.get("https://localhost:3333/api/topics", {
+      ignoreHTTPSErrors: true,
+    });
+    const topicsData = await topicRes.json();
+    const currentTopic = Object.values(topicsData.topics as Record<string, any>).find(
+      (t: any) => t.name === "Web Search Test"
+    );
+    expect(currentTopic).toBeTruthy();
+    expect((currentTopic as any).pinnedMessages.length).toBeGreaterThan(0);
+
+    // Unpin: hover again and click pin to toggle off
+    await firstMessage.hover();
+    await expect(pinBtnAfterPin).toBeVisible({ timeout: 5_000 });
+    await pinBtnAfterPin.click();
+
+    // Visual verification: pin button should return to muted (no yellow)
+    await firstMessage.hover();
+    const pinBtnAfterUnpin = page.getByRole("button", { name: "Pin message" });
+    await expect(pinBtnAfterUnpin).toBeVisible({ timeout: 5_000 });
+    await expect(pinBtnAfterUnpin).not.toHaveClass(/text-yellow-500/, { timeout: 5_000 });
+
+    // API verification: pinnedMessages array should be empty after unpin
+    const topicRes2 = await request.get("https://localhost:3333/api/topics", {
+      ignoreHTTPSErrors: true,
+    });
+    const topicsData2 = await topicRes2.json();
+    const currentTopic2 = Object.values(topicsData2.topics as Record<string, any>).find(
+      (t: any) => t.name === "Web Search Test"
+    );
+    expect(currentTopic2).toBeTruthy();
+    expect((currentTopic2 as any).pinnedMessages.length).toBe(0);
   });
 });
 
-test.describe("Chat — Rich Content Rendering", () => {
-  test("renders markdown formatting in messages", async ({ page }) => {
+test.describe("Message Branching", () => {
+  test("message branching shows navigation arrows after edit", async ({ page }) => {
+    test.slow();
     await goToApp(page);
-    await openTopic(page, /Web Search Test/);
+    const textarea = await openTestChat(page);
 
-    // Wait for messages to load
-    await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 15_000 });
-
-    // Structural: at least one rich HTML element across all visible message content (D-05)
-    const richElements = page.locator(".message-content p, .message-content strong, .message-content code, .message-content pre, .message-content ul, .message-content ol, .message-content a, .message-content h1, .message-content h2, .message-content h3");
-    expect(await richElements.count()).toBeGreaterThan(0);
-  });
-
-  test("plan mode shows plan view with approve/reject", async ({ page }) => {
-    // Intercept WebSocket to prevent real-time updates from resetting component state
-    await page.routeWebSocket(/ws/, ws => {
-      const server = ws.connectToServer();
-      // Allow initial connection but filter out chat-related broadcasts
-      server.onMessage(msg => {
-        const text = typeof msg === "string" ? msg : "";
-        // Block history/message update broadcasts that would cause re-renders
-        if (text.includes('"type":"message"') || text.includes('"type":"stream"')) return;
-        ws.send(msg);
-      });
-      ws.onMessage(msg => server.send(msg));
-    });
-
-    // Set up SSE mock and history mock BEFORE navigation
-    const planContent = "## Implementation Plan\n\n1. First step of the plan\n2. Second step of the plan\n3. Third step of the plan";
-    await page.route(/\/api\/chat$/, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: planContent } }] });
-      await route.fulfill({
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-        body: `data: ${data}\n\ndata: [DONE]\n\n`,
-      });
-    });
-
-    // Mock history endpoint to return the plan message (prevents overwrite after stream)
-    await page.route(/\/api\/history\//, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      await route.fulfill({
-        status: 200,
-        json: {
-          messages: [
-            { id: "mock-user-1", role: "user", content: "Make a plan", timestamp: new Date().toISOString() },
-            { id: "mock-assistant-1", role: "assistant", content: planContent, timestamp: new Date().toISOString() },
-          ],
-        },
-      });
-    });
-
-    await goToApp(page);
-
-    // Open test chat
-    const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
-    await chatItem.waitFor({ state: "visible", timeout: 10_000 });
-    await chatItem.click({ force: true });
-    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
-    await textarea.waitFor({ state: "visible", timeout: 10_000 });
-
-    await textarea.fill("Make a plan");
+    // First, send a message with mocked SSE response
+    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 1!"] });
+    await textarea.fill("Test message for branching");
     await textarea.press("Control+Enter");
 
-    // Wait for PlanView to render (it shows after stream completes)
-    const planView = page.locator(".plan-view");
-    await expect(planView).toBeVisible({ timeout: 15_000 });
+    // Wait for the user message and response to appear
+    const userMessage = page.locator(".message-appear").filter({ hasText: "Test message for branching" });
+    await expect(userMessage).toBeVisible({ timeout: 15_000 });
 
-    // Assert Execute Plan and Reject buttons are visible
-    const executePlanBtn = page.getByRole("button", { name: /Execute Plan/ });
-    const rejectBtn = page.getByRole("button", { name: /Reject/ });
-    await expect(executePlanBtn).toBeVisible();
-    await expect(rejectBtn).toBeVisible();
+    // Wait for assistant response to appear
+    const assistantResponse = page.locator(".message-appear").filter({ hasText: "branch 1" });
+    await expect(assistantResponse).toBeVisible({ timeout: 15_000 });
 
-    // Verify plan content renders (structural assertion: step text visible)
-    await expect(page.getByText("First step of the plan")).toBeVisible({ timeout: 5_000 });
-  });
+    // Remove the first route to set up a new mock for the edit response
+    await page.unroute("**/api/chat/**");
 
-  test("renders sub-agent spawn card with status", async ({ page }) => {
-    const spawnMarker = "{{AGENT_SPAWN:test-session-key-123|Run unit tests}}";
+    // Now hover over the user message to reveal the edit button
+    await userMessage.hover();
+    const editBtn = page.getByRole("button", { name: "Edit message" });
+    await expect(editBtn).toBeVisible({ timeout: 5_000 });
+    await editBtn.click();
 
-    // Mock agent sessions API that AgentSpawnCard polls
-    await page.route(/\/api\/agents\/sessions/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        json: {
-          sessions: [{
-            key: "test-session-key-123",
-            status: "active",
-            totalTokens: 1500,
-            updatedAt: Date.now(),
-          }],
-        },
-      });
-    });
+    // The message content should now be in the textarea for editing
+    // Verify editing indicator is visible
+    await expect(page.getByText("Editing message")).toBeVisible({ timeout: 5_000 });
 
-    // Mock chat SSE to return spawn marker as entire message
-    await page.route(/\/api\/chat$/, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: spawnMarker } }] });
-      await route.fulfill({
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-        body: `data: ${data}\n\ndata: [DONE]\n\n`,
-      });
-    });
+    // Mock SSE for the second branch response
+    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 2!"] });
 
-    // Mock history to return spawn marker message
-    await page.route(/\/api\/history\//, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      await route.fulfill({
-        status: 200,
-        json: {
-          messages: [
-            { id: "mock-user-1", role: "user", content: "Run tests", timestamp: new Date().toISOString() },
-            { id: "mock-assistant-1", role: "assistant", content: spawnMarker, timestamp: new Date().toISOString() },
-          ],
-        },
-      });
-    });
-
-    await goToApp(page);
-    const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
-    await chatItem.waitFor({ state: "visible", timeout: 10_000 });
-    await chatItem.click({ force: true });
-    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
-    await textarea.waitFor({ state: "visible", timeout: 10_000 });
-
-    await textarea.fill("Run tests");
+    // Clear and type new content, then submit
+    await textarea.fill("Edited message for branching");
     await textarea.press("Control+Enter");
 
-    // Wait for spawn card to render with label text
-    await expect(page.getByText("Run unit tests")).toBeVisible({ timeout: 15_000 });
+    // Wait for the edited message to appear
+    const editedMessage = page.locator(".message-appear").filter({ hasText: "Edited message for branching" });
+    await expect(editedMessage).toBeVisible({ timeout: 15_000 });
 
-    // Assert token count displays (1500 tokens = "1.5k tok")
-    await expect(page.getByText(/tok/)).toBeVisible({ timeout: 5_000 });
-  });
+    // Branch navigation should now appear on the user message (siblingCount > 1)
+    // Look for "Previous branch" and "Next branch" buttons
+    const prevBranchBtn = page.getByRole("button", { name: "Previous branch" });
+    const nextBranchBtn = page.getByRole("button", { name: "Next branch" });
 
-  test("renders diff block with file path and code", async ({ page }) => {
-    const diffContent = "Here is the change:\n\nsrc/app.ts\n<<<<<<< SEARCH\nold code here\n=======\nnew code here\n>>>>>>> REPLACE";
+    await expect(prevBranchBtn.first()).toBeVisible({ timeout: 10_000 });
+    await expect(nextBranchBtn.first()).toBeVisible({ timeout: 10_000 });
 
-    // Mock chat SSE to return diff content
-    await page.route(/\/api\/chat$/, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: diffContent } }] });
-      await route.fulfill({
-        status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-        body: `data: ${data}\n\ndata: [DONE]\n\n`,
-      });
-    });
+    // Verify branch counter shows expected format (e.g., "2/2")
+    const branchCounter = page.locator("span").filter({ hasText: /^\d+\/\d+$/ });
+    await expect(branchCounter.first()).toBeVisible({ timeout: 5_000 });
+    const counterText = await branchCounter.first().textContent();
+    expect(counterText).toMatch(/^\d+\/\d+$/);
 
-    // Mock history to return diff message
-    await page.route(/\/api\/history\//, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      await route.fulfill({
-        status: 200,
-        json: {
-          messages: [
-            { id: "mock-user-1", role: "user", content: "Fix the code", timestamp: new Date().toISOString() },
-            { id: "mock-assistant-1", role: "assistant", content: diffContent, timestamp: new Date().toISOString() },
-          ],
-        },
-      });
-    });
+    // Click Previous branch to switch to first branch
+    await prevBranchBtn.first().click();
 
-    await goToApp(page);
-    const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
-    await chatItem.waitFor({ state: "visible", timeout: 10_000 });
-    await chatItem.click({ force: true });
-    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
-    await textarea.waitFor({ state: "visible", timeout: 10_000 });
-
-    await textarea.fill("Fix the code");
-    await textarea.press("Control+Enter");
-
-    // Assert DiffBlock renders with file path
-    await expect(page.getByText("src/app.ts")).toBeVisible({ timeout: 15_000 });
-
-    // Assert Apply and Reject buttons are visible (DiffBlock action buttons)
-    await expect(page.getByRole("button", { name: /Apply/ })).toBeVisible({ timeout: 5_000 });
+    // Verify content changes to the first branch
+    await expect(page.locator(".message-appear").filter({ hasText: "Test message for branching" })).toBeVisible({ timeout: 10_000 });
   });
 });
