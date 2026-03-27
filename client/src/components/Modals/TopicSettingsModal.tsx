@@ -16,6 +16,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [topicName, setTopicName] = useState(topic.name);
   const [topicIcon, setTopicIcon] = useState(topic.icon);
   const [topicColor, setTopicColor] = useState(topic.color);
+  const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
+  const [contextFilesList, setContextFilesList] = useState<string[]>(topic.contextFiles || []);
+  const [newContextFile, setNewContextFile] = useState('');
   const [saved, setSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -26,6 +29,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setTopicName(topic.name);
     setTopicIcon(topic.icon);
     setTopicColor(topic.color);
+    setSystemPrompt(topic.systemPrompt || '');
+    setContextFilesList(topic.contextFiles || []);
+    setNewContextFile('');
     setSaved(false);
     setIsDirty(false);
   }, [topic, isOpen]);
@@ -38,8 +44,10 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     const nameChanged = topicName !== topic.name;
     const iconChanged = topicIcon !== topic.icon;
     const colorChanged = topicColor !== topic.color;
-    setIsDirty(pathChanged || autonomyChanged || nameChanged || iconChanged || colorChanged);
-  }, [projectPath, autonomyLevel, topicName, topicIcon, topicColor, topic, isOpen]);
+    const promptChanged = systemPrompt !== (topic.systemPrompt || '');
+    const filesChanged = JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []);
+    setIsDirty(pathChanged || autonomyChanged || nameChanged || iconChanged || colorChanged || promptChanged || filesChanged);
+  }, [projectPath, autonomyLevel, topicName, topicIcon, topicColor, systemPrompt, contextFilesList, topic, isOpen]);
 
   const handleClose = () => {
     if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) {
@@ -55,6 +63,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       color: topicColor,
       projectPath: projectPath.trim() || undefined,
       autonomyLevel,
+      systemPrompt,
+      contextFiles: contextFilesList,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -209,6 +219,78 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             </div>
           </div>
 
+          {/* System Prompt */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              System Prompt
+            </label>
+            <p className="text-[11px] text-app-text-muted mb-2">
+              Custom instructions sent at the start of every conversation in this topic.
+            </p>
+            <textarea
+              value={systemPrompt}
+              onChange={e => setSystemPrompt(e.target.value)}
+              placeholder="Enter a system prompt for this topic..."
+              rows={4}
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y"
+              aria-label="System prompt"
+            />
+          </div>
+
+          {/* Context Files */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              Context Files
+            </label>
+            <p className="text-[11px] text-app-text-muted mb-2">
+              File paths included as context in every conversation.
+            </p>
+            {contextFilesList.length > 0 && (
+              <ul className="space-y-1 mb-2" aria-label="Context files list">
+                {contextFilesList.map((file, i) => (
+                  <li key={i} className="flex items-center gap-2 text-[12px] text-app-text-secondary bg-app-hover rounded px-2 py-1">
+                    <span className="flex-1 truncate">{file}</span>
+                    <button
+                      onClick={() => setContextFilesList(prev => prev.filter((_, idx) => idx !== i))}
+                      className="text-app-text-tertiary hover:text-red-500 transition-colors"
+                      aria-label={`Remove ${file}`}
+                    >
+                      <X size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newContextFile}
+                onChange={e => setNewContextFile(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && newContextFile.trim()) {
+                    setContextFilesList(prev => [...prev, newContextFile.trim()]);
+                    setNewContextFile('');
+                  }
+                }}
+                placeholder="/path/to/file.md"
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                aria-label="Add context file"
+              />
+              <button
+                onClick={() => {
+                  if (newContextFile.trim()) {
+                    setContextFilesList(prev => [...prev, newContextFile.trim()]);
+                    setNewContextFile('');
+                  }
+                }}
+                disabled={!newContextFile.trim()}
+                className="px-3 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
           {/* Autonomy Level */}
           <div>
             <label className="block text-[13px] font-medium text-app-text mb-2">
@@ -242,7 +324,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           {/* Note about Context Inspector */}
           <div className="rounded-lg bg-primary/5 border border-primary/10 px-4 py-3">
             <p className="text-[12px] text-app-text-secondary">
-              System prompt, context files, and memory are now managed in the <strong className="text-app-text">Context Inspector</strong> panel. Click the <span className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 rounded text-primary text-[11px] font-medium">Layers</span> button in the header to open it.
+              Memory and advanced context settings are also available in the <strong className="text-app-text">Context Inspector</strong> panel. Click the <span className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 rounded text-primary text-[11px] font-medium">Layers</span> button in the header to open it.
             </p>
           </div>
         </div>
