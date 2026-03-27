@@ -1,5 +1,5 @@
 import { test as base, type Page, type Locator } from "@playwright/test";
-import { goToApp, openTopic } from "../helpers";
+import { goToApp } from "../helpers";
 
 export class TopicManagementPage {
   constructor(private page: Page) {}
@@ -9,9 +9,15 @@ export class TopicManagementPage {
     await goToApp(this.page);
   }
 
-  /** Open a topic by name */
+  /** Open a topic by clicking it in the sidebar */
   async openTopic(name: string | RegExp) {
-    await openTopic(this.page, name);
+    const item = this.findTopic(name);
+    await item.waitFor({ state: "visible", timeout: 10000 });
+    await item.click();
+    // Wait for main content to reflect the opened topic
+    await this.page
+      .locator('[role="main"]')
+      .waitFor({ state: "visible", timeout: 10000 });
   }
 
   /** Get the sidebar locator */
@@ -19,9 +25,16 @@ export class TopicManagementPage {
     return this.page.locator('[aria-label="Topics sidebar"]');
   }
 
-  /** Find a topic treeitem by name */
+  /** Find a topic item by name in the sidebar.
+   *  dnd-kit's useSortable overrides role="treeitem" with role="button",
+   *  so we match on div[role="button"][aria-label] within the topic list. */
   findTopic(name: string | RegExp) {
-    return this.page.getByRole("treeitem", { name });
+    const list = this.page.locator('[data-testid="sidebar-topic-list"]');
+    if (typeof name === "string") {
+      return list.locator(`div[role="button"][aria-label="${name}"]`);
+    }
+    // For RegExp, filter by text content within topic items
+    return list.locator('div[role="button"][aria-label]').filter({ hasText: name });
   }
 
   /** Get the search input */
