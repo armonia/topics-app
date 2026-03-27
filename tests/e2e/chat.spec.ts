@@ -244,4 +244,111 @@ test.describe("Chat — Rich Content Rendering", () => {
     // Verify plan content renders (structural assertion: step text visible)
     await expect(page.getByText("First step of the plan")).toBeVisible({ timeout: 5_000 });
   });
+
+  test("renders sub-agent spawn card with status", async ({ page }) => {
+    const spawnMarker = "{{AGENT_SPAWN:test-session-key-123|Run unit tests}}";
+
+    // Mock agent sessions API that AgentSpawnCard polls
+    await page.route(/\/api\/agents\/sessions/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          sessions: [{
+            key: "test-session-key-123",
+            status: "active",
+            totalTokens: 1500,
+            updatedAt: Date.now(),
+          }],
+        },
+      });
+    });
+
+    // Mock chat SSE to return spawn marker as entire message
+    await page.route(/\/api\/chat$/, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: spawnMarker } }] });
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: `data: ${data}\n\ndata: [DONE]\n\n`,
+      });
+    });
+
+    // Mock history to return spawn marker message
+    await page.route(/\/api\/history\//, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        json: {
+          messages: [
+            { id: "mock-user-1", role: "user", content: "Run tests", timestamp: new Date().toISOString() },
+            { id: "mock-assistant-1", role: "assistant", content: spawnMarker, timestamp: new Date().toISOString() },
+          ],
+        },
+      });
+    });
+
+    await goToApp(page);
+    const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
+    await chatItem.waitFor({ state: "visible", timeout: 10_000 });
+    await chatItem.click({ force: true });
+    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 10_000 });
+
+    await textarea.fill("Run tests");
+    await textarea.press("Control+Enter");
+
+    // Wait for spawn card to render with label text
+    await expect(page.getByText("Run unit tests")).toBeVisible({ timeout: 15_000 });
+
+    // Assert token count displays (1500 tokens = "1.5k tok")
+    await expect(page.getByText(/tok/)).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("renders diff block with file path and code", async ({ page }) => {
+    const diffContent = "Here is the change:\n\nsrc/app.ts\n<<<<<<< SEARCH\nold code here\n=======\nnew code here\n>>>>>>> REPLACE";
+
+    // Mock chat SSE to return diff content
+    await page.route(/\/api\/chat$/, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: diffContent } }] });
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: `data: ${data}\n\ndata: [DONE]\n\n`,
+      });
+    });
+
+    // Mock history to return diff message
+    await page.route(/\/api\/history\//, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        json: {
+          messages: [
+            { id: "mock-user-1", role: "user", content: "Fix the code", timestamp: new Date().toISOString() },
+            { id: "mock-assistant-1", role: "assistant", content: diffContent, timestamp: new Date().toISOString() },
+          ],
+        },
+      });
+    });
+
+    await goToApp(page);
+    const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
+    await chatItem.waitFor({ state: "visible", timeout: 10_000 });
+    await chatItem.click({ force: true });
+    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 10_000 });
+
+    await textarea.fill("Fix the code");
+    await textarea.press("Control+Enter");
+
+    // Assert DiffBlock renders with file path
+    await expect(page.getByText("src/app.ts")).toBeVisible({ timeout: 15_000 });
+
+    // Assert Apply and Reject buttons are visible (DiffBlock action buttons)
+    await expect(page.getByRole("button", { name: /Apply/ })).toBeVisible({ timeout: 5_000 });
+  });
 });
