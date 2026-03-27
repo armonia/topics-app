@@ -102,6 +102,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   const initialLoadDone = useRef(false);
   const shellCounterRef = useRef(0);
   const connectedIdsRef = useRef(new Set<string>());
+  const closingIdsRef = useRef(new Set<string>());
   const fitTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
@@ -158,42 +159,67 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
     const t4 = setTimeout(() => { doFit(); term.focus(); }, 600);
     fitTimersRef.current.push(t1, t2, t3, t4);
 
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${id}`);
-    ws.binaryType = 'arraybuffer';
+    let retryCount = 0;
+    const MAX_RETRIES = 15;
+    let retryTimer: ReturnType<typeof setTimeout>;
 
-    ws.onopen = () => {
-      fetch(`/api/terminal/sessions/${id}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols: term.cols, rows: term.rows }),
-      }).catch(() => {});
-    };
+    function connectWs() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${id}`);
+      ws.binaryType = 'arraybuffer';
 
-    ws.onmessage = (ev) => {
-      const data = ev.data;
-      if (data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(data));
-      } else {
-        term.write(data);
-      }
-    };
+      // Update ref so onData always uses the current WS
+      const entry = terminalsRef.current.get(id);
+      if (entry) entry.ws = ws;
 
-    ws.onclose = (event) => {
-      if (event.code === 1008) {
-        term.write('\r\n\x1b[90m[Session expired - click refresh to start a new terminal]\x1b[0m\r\n');
-        setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
-      } else if (event.code === 1000) {
-        term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
-      } else {
-        term.write('\r\n\x1b[90m[Disconnected - click refresh to reconnect]\x1b[0m\r\n');
-        setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
-      }
-    };
+      ws.onopen = () => {
+        retryCount = 0;
+        setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: false } : t));
+        fetch(`/api/terminal/sessions/${id}/resize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cols: term.cols, rows: term.rows }),
+        }).catch(() => {});
+      };
+
+      ws.onmessage = (ev) => {
+        const data = ev.data;
+        if (data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(data));
+        } else {
+          term.write(data);
+        }
+      };
+
+      ws.onclose = (event) => {
+        if (closingIdsRef.current.has(id)) return;
+        if (event.code === 1008) {
+          term.write('\r\n\x1b[90m[Session expired - click refresh to start a new terminal]\x1b[0m\r\n');
+          setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
+        } else if (event.code === 1000) {
+          term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
+        } else {
+          // Unexpected disconnect — auto-reconnect
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            const delay = Math.min(500 * retryCount, 3000);
+            retryTimer = setTimeout(connectWs, delay);
+          } else {
+            term.write('\r\n\x1b[90m[Disconnected - click refresh to reconnect]\x1b[0m\r\n');
+            setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
+          }
+        }
+      };
+
+      return ws;
+    }
+
+    const ws = connectWs();
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
+      const entry = terminalsRef.current.get(id);
+      if (entry && entry.ws.readyState === WebSocket.OPEN) {
+        entry.ws.send(data);
       }
     });
 
@@ -265,6 +291,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   }, [projectPath, topicId, connectToSession, getTerminalDimensions, claudeSkipPermissions]);
 
   const closeTerminal = useCallback(async (id: string) => {
+    closingIdsRef.current.add(id);
     const entry = terminalsRef.current.get(id);
     if (entry) {
       entry.ws.close();
@@ -283,6 +310,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   }, [activeTabId]);
 
   const replaceStaleTerminal = useCallback(async (oldId: string) => {
+    closingIdsRef.current.add(oldId);
     const oldTab = tabs.find(t => t.id === oldId);
     const type = oldTab?.type || 'shell';
     const entry = terminalsRef.current.get(oldId);
@@ -397,7 +425,8 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
     return () => {
       for (const t of fitTimersRef.current) clearTimeout(t);
       fitTimersRef.current = [];
-      for (const [, entry] of terminalsRef.current) {
+      for (const [id, entry] of terminalsRef.current) {
+        closingIdsRef.current.add(id);
         entry.ws.close();
         entry.term.dispose();
       }

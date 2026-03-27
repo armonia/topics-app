@@ -172,8 +172,9 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
           });
 
           // Send Ctrl+V (0x16) to the PTY to trigger Claude Code's clipboard read
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send('\x16');
+          const activeWs = termRef.current?.ws;
+          if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+            activeWs.send('\x16');
           }
         } catch (err) {
           console.error('Image paste failed:', err);
@@ -190,44 +191,69 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
     setTimeout(doFit, 500);
     setTimeout(() => { doFit(); term.focus(); }, 600);
 
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${sessionId}`);
-    ws.binaryType = 'arraybuffer';
+    let retryCount = 0;
+    const MAX_RETRIES = 15;
+    let retryTimer: ReturnType<typeof setTimeout>;
 
-    ws.onopen = () => {
-      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols: term.cols, rows: term.rows }),
-      }).catch(() => {});
-    };
+    function connectWs() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${sessionId}`);
+      ws.binaryType = 'arraybuffer';
 
-    ws.onmessage = (ev) => {
-      const data = ev.data;
-      if (data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(data));
-      } else {
-        term.write(data);
+      // Update ref so onData/paste always use the current WS
+      if (termRef.current) {
+        termRef.current.ws = ws;
       }
-    };
 
-    ws.onclose = (event) => {
-      if (intentionalClose) return; // Cleanup-triggered close, ignore
-      if (event.code === 1008) {
-        term.write('\r\n\x1b[90m[Session expired - close and reopen terminal]\x1b[0m\r\n');
-        setStale(true);
-        onStale?.();
-      } else if (event.code === 1000) {
-        term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
-      } else {
-        term.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
-        setStale(true);
-        onStale?.();
-      }
-    };
+      ws.onopen = () => {
+        retryCount = 0;
+        setStale(false);
+        fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cols: term.cols, rows: term.rows }),
+        }).catch(() => {});
+      };
+
+      ws.onmessage = (ev) => {
+        const data = ev.data;
+        if (data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(data));
+        } else {
+          term.write(data);
+        }
+      };
+
+      ws.onclose = (event) => {
+        if (intentionalClose) return;
+        if (event.code === 1008) {
+          term.write('\r\n\x1b[90m[Session expired - close and reopen terminal]\x1b[0m\r\n');
+          setStale(true);
+          onStale?.();
+        } else if (event.code === 1000) {
+          term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
+        } else {
+          // Unexpected disconnect — auto-reconnect
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            const delay = Math.min(500 * retryCount, 3000);
+            retryTimer = setTimeout(connectWs, delay);
+          } else {
+            term.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
+            setStale(true);
+            onStale?.();
+          }
+        }
+      };
+
+      return ws;
+    }
+
+    const initialWs = connectWs();
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      const ws = termRef.current?.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(data);
       }
     });
@@ -240,12 +266,13 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
       }).catch(() => {});
     });
 
-    termRef.current = { term, fit: fitAddon, ws };
+    termRef.current = { term, fit: fitAddon, ws: initialWs };
 
     return () => {
       intentionalClose = true;
+      clearTimeout(retryTimer);
       el.removeEventListener('paste', handleImagePaste as EventListener, true);
-      ws.close();
+      termRef.current?.ws.close();
       term.dispose();
       termRef.current = null;
     };
@@ -318,7 +345,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
       )}
 
       {/* Terminal area */}
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         <div
           ref={containerRef}
           className="absolute inset-0 p-1"

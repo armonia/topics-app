@@ -843,6 +843,11 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: none;
 }
 
+/* xterm helper textarea — hide the native text caret (causes ghost cursor) */
+.xterm .xterm-helper-textarea {
+  caret-color: transparent !important;
+}
+
 /* xterm viewport — transparent so terminal theme bg shows through */
 .xterm .xterm-viewport {
   background-color: transparent !important;
