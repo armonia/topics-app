@@ -98,6 +98,8 @@ topics.db
 # Test artifacts
 test-results/
 tests/
+!tests/
+tests/**/node_modules/
 
 # Debug screenshots
 tabbar-*.png
