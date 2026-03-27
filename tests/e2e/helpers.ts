@@ -45,6 +45,14 @@ export async function openTopic(page: Page, name: string | RegExp) {
     await item.waitFor({ state: "visible", timeout: 10000 });
   }
 
+  // Scroll the tree container so the item is not obscured by fixed sidebar sections (Terminals)
+  await item.evaluate((el) => {
+    // Scroll the parent scrollable container to bring item well above the bottom
+    const scrollParent = el.closest('[role="tree"]')?.parentElement;
+    if (scrollParent) {
+      el.scrollIntoView({ block: "center" });
+    }
+  });
   await item.click();
   // Wait for main content area to reflect the opened topic
   await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
