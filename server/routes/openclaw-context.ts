@@ -258,6 +258,18 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
       if (topic.projectPath) {
         const projectDir = ctx.resolveProjectPath(topic.projectPath);
         if (projectDir && existsSync(projectDir)) {
+          const projectName = projectDir.split("/").pop() || topic.projectPath;
+          // Always-on project awareness entry
+          sources.push({
+            id: "project:awareness",
+            label: `Project: ${projectName}`,
+            category: "template",
+            tokens: estimateTokens(`Project "${projectName}" at ${topic.projectPath}`),
+            enabled: true,
+            editable: false,
+            preview: `Working in project "${projectName}" at ${topic.projectPath}`,
+            countInBudget: true,
+          });
           const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
           for (const name of TEMPLATE_FILES) {
             let filePath = join(projectDir, name);
@@ -274,7 +286,7 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
                   label: displayName,
                   category: "template",
                   tokens: estimateTokens(content),
-                  enabled: true,
+                  enabled: !disabledSources.includes(`template:${name}`),
                   editable: false,
                   preview: content.slice(0, 200),
                   countInBudget: true,

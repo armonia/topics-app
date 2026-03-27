@@ -1169,9 +1169,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (matchedTopic.projectPath) {
           const projectDir = resolveProjectPath(matchedTopic.projectPath);
           if (projectDir && existsSync(projectDir)) {
+            const projectName = projectDir.split("/").pop() || matchedTopic.projectPath;
             const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
             const templateParts: string[] = [];
             for (const name of TEMPLATE_FILES) {
+              if (!isSourceEnabled(`template:${name}`)) continue;
               let filePath = join(projectDir, name);
               let displayName = name;
               if (!existsSync(filePath) && name === "CLAUDE.md") {
@@ -1185,11 +1187,22 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                 } catch (err) { console.warn(`[Context] Failed to read ${filePath}:`, err); }
               }
             }
+
+            // Always inject project awareness (even without template files)
+            let projectContext = `You are working in the project "${projectName}" at ${matchedTopic.projectPath}.`;
             if (templateParts.length > 0) {
-              const templateMsg = { role: "system", content: `Project context files (from ${matchedTopic.projectPath}):\n\n${templateParts.join("\n\n")}` };
-              const insertIdx = finalMessages.findIndex(m => m.role !== "system");
-              finalMessages.splice(insertIdx >= 0 ? insertIdx : finalMessages.length, 0, templateMsg);
+              projectContext += `\n\nProject context files:\n\n${templateParts.join("\n\n")}`;
+            } else {
+              // No template files — provide a basic file listing for awareness
+              try {
+                const entries = readdirSync(projectDir, { withFileTypes: true }).slice(0, 30);
+                const listing = entries.map(e => e.isDirectory() ? `${e.name}/` : e.name).join(", ");
+                projectContext += `\n\nProject root files: ${listing}`;
+              } catch {}
             }
+            const templateMsg = { role: "system", content: projectContext };
+            const insertIdx = finalMessages.findIndex(m => m.role !== "system");
+            finalMessages.splice(insertIdx >= 0 ? insertIdx : finalMessages.length, 0, templateMsg);
           }
         }
         // Browser auto-navigate: instruct the AI to use structured markers
@@ -1287,9 +1300,13 @@ Wait for the user to approve the plan before executing any changes.` };
         finalMessages.splice(planInsertIdx >= 0 ? planInsertIdx : finalMessages.length, 0, planInstruction);
       }
 
-      // ─── Gateway WebSocket streaming (with tool event visibility) ───
+      // ─── Gateway streaming ───
+      // Always use HTTP for topic chats: it sends finalMessages as a proper message array,
+      // which correctly delivers conversation history + system context to the model.
+      // The WS chat.send protocol only takes a single string — it relies on the gateway's
+      // own session history which can be out of sync (gateway restart, HTTP sessions, etc.).
       const gatewayWS = ctx.gatewayWS;
-      const useWS = gatewayWS?.connected;
+      const useWS = false;
 
       console.log(`[Chat] useWS=${useWS}, sessionKey=${sessionKey}`);
       if (useWS) {
@@ -1579,16 +1596,20 @@ Wait for the user to approve the plan before executing any changes.` };
             return null;
           }
 
-          registerSessionHandler(sessionKey, undefined, handler);
           resetStreamTimer();
 
           // Send chat via WS
           try {
-            const result = await gatewayWS!.sendChat(sessionKey, lastUserMsg?.content || messages[messages.length - 1]?.content || "");
-            // Update handler with the actual runId to filter stale events
-            if (result.runId) {
-              registerSessionHandler(sessionKey, result.runId, handler);
+            const contextMessages = finalMessages.filter(m => m.role === "system");
+            let userContent = lastUserMsg?.content || messages[messages.length - 1]?.content || "";
+            if (contextMessages.length > 0) {
+              const preamble = contextMessages.map(m => m.content).join("\n\n---\n\n");
+              userContent = `<context>\n${preamble}\n</context>\n\n${userContent}`;
             }
+            const result = await gatewayWS!.sendChat(sessionKey, userContent);
+            // Register handler AFTER sendChat returns with the real runId
+            // (registering before with runId=undefined lets stale events from previous runs through)
+            registerSessionHandler(sessionKey, result.runId, handler);
             console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
           } catch (err: any) {
             console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
@@ -1691,9 +1712,34 @@ Wait for the user to approve the plan before executing any changes.` };
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id, abortController);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+
+          // Register WS handler for tool events (text comes from HTTP SSE, tools from gateway WS)
+          if (gatewayWS?.connected) {
+            registerSessionHandler(sessionKey, undefined, {
+              onTextDelta() {},  // Handled by HTTP SSE processLine
+              onThinkingDelta() {},
+              onToolStart(toolCallId: string, name: string, args: Record<string, any>) {
+                const toolCall = { id: toolCallId, name, args, status: 'running' as const, contentOffset: fullContent.length };
+                addToolCallToLastMessage(sessionKey, toolCall);
+                broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+              },
+              onToolUpdate(toolCallId: string, partialResult: string) {
+                broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult });
+              },
+              onToolResult(toolCallId: string, result: string) {
+                updateToolCallResult(sessionKey, toolCallId, result);
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result });
+              },
+              onDone() {},      // Handled by HTTP SSE [DONE]
+              onError() {},
+              onAborted() {},
+            });
+          }
+
           const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
           const writer = writable.getWriter();
           let clientDisconnected = false;
+          const encoder = new TextEncoder();
           const forwardToClient = async (chunk: Uint8Array) => { if (clientDisconnected) return; try { await writer.write(chunk); } catch { clientDisconnected = true; } };
           const closeClient = async () => { if (clientDisconnected) return; try { await writer.close(); } catch { clientDisconnected = true; } };
 
@@ -1703,6 +1749,7 @@ Wait for the user to approve the plan before executing any changes.` };
             if (data === "[DONE]") {
               updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
               endStream(sessionKey);
+              unregisterSessionHandler(sessionKey);
               if (matchedTopic) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -1721,6 +1768,34 @@ Wait for the user to approve the plan before executing any changes.` };
                 chunkCount++;
                 updateStreamContent(sessionKey, fullContent, fullThinking);
                 if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) { lastSaveChunk = chunkCount; updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined }); }
+              }
+              // Tool calls from SSE stream (if gateway includes them in HTTP response)
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (tc.function?.name) {
+                    const toolCall = {
+                      id: tc.id || `tool-${Date.now()}`,
+                      name: tc.function.name,
+                      args: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
+                      status: 'running' as const,
+                      contentOffset: fullContent.length,
+                    };
+                    addToolCallToLastMessage(sessionKey, toolCall);
+                    broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
+                    // Also forward as SSE for the HTTP client
+                    const sseToolPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCall.id, function: { name: toolCall.name, arguments: JSON.stringify(toolCall.args) }, contentOffset: toolCall.contentOffset }] } }] });
+                    if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseToolPayload}\n\n`)); } catch {} }
+                  }
+                }
+              }
+              if (delta?.tool_result) {
+                const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
+                if (trId) {
+                  updateToolCallResult(sessionKey, trId, trResult || 'completed');
+                  broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: trId, status: trStatus || 'success', result: trResult });
+                  const sseResultPayload = JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: trId, status: trStatus || 'success', result: trResult } } }] });
+                  if (!clientDisconnected) { try { writer.write(encoder.encode(`data: ${sseResultPayload}\n\n`)); } catch {} }
+                }
               }
             } catch {}
           };
@@ -1747,6 +1822,7 @@ Wait for the user to approve the plan before executing any changes.` };
               abortController.signal.removeEventListener("abort", onAbort);
               reader.releaseLock();
               await closeClient();
+              unregisterSessionHandler(sessionKey);
               if (isStreaming(sessionKey)) {
                 updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
                 endStream(sessionKey);
