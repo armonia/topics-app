@@ -97,7 +97,9 @@ topics.db
 
 # Test artifacts
 test-results/
-tests/
+# Track test source files but not generated output
+!tests/
+tests/**/node_modules/
 
 # Debug screenshots
 tabbar-*.png
