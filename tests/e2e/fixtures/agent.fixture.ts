@@ -126,6 +126,23 @@ export const MOCK_AGENT_SESSIONS = [
   },
 ];
 
+// ── Mock Live Sessions (for useAgents hook /api/agents/sessions) ──
+
+export const MOCK_LIVE_SESSIONS = [
+  {
+    key: "live-session-alpha",
+    kind: "main",
+    channel: "web",
+    displayName: "Alpha Coder",
+    status: "active",
+    model: "claude-sonnet-4-20250514",
+    updatedAt: 1711533600000, // 2024-03-27T10:00:00Z
+    totalTokens: 8500,
+    topicId: "topic-1",
+    topicName: "Feature Implementation",
+  },
+];
+
 // ── Mock Timeline Events ──────────────────────────────────────
 
 export const MOCK_TIMELINE_EVENTS = [
@@ -232,7 +249,7 @@ export class AgentPage {
   }
 
   get editorCreateButton() {
-    return this.page.locator('button:text("Create")');
+    return this.page.getByRole("button", { name: "Create", exact: true });
   }
 
   get editorCancelButton() {
@@ -251,7 +268,7 @@ export class AgentPage {
    * Register all agent API endpoint mocks. Call BEFORE page.goto().
    */
   async mockAllAgentEndpoints() {
-    await this.mockSessionsEndpoint(MOCK_HISTORY_SESSIONS);
+    await this.mockSessionsEndpoint(MOCK_LIVE_SESSIONS);
     await this.mockSessionHistoryEndpoint(MOCK_HISTORY_SESSIONS);
     await this.mockProfilesEndpoint([...MOCK_PROFILES]);
     await this.mockProfileUpdateEndpoint();
