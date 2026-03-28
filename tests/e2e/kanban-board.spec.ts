@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/kanban.fixture";
-import { createTopic, createTask, cleanupAll } from "./helpers/api-fixtures";
+import { createTopic, createTask, createApproval, createBoardMemory, cleanupAll } from "./helpers/api-fixtures";
 import { dndDrag, dndReorder } from "./helpers/dnd-helpers";
 
 test.describe("Kanban Board", () => {
@@ -8,6 +8,14 @@ test.describe("Kanban Board", () => {
   let topicId: string;
   const projectPath = `/tmp/e2e-kanban-${TS}`;
   let projectId: string;
+
+  // For KANBAN-06 approval test
+  let approvalTaskId: string;
+
+  // For KANBAN-09 multi-board test
+  let topicId2: string;
+  const projectPath2 = `/tmp/e2e-kanban-2-${TS}`;
+  let projectId2: string;
 
   test.beforeAll(async ({ request }) => {
     // Create a topic with projectPath so the board is accessible
@@ -32,10 +40,28 @@ test.describe("Kanban Board", () => {
       priority: 2,
       assignedTo: "test-agent",
     });
+
+    // Task + approval for KANBAN-06
+    const approvalTask = await createTask(request, projectId, `KB-Approval-${TS}`, { status: "review" });
+    approvalTaskId = approvalTask.id;
+    await createApproval(request, projectId, approvalTaskId, {
+      fromStatus: "review",
+      toStatus: "done",
+      confidenceScore: 85,
+      justification: "All acceptance criteria met",
+    });
+
+    // Second topic + task for KANBAN-09 multi-board test
+    const topic2 = await createTopic(request, `E2E-Kanban-2-${TS}`, {
+      projectPath: projectPath2,
+    });
+    topicId2 = topic2.id;
+    projectId2 = encodeURIComponent(projectPath2);
+    await createTask(request, projectId2, `KB-Proj2-${TS}`, { status: "todo" });
   });
 
   test.afterAll(async ({ request }) => {
-    await cleanupAll(request, { topics: [topicId] });
+    await cleanupAll(request, { topics: [topicId, topicId2] });
   });
 
   // KANBAN-01: Board renders with all 5 columns visible
@@ -225,5 +251,175 @@ test.describe("Kanban Board", () => {
     if (updatedSecondBox && updatedFirstBox) {
       expect(updatedSecondBox.y).toBeLessThan(updatedFirstBox.y);
     }
+  });
+
+  // KANBAN-06: Task approval workflow — banner visible, review modal opens, approve works
+  test("KANBAN-06: task approval workflow with review modal", async ({ kanbanPage, page }) => {
+    await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
+
+    // Find the task card with the approval
+    const taskCard = kanbanPage.getTaskCard(new RegExp(`KB-Approval-${TS}`));
+    await expect(taskCard).toBeVisible({ timeout: 10000 });
+
+    // The ApprovalBanner should be visible on the task card — look for "Approval required" text
+    const approvalBanner = kanbanPage.board.locator('[data-testid^="task-card-"]', { hasText: `KB-Approval-${TS}` })
+      .getByText("Approval required");
+    await expect(approvalBanner).toBeVisible({ timeout: 10000 });
+
+    // Click the "Review" button on the approval banner
+    const reviewButton = kanbanPage.board.locator('[data-testid^="task-card-"]', { hasText: `KB-Approval-${TS}` })
+      .getByRole("button", { name: "Review" });
+    await reviewButton.click();
+
+    // Assert the approval review modal is visible
+    await expect(kanbanPage.approvalModal).toBeVisible({ timeout: 10000 });
+
+    // Verify modal content: justification text
+    await expect(kanbanPage.approvalModal.getByText("All acceptance criteria met")).toBeVisible();
+
+    // Verify modal shows confidence score (85%)
+    await expect(kanbanPage.approvalModal.getByText("85%")).toBeVisible();
+
+    // Verify Approve and Reject buttons are visible
+    const approveBtn = kanbanPage.approvalModal.getByRole("button", { name: "Approve" });
+    const rejectBtn = kanbanPage.approvalModal.getByRole("button", { name: "Reject" });
+    await expect(approveBtn).toBeVisible();
+    await expect(rejectBtn).toBeVisible();
+
+    // Click Approve
+    await approveBtn.click();
+
+    // Assert the modal closes
+    await expect(kanbanPage.approvalModal).toBeHidden({ timeout: 10000 });
+  });
+
+  // KANBAN-07: Board settings panel — open, toggle, save, verify persistence
+  test("KANBAN-07: board settings panel toggle and persistence", async ({ kanbanPage, page }) => {
+    await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
+
+    // Click the settings button (gear icon with title "Board settings")
+    const settingsButton = page.locator('button[title="Board settings"]');
+    await expect(settingsButton).toBeVisible({ timeout: 10000 });
+    await settingsButton.click();
+
+    // Assert settings panel is visible
+    await expect(kanbanPage.settingsPanel).toBeVisible({ timeout: 10000 });
+
+    // Find the first checkbox toggle ("Require approval to mark as Done")
+    const checkbox = kanbanPage.settingsPanel.getByLabel("Require approval to mark as Done");
+    await expect(checkbox).toBeVisible();
+
+    // Record initial state and toggle it
+    const wasChecked = await checkbox.isChecked();
+    await checkbox.click();
+
+    // Verify the checkbox state changed
+    if (wasChecked) {
+      await expect(checkbox).not.toBeChecked();
+    } else {
+      await expect(checkbox).toBeChecked();
+    }
+
+    // Click Save
+    const saveBtn = kanbanPage.settingsPanel.getByRole("button", { name: "Save" });
+    await saveBtn.click();
+
+    // Assert the settings panel closes after save
+    await expect(kanbanPage.settingsPanel).toBeHidden({ timeout: 10000 });
+
+    // Re-open settings to verify persistence
+    await settingsButton.click();
+    await expect(kanbanPage.settingsPanel).toBeVisible({ timeout: 10000 });
+
+    // Verify the checkbox reflects the toggled state
+    const checkboxAfterReopen = kanbanPage.settingsPanel.getByLabel("Require approval to mark as Done");
+    if (wasChecked) {
+      await expect(checkboxAfterReopen).not.toBeChecked();
+    } else {
+      await expect(checkboxAfterReopen).toBeChecked();
+    }
+
+    // Close settings panel
+    const cancelBtn = kanbanPage.settingsPanel.getByRole("button", { name: "Cancel" });
+    await cancelBtn.click();
+    await expect(kanbanPage.settingsPanel).toBeHidden({ timeout: 10000 });
+  });
+
+  // KANBAN-08: Board memory panel — render entries and accept new entries
+  test("KANBAN-08: board memory panel renders and accepts new entries", async ({ kanbanPage, page }) => {
+    // Seed a memory entry via API first
+    await createBoardMemory(page.request, projectId, `Seeded memory ${TS}`, { tags: "decision" });
+
+    await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
+
+    // Open the board-memory pane via the tab bar "+" button
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]').last();
+    await expect(tabBar).toBeVisible({ timeout: 10000 });
+
+    // Click the "+" add-pane button in the tab bar
+    const addPaneBtn = tabBar.locator('button').filter({ hasText: /^$/ }).last();
+    // The add button is typically the last button with a "+" icon
+    const plusBtn = tabBar.locator('[data-testid="add-pane-btn"]');
+    // Try various selectors for the add-pane button
+    const addBtn = (await plusBtn.isVisible().catch(() => false))
+      ? plusBtn
+      : tabBar.getByRole("button", { name: /add/i });
+
+    if (await addBtn.isVisible().catch(() => false)) {
+      await addBtn.click();
+    } else {
+      // Fallback: look for any "+" button in the tab bar
+      const buttons = tabBar.locator('button');
+      const count = await buttons.count();
+      // The add button is usually the last one
+      await buttons.nth(count - 1).click();
+    }
+
+    // Look for "Board Memory" option in the dropdown menu and click it
+    const boardMemoryOption = page.getByText("Board Memory");
+    await expect(boardMemoryOption).toBeVisible({ timeout: 5000 });
+    await boardMemoryOption.click();
+
+    // Wait for the memory panel to appear
+    await expect(kanbanPage.memoryPanel).toBeVisible({ timeout: 10000 });
+
+    // Verify seeded entry is visible
+    await expect(kanbanPage.memoryPanel.getByText(`Seeded memory ${TS}`)).toBeVisible({ timeout: 10000 });
+
+    // Add a new memory entry via the form
+    const textarea = kanbanPage.memoryPanel.locator('textarea[placeholder="Add a memory entry..."]');
+    await expect(textarea).toBeVisible();
+    await textarea.fill(`E2E memory entry ${TS}`);
+
+    // Fill tags
+    const tagsInput = kanbanPage.memoryPanel.locator('input[placeholder="Tags (comma-separated)"]');
+    await tagsInput.fill("decision,test");
+
+    // Click Save
+    const saveBtn = kanbanPage.memoryPanel.getByRole("button", { name: "Save" });
+    await saveBtn.click();
+
+    // Assert the new memory entry appears in the list
+    await expect(kanbanPage.memoryPanel.getByText(`E2E memory entry ${TS}`)).toBeVisible({ timeout: 10000 });
+  });
+
+  // KANBAN-09: AllBoardsPane multi-board — tasks from multiple projects visible
+  test("KANBAN-09: AllBoardsPane shows tasks from multiple projects", async ({ kanbanPage, page }) => {
+    // Navigate to AllBoardsPane
+    await kanbanPage.gotoAllBoards();
+
+    // Assert AllBoardsPane is visible
+    await expect(kanbanPage.allBoardsPane).toBeVisible({ timeout: 10000 });
+
+    // Assert tasks from the first project are visible (use exact task name, .first() for safety)
+    await expect(kanbanPage.allBoardsPane.getByText(`KB-Backlog-${TS}`).first()).toBeVisible({ timeout: 10000 });
+
+    // Assert tasks from the second project are visible
+    await expect(kanbanPage.allBoardsPane.getByText(`KB-Proj2-${TS}`).first()).toBeVisible({ timeout: 10000 });
+
+    // Verify project label badges are shown on cards
+    // The second project's label should be the last segment of projectPath2
+    const projectLabel = projectPath2.split("/").pop()!;
+    await expect(kanbanPage.allBoardsPane.getByText(projectLabel).first()).toBeVisible({ timeout: 10000 });
   });
 });

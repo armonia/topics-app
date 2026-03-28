@@ -665,6 +665,55 @@ export function ProjectWindowPane({
     setFocusedGroupId(groupId);
   }, [panes, groups, projectPath, claudeSkipPermissions]);
 
+  const handleAddPaneWhenEmpty = useCallback(async (type: PaneType, subType?: string) => {
+    const config = PANE_CONFIG[type];
+    if (!config || config.fixed) return;
+
+    let paneId: string;
+    let paneTitle: string;
+
+    if (type === 'terminal') {
+      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
+      paneTitle = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+      try {
+        const body: Record<string, unknown> = { cwd: projectPath, type: termType, name: paneTitle };
+        if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
+        const res = await fetch('/api/terminal/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        paneId = createPaneId('terminal', data.id);
+        paneTitle = data.name || paneTitle;
+      } catch { return; }
+    } else {
+      paneId = createPaneId(type);
+      paneTitle = config.label;
+    }
+
+    const newGroupId = createGroupId();
+    const newPane: Pane = {
+      id: paneId,
+      type,
+      title: paneTitle,
+      preview: false,
+      ...(type === 'terminal' && subType ? { terminalType: subType as 'shell' | 'claude-code' } : {}),
+    };
+    const newGroup: PaneGroup = {
+      id: newGroupId,
+      type: paneTypeToGroupType(type),
+      paneIds: [newPane.id],
+      activePaneId: newPane.id,
+    };
+    setPanes(prev => [...prev, newPane]);
+    setGroups([newGroup]);
+    setRows([{ groupIds: [newGroupId], widths: [1] }]);
+    setRowHeights([1]);
+    setFocusedGroupId(newGroupId);
+  }, [projectPath, claudeSkipPermissions]);
+
   // Handle pending pane request from sidebar — always add to focused/first group
   useEffect(() => {
     if (pendingPane) {
@@ -911,55 +960,6 @@ export function ProjectWindowPane({
     onNewChat?.();
   }, [onNewChat]);
 
-  const handleAddPaneWhenEmpty = useCallback(async (type: PaneType, subType?: string) => {
-    const config = PANE_CONFIG[type];
-    if (!config || config.fixed) return;
-
-    let paneId: string;
-    let paneTitle: string;
-
-    if (type === 'terminal') {
-      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
-      paneTitle = termType === 'claude-code' ? 'Claude Code' : 'Shell';
-      try {
-        const body: Record<string, unknown> = { cwd: projectPath, type: termType, name: paneTitle };
-        if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
-        const res = await fetch('/api/terminal/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        paneId = createPaneId('terminal', data.id);
-        paneTitle = data.name || paneTitle;
-      } catch { return; }
-    } else {
-      paneId = createPaneId(type);
-      paneTitle = config.label;
-    }
-
-    const newGroupId = createGroupId();
-    const newPane: Pane = {
-      id: paneId,
-      type,
-      title: paneTitle,
-      preview: false,
-      ...(type === 'terminal' && subType ? { terminalType: subType as 'shell' | 'claude-code' } : {}),
-    };
-    const newGroup: PaneGroup = {
-      id: newGroupId,
-      type: paneTypeToGroupType(type),
-      paneIds: [newPane.id],
-      activePaneId: newPane.id,
-    };
-    setPanes(prev => [...prev, newPane]);
-    setGroups([newGroup]);
-    setRows([{ groupIds: [newGroupId], widths: [1] }]);
-    setRowHeights([1]);
-    setFocusedGroupId(newGroupId);
-  }, [projectPath, claudeSkipPermissions]);
-
   const handlePinPane = useCallback((_groupId: string, paneId: string) => {
     setPanes(prev => prev.map(p => p.id === paneId ? { ...p, preview: false } : p));
   }, []);
@@ -1072,7 +1072,7 @@ export function ProjectWindowPane({
   }, []);
 
   const availableTypesForGroup = useCallback((groupType: PaneGroupType, groupId: string): PaneType[] => {
-    const types: PaneType[] = ['browser', 'terminal', 'git'];
+    const types: PaneType[] = ['browser', 'terminal', 'git', 'board-memory'];
     if (groupType === 'file') {
       types.unshift('files');
     }

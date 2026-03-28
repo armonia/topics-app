@@ -51,7 +51,16 @@ export class KanbanPage {
 
   /** Navigate to the all-boards pane via sidebar button */
   async gotoAllBoards() {
-    await this.page.locator('button[title="View all project boards"]').click();
+    await goToApp(this.page);
+    // The "Board" button with task count is at the top of the sidebar
+    const boardBtn = this.page.locator('button[title="View all project boards"]');
+    if (await boardBtn.isVisible().catch(() => false)) {
+      await boardBtn.click();
+    } else {
+      // Fallback: look for the Board link/button in sidebar header area
+      const boardLink = this.page.getByRole('button', { name: /^Board/ });
+      await boardLink.click();
+    }
     await this.allBoardsPane.waitFor({ state: 'visible', timeout: 10000 });
   }
 

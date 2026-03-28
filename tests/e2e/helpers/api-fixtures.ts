@@ -140,12 +140,14 @@ export async function createBoardMemory(
   request: APIRequestContext,
   projectId: string,
   content: string,
-  opts?: { tags?: string; source?: string }
+  opts?: { tags?: string | string[]; source?: string }
 ): Promise<{ id: string }> {
+  // Normalize tags to an array (server expects array, stores as JSON)
+  const tags = Array.isArray(opts?.tags) ? opts.tags : (opts?.tags ? opts.tags.split(",").map(t => t.trim()) : ["test"]);
   const res = await request.post(`${BASE}/api/boards/${projectId}/memory`, {
     data: {
       content,
-      tags: opts?.tags || "test",
+      tags,
       source: opts?.source || "manual",
     },
     ignoreHTTPSErrors: true,
