@@ -22,7 +22,7 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div data-testid="approval-review-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="bg-surface border border-app-border rounded-lg shadow-xl w-[400px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">

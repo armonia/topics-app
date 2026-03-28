@@ -70,7 +70,7 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
   const priority = PRIORITY_LABELS[task.priority] || PRIORITY_LABELS[2];
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[360px] bg-surface border-l border-app-border shadow-xl z-50 flex flex-col">
+    <div data-testid="task-detail-panel" className="fixed inset-y-0 right-0 w-[360px] bg-surface border-l border-app-border shadow-xl z-50 flex flex-col">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-app-border">
         <span className="text-[12px] font-semibold text-app-text flex-1 truncate">{task.text}</span>

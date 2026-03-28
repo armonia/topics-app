@@ -68,6 +68,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
     <div
       ref={setNodeRef}
       style={style}
+      data-testid={`task-card-${task.id}`}
       className={`
         group relative flex items-start gap-1 bg-surface border border-app-border rounded
         px-1.5 py-1 cursor-pointer select-none
@@ -77,6 +78,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
     >
       {/* Drag handle */}
       <button
+        data-testid="task-card-drag-handle"
         className="flex-shrink-0 mt-0.5 text-app-text-muted/40 hover:text-app-text-muted cursor-grab active:cursor-grabbing"
         {...attributes}
         {...listeners}

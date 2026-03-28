@@ -84,6 +84,7 @@ export function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
+      data-testid={`kanban-column-${id}`}
       className={`
         flex flex-col min-w-[160px] max-w-[220px] w-[180px] rounded-md
         bg-app-bg/60 border border-app-border/40
