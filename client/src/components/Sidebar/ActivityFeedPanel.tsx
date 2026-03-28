@@ -77,7 +77,7 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative" data-testid="activity-feed">
       {/* Tab bar */}
       <div className="flex items-center border-b border-app-border flex-shrink-0">
         {(['live', 'digest'] as const).map(tab => (
