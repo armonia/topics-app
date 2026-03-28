@@ -156,12 +156,55 @@ export async function createBoardMemory(
   return res.json() as Promise<{ id: string }>;
 }
 
+// --- Terminal session fixtures ---
+
+export async function createTerminalSession(
+  request: APIRequestContext,
+  opts?: { cwd?: string; type?: string; topicId?: string; name?: string; cols?: number; rows?: number }
+): Promise<{ id: string; name: string; cwd: string }> {
+  const res = await request.post(`${BASE}/api/terminal/sessions`, {
+    data: {
+      cwd: opts?.cwd || '/tmp',
+      type: opts?.type || 'shell',
+      topicId: opts?.topicId,
+      name: opts?.name,
+      cols: opts?.cols || 120,
+      rows: opts?.rows || 30,
+    },
+    ignoreHTTPSErrors: true,
+  });
+  if (!res.ok()) throw new Error(`Failed to create terminal session: ${res.status()}`);
+  return res.json();
+}
+
+export async function deleteTerminalSession(
+  request: APIRequestContext,
+  sessionId: string
+): Promise<void> {
+  await request.delete(`${BASE}/api/terminal/sessions/${sessionId}`, {
+    ignoreHTTPSErrors: true,
+  }).catch(() => {});
+}
+
+export async function listTerminalSessions(
+  request: APIRequestContext,
+  topicId?: string
+): Promise<Array<{ id: string; name: string; cwd: string; type: string }>> {
+  const url = topicId
+    ? `${BASE}/api/terminal/sessions?topicId=${topicId}`
+    : `${BASE}/api/terminal/sessions`;
+  const res = await request.get(url, { ignoreHTTPSErrors: true });
+  if (!res.ok()) return [];
+  return res.json();
+}
+
 // --- Cleanup helper ---
 
 interface CleanupItems {
   topics?: string[];
   tasks?: Array<{ projectId: string; taskId: string }>;
   agents?: string[];
+  terminalSessions?: string[];
 }
 
 export async function cleanupAll(
@@ -169,6 +212,12 @@ export async function cleanupAll(
   created: CleanupItems
 ): Promise<void> {
   const errors: string[] = [];
+
+  for (const id of created.terminalSessions ?? []) {
+    await deleteTerminalSession(request, id).catch((err) =>
+      errors.push(`terminal ${id}: ${err.message}`)
+    );
+  }
 
   for (const id of created.topics ?? []) {
     await deleteTopic(request, id).catch((err) =>
