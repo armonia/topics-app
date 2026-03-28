@@ -357,4 +357,279 @@ test.describe("Cross-Feature Interactions", () => {
     await commandPalettePage.close();
     await expect(commandPalettePage.overlay).toBeHidden({ timeout: 5_000 });
   });
+
+  // CROSS-06: Theme switch preserves all component states across panels
+  test("CROSS-06: theme toggle preserves panel state and content", async ({
+    page,
+    settingsPage,
+  }) => {
+    await goToApp(page);
+
+    // Open a topic to get chat panel visible with content
+    await openTopic(page, /Web Search Test/);
+
+    // Wait for messages to render
+    const messages = page.locator(".message-appear");
+    await expect(messages.first()).toBeVisible({ timeout: 15_000 });
+
+    // Record state before theme toggle: visible panels, message count
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]');
+    const tabBarVisible = await tabBar.first().isVisible().catch(() => false);
+    let tabCountBefore = 0;
+    if (tabBarVisible) {
+      tabCountBefore = await tabBar.first().locator('[draggable="true"]').count();
+    }
+    const messageCountBefore = await messages.count();
+
+    // Record current theme state on html element
+    const htmlClassBefore = await page.locator("html").getAttribute("class") || "";
+
+    // Open settings and toggle theme
+    await settingsPage.openSettings();
+    await expect(settingsPage.panel).toBeVisible({ timeout: 10_000 });
+
+    // Click the theme button that differs from current state
+    // If currently dark, click Light; otherwise click Dark
+    const isDark = htmlClassBefore.includes("dark");
+    const targetBtn = isDark
+      ? settingsPage.panel.getByRole("button", { name: "Light" })
+      : settingsPage.panel.getByRole("button", { name: "Dark" });
+    await targetBtn.click();
+
+    // Wait for theme class to change on html element
+    if (isDark) {
+      await expect(page.locator("html")).not.toHaveClass(/dark/, { timeout: 5_000 });
+    } else {
+      await expect(page.locator("html")).toHaveClass(/dark/, { timeout: 5_000 });
+    }
+
+    // Close settings via backdrop
+    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+    await expect(settingsPage.panel).not.toBeVisible({ timeout: 5_000 });
+
+    // Verify panels survived the theme toggle:
+    // 1. Messages are still visible (not wiped by re-render)
+    await expect(messages.first()).toBeVisible({ timeout: 5_000 });
+    const messageCountAfter = await messages.count();
+
+    // Message count should be roughly the same (no content wipe)
+    expect(messageCountAfter).toBeGreaterThanOrEqual(Math.max(1, messageCountBefore - 2));
+
+    // 2. Tab bar tabs are still present (no panel crashed/disappeared)
+    if (tabBarVisible && tabCountBefore > 0) {
+      const tabCountAfter = await tabBar.first().locator('[draggable="true"]').count();
+      expect(tabCountAfter).toBeGreaterThanOrEqual(tabCountBefore);
+    }
+
+    // 3. Main content area is still visible
+    await expect(page.locator('[role="main"]')).toBeVisible();
+
+    test.info().annotations.push({
+      type: "theme-preservation",
+      description: `Theme toggled ${isDark ? "dark->light" : "light->dark"}. Messages: ${messageCountBefore}->${messageCountAfter}. Panels intact.`,
+    });
+
+    // Restore theme to avoid affecting other tests
+    await settingsPage.openSettings();
+    const restoreBtn = isDark
+      ? settingsPage.panel.getByRole("button", { name: "Dark" })
+      : settingsPage.panel.getByRole("button", { name: "System" });
+    await restoreBtn.click();
+    await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+  });
+
+  // CROSS-07: Mobile responsive layout transitions
+  test("CROSS-07: viewport transitions preserve layout integrity", async ({
+    page,
+    layoutPage,
+  }) => {
+    // Start at desktop size
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await goToApp(page);
+
+    // Open a topic so we have content
+    await openTopic(page, /Web Search Test/);
+    await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 15_000 });
+
+    // Verify desktop layout: sidebar visible, main content visible
+    await expect(layoutPage.sidebar).toBeVisible({ timeout: 5_000 });
+    await expect(layoutPage.mainContent).toBeVisible({ timeout: 5_000 });
+
+    // Record desktop state
+    const desktopSidebarWidth = await layoutPage.sidebar.evaluate(
+      (el) => el.getBoundingClientRect().width
+    );
+    expect(desktopSidebarWidth).toBeGreaterThan(100);
+
+    // Transition to mobile viewport (< 768px triggers isMobile)
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    // Wait for layout to adapt -- main content should still be visible
+    await expect(layoutPage.mainContent).toBeVisible({ timeout: 5_000 });
+
+    // On mobile, sidebar auto-collapses (useEffect sets sidebarCollapsed=true)
+    // Wait for the sidebar to become hidden (width transitions to 0)
+    await expect(async () => {
+      const width = await layoutPage.sidebar.evaluate(
+        (el) => el.getBoundingClientRect().width
+      );
+      expect(width).toBeLessThan(10);
+    }).toPass({ timeout: 5_000 });
+
+    test.info().annotations.push({
+      type: "responsive",
+      description: "Sidebar auto-collapsed on mobile viewport transition",
+    });
+
+    // Verify sidebar can be toggled back via the toggle button
+    const toggleBtn = layoutPage.sidebarToggleButton;
+    const toggleVisible = await toggleBtn.isVisible().catch(() => false);
+    if (toggleVisible) {
+      await toggleBtn.click();
+      // On mobile, sidebar opens as fixed overlay (280px wide)
+      await expect(layoutPage.sidebar).toBeVisible({ timeout: 5_000 });
+
+      // Close sidebar using the X button inside the mobile sidebar overlay
+      // (the X button is rendered only on mobile, inside the sidebar header)
+      const closeBtn = layoutPage.sidebar.locator('button').filter({
+        has: page.locator('svg.lucide-x'),
+      });
+      const closeBtnVisible = await closeBtn.isVisible().catch(() => false);
+      if (closeBtnVisible) {
+        await closeBtn.click();
+      } else {
+        // Fallback: use keyboard shortcut to toggle sidebar
+        await layoutPage.toggleSidebar();
+      }
+    }
+
+    // Verify no layout crash -- main content still accessible
+    await expect(layoutPage.mainContent).toBeVisible();
+
+    // Transition back to desktop
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Sidebar may remain collapsed after mobile mode -- re-expand via keyboard
+    // (isMobile->false doesn't auto-expand; sidebarCollapsed stays true)
+    await layoutPage.toggleSidebar();
+
+    // Verify desktop layout restored: sidebar visible again
+    await expect(layoutPage.sidebar).toBeVisible({ timeout: 5_000 });
+    await expect(layoutPage.mainContent).toBeVisible({ timeout: 5_000 });
+
+    // Verify sidebar width restored to desktop proportions
+    await expect(async () => {
+      const restoredSidebarWidth = await layoutPage.sidebar.evaluate(
+        (el) => el.getBoundingClientRect().width
+      );
+      expect(restoredSidebarWidth).toBeGreaterThan(100);
+    }).toPass({ timeout: 5_000 });
+
+    const restoredSidebarWidth = await layoutPage.sidebar.evaluate(
+      (el) => el.getBoundingClientRect().width
+    );
+
+    // Verify messages are still visible (content survived transitions)
+    await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 5_000 });
+
+    test.info().annotations.push({
+      type: "responsive",
+      description: `Desktop->Mobile->Desktop transition complete. Sidebar: ${desktopSidebarWidth}px -> mobile -> ${restoredSidebarWidth}px`,
+    });
+  });
+});
+
+/**
+ * CROSS-02: WebSocket reconnection test.
+ * Requires routeWebSocket BEFORE navigation, so it has its own describe block.
+ */
+test.describe("WS Reconnection", () => {
+  test("CROSS-02: WebSocket reconnection restores panel states without duplicates", async ({
+    page,
+    layoutPage,
+  }) => {
+    test.slow(); // Reconnection with backoff takes time
+
+    // Set up WS interception BEFORE navigation to capture the main /ws connection.
+    // Track both the WebSocketRoute (client-side) and server connection objects.
+    const serverConnections: { close: () => void }[] = [];
+    const clientRoutes: { close: () => void }[] = [];
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      serverConnections.push(server);
+      clientRoutes.push(ws);
+      // Transparent proxy -- pass through all messages
+      ws.onMessage((msg) => server.send(msg));
+      server.onMessage((msg) => ws.send(msg));
+    });
+
+    await goToApp(page);
+
+    // Open a topic to have visible panels/content
+    await openTopic(page, /Web Search Test/);
+
+    // Wait for content to render
+    const messages = page.locator(".message-appear");
+    await expect(messages.first()).toBeVisible({ timeout: 15_000 });
+
+    // Record panel state before disconnect
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]');
+    const tabBarExists = await tabBar.first().isVisible().catch(() => false);
+    let tabCountBefore = 0;
+    if (tabBarExists) {
+      tabCountBefore = await tabBar.first().locator('[draggable="true"]').count();
+    }
+
+    // Count sidebar topic items before disconnect (to check for duplicates later)
+    const sidebarItems = page.getByRole("treeitem");
+    const sidebarCountBefore = await sidebarItems.count();
+
+    // Verify we have at least one server connection
+    expect(serverConnections.length).toBeGreaterThanOrEqual(1);
+    const connectionsBefore = serverConnections.length;
+
+    // Trigger disconnect by closing BOTH sides of the proxy.
+    // Closing just the server side may not propagate to the client in Playwright's
+    // routeWebSocket. We close the client route to ensure the browser's WS fires onclose.
+    const lastClient = clientRoutes[clientRoutes.length - 1];
+    lastClient.close();
+
+    // Wait for auto-reconnection -- a new server connection should appear
+    // The client's useWebSocket hook detects close, sets status to 'reconnecting',
+    // then reconnects after exponential backoff (1s initial).
+    await expect(async () => {
+      expect(serverConnections.length).toBeGreaterThan(connectionsBefore);
+    }).toPass({ timeout: 20_000 });
+
+    // After reconnection, wait for connection status to show Connected
+    await expect(layoutPage.connectionStatus).toHaveAttribute(
+      "aria-label",
+      /Connected/,
+      { timeout: 20_000 }
+    );
+
+    // Verify panels restored: tab count matches (no panels lost or duplicated)
+    if (tabBarExists && tabCountBefore > 0) {
+      await expect(async () => {
+        const tabCountAfter = await tabBar
+          .first()
+          .locator('[draggable="true"]')
+          .count();
+        expect(tabCountAfter).toBe(tabCountBefore);
+      }).toPass({ timeout: 10_000 });
+    }
+
+    // Verify sidebar items didn't duplicate
+    const sidebarCountAfter = await sidebarItems.count();
+    // Allow small variance (server may push updates) but no massive duplication
+    expect(sidebarCountAfter).toBeLessThanOrEqual(sidebarCountBefore + 3);
+
+    // Verify messages are still visible (content not wiped)
+    await expect(messages.first()).toBeVisible({ timeout: 5_000 });
+
+    test.info().annotations.push({
+      type: "ws-reconnection",
+      description: `WS reconnected (${connectionsBefore}->${serverConnections.length} connections). Tabs: ${tabCountBefore} preserved. Sidebar items: ${sidebarCountBefore}->${sidebarCountAfter}.`,
+    });
+  });
 });
