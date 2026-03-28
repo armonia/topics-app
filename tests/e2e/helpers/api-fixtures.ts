@@ -46,13 +46,14 @@ export async function createTask(
   request: APIRequestContext,
   projectId: string,
   text: string,
-  opts?: { status?: string; priority?: string }
+  opts?: { status?: string; priority?: string | number; assignedTo?: string }
 ): Promise<{ id: string; text: string; status: string; priority: string }> {
   const res = await request.post(`${BASE}/api/boards/${projectId}/tasks`, {
     data: {
       text,
       status: opts?.status || "todo",
-      priority: opts?.priority || "medium",
+      priority: opts?.priority ?? 2,
+      ...(opts?.assignedTo ? { assignedTo: opts.assignedTo } : {}),
     },
     ignoreHTTPSErrors: true,
   });

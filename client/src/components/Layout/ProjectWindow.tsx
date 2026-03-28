@@ -701,10 +701,13 @@ export function ProjectWindowPane({
       const targetGroupId = focusedGroupId || groups[0]?.id;
       if (targetGroupId) {
         handleAddPaneToGroup(targetGroupId, pendingPane);
+      } else {
+        // No groups exist yet — create one with the pending pane
+        handleAddPaneWhenEmpty(pendingPane);
       }
       onPendingPaneConsumed?.();
     }
-  }, [pendingPane, pendingTerminalSessionId, groups, focusedGroupId, panes, handleAddPaneToGroup, onPendingPaneConsumed]);
+  }, [pendingPane, pendingTerminalSessionId, groups, focusedGroupId, panes, handleAddPaneToGroup, handleAddPaneWhenEmpty, onPendingPaneConsumed]);
 
   // Stable refs for effects and callbacks to avoid re-renders
   const panesRef = useRef(panes);
@@ -1235,7 +1238,12 @@ export function ProjectWindowPane({
           onOpenProcessLog={handleOpenProcessLog}
           onOpenBoard={() => {
             const targetGroupId = focusedGroupId || groups[0]?.id;
-            if (targetGroupId) handleAddPaneToGroup(targetGroupId, 'board');
+            if (targetGroupId) {
+              handleAddPaneToGroup(targetGroupId, 'board');
+            } else {
+              // No groups exist yet -- use handleAddPaneWhenEmpty to create one
+              handleAddPaneWhenEmpty('board');
+            }
           }}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
