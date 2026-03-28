@@ -143,6 +143,35 @@ export const MOCK_LIVE_SESSIONS = [
   },
 ];
 
+// ── Mock Chat Messages (for SessionDetail transcript) ─────────
+
+export const MOCK_CHAT_MESSAGES = [
+  {
+    id: "msg-1",
+    role: "user",
+    content: "Please implement the authentication module",
+    timestamp: "2026-03-27T09:01:00Z",
+    toolCalls: null,
+  },
+  {
+    id: "msg-2",
+    role: "assistant",
+    content: "I will implement JWT authentication with refresh tokens using the jose library.",
+    timestamp: "2026-03-27T09:02:00Z",
+    toolCalls: [
+      { id: "tc-1", name: "write_file", args: { path: "src/auth.ts" } },
+      { id: "tc-2", name: "write_file", args: { path: "src/middleware.ts" } },
+    ],
+  },
+  {
+    id: "msg-3",
+    role: "user",
+    content: "Looks good, now add tests",
+    timestamp: "2026-03-27T09:10:00Z",
+    toolCalls: null,
+  },
+];
+
 // ── Mock Timeline Events ──────────────────────────────────────
 
 export const MOCK_TIMELINE_EVENTS = [
@@ -268,14 +297,16 @@ export class AgentPage {
    * Register all agent API endpoint mocks. Call BEFORE page.goto().
    */
   async mockAllAgentEndpoints() {
+    const profiles = MOCK_PROFILES.map((p) => ({ ...p, assignments: [...(p.assignments || [])] }));
     await this.mockSessionsEndpoint(MOCK_LIVE_SESSIONS);
     await this.mockSessionHistoryEndpoint(MOCK_HISTORY_SESSIONS);
-    await this.mockProfilesEndpoint([...MOCK_PROFILES]);
+    await this.mockProfilesEndpoint(profiles);
     await this.mockProfileUpdateEndpoint();
     await this.mockAgentSessionsEndpoint(MOCK_AGENT_SESSIONS);
     await this.mockTimelineEndpoint(MOCK_TIMELINE_EVENTS);
     await this.mockSessionChatHistory([]);
-    await this.mockAssignEndpoints();
+    await this.mockChatApiHistory([]);
+    await this.mockAssignEndpoints(profiles);
   }
 
   async mockSessionsEndpoint(sessions: any[]) {
@@ -402,28 +433,70 @@ export class AgentPage {
     });
   }
 
-  async mockAssignEndpoints() {
-    await this.page.route("**/api/agents/profiles/*/assign", async (route) => {
-      const body = JSON.parse(route.request().postData() || "{}");
+  /**
+   * Mock the chatApi.getHistory endpoint (POST /api/history/{sessionKey}).
+   * SessionDetail fetches local chat history from this endpoint first.
+   */
+  async mockChatApiHistory(messages: any[]) {
+    await this.page.route("**/api/history/*", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          agentId: "agent-alpha",
-          topicId: body.topicId,
-          role: body.role || "worker",
-          assignedAt: "2026-03-28T00:00:00Z",
-        }),
+        body: JSON.stringify({ messages }),
+      });
+    });
+  }
+
+  /**
+   * Stateful assign/unassign mocks. When assign is called, the profiles
+   * array is mutated so the next profiles list fetch reflects the assignment.
+   */
+  async mockAssignEndpoints(profiles?: any[]) {
+    const profilesRef = profiles || [...MOCK_PROFILES];
+
+    await this.page.route("**/api/agents/profiles/*/assign", async (route) => {
+      const url = route.request().url();
+      const body = JSON.parse(route.request().postData() || "{}");
+      // Extract profile ID from URL: /api/agents/profiles/{id}/assign
+      const parts = url.split("/api/agents/profiles/")[1]?.split("/") || [];
+      const profileId = parts[0];
+      const assignment = {
+        agentId: profileId,
+        topicId: body.topicId,
+        role: body.role || "worker",
+        assignedAt: "2026-03-28T00:00:00Z",
+      };
+      // Mutate profiles array so subsequent list fetches include the assignment
+      const target = profilesRef.find((p: any) => p.id === profileId);
+      if (target) {
+        target.assignments = [...(target.assignments || []), assignment];
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(assignment),
       });
     });
 
     await this.page.route("**/api/agents/profiles/*/unassign", async (route) => {
+      const url = route.request().url();
+      const body = JSON.parse(route.request().postData() || "{}");
+      const parts = url.split("/api/agents/profiles/")[1]?.split("/") || [];
+      const profileId = parts[0];
+      const target = profilesRef.find((p: any) => p.id === profileId);
+      if (target) {
+        target.assignments = (target.assignments || []).filter(
+          (a: any) => a.topicId !== body.topicId
+        );
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true }),
       });
     });
+
+    return profilesRef;
   }
 }
 

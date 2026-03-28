@@ -5,6 +5,8 @@ import {
   MOCK_HISTORY_SESSIONS,
   MOCK_LIVE_SESSIONS,
   MOCK_AGENT_SESSIONS,
+  MOCK_CHAT_MESSAGES,
+  MOCK_TIMELINE_EVENTS,
 } from "./fixtures/agent.fixture";
 
 test.describe("Agent Management", () => {
@@ -153,5 +155,138 @@ test.describe("Agent Management", () => {
     // Only offline profile (Gamma Researcher) should show
     await expect(agentPage.profileCards).toHaveCount(1);
     await expect(page.getByText("Gamma Researcher")).toBeVisible();
+  });
+
+  test("AGENT-05: session transcript with timestamps and tool calls", async ({
+    agentPage,
+    page,
+  }) => {
+    // Override default empty chat history mocks with real messages
+    await agentPage.mockChatApiHistory(MOCK_CHAT_MESSAGES);
+
+    await agentPage.openAgentsPane();
+
+    // Click first session row in the History section to open SessionDetail
+    await page.getByText(MOCK_HISTORY_SESSIONS[0].agentName!).first().click();
+
+    // Verify SessionDetail header shows agent name
+    await expect(
+      page
+        .locator("div")
+        .filter({ hasText: MOCK_HISTORY_SESSIONS[0].agentName! })
+        .first()
+    ).toBeVisible();
+
+    // Verify message bubbles render with content from mock chat messages
+    await expect(
+      page.getByText("Please implement the authentication module")
+    ).toBeVisible();
+    await expect(
+      page.getByText("I will implement JWT authentication", { exact: false })
+    ).toBeVisible();
+
+    // Verify timestamps are visible on messages (HH:MM format)
+    // MOCK_CHAT_MESSAGES[0] timestamp "2026-03-27T09:01:00Z" -> localized time
+    const timeElements = page.locator(
+      ".text-right:has-text(':'), .text-\\[9px\\]:has-text(':')"
+    );
+    await expect(timeElements.first()).toBeVisible();
+
+    // Verify tool calls indicator on assistant message (2 tool calls)
+    await expect(page.getByText("2 tool calls")).toBeVisible();
+
+    // Verify heartbeat entry: status dot + timestamp
+    // MOCK_TIMELINE_EVENTS has heartbeat with tokensUsed: 1200
+    await expect(page.getByText("+1K tok").first()).toBeVisible();
+
+    // Verify action entry: action label text from MOCK_TIMELINE_EVENTS
+    await expect(page.getByText("Task completed")).toBeVisible();
+    await expect(page.getByText("Auth module finished")).toBeVisible();
+  });
+
+  test("AGENT-06: session viewer pane navigation", async ({
+    agentPage,
+    page,
+  }) => {
+    await agentPage.openAgentsPane();
+
+    // Verify session list is visible (History section header)
+    await expect(page.getByText("History", { exact: true })).toBeVisible();
+
+    // Click a session row to open SessionDetail
+    await page.getByText(MOCK_HISTORY_SESSIONS[0].agentName!).first().click();
+
+    // Verify SessionDetail header: agent name text visible
+    const headerName = page.locator(".text-\\[12px\\].font-medium").filter({
+      hasText: MOCK_HISTORY_SESSIONS[0].agentName!,
+    });
+    await expect(headerName).toBeVisible();
+
+    // Verify status badge visible (e.g., "Active" for first mock session)
+    const statusBadge = page
+      .locator(".text-\\[9px\\].font-medium")
+      .filter({ hasText: "Active" });
+    await expect(statusBadge.first()).toBeVisible();
+
+    // Verify "Pane" button visible in header (open in pane action)
+    await expect(page.getByText("Pane")).toBeVisible();
+
+    // Click the back button (ArrowLeft icon button) to return to session list
+    const backButton = page.locator("button").filter({
+      has: page.locator("svg.lucide-arrow-left"),
+    });
+    await backButton.click();
+
+    // Verify session list is visible again (History header reappears)
+    await expect(page.getByText("History", { exact: true })).toBeVisible();
+
+    // Verify the session rows are visible again
+    await expect(
+      page.getByText(MOCK_HISTORY_SESSIONS[0].agentName!).first()
+    ).toBeVisible();
+  });
+
+  test("AGENT-07: agent assignment to topic", async ({ agentPage, page }) => {
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Click "Assign" button on first profile card
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Assign")').click();
+
+    // Topic ID input modal appears -- verify header text
+    await expect(
+      page.getByText(`Assign ${MOCK_PROFILES[0].name}`)
+    ).toBeVisible();
+
+    // Fill the topic input with a test topic ID
+    const topicInput = page.locator('input[name="topicInput"]');
+    await topicInput.fill("test-topic-123");
+
+    // Click "Continue" button
+    await page.locator('button:text("Continue")').click();
+
+    // AgentAssignPanel modal appears -- verify "Assign Agents" header
+    await expect(page.getByText("Assign Agents")).toBeVisible();
+
+    // Verify topic name is shown below header
+    await expect(page.getByText("test-topic-123")).toBeVisible();
+
+    // Verify "Available" section header shows agent count
+    await expect(page.getByText(/Available \(\d+\)/)).toBeVisible();
+
+    // Click "Worker" button next to the first available agent
+    const workerBtn = page.locator('button:text("Worker")').first();
+    await workerBtn.click();
+
+    // After assign, the component re-fetches profiles.
+    // Verify the assigned agent now appears in the "Assigned" section
+    await expect(page.getByText(/Assigned \(\d+\)/)).toBeVisible();
+
+    // Verify a role badge appears for the assigned agent
+    await expect(page.getByText("worker").first()).toBeVisible();
+
+    // Verify the "Remove" button (unassign) is visible for assigned agent
+    await expect(page.locator('button[title="Remove"]').first()).toBeVisible();
   });
 });
