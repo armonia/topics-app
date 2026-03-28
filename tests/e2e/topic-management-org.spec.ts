@@ -395,6 +395,15 @@ test.describe("Topic Management - Settings & Organization", () => {
     const reorderResponse = await reorderPromise;
     expect(reorderResponse.ok()).toBeTruthy();
 
+    // Verify visual DOM order changed after drag
+    const postDragOrder = await getTopicOrder();
+    expect(postDragOrder).not.toEqual(initialOrder);
+
+    // Assert Alpha now appears after Gamma visually
+    const alphaIdx = postDragOrder.findIndex(n => n.includes('Alpha'));
+    const gammaIdx = postDragOrder.findIndex(n => n.includes('Gamma'));
+    expect(alphaIdx).toBeGreaterThan(gammaIdx);
+
     // Verify the reorder was persisted server-side
     // Use API to check that sortOrder values were set
     const topicsResp = await request.get("https://localhost:3333/api/topics", {
@@ -408,5 +417,15 @@ test.describe("Topic Management - Settings & Organization", () => {
     expect(alphaSortOrder).toBeDefined();
     expect(gammaSortOrder).toBeDefined();
     expect(alphaSortOrder).not.toBe(gammaSortOrder);
+
+    // Reload and verify visual order persists
+    await page.reload();
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
+    await ensureTopicVisible(page, new RegExp(`E2E-Alpha-${TS}`));
+
+    const postReloadOrder = await getTopicOrder();
+    const alphaIdxReload = postReloadOrder.findIndex(n => n.includes('Alpha'));
+    const gammaIdxReload = postReloadOrder.findIndex(n => n.includes('Gamma'));
+    expect(alphaIdxReload).toBeGreaterThan(gammaIdxReload);
   });
 });

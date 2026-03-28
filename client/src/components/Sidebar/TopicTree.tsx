@@ -262,13 +262,10 @@ export function TopicTree({
 
   const renderLevel = (parentId: string | null, depth = 0, includeArchived = false, hideIcon = false): React.ReactNode[] => {
     const children = getChildren(parentId).sort((a, b) => {
-      // Root-level chats: always sort by recency (ignore manual sortOrder)
-      if (parentId === null) {
-        return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
-      }
+      // All levels: respect sortOrder when set, fall back to recency
+      // (matches chatTopicIds and handleDragEnd sort logic)
       const so = (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity);
       if (so !== 0) return so;
-      // No manual order — newest first
       return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '');
     });
     const result: React.ReactNode[] = [];
