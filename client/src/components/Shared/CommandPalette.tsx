@@ -281,7 +281,7 @@ export function CommandPalette({
   let globalIdx = 0;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
+    <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
       <div className="fixed inset-0 bg-black/30 dark:bg-black/50" />
       <div
         className="relative w-full max-w-lg mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter"
