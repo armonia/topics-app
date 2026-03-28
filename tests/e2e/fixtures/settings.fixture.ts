@@ -74,7 +74,9 @@ export class SettingsPage {
   // --- Locator Getters ---
 
   get panel() {
-    return this.page.locator('[data-testid="settings-panel"]');
+    return this.page.locator('[data-testid="settings-panel"]').or(
+      this.page.locator('.bg-surface.rounded-xl.shadow-xl:has(h2:text-is("Settings"))'),
+    );
   }
 
   get themeToggle() {
