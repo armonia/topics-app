@@ -29,9 +29,10 @@ export class TerminalPage {
     await expect(this.activeXtermRows).toContainText(text, { timeout });
   }
 
-  /** Click terminal to ensure it has focus before typing */
+  /** Click terminal to ensure it has focus before typing.
+   *  xterm.js v6 uses .xterm-screen as the interactive layer above .xterm-rows */
   async focus() {
-    await this.activeXtermRows.click();
+    await this.page.locator('.xterm-screen').first().click();
   }
 
   /** Open a new shell terminal via the "+" button dropdown */
