@@ -528,7 +528,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     const hasData = !!gitStatus && !notGit;
     const fileCount = gitStatus?.files.length ?? 0;
     return (
-      <div className={`flex flex-col ${expanded ? 'h-full min-h-0' : ''}`}>
+      <div data-testid="git-changes" className={`flex flex-col ${expanded ? 'h-full min-h-0' : ''}`}>
         {/* Header — two-part layout: left flexible, right fixed (no shift) */}
         <div
           onClick={onToggle}
@@ -864,7 +864,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   };
 
   return (
-    <div className="flex h-full">
+    <div data-testid="git-changes" className="flex h-full">
       {/* Left: status panel */}
       <div className="w-[280px] flex-shrink-0 border-r border-app-border flex flex-col overflow-hidden">
         {/* Header info */}

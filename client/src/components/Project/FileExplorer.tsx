@@ -1077,6 +1077,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           ref={treeRef}
           className="flex-1 overflow-y-auto"
           role="tree"
+          data-testid="file-tree"
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
@@ -1103,6 +1104,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           ref={treeRef}
           className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
           role="tree"
+          data-testid="file-tree"
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >

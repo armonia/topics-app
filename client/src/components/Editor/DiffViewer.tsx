@@ -135,6 +135,7 @@ export function DiffViewer({ originalContent, modifiedContent, filename, darkMod
   return (
     <div
       ref={containerRef}
+      data-testid="diff-viewer"
       className="h-full w-full overflow-auto [&_.cm-mergeView]:h-full [&_.cm-editor]:outline-none [&_.cm-mergeViewEditors]:h-full [&_.cm-scroller]:overflow-auto"
     />
   );
