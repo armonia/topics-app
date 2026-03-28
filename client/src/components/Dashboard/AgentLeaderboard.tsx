@@ -13,14 +13,14 @@ function formatTokens(n: number): string {
 export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
   if (agents.length === 0) {
     return (
-      <div className="flex items-center justify-center py-6 text-app-text-muted text-[12px]">
+      <div data-testid="agent-leaderboard" className="flex items-center justify-center py-6 text-app-text-muted text-[12px]">
         No agent data available
       </div>
     );
   }
 
   return (
-    <div className="overflow-auto">
+    <div data-testid="agent-leaderboard" className="overflow-auto">
       <table className="w-full text-[11px]">
         <thead>
           <tr className="border-b border-app-border text-app-text-muted text-left">

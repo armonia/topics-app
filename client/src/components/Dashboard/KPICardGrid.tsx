@@ -19,7 +19,7 @@ interface KPICardGridProps {
 
 export function KPICardGrid({ kpis }: KPICardGridProps) {
   return (
-    <div className="grid grid-cols-5 gap-2">
+    <div data-testid="kpi-card-grid" className="grid grid-cols-5 gap-2">
       <KPICard
         label="Throughput (Today)"
         value={kpis.throughputDay}

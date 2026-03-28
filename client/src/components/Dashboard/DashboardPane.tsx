@@ -43,7 +43,7 @@ export function DashboardPane() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-auto">
+    <div data-testid="dashboard-pane" className="flex-1 flex flex-col min-h-0 overflow-auto">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-app-border flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -70,7 +70,7 @@ export function DashboardPane() {
         {kpis && <KPICardGrid kpis={kpis} />}
 
         {/* Time Series Chart */}
-        <div className="bg-surface border border-app-border rounded-lg p-3">
+        <div data-testid="dashboard-chart" className="bg-surface border border-app-border rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
               {METRIC_OPTIONS.map((opt) => (

@@ -1,14 +1,197 @@
 import { test as base, type Page } from "@playwright/test";
 
+/**
+ * Deterministic mock data for dashboard E2E tests.
+ * All values are fixed (no Math.random) to ensure reproducible assertions.
+ */
+const MOCK_KPIS = {
+  throughputDay: 12,
+  throughputWeek: 47,
+  avgCycleTimeHours: 3.2,
+  wipCount: 5,
+  errorRate: 0.03,
+  tokenSpendDay: 4.56,
+  tokenSpendWeek: 23.89,
+  agentUtilization: 0.72,
+  approvalTurnaroundHours: 1.5,
+  pendingApprovals: 3,
+};
+
+function generatePoints(count: number): Array<{ date: string; value: number }> {
+  return Array.from({ length: count }, (_, i) => ({
+    date: `2026-03-${String(i + 1).padStart(2, "0")}`,
+    value: 10 + i * 3,
+  }));
+}
+
+const MOCK_TIMESERIES: Record<string, Array<{ date: string; value: number }>> =
+  {
+    "1d": generatePoints(24),
+    "7d": generatePoints(7),
+    "30d": generatePoints(30),
+  };
+
+const MOCK_AGENTS = [
+  {
+    agentId: "a1",
+    agentName: "Claude",
+    avatarEmoji: "",
+    tasksCompleted: 15,
+    totalTokens: 50000,
+    avgCycleTimeHours: 2.1,
+    errorRate: 0.02,
+    sessionsCount: 8,
+  },
+  {
+    agentId: "a2",
+    agentName: "Agent-2",
+    avatarEmoji: "",
+    tasksCompleted: 10,
+    totalTokens: 30000,
+    avgCycleTimeHours: 3.5,
+    errorRate: 0.05,
+    sessionsCount: 5,
+  },
+];
+
 export class DashboardPage {
   constructor(private page: Page) {}
 
-  get kpiCards() {
-    return this.page.locator('[data-testid="dashboard-kpi-cards"]');
+  // --- Navigation ---
+
+  /**
+   * Open the dashboard pane via the sidebar "Topics" dropdown -> "Statistics" button.
+   */
+  async openDashboard() {
+    // Click the "Topics" button in sidebar header to open the dropdown menu
+    const topicsBtn = this.page.locator('button:has(span:text("Topics"))');
+    await topicsBtn.click();
+
+    // Click "Statistics" in the dropdown menu
+    const statsBtn = this.page.locator(
+      'button:has-text("Statistics"):visible',
+    );
+    await statsBtn.click();
+
+    // Wait for the dashboard pane to be visible
+    await this.pane.waitFor({ state: "visible", timeout: 10_000 });
   }
 
-  get chart() {
+  // --- Locators ---
+
+  get pane() {
+    return this.page.locator('[data-testid="dashboard-pane"]');
+  }
+
+  get kpiGrid() {
+    return this.page.locator('[data-testid="kpi-card-grid"]');
+  }
+
+  get kpiCards() {
+    return this.page.locator('[data-testid="kpi-card"]');
+  }
+
+  get chartContainer() {
     return this.page.locator('[data-testid="dashboard-chart"]');
+  }
+
+  get chartSvg() {
+    return this.chartContainer.locator("svg");
+  }
+
+  get chartPaths() {
+    return this.chartSvg.locator("path");
+  }
+
+  get chartCircles() {
+    return this.chartSvg.locator("circle");
+  }
+
+  get rangeSelector() {
+    return this.page.locator('[data-testid="range-selector"]');
+  }
+
+  get rangeButtons() {
+    return this.rangeSelector.locator("button");
+  }
+
+  get leaderboard() {
+    return this.page.locator('[data-testid="agent-leaderboard"]');
+  }
+
+  get leaderboardTable() {
+    return this.leaderboard.locator("table");
+  }
+
+  get leaderboardHeaders() {
+    return this.leaderboardTable.locator("th");
+  }
+
+  get leaderboardRows() {
+    return this.leaderboardTable.locator("tbody tr");
+  }
+
+  // --- API Mock Helpers ---
+
+  async mockKpiEndpoint(
+    kpis: Record<string, number> = MOCK_KPIS,
+  ) {
+    await this.page.route("**/api/dashboard/kpis", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(kpis),
+      });
+    });
+  }
+
+  async mockTimeseriesEndpoint(
+    pointsByRange: Record<
+      string,
+      Array<{ date: string; value: number }>
+    > = MOCK_TIMESERIES,
+  ) {
+    await this.page.route("**/api/dashboard/timeseries*", async (route) => {
+      const url = new URL(route.request().url());
+      const range = url.searchParams.get("range") || "7d";
+      const points = pointsByRange[range] || pointsByRange["7d"] || [];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ points }),
+      });
+    });
+  }
+
+  async mockAgentStatsEndpoint(
+    agents: Array<{
+      agentId: string;
+      agentName: string;
+      avatarEmoji: string;
+      tasksCompleted: number;
+      totalTokens: number;
+      avgCycleTimeHours: number;
+      errorRate: number;
+      sessionsCount: number;
+    }> = MOCK_AGENTS,
+  ) {
+    await this.page.route("**/api/dashboard/agent-stats", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ agents }),
+      });
+    });
+  }
+
+  /**
+   * Mock all three dashboard API endpoints with deterministic data.
+   * Call BEFORE navigation to ensure mocks are active on first load.
+   */
+  async mockAllDashboardEndpoints() {
+    await this.mockKpiEndpoint();
+    await this.mockTimeseriesEndpoint();
+    await this.mockAgentStatsEndpoint();
   }
 }
 

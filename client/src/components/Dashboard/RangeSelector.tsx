@@ -7,7 +7,7 @@ const RANGES = ['1d', '7d', '30d'];
 
 export function RangeSelector({ value, onChange }: RangeSelectorProps) {
   return (
-    <div className="flex items-center gap-0.5 bg-surface border border-app-border rounded-md p-0.5">
+    <div data-testid="range-selector" className="flex items-center gap-0.5 bg-surface border border-app-border rounded-md p-0.5">
       {RANGES.map((r) => (
         <button
           key={r}

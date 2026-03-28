@@ -22,7 +22,7 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
   const TrendIcon = trend === 'up' ? TrendingUp : trend === 'down' ? TrendingDown : Minus;
 
   return (
-    <div className="bg-surface border border-app-border rounded-lg px-3 py-2.5 flex flex-col gap-1 min-w-0">
+    <div data-testid="kpi-card" className="bg-surface border border-app-border rounded-lg px-3 py-2.5 flex flex-col gap-1 min-w-0">
       <div className="flex items-center justify-between">
         <Icon size={14} className="text-app-text-muted flex-shrink-0" />
         <TrendIcon size={12} className={`${trendColor} flex-shrink-0`} />
