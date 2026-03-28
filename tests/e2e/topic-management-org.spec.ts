@@ -303,38 +303,36 @@ test.describe("Topic Management - Settings & Organization", () => {
     await expect(badge).toContainText("3", { timeout: 5000 });
   });
 
-  test("TOPIC-11: color customization via context menu persists with actual color assertion", async ({
-    page, request,
+  test("TOPIC-11: color customization via context menu persists", async ({
+    page,
   }) => {
-    const targetColor = "#059669"; // green = rgb(5, 150, 105)
-
-    // Set the color via API to ensure it's saved (context menu can be flaky in E2E)
-    await request.patch(`https://localhost:3333/api/topics/${betaId}`, {
-      data: { color: targetColor },
-      ignoreHTTPSErrors: true,
-    });
-
     // Navigate to app and find Beta topic
     await goToApp(page);
     const betaTopic = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
 
-    // Verify the context menu shows the color option (UI interaction test)
+    // Right-click to open context menu
     await betaTopic.click({ button: "right" });
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible({ timeout: 5000 });
-    const changeColorItem = page.getByRole("menuitem", { name: /Change color/i });
-    await expect(changeColorItem).toBeVisible({ timeout: 3000 });
-    // Close menu
-    await page.keyboard.press("Escape");
+
+    // Click "Change color" menuitem to open color submenu
+    await menu.getByRole("menuitem", { name: /Change color/i }).click();
+
+    // Wait for color submenu to appear
+    await expect(menu.getByText("Choose color")).toBeVisible({ timeout: 3000 });
+
+    // Click the green color swatch (#059669 = rgb(5, 150, 105))
+    await menu.getByRole("button", { name: "Color #059669" }).click();
+
+    // Context menu should auto-close (handleColorChange calls onClose)
     await expect(menu).toBeHidden({ timeout: 3000 });
 
-    // Click the topic to focus it (the accent border shows the topic color)
-    await betaTopic.click();
+    // Click the topic to focus it (shows accent border with topic color)
+    const betaAfterColor = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
+    await betaAfterColor.click();
 
-    // The focused topic shows a left accent border with the topic's color
-    // The accent div has: style={{ backgroundColor: topic.color }}
-    // Check the accent border's background color: #059669 = rgb(5, 150, 105)
-    const accentBorder = betaTopic.locator('div[style*="background"]').first();
+    // Verify accent border color: #059669 = rgb(5, 150, 105)
+    const accentBorder = betaAfterColor.locator('div[style*="background"]').first();
     await expect(accentBorder).toBeVisible({ timeout: 5000 });
     await expect(accentBorder).toHaveCSS("background-color", "rgb(5, 150, 105)");
 
