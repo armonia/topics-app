@@ -75,7 +75,7 @@ export function BoardMemoryPanel({ projectId, onWSMessage }: BoardMemoryPanelPro
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface text-app-text">
+    <div data-testid="board-memory-panel" className="flex flex-col h-full bg-surface text-app-text">
       {/* Header */}
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-app-border/40">
         <Brain size={14} className="text-emerald-400" />

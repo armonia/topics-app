@@ -194,7 +194,7 @@ export function KanbanBoard({ projectId, topicId, onWSMessage }: KanbanBoardProp
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface text-app-text overflow-hidden">
+    <div data-testid="kanban-board" className="flex flex-col h-full bg-surface text-app-text overflow-hidden">
       {/* Escalation toasts */}
       {escalations.length > 0 && (
         <div className="absolute top-2 right-2 z-50 flex flex-col gap-1.5 max-w-[300px]">

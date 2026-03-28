@@ -108,6 +108,51 @@ export async function deleteAgentProfile(
     );
 }
 
+// --- Approval fixtures ---
+
+export async function createApproval(
+  request: APIRequestContext,
+  projectId: string,
+  taskId: string,
+  opts?: { approvalType?: string; fromStatus?: string; toStatus?: string; confidenceScore?: number; justification?: string; requestedBy?: string }
+): Promise<{ id: string }> {
+  const res = await request.post(`${BASE}/api/boards/${projectId}/approvals`, {
+    data: {
+      taskId,
+      approvalType: opts?.approvalType || "status_change",
+      fromStatus: opts?.fromStatus || "review",
+      toStatus: opts?.toStatus || "done",
+      confidenceScore: opts?.confidenceScore || 85,
+      rubricScores: { quality: 4, completeness: 5 },
+      justification: opts?.justification || "All acceptance criteria met",
+      requestedBy: opts?.requestedBy || "test-agent",
+    },
+    ignoreHTTPSErrors: true,
+  });
+  if (!res.ok()) throw new Error(`Failed to create approval: ${res.status()}`);
+  return res.json() as Promise<{ id: string }>;
+}
+
+// --- Board memory fixtures ---
+
+export async function createBoardMemory(
+  request: APIRequestContext,
+  projectId: string,
+  content: string,
+  opts?: { tags?: string; source?: string }
+): Promise<{ id: string }> {
+  const res = await request.post(`${BASE}/api/boards/${projectId}/memory`, {
+    data: {
+      content,
+      tags: opts?.tags || "test",
+      source: opts?.source || "manual",
+    },
+    ignoreHTTPSErrors: true,
+  });
+  if (!res.ok()) throw new Error(`Failed to create board memory: ${res.status()}`);
+  return res.json() as Promise<{ id: string }>;
+}
+
 // --- Cleanup helper ---
 
 interface CleanupItems {
