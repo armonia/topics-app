@@ -29,10 +29,10 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
   };
 
   return (
-    <div className="px-4 py-3 border-b border-app-border">
+    <div data-testid="context-budget-bar" className="px-4 py-3 border-b border-app-border">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[12px] font-medium text-app-text">Context Budget</span>
-        <span className={`text-[12px] font-semibold tabular-nums ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-secondary'}`}>
+        <span data-testid="budget-percent" className={`text-[12px] font-semibold tabular-nums ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-secondary'}`}>
           {formatTokens(totalTokens)} / {formatTokens(budgetLimit)} ({budgetPercent}%)
         </span>
       </div>

@@ -20,7 +20,7 @@ export function ContextPills({ files, onRemove, onToggle, excludedPaths, compact
   if (files.length === 0) return null;
 
   return (
-    <div className={`flex items-center gap-1.5 overflow-x-auto scrollbar-hide ${compact ? '' : 'px-3 py-1.5 border-t border-app-border'}`}>
+    <div data-testid="context-pills" className={`flex items-center gap-1.5 overflow-x-auto scrollbar-hide ${compact ? '' : 'px-3 py-1.5 border-t border-app-border'}`}>
       {!compact && (
         <span className="text-[10px] text-app-text-muted font-medium mr-0.5 flex-shrink-0">Context</span>
       )}
@@ -59,6 +59,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
 
   return (
     <span
+      data-testid="context-pill"
       className={`context-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-medium flex-shrink-0 transition-all ${
         excluded ? excludedStyle : activeStyles[file.type]
       } ${onToggle ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-110' : ''}`}

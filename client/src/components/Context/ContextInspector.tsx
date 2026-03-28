@@ -169,7 +169,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface border-l border-app-border">
+    <div data-testid="context-inspector" className="flex flex-col h-full bg-surface border-l border-app-border">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-app-border flex-shrink-0">
         <span className="text-[13px] font-medium text-app-text">Context Inspector</span>

@@ -65,7 +65,7 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
   };
 
   return (
-    <div className={`border-b border-app-border last:border-b-0 transition-colors ${!source.enabled ? 'opacity-50' : ''}`}>
+    <div data-testid="context-source-row" className={`border-b border-app-border last:border-b-0 transition-colors ${!source.enabled ? 'opacity-50' : ''}`}>
       {/* Row header */}
       <div className="flex items-center gap-2 px-4 py-2 hover:bg-app-hover/50 transition-colors">
         <button

@@ -12,7 +12,7 @@ export function ContextWarnings({ warnings }: ContextWarningsProps) {
   if (warnings.length === 0) return null;
 
   return (
-    <div className="border-b border-app-border">
+    <div data-testid="context-warnings" className="border-b border-app-border">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-app-hover transition-colors"
