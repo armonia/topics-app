@@ -109,7 +109,7 @@ export function TopicTree({
   const [terminalAddOpen, setTerminalAddOpen] = useState(false);
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [, setDragOverId] = useState<string | null>(null);
   const [expandedProjectChats, setExpandedProjectChats] = useState<Set<string>>(new Set());
   const [openSectionMenu, setOpenSectionMenu] = useState<'projects' | 'chats' | null>(null);
   const projectsOverflowRef = useRef<HTMLButtonElement>(null);

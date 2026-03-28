@@ -26,8 +26,10 @@ export async function interceptWebSocket(
   urlPattern: string | RegExp = /\/ws/
 ) {
   const messages: { direction: "client" | "server"; data: string }[] = [];
+  let wsRoute: WebSocketRoute | null = null;
 
   await page.routeWebSocket(urlPattern, (ws) => {
+    wsRoute = ws;
     const server = ws.connectToServer();
 
     ws.onMessage((msg) => {
@@ -52,6 +54,11 @@ export async function interceptWebSocket(
           return false;
         }
       });
+    },
+    /** Inject a fake server-to-client message through the intercepted connection */
+    send(data: WsMessage | string) {
+      if (!wsRoute) throw new Error("WebSocket not connected yet");
+      wsRoute.send(typeof data === "string" ? data : JSON.stringify(data));
     },
   };
 }

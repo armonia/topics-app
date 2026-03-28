@@ -25,16 +25,9 @@ export class TopicManagementPage {
     return this.page.locator('[aria-label="Topics sidebar"]');
   }
 
-  /** Find a topic item by name in the sidebar.
-   *  dnd-kit's useSortable overrides role="treeitem" with role="button",
-   *  so we match on div[role="button"][aria-label] within the topic list. */
+  /** Find a topic item by name in the sidebar tree */
   findTopic(name: string | RegExp) {
-    const list = this.page.locator('[data-testid="sidebar-topic-list"]');
-    if (typeof name === "string") {
-      return list.locator(`div[role="button"][aria-label="${name}"]`);
-    }
-    // For RegExp, filter by text content within topic items
-    return list.locator('div[role="button"][aria-label]').filter({ hasText: name });
+    return this.page.getByRole("treeitem", { name });
   }
 
   /** Get the search input */

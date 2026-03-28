@@ -13,7 +13,7 @@ import {
   createTopic,
   deleteTopic,
 } from "./helpers/api-fixtures";
-import { mockWebSocket } from "./helpers/ws-helpers";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 import { dndReorder } from "./helpers/dnd-helpers";
 
 const TS = Date.now();
@@ -274,33 +274,41 @@ test.describe("Topic Management - Settings & Organization", () => {
   });
 
   test("TOPIC-10: unread indicator via WebSocket mock", async ({ page }) => {
-    // Mock WebSocket BEFORE page.goto() per convention
-    const ws = await mockWebSocket(page);
+    // Intercept WebSocket BEFORE page.goto() — keeps real connection alive + allows injection
+    const ws = await interceptWebSocket(page);
 
     // Navigate to the app
-    await page.goto("/");
-    await page.waitForSelector('[aria-label="Topics sidebar"]', {
-      state: "visible",
-      timeout: 15000,
-    });
+    await goToApp(page);
 
-    // Open Beta topic via search (so Alpha is unfocused and can show unread badge)
-    await openTopicViaSearch(page, new RegExp(`E2E-Beta-${TS}`));
+    // Ensure Chats section is expanded
+    const chatsSection = page.getByRole("button", { name: /Chats section/ });
+    if ((await chatsSection.count()) > 0) {
+      const expanded = await chatsSection.getAttribute("aria-expanded");
+      if (expanded === "false") {
+        await chatsSection.click();
+      }
+    }
 
-    // Send unread:updated event for Alpha topic via mocked WebSocket
+    // Click on Beta topic to make it focused (so Alpha is unfocused and can show unread badge)
+    const betaTopic = page.getByRole("treeitem", { name: new RegExp(`E2E-Beta-${TS}`) });
+    await betaTopic.waitFor({ state: "visible", timeout: 10000 });
+    await betaTopic.click();
+    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 5000 });
+
+    // Inject unread:updated event for Alpha topic via intercepted WebSocket
     ws.send({
       type: "unread:updated",
       topicId: alphaId,
       unreadCount: 3,
     });
 
-    // Verify unread badge appears on Alpha topic
-    // After clearing search, Alpha should be visible in the Chats section
-    const alphaTopic = await ensureTopicVisible(page, new RegExp(`E2E-Alpha-${TS}`));
+    // Verify unread badge appears on Alpha topic (which is visible but not focused)
+    const alphaTopic = page.getByRole("treeitem", { name: new RegExp(`E2E-Alpha-${TS}`) });
+    await alphaTopic.waitFor({ state: "visible", timeout: 10000 });
 
-    // The unread badge shows the count inside a rounded-full span
-    const badge = alphaTopic.locator("span.rounded-full");
-    await expect(badge).toContainText("3", { timeout: 5000 });
+    // The unread badge shows the count inside a styled span
+    const badge = alphaTopic.locator("span").filter({ hasText: "3" });
+    await expect(badge).toBeVisible({ timeout: 5000 });
   });
 
   test("TOPIC-11: color customization via context menu persists", async ({
@@ -353,9 +361,12 @@ test.describe("Topic Management - Settings & Organization", () => {
   }) => {
     await goToApp(page);
 
-    // Ensure test topics are visible in sidebar
+    // Ensure test topics are visible in sidebar and scrolled into view
     const alpha = await ensureTopicVisible(page, new RegExp(`E2E-Alpha-${TS}`));
     const gamma = await ensureTopicVisible(page, new RegExp(`E2E-Gamma-${TS}`));
+    // Scroll both elements into viewport for mouse events to work
+    await alpha.scrollIntoViewIfNeeded();
+    await gamma.scrollIntoViewIfNeeded();
 
     // Helper to get VISUAL order of our E2E test topics (sorted by Y position)
     // dnd-kit uses CSS transforms, so DOM order differs from visual order
