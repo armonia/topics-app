@@ -131,6 +131,125 @@ export class DashboardPage {
     return this.leaderboardTable.locator("tbody tr");
   }
 
+  // --- Activity Feed Navigation ---
+
+  /**
+   * Open the activity feed pane via the sidebar Activity button (title="Activity").
+   * Waits for the Live/Digest tab bar to become visible as confirmation.
+   */
+  async openActivityFeed() {
+    const activityBtn = this.page.locator('button[title="Activity"]');
+    await activityBtn.click();
+    // Wait for the activity feed to render by checking for its tab bar
+    await this.liveFeedTab.waitFor({ state: "visible", timeout: 10_000 });
+  }
+
+  // --- Activity Feed Locators ---
+
+  /** Activity feed container: uses data-testid if present, falls back to panel with Live/Digest tabs */
+  get activityFeed() {
+    // The data-testid is the ideal selector; fall back to the pane containing Live/Digest tabs
+    return this.page.locator('[data-testid="activity-feed"]').or(
+      this.page.locator('.flex.flex-col.h-full.relative:has(button:text("Live")):has(button:text("Digest"))'),
+    );
+  }
+
+  get liveFeedTab() {
+    return this.activityFeed.getByRole("button", { name: "Live" });
+  }
+
+  get digestTab() {
+    return this.activityFeed.getByRole("button", { name: "Digest" });
+  }
+
+  // --- Journal Locators ---
+
+  // --- Journal Locators (scoped from page since data-testid may not be on running server) ---
+
+  get journalPrevDay() {
+    return this.page.locator('button[title="Previous day"]');
+  }
+
+  get journalNextDay() {
+    return this.page.locator('button[title="Next day"]');
+  }
+
+  get journalTodayButton() {
+    return this.page.locator('button[title="Go to today"]');
+  }
+
+  get journalEventsTab() {
+    return this.page.getByRole("button", { name: /Events \(/ });
+  }
+
+  // --- SSE Mock for Activity Feed ---
+
+  /**
+   * Mock the /api/activity/stream SSE endpoint with deterministic events.
+   * Returns an init payload containing the provided events.
+   * Must be called BEFORE navigation.
+   */
+  async mockActivityStream(
+    events: Array<{
+      id: string;
+      timestamp: string;
+      category: string;
+      level: string;
+      title: string;
+    }>,
+  ) {
+    await this.page.route("**/api/activity/stream", async (route) => {
+      const body = `data: ${JSON.stringify({ type: "init", events })}\n\n`;
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+        body,
+      });
+    });
+  }
+
+  // --- Journal REST Mocks ---
+
+  /**
+   * Mock journal REST endpoints with deterministic data.
+   * Must be called BEFORE navigation.
+   */
+  async mockJournalEndpoints(opts: {
+    events?: Array<{
+      id: string;
+      timestamp: string;
+      type: string;
+      summary: string;
+    }>;
+    digest?: string | null;
+  }) {
+    await this.page.route("**/api/journal/events*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ events: opts.events || [] }),
+      });
+    });
+    await this.page.route("**/api/journal/digest*", async (route) => {
+      // Don't intercept the generate endpoint
+      if (route.request().url().includes("/digest/generate")) {
+        return route.fallback();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          digest: opts.digest || null,
+          exists: !!opts.digest,
+        }),
+      });
+    });
+  }
+
   // --- API Mock Helpers ---
 
   async mockKpiEndpoint(

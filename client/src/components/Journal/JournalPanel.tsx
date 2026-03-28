@@ -74,7 +74,7 @@ export function JournalPanel({ enabled = true }: JournalPanelProps) {
   } = useJournal({ enabled });
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="journal-panel">
       {/* Date navigation */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-app-border flex-shrink-0">
         <button

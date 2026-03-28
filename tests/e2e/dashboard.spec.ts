@@ -130,4 +130,111 @@ test.describe("Dashboard & Analytics", () => {
     const firstRow = dashboardPage.leaderboardRows.nth(0);
     await expect(firstRow).toContainText("Claude");
   });
+
+  test("DASH-06: Activity feed shows live events via SSE", async ({
+    page,
+    dashboardPage,
+  }) => {
+    // Mock SSE activity stream with deterministic events BEFORE navigation
+    await dashboardPage.mockActivityStream([
+      {
+        id: "evt-1",
+        timestamp: "2026-03-28T10:00:00Z",
+        category: "session",
+        level: "info",
+        title: "Agent started session",
+      },
+      {
+        id: "evt-2",
+        timestamp: "2026-03-28T10:01:00Z",
+        category: "tool:exec",
+        level: "info",
+        title: "Executed build command",
+      },
+    ]);
+
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+
+    // Activity feed should be visible
+    await expect(dashboardPage.activityFeed).toBeVisible();
+
+    // Live tab should be visible (it's the default tab)
+    await expect(dashboardPage.liveFeedTab).toBeVisible();
+
+    // Wait for mocked events to appear in the feed
+    await expect(
+      dashboardPage.activityFeed.getByText("Agent started session"),
+    ).toBeVisible();
+    await expect(
+      dashboardPage.activityFeed.getByText("Executed build command"),
+    ).toBeVisible();
+
+    // Should NOT show the empty state
+    await expect(
+      dashboardPage.activityFeed.getByText("No activity yet"),
+    ).not.toBeVisible();
+  });
+
+  test("DASH-07: Journal pane loads with date navigation", async ({
+    page,
+    dashboardPage,
+  }) => {
+    // Mock SSE stream (activity feed needs it to connect)
+    await dashboardPage.mockActivityStream([]);
+
+    // Mock journal REST endpoints with deterministic data BEFORE navigation
+    await dashboardPage.mockJournalEndpoints({
+      events: [
+        {
+          id: "j-evt-1",
+          timestamp: "2026-03-28T09:00:00Z",
+          type: "session_start",
+          summary: "Started coding session for auth module",
+        },
+        {
+          id: "j-evt-2",
+          timestamp: "2026-03-28T09:30:00Z",
+          type: "tool_call",
+          summary: "Ran test suite with 42 passing tests",
+        },
+      ],
+      digest: "Test journal digest entry",
+    });
+
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+
+    // Click the Digest tab to lazy-load JournalPanel
+    await dashboardPage.digestTab.click();
+
+    // Wait for JournalPanel to load — the "Previous day" button confirms Suspense resolved
+    await expect(dashboardPage.journalPrevDay).toBeVisible({ timeout: 10_000 });
+
+    // Date navigation should be present
+    await expect(dashboardPage.journalTodayButton).toBeVisible();
+
+    // Journal tab should show the digest text
+    await expect(page.getByText("Test journal digest entry")).toBeVisible();
+
+    // Click the Events tab, verify event summaries appear
+    await dashboardPage.journalEventsTab.click();
+    await expect(
+      page.getByText("Started coding session for auth module"),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Ran test suite with 42 passing tests"),
+    ).toBeVisible();
+
+    // Get current date text from the today button
+    const dateBefore = await dashboardPage.journalTodayButton.textContent();
+
+    // Click "Previous day" and wait for date to change
+    await dashboardPage.journalPrevDay.click();
+    await expect(dashboardPage.journalTodayButton).not.toHaveText(dateBefore!);
+
+    // Date should have updated
+    const dateAfter = await dashboardPage.journalTodayButton.textContent();
+    expect(dateAfter).not.toBe(dateBefore);
+  });
 });
