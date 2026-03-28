@@ -32,7 +32,6 @@ interface CommandPaletteProps {
   onNewTopic: () => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
-  onOpenFileSearch?: () => void;
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
@@ -47,7 +46,6 @@ export function CommandPalette({
   onNewTopic,
   onToggleTheme,
   onOpenSettings,
-  onOpenFileSearch,
   themeMode,
   projectPath,
   onOpenFile,
@@ -141,17 +139,6 @@ export function CommandPalette({
       category: 'action',
       action: () => { onToggleTheme(); onClose(); },
     });
-    if (onOpenFileSearch) {
-      items.push({
-        id: 'search-in-files',
-        label: 'Search in Files',
-        description: 'Find text in project files',
-        icon: <Search size={14} />,
-        category: 'action',
-        shortcut: '⌘⇧F',
-        action: () => { onOpenFileSearch(); onClose(); },
-      });
-    }
 
     // Topics
     Object.values(topics)
@@ -294,7 +281,7 @@ export function CommandPalette({
   let globalIdx = 0;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette" data-testid="command-palette">
+    <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
       <div className="fixed inset-0 bg-black/30 dark:bg-black/50" />
       <div
         className="relative w-full max-w-lg mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter"
