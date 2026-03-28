@@ -91,7 +91,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   if (scriptEntries.length === 0) return null;
 
   return (
-    <div className="text-[12px] pb-1">
+    <div data-testid="script-runner" className="text-[12px] pb-1">
       {scriptEntries.map(([name, cmd]) => {
         const running = runningMap.get(name);
         const isStarting = startingScript === name;

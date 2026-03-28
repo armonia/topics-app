@@ -92,7 +92,7 @@ export function BreadcrumbNav({ filePath, projectPath, openFile, actions }: Brea
   const segments = relativePath.split('/');
 
   return (
-    <div className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 overflow-hidden">
+    <div data-testid="breadcrumb-nav" className="flex items-center px-3 py-1 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 overflow-hidden">
       {segments.map((seg, i) => {
         const parentDir = i === 0 ? projectPath : projectPath + '/' + segments.slice(0, i).join('/');
         const isLast = i === segments.length - 1;

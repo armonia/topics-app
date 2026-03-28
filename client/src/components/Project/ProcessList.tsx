@@ -199,7 +199,7 @@ export function ProcessList({ topicId }: ProcessListProps) {
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col relative">
+    <div data-testid="process-list" className="flex-1 min-h-0 flex flex-col relative">
       {/* Spawn dialog overlay */}
       {showSpawnDialog && (
         <SpawnDialog

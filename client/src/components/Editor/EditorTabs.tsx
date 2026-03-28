@@ -151,7 +151,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div data-testid="editor-tabs" className="flex flex-col h-full">
       {/* Tab bar */}
       <div className="flex items-center overflow-x-auto border-b border-app-border bg-app-hover dark:bg-app-panel flex-shrink-0">
         {tabs.map((tab, i) => {

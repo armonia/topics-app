@@ -83,7 +83,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   }, {});
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/40" onClick={onClose}>
+    <div data-testid="file-search" className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/40" onClick={onClose}>
       <div
         className="w-[600px] max-h-[70vh] bg-surface dark:bg-app-panel rounded-lg shadow-2xl border border-app-border-input flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
