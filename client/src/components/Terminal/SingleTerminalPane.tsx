@@ -292,7 +292,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div data-testid="single-terminal-pane" className="flex-1 min-h-0 flex flex-col">
       {/* Virtual key toolbar — touch devices only */}
       {isTouchDevice && !stale && (
         <div className="flex-shrink-0 flex items-center gap-1 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
@@ -336,7 +336,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
           </button>
         )}
         {stale && (
-          <div className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
+          <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
             <div className="text-center">
               <p className="text-app-text-muted text-[12px] mb-3">This terminal session has expired</p>
               <p className="text-app-text-muted text-[11px]">Close this tab and open a new terminal</p>

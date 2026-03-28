@@ -410,7 +410,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   // Empty state — no terminals yet, show choice screen
   if (tabs.length === 0 && !error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-surface overflow-hidden gap-4" ref={containerRef}>
+      <div data-testid="terminal-empty-state" className="flex flex-col items-center justify-center h-full bg-surface overflow-hidden gap-4" ref={containerRef}>
         <div className="text-app-text-muted text-[13px] mb-2">Open a terminal</div>
         <div className="flex gap-3">
           <div className="flex flex-col items-center gap-1.5">
@@ -441,14 +441,15 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface overflow-hidden" ref={containerRef}>
+    <div data-testid="terminal-panel" className="flex flex-col h-full bg-surface overflow-hidden" ref={containerRef}>
       {/* Tab bar */}
       {tabs.length >= 1 && (
-        <div className="flex items-center bg-app-hover dark:bg-app-panel border-b border-app-border flex-shrink-0 min-h-[32px]">
+        <div data-testid="terminal-tab-bar" className="flex items-center bg-app-hover dark:bg-app-panel border-b border-app-border flex-shrink-0 min-h-[32px]">
           <div className="flex items-center flex-1 overflow-x-auto scrollbar-none">
             {tabs.map(tab => (
               <div
                 key={tab.id}
+                data-testid={`terminal-tab-${tab.id}`}
                 className={`flex items-center gap-1 px-2.5 py-1 text-[11px] cursor-pointer select-none border-r border-app-border transition-colors ${
                   activeTabId === tab.id
                     ? 'bg-surface text-app-text'
@@ -531,6 +532,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
           <div className="relative">
             <button
               ref={newMenuBtnRef}
+              data-testid="terminal-new-btn"
               onClick={() => setShowNewMenu(!showNewMenu)}
               className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
               title="New terminal"
