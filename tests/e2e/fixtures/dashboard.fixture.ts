@@ -63,8 +63,8 @@ export class DashboardPage {
    * Open the dashboard pane via the sidebar "Topics" dropdown -> "Statistics" button.
    */
   async openDashboard() {
-    // Click the "Topics" button in sidebar header to open the dropdown menu
-    const topicsBtn = this.page.locator('button:has(span:text("Topics"))');
+    // Click the "Topics" button (title="Settings & Tools") in sidebar header to open dropdown
+    const topicsBtn = this.page.locator('button[title="Settings & Tools"]');
     await topicsBtn.click();
 
     // Click "Statistics" in the dropdown menu
