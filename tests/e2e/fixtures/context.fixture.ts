@@ -1,4 +1,5 @@
-import { test as base, type Page } from "@playwright/test";
+import { test as base, type Page, type APIRequestContext } from "@playwright/test";
+import { createTopic, deleteTopic } from "../helpers/api-fixtures";
 
 /**
  * Deterministic mock data for context inspector E2E tests.
@@ -121,43 +122,92 @@ export const MOCK_MEMORY_DATA = {
 };
 
 export class ContextPage {
-  constructor(private page: Page) {}
+  private _topicId: string | null = null;
+  private _topicName: string | null = null;
+
+  constructor(
+    private page: Page,
+    private request: APIRequestContext,
+  ) {}
+
+  /**
+   * Create a dedicated test topic for context tests.
+   * Call in test.beforeEach so cleanup can delete it.
+   */
+  async createTestTopic() {
+    const ts = Date.now();
+    this._topicName = `E2E-CTX-${ts}`;
+    const topic = await createTopic(this.request, this._topicName);
+    this._topicId = topic.id;
+    return topic;
+  }
+
+  /** Clean up the test topic */
+  async cleanup() {
+    if (this._topicId) {
+      await deleteTopic(this.request, this._topicId).catch(() => {});
+    }
+  }
+
+  get topicId() {
+    return this._topicId;
+  }
 
   // --- Navigation ---
 
   /**
-   * Open context inspector: click first topic in sidebar, wait for chat,
-   * then click the Context Inspector button (Layers icon).
+   * Open context inspector: click the test topic in sidebar, then
+   * open the context inspector by clicking the ring or button.
    */
   async openContextInspector() {
-    // Click first topic in sidebar
-    const treeItems = this.page.getByRole("treeitem");
-    const count = await treeItems.count();
-    for (let i = 0; i < Math.min(count, 20); i++) {
-      const item = treeItems.nth(i);
-      const text = await item.textContent();
-      if (
-        !text ||
-        text.length < 2 ||
-        /^(Projects|Chats|Terminals|Browser|Archived)/i.test(text.trim())
-      )
-        continue;
-      await item.click();
-      break;
+    // Ensure Chats section is expanded
+    const chatsSection = this.page.getByRole("button", {
+      name: /Chats section/,
+    });
+    if ((await chatsSection.count()) > 0) {
+      const isExpanded = await chatsSection.getAttribute("aria-expanded");
+      if (isExpanded === "false") {
+        await chatsSection.click();
+      }
     }
+
+    // Click the test topic by name
+    const topicItem = this.page.getByRole("treeitem", {
+      name: new RegExp(this._topicName!),
+    });
+    await topicItem.waitFor({ state: "visible", timeout: 10_000 });
+    await topicItem.scrollIntoViewIfNeeded();
+    await topicItem.click({ force: true });
 
     // Wait for chat textarea to confirm topic opened
     await this.page
       .getByRole("textbox", { name: /Message input/ })
       .waitFor({ state: "visible", timeout: 10_000 });
 
-    // Click Context Inspector button
-    await this.page
-      .locator('button[title="Context Inspector"]')
-      .click();
+    // Open the Context Inspector:
+    // Try the direct button first (visible without tab bar header)
+    const directBtn = this.page.locator(
+      'button[title="Context Inspector"]',
+    );
+    if (
+      (await directBtn.count()) > 0 &&
+      (await directBtn.isVisible())
+    ) {
+      await directBtn.click();
+    } else {
+      // In tab-bar mode, click the context ring SVG.
+      // Wait for context percentage to load and ring to render.
+      const ring = this.page.locator("svg.cursor-pointer").first();
+      await ring.waitFor({ state: "visible", timeout: 10_000 });
+      // Use force:true since ring is tiny and may be partially overlapped
+      await ring.click({ force: true });
+    }
 
-    // Wait for inspector panel to be visible
-    await this.inspector.waitFor({ state: "visible", timeout: 10_000 });
+    // Wait for inspector panel to be visible (use first() since
+    // the container and inner panel may both match the selector)
+    await this.inspector
+      .first()
+      .waitFor({ state: "visible", timeout: 10_000 });
   }
 
   // --- Mock Helpers ---
@@ -233,38 +283,77 @@ export class ContextPage {
   }
 
   // --- Locator Getters ---
+  // Use data-testid when available (worktree build), fall back to
+  // content/structural selectors for the production build.
 
+  /** The inspector panel root: the inner flex-col div with "Context Inspector" header */
   get inspector() {
-    return this.page.locator('[data-testid="context-inspector"]');
+    return this.page
+      .locator('[data-testid="context-inspector"]')
+      .or(
+        this.page.locator(
+          '.flex.flex-col.h-full.bg-surface.border-l:has(span:text-is("Context Inspector"))',
+        ),
+      );
   }
 
+  /** Budget bar: contains "Context Budget" text */
   get budgetBar() {
-    return this.page.locator('[data-testid="context-budget-bar"]');
+    return this.page
+      .locator('[data-testid="context-budget-bar"]')
+      .or(
+        this.inspector.locator(':has(> div > span:text-is("Context Budget"))').first(),
+      );
   }
 
+  /** Percentage text: tabular-nums span with "%" */
   get budgetPercent() {
-    return this.page.locator('[data-testid="budget-percent"]');
+    return this.page
+      .locator('[data-testid="budget-percent"]')
+      .or(
+        this.inspector.locator("span.tabular-nums").filter({ hasText: "%" }),
+      );
   }
 
+  /** Warnings section: contains "warning" text */
   get warnings() {
-    return this.page.locator('[data-testid="context-warnings"]');
+    return this.page
+      .locator('[data-testid="context-warnings"]')
+      .or(
+        this.inspector.locator("div.border-b").filter({ hasText: /warning/i }),
+      );
   }
 
+  /** Source rows: border-b divs with "tok" text (token count display) */
   get sourceRows() {
-    return this.page.locator('[data-testid="context-source-row"]');
+    return this.page
+      .locator('[data-testid="context-source-row"]')
+      .or(
+        this.inspector
+          .locator("div.border-b")
+          .filter({ hasText: /tok$/ }),
+      );
   }
 
+  /** Context pills container */
   get contextPills() {
-    return this.page.locator('[data-testid="context-pills"]');
+    return this.page
+      .locator('[data-testid="context-pills"]')
+      .or(this.page.locator("div:has(> span.context-pill)"));
   }
 
+  /** Individual context pill */
   get contextPill() {
-    return this.page.locator('[data-testid="context-pill"]');
+    return this.page
+      .locator('[data-testid="context-pill"]')
+      .or(this.page.locator("span.context-pill"));
   }
 }
 
 export const test = base.extend<{ contextPage: ContextPage }>({
-  contextPage: async ({ page }, use) => {
-    await use(new ContextPage(page));
+  contextPage: async ({ page, request }, use) => {
+    const cp = new ContextPage(page, request);
+    await use(cp);
+    await cp.cleanup();
   },
 });

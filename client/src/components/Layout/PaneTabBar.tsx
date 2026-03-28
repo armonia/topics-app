@@ -57,6 +57,8 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
       width="14" height="14" className={`flex-shrink-0 ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
       viewBox="0 0 14 14"
       onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
+      aria-label="Context Inspector"
+      data-testid="context-ring"
     >
       <circle cx="7" cy="7" r={r} fill="none" stroke={bgColor} strokeWidth="2" />
       <circle
