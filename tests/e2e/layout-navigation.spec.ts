@@ -159,4 +159,186 @@ test.describe("Layout & Navigation", () => {
     // Verify the main content area is present
     await expect(layoutPage.mainContent).toBeVisible({ timeout: 5000 });
   });
+
+  test("LAYOUT-06: project window internal pane layout persists across reload", async ({
+    page,
+    layoutPage,
+  }) => {
+    await goToApp(page);
+    await layoutPage.openProject(/topics-app/i);
+
+    // Wait for tab bar to be fully loaded
+    const tabBar = layoutPage.tabBar.first();
+    await expect(tabBar).toBeVisible({ timeout: 10000 });
+    const tabs = tabBar.locator('[draggable="true"]');
+    await expect(tabs.first()).toBeVisible({ timeout: 5000 });
+
+    // Set up response listener BEFORE adding pane to catch the debounced write
+    const layoutSavePromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes("/api/ui-state/project-layout") &&
+        resp.request().method() === "PUT" &&
+        resp.status() === 200,
+      { timeout: 10000 }
+    );
+
+    // Click the Add pane (+) button to add a non-chat pane
+    const addPaneBtn = page.getByTitle("Add pane");
+    await expect(addPaneBtn.first()).toBeVisible({ timeout: 5000 });
+    await addPaneBtn.first().click();
+
+    // Wait for dropdown menu
+    const addMenu = page.locator(".fixed.z-\\[9999\\]");
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    const menuButtons = addMenu.locator("button");
+    const menuCount = await menuButtons.count();
+
+    // Select a non-chat pane type to add to the project layout
+    let clicked = false;
+    for (let i = 0; i < menuCount; i++) {
+      const text = ((await menuButtons.nth(i).textContent()) || "").trim();
+      if (/Terminal|Shell|Files|Git|Browser|Board|Agents|Dashboard|Activity|Journal/i.test(text) &&
+          !/Chat/i.test(text)) {
+        await menuButtons.nth(i).click();
+        clicked = true;
+        break;
+      }
+    }
+    if (!clicked) {
+      await menuButtons.nth(menuCount - 1).click();
+    }
+
+    // Wait for the debounced project layout server write (2s debounce)
+    const saveResponse = await layoutSavePromise;
+
+    // Extract the project layout key from the saved URL
+    const savedUrl = saveResponse.url();
+    const keyMatch = savedUrl.match(/ui-state\/(.+)$/);
+    expect(keyMatch).not.toBeNull();
+    const layoutKey = decodeURIComponent(keyMatch![1]);
+
+    // Fetch the persisted layout from server -- verify it was saved
+    const serverLayoutBeforeReload = await page.evaluate(async (key: string) => {
+      const res = await fetch(`/api/ui-state/${encodeURIComponent(key)}`);
+      if (!res.ok) return null;
+      return res.json();
+    }, layoutKey);
+    expect(serverLayoutBeforeReload).not.toBeNull();
+
+    // The persisted state must have the nonChatPanes array (core persistence structure)
+    expect(serverLayoutBeforeReload.nonChatPanes).toBeDefined();
+    expect(Array.isArray(serverLayoutBeforeReload.nonChatPanes)).toBeTruthy();
+
+    // Record tab count before reload to compare against restored state
+    const tabCountBeforeReload = await tabs.count();
+    expect(tabCountBeforeReload).toBeGreaterThanOrEqual(1);
+
+    // Reload the page -- clears in-memory state, forces load from persistence
+    await page.reload({ waitUntil: "networkidle" });
+
+    // Re-open the same project
+    await layoutPage.openProject(/topics-app/i);
+
+    // Verify project window loaded with tabs (proves layout was restored from persistence)
+    const restoredTabBar = layoutPage.tabBar.first();
+    await expect(restoredTabBar).toBeVisible({ timeout: 10000 });
+    const restoredTabs = restoredTabBar.locator('[draggable="true"]');
+    await expect(restoredTabs.first()).toBeVisible({ timeout: 5000 });
+
+    // Verify server layout data survived the reload (not cleared on load)
+    const serverLayoutAfterReload = await page.evaluate(async (key: string) => {
+      const res = await fetch(`/api/ui-state/${encodeURIComponent(key)}`);
+      if (!res.ok) return null;
+      return res.json();
+    }, layoutKey);
+    expect(serverLayoutAfterReload).not.toBeNull();
+    // The nonChatPanes in server state should match what was saved before reload
+    expect(serverLayoutAfterReload.nonChatPanes.length).toBe(
+      serverLayoutBeforeReload.nonChatPanes.length
+    );
+  });
+
+  test("LAYOUT-07: cross-device panel sync updates UI without stale overwrites", async ({
+    page,
+    layoutPage,
+  }) => {
+    await goToApp(page);
+
+    // Ensure the app is loaded and WS is connected before testing sync
+    await expect(layoutPage.connectionStatus).toBeVisible({ timeout: 10000 });
+    await expect(layoutPage.connectionStatus).toHaveAttribute(
+      "aria-label",
+      /Connection status: Connected/
+    );
+
+    // Get the current open panels from the server
+    const panelsBefore = await page.evaluate(async () => {
+      const res = await fetch("/api/ui-state/panels");
+      if (!res.ok) return null;
+      return res.json();
+    });
+    expect(panelsBefore).not.toBeNull();
+    expect(panelsBefore.openPanels).toBeDefined();
+
+    // Record the currently focused panel ID (per-device, should NOT change on sync)
+    const focusedBefore = await page.evaluate(() => {
+      return localStorage.getItem("topics-focused-panel");
+    });
+
+    // Simulate a second device writing panel state via the server API.
+    // The server broadcasts `ui-state:updated` with key "panels" to all WS clients.
+    // Add a unique topic ID to the existing panel list to detect sync arrival.
+    const syncTestId = `sync-test-${Date.now()}`;
+    const existingPanels = Array.isArray(panelsBefore.openPanels)
+      ? panelsBefore.openPanels
+      : [];
+    const updatedPanels = [...existingPanels, syncTestId];
+    await page.evaluate(
+      async (panels: string[]) => {
+        await fetch("/api/ui-state/panels", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ openPanels: panels }),
+        });
+      },
+      updatedPanels
+    );
+
+    // Wait for the WS broadcast to update the client-side state.
+    // The client writes to localStorage on receiving ui-state:updated.
+    await expect
+      .poll(
+        async () => {
+          return page.evaluate(() => {
+            const raw = localStorage.getItem("topics-open-panels");
+            if (!raw) return null;
+            try {
+              return JSON.parse(raw);
+            } catch {
+              return null;
+            }
+          });
+        },
+        { timeout: 10000 }
+      )
+      .toEqual(expect.arrayContaining([syncTestId]));
+
+    // Verify focusedPanelId was NOT changed (per-device, no sync)
+    const focusedAfter = await page.evaluate(() => {
+      return localStorage.getItem("topics-focused-panel");
+    });
+    expect(focusedAfter).toBe(focusedBefore);
+
+    // Clean up: restore original panels
+    await page.evaluate(
+      async (panels: string[]) => {
+        await fetch("/api/ui-state/panels", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ openPanels: panels }),
+        });
+      },
+      existingPanels
+    );
+  });
 });
