@@ -25,7 +25,7 @@ export interface SSEMockOptions {
 export async function mockChatStream(page: Page, opts: SSEMockOptions) {
   const { chunks, complete = true } = opts;
 
-  await page.route("**/api/chat", async (route: Route) => {
+  await page.route("**/api/chat/*", async (route: Route) => {
     if (route.request().method() !== "POST") {
       return route.fallback();
     }
@@ -59,7 +59,7 @@ export async function mockChatStream(page: Page, opts: SSEMockOptions) {
  * Use for abort/stop-streaming tests.
  */
 export async function mockHangingStream(page: Page, partialContent: string) {
-  await page.route("**/api/chat", async (route: Route) => {
+  await page.route("**/api/chat/*", async (route: Route) => {
     if (route.request().method() !== "POST") {
       return route.fallback();
     }

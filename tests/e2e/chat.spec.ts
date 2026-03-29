@@ -179,7 +179,7 @@ test.describe.serial("Chat", () => {
     ).toBe(true);
 
     // Clean up route
-    await page.unroute("**/api/chat");
+    await page.unroute("**/api/chat/*");
   });
 
   test("input toolbar has all buttons", async ({ page }) => {
@@ -511,7 +511,7 @@ test.describe("Message Branching", () => {
     await expect(assistantResponse).toBeVisible({ timeout: 15_000 });
 
     // Remove the first route to set up a new mock for the edit response
-    await page.unroute("**/api/chat");
+    await page.unroute("**/api/chat/*");
 
     // Now hover over the user message to reveal the edit button
     await userMessage.hover();
