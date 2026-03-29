@@ -1,6 +1,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/command-palette.fixture";
 import { createTopic, cleanupAll, deleteTopic, patchTopic } from "./helpers/api-fixtures";
+import { goToApp } from "./helpers";
 
 test.describe("Command Palette", () => {
   const TS = Date.now();
@@ -366,6 +367,78 @@ test.describe("Command Palette", () => {
     await messageOption.click();
 
     await expect(commandPalettePage.overlay).toBeHidden();
+  });
+
+  // CMD-09: CommandPalette receives projectPath when a project pane is focused
+  test("CMD-09: file search works when project pane is focused", async ({
+    commandPalettePage,
+    page,
+    request,
+  }) => {
+    const projectPath = `/tmp/e2e-cmdpalette-${TS}`;
+    const topicName = `E2E-CmdProject-${TS}`;
+
+    // Create a topic with projectPath so it appears under Projects in the sidebar
+    const topic = await createTopic(request, topicName, { projectPath });
+    topicIds.push(topic.id);
+
+    // Mock the file list API to return test files
+    await page.route("**/api/files/flat*", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          files: [
+            "src/App.tsx",
+            "src/main.ts",
+            "src/utils/helpers.ts",
+            "package.json",
+            "README.md",
+          ],
+        }),
+      })
+    );
+
+    await goToApp(page);
+
+    // Expand the Projects section if collapsed
+    const projectsSection = page.getByRole("button", {
+      name: /Projects section/,
+    });
+    if ((await projectsSection.count()) > 0) {
+      const expanded = await projectsSection.getAttribute("aria-expanded");
+      if (expanded === "false") {
+        await projectsSection.click();
+      }
+    }
+
+    // Click the project header to focus the project pane
+    const projectHeader = page.locator(`button[title="${projectPath}"]`);
+    await projectHeader.waitFor({ state: "visible", timeout: 10000 });
+    await projectHeader.click();
+
+    // Wait for project pane to be active
+    await page.waitForTimeout(500);
+
+    // Open CommandPalette and search for a file name
+    await commandPalettePage.search("App");
+
+    // The FILES category should appear because projectPath is correctly passed
+    // Category headers are rendered as uppercase text
+    await expect(
+      commandPalettePage.overlay.getByText("Files", { exact: false }).filter({
+        has: page.locator("text=/FILES/i"),
+      }).or(commandPalettePage.overlay.locator(".uppercase").filter({ hasText: /files/i }))
+    ).toBeVisible({ timeout: 5000 });
+
+    // Verify a file result is shown (App.tsx should match the "App" query)
+    await expect(
+      commandPalettePage.overlay.getByRole("option", {
+        name: /App\.tsx/,
+      })
+    ).toBeVisible();
+
+    // Clean up
+    await commandPalettePage.close();
   });
 
   // CMD-08: Cmd+? opens keyboard shortcuts help modal with General, Chat, and Voice groups
