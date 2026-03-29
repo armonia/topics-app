@@ -221,7 +221,6 @@ export function PanelGrid({
   // Sync gridRows when naturalGridItems change (add/remove items)
   useEffect(() => {
     const currentKeys = new Set(naturalGridItems.map(i => i.key));
-
     setGridRows(prev => {
       // 1. Remove stale keys from each row, recalculate widths proportionally
       let rows = prev.map(row => {

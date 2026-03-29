@@ -627,27 +627,20 @@ export function StandaloneChatGroup({
   // Split Right: detach pane to a new grid column on the right
   const handleSplitRight = useCallback((paneId: string) => {
     if (!onSplitPane) return;
-    // Only chat panes with topic IDs can be split to solo grid items
-    const topic = topics[paneId];
-    if (!topic) return;
     onSplitPane(paneId, 'right');
-  }, [onSplitPane, topics]);
+  }, [onSplitPane]);
 
   // Split Down: detach pane to a new grid row below
   const handleSplitDown = useCallback((paneId: string) => {
     if (!onSplitPane) return;
-    const topic = topics[paneId];
-    if (!topic) return;
     onSplitPane(paneId, 'down');
-  }, [onSplitPane, topics]);
+  }, [onSplitPane]);
 
   // Detach: same as Split Right (detaches a tab from the group into its own grid cell)
   const handleDetach = useCallback((paneId: string) => {
     if (!onSplitPane) return;
-    const topic = topics[paneId];
-    if (!topic) return;
     onSplitPane(paneId, 'right');
-  }, [onSplitPane, topics]);
+  }, [onSplitPane]);
 
   if (orderedIds.length === 0) return null;
   // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
