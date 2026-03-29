@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, lazy, Suspense } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Search, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
@@ -504,6 +504,13 @@ function App() {
     archiveProject,
     applyTopicFromWS,
   } = useTopics();
+
+  // Resolve projectPath from focused pane — works for both project panes and topic panes
+  const focusedProjectPath = useMemo(() => {
+    if (!focusedPanelId) return undefined;
+    if (isProjectPaneId(focusedPanelId)) return getProjectPathFromPaneId(focusedPanelId) || undefined;
+    return topics[focusedPanelId]?.projectPath || undefined;
+  }, [focusedPanelId, topics]);
 
   // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
   useEffect(() => {
@@ -1263,9 +1270,8 @@ function App() {
         e.preventDefault();
         setShowFileSearch(prev => {
           if (prev) return false;
-          // Try focused topic's projectPath first
-          const focusedProject = focusedPanelId && topics[focusedPanelId]?.projectPath;
-          if (focusedProject) return { projectPath: focusedProject };
+          // Try focused pane's projectPath first (works for both project panes and topic panes)
+          if (focusedProjectPath) return { projectPath: focusedProjectPath };
           // Fallback: find any topic with a projectPath
           const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
           if (projectPaths.length === 1) return { projectPath: projectPaths[0] };
@@ -1840,13 +1846,12 @@ function App() {
             onOpenFileSearch={() => {
               setShowSearch(false);
               // Resolve projectPath the same way as Cmd+Shift+F
-              const focusedProject = focusedPanelId && topics[focusedPanelId]?.projectPath;
-              if (focusedProject) { setShowFileSearch({ projectPath: focusedProject }); return; }
+              if (focusedProjectPath) { setShowFileSearch({ projectPath: focusedProjectPath }); return; }
               const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
               if (projectPaths.length >= 1) { setShowFileSearch({ projectPath: projectPaths[0] }); }
             }}
             themeMode={themeMode}
-            projectPath={focusedPanelId ? topics[focusedPanelId]?.projectPath || undefined : undefined}
+            projectPath={focusedProjectPath}
             onOpenFile={(path) => {
               window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId: focusedPanelId } }));
               setShowSearch(false);
