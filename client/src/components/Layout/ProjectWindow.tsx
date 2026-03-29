@@ -708,9 +708,11 @@ export function ProjectWindowPane({
       activePaneId: newPane.id,
     };
     setPanes(prev => [...prev, newPane]);
-    setGroups([newGroup]);
-    setRows([{ groupIds: [newGroupId], widths: [1] }]);
-    setRowHeights([1]);
+    // Use updater form: if groups were concurrently populated (e.g. chat sync
+    // effects ran while the async terminal session was being created), append
+    // the new group instead of replacing — the rows sync effect will handle
+    // placing it into the layout automatically.
+    setGroups(prev => [...prev, newGroup]);
     setFocusedGroupId(newGroupId);
   }, [projectPath, claudeSkipPermissions]);
 

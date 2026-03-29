@@ -5,6 +5,7 @@ interface AgentSpawnCardProps {
   sessionKey: string;
   label: string;
   onOpenInPane?: (sessionKey: string) => void;
+  onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
 interface SessionInfo {
@@ -12,6 +13,8 @@ interface SessionInfo {
   totalTokens: number;
   startedAt: string | null;
 }
+
+const POLL_INTERVAL_FALLBACK = 60_000; // 60s fallback when no WS
 
 function formatDuration(startedAt: string): string {
   const ms = Date.now() - new Date(startedAt).getTime();
@@ -28,52 +31,81 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, onOpenInPane }: AgentSpawnCardProps) {
+export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, onOpenInPane, onMessage }: AgentSpawnCardProps) {
   const [info, setInfo] = useState<SessionInfo>({ status: 'active', totalTokens: 0, startedAt: null });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastUpdateRef = useRef<number>(0);
 
+  // Single fetch function
+  const fetchSession = async () => {
+    try {
+      const fetchTime = Date.now();
+      const res = await fetch(`/api/agents/sessions?activeMinutes=1440`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const sessions: Array<{ key: string; status: string; totalTokens?: number; updatedAt?: number }> = data.sessions || [];
+      const match = sessions.find((s: any) => s.key === sessionKey);
+      if (match) {
+        // Only apply if no newer WS update arrived
+        if (lastUpdateRef.current > fetchTime) return;
+        lastUpdateRef.current = fetchTime;
+        setInfo(prev => ({
+          status: (match.status as SessionInfo['status']) || 'active',
+          totalTokens: match.totalTokens || 0,
+          startedAt: prev.startedAt || new Date().toISOString(),
+        }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  // Initial fetch on mount
   useEffect(() => {
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/agents/sessions?activeMinutes=1440`);
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        const sessions: Array<{ key: string; status: string; totalTokens?: number; updatedAt?: number }> = data.sessions || [];
-        const match = sessions.find((s: any) => s.key === sessionKey);
-        if (match && !cancelled) {
-          setInfo(prev => ({
-            status: (match.status as SessionInfo['status']) || 'active',
-            totalTokens: match.totalTokens || 0,
-            startedAt: prev.startedAt || new Date().toISOString(),
-          }));
-        }
-      } catch { /* ignore */ }
-    };
-
-    // Initial fetch
     setInfo(prev => ({ ...prev, startedAt: prev.startedAt || new Date().toISOString() }));
-    poll();
-
-    intervalRef.current = setInterval(poll, 5000);
-
-    return () => {
-      cancelled = true;
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
+    fetchSession();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey]);
 
-  // Stop polling when terminal
+  // WS subscription — primary data source when available
   useEffect(() => {
-    if ((info.status === 'completed' || info.status === 'error') && intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, [info.status]);
+    if (!onMessage) return;
+    const unsub = onMessage((msg: any) => {
+      try {
+        if (msg.type === 'agents:sessions' && Array.isArray(msg.sessions)) {
+          const match = msg.sessions.find((s: any) => s.key === sessionKey);
+          if (match) {
+            const now = Date.now();
+            lastUpdateRef.current = now;
+            setInfo(prev => ({
+              status: (match.status as SessionInfo['status']) || 'active',
+              totalTokens: match.totalTokens || 0,
+              startedAt: prev.startedAt || new Date().toISOString(),
+            }));
+          }
+        }
+        if (msg.type === 'agents:stopped' && msg.sessionKey === sessionKey) {
+          const now = Date.now();
+          lastUpdateRef.current = now;
+          setInfo(prev => ({ ...prev, status: 'completed' }));
+        }
+      } catch { /* ignore */ }
+    });
+    return unsub;
+  }, [sessionKey, onMessage]);
 
-  // Re-render every 5s to update duration while active
+  // Fallback polling — 60s when WS available (consistency check), 60s when not (sole source)
+  // Only polls when session is still active
+  useEffect(() => {
+    const isTerminal = info.status === 'completed' || info.status === 'error';
+    if (isTerminal) {
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+      return;
+    }
+    intervalRef.current = setInterval(fetchSession, POLL_INTERVAL_FALLBACK);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey, info.status]);
+
+  // Re-render every 5s to update duration while active (UI-only, no network)
   const [, setTick] = useState(0);
   useEffect(() => {
     if (info.status === 'completed' || info.status === 'error') return;

@@ -135,9 +135,10 @@ interface SessionHistoryProps {
   liveSessions?: LiveSession[];
   onNavigateToTopic?: (topicId: string) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
+  onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
-export function SessionHistory({ liveSessions = [], onNavigateToTopic, onOpenSessionViewer }: SessionHistoryProps) {
+export function SessionHistory({ liveSessions = [], onNavigateToTopic, onOpenSessionViewer, onMessage }: SessionHistoryProps) {
   const [selectedSession, setSelectedSession] = useState<UnifiedSession | null>(null);
 
   if (selectedSession) {
@@ -147,6 +148,7 @@ export function SessionHistory({ liveSessions = [], onNavigateToTopic, onOpenSes
         onBack={() => setSelectedSession(null)}
         onNavigateToTopic={onNavigateToTopic}
         onOpenInPane={onOpenSessionViewer}
+        onMessage={onMessage}
       />
     );
   }
@@ -387,16 +389,18 @@ function actionLabel(actionType: string): string {
 
 // ─── Session Detail (unified timeline) ────────────────────────
 
-export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane }: {
+export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane, onMessage }: {
   session: UnifiedSession;
   onBack?: () => void;
   onNavigateToTopic?: (topicId: string) => void;
   onOpenInPane?: (sessionKey: string) => void;
+  onMessage?: (handler: (msg: any) => void) => () => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastUpdateRef = useRef<number>(0);
 
   // Shared fetch logic: tries local history first, falls back to gateway for sub-agent sessions
   const fetchTimeline = useCallback(async (): Promise<TimelineEntry[]> => {
@@ -478,12 +482,40 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
     return () => { cancelled = true; };
   }, [session.topicId, session.sessionKey, fetchTimeline]);
 
-  // Polling: re-fetch every 5s when session is live and active
+  // WS-driven refresh: re-fetch on stream:end or agents:stopped for this session
+  useEffect(() => {
+    if (!session.isLive || session.status !== 'active' || !onMessage) return;
+    const unsub = onMessage((msg: any) => {
+      try {
+        const isRelevant =
+          (msg.type === 'stream:end' && msg.sessionKey === session.sessionKey) ||
+          (msg.type === 'agents:stopped' && msg.sessionKey === session.sessionKey);
+        if (!isRelevant) return;
+        const now = Date.now();
+        lastUpdateRef.current = now;
+        fetchTimeline().then(deduped => {
+          setTimeline(prev => {
+            if (deduped.length <= prev.length) return prev;
+            requestAnimationFrame(() => {
+              scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight, behavior: 'smooth' });
+            });
+            return deduped;
+          });
+        }).catch(() => {});
+      } catch { /* ignore */ }
+    });
+    return unsub;
+  }, [session.isLive, session.status, session.sessionKey, onMessage, fetchTimeline]);
+
+  // Fallback polling: 30s when session is live and active (consistency check / no-WS fallback)
   useEffect(() => {
     if (!session.isLive || session.status !== 'active') return;
     const interval = setInterval(async () => {
       try {
+        const fetchTime = Date.now();
         const deduped = await fetchTimeline();
+        // Skip if WS provided fresher data
+        if (lastUpdateRef.current > fetchTime) return;
         setTimeline(prev => {
           if (deduped.length <= prev.length) return prev;
           requestAnimationFrame(() => {
@@ -492,9 +524,9 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
           return deduped;
         });
       } catch {}
-    }, 5000);
+    }, onMessage ? 30_000 : 30_000);
     return () => clearInterval(interval);
-  }, [session.isLive, session.status, session.sessionKey, fetchTimeline]);
+  }, [session.isLive, session.status, session.sessionKey, fetchTimeline, onMessage]);
 
   // Count by type for summary
   const msgCount = timeline.filter(e => e.type === 'message').length;

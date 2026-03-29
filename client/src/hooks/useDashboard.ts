@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint, type AgentStat } from '../lib/api';
 
-const REFRESH_INTERVAL_MS = 15_000;
+const REFRESH_INTERVAL_MS = 60_000;
 
 export function useDashboard() {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);

@@ -1597,6 +1597,7 @@ function App() {
                     onOpenBrowser={(contextId) => openBrowserPane(contextId)}
                     openBrowserContextIds={openBrowserContextIds}
                     focusedBrowserContextId={focusedBrowserContextId}
+                    onMessage={onWSMessage}
                   />
                 </Suspense>
               </div>
