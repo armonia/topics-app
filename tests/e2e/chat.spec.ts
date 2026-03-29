@@ -408,7 +408,7 @@ test.describe("Message Action Toolbar", () => {
     await expect(pinBtnAfterPin).toHaveClass(/text-yellow-500/, { timeout: 5_000 });
 
     // API verification: pinnedMessages array should contain the message ID
-    const topicRes = await request.get("https://localhost:3333/api/topics", {
+    const topicRes = await request.get("https://localhost:3334/api/topics", {
       ignoreHTTPSErrors: true,
     });
     const topicsData = await topicRes.json();
@@ -430,7 +430,7 @@ test.describe("Message Action Toolbar", () => {
     await expect(pinBtnAfterUnpin).not.toHaveClass(/text-yellow-500/, { timeout: 5_000 });
 
     // API verification: pinnedMessages array should be empty after unpin
-    const topicRes2 = await request.get("https://localhost:3333/api/topics", {
+    const topicRes2 = await request.get("https://localhost:3334/api/topics", {
       ignoreHTTPSErrors: true,
     });
     const topicsData2 = await topicRes2.json();
