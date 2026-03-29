@@ -151,10 +151,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     if (groupId) {
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_GROUP, groupId);
     }
-    // Also set PANEL_ID for cross-panel-type drops (chat panes carry their topicId)
-    const pane = panes.find(p => p.id === paneId);
-    if (pane?.topicId) {
-      e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.topicId);
+    // Set PANEL_ID for edge-split drops at the PanelGrid level.
+    // Only top-level tabs (standalone group) can be split to solo grid items.
+    // Project-internal tabs must NOT carry PANEL_ID — dragging them to the outer
+    // grid edge would disconnect them from their project context.
+    const isTopLevel = !groupId || groupId === 'standalone';
+    if (isTopLevel) {
+      const pane = panes.find(p => p.id === paneId);
+      e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane?.topicId || paneId);
     }
     e.dataTransfer.effectAllowed = 'move';
   }, [onReorderPanes, groupId, panes]);
