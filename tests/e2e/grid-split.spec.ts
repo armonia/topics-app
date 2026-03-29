@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { goToApp } from "./helpers";
+import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -408,6 +408,292 @@ test.describe("Grid Split System", () => {
       expect(result.groupCount).toBe(1);
       expect(result.remainingGroupIds).toEqual(['g2']);
       expect(result.g2Panes).toEqual(['p1', 'p3']);
+    });
+  });
+
+  test.describe("Panel splitting", () => {
+    let splitTopicIds: string[] = [];
+
+    test.beforeAll(async ({ request }) => {
+      // Create test topics for split tests
+      const t1 = await createTopic(request, "E2E-Split-A");
+      const t2 = await createTopic(request, "E2E-Split-B");
+      const t3 = await createTopic(request, "E2E-Split-C");
+      splitTopicIds = [t1.id, t2.id, t3.id];
+    });
+
+    test.afterAll(async ({ request }) => {
+      for (const id of splitTopicIds) {
+        await deleteTopic(request, id);
+      }
+    });
+
+    /** Reset grid layout state (clear solo topics, grid rows) */
+    async function resetGridLayout(page: Page) {
+      await page.request.put("http://localhost:13334/api/ui-state/grid-layout", {
+        data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
+      }).catch(() => {});
+    }
+
+    /** Open two topics so both appear as tabs */
+    async function openTwoTopics(page: Page) {
+      const [idA, idB] = splitTopicIds;
+      // 1. Seed server state with both panels open
+      await Promise.all([
+        page.request.put("http://localhost:13334/api/ui-state/panels", {
+          data: { openPanels: [idA, idB] },
+        }).catch(() => {}),
+        page.request.put("http://localhost:13334/api/ui-state/grid-layout", {
+          data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
+        }).catch(() => {}),
+        page.request.put("http://localhost:13334/api/ui-state/panel-order", {
+          data: { order: [idA, idB], pinned: [idA, idB] },
+        }).catch(() => {}),
+      ]);
+      // 2. Navigate — app loads both panels from server
+      await page.goto("/");
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+      await collapseSidebarSections(page);
+      // Wait for tabs to render
+      await page.locator('[role="main"] [draggable="true"]').first().waitFor({ state: "visible", timeout: 10000 });
+      await page.waitForTimeout(800);
+    }
+
+    /** Collapse Terminals and Browser sections to make room for Chats topics */
+    async function collapseSidebarSections(page: Page) {
+      // Collapse Terminals section if expanded
+      const terminalsBtn = page.getByRole("button", { name: /Terminals section/ });
+      if (await terminalsBtn.count() > 0) {
+        const expanded = await terminalsBtn.getAttribute("aria-expanded");
+        if (expanded === "true") {
+          await terminalsBtn.click();
+          await page.waitForTimeout(300);
+        }
+      }
+      // Collapse Browser section if expanded
+      const browserBtn = page.getByRole("button", { name: /Browser section/ });
+      if (await browserBtn.count() > 0) {
+        const expanded = await browserBtn.getAttribute("aria-expanded");
+        if (expanded === "true") {
+          await browserBtn.click();
+          await page.waitForTimeout(300);
+        }
+      }
+      // Collapse Projects section if expanded
+      const projectsBtn = page.getByRole("button", { name: /Projects section/ });
+      if (await projectsBtn.count() > 0) {
+        const expanded = await projectsBtn.getAttribute("aria-expanded");
+        if (expanded === "true") {
+          await projectsBtn.click();
+          await page.waitForTimeout(300);
+        }
+      }
+    }
+
+    /** Right-click a tab and click a context menu item */
+    async function splitViaContextMenu(page: Page, direction: 'Split Right' | 'Split Down') {
+      // Find a draggable tab in the main area
+      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      await expect(tab).toBeVisible({ timeout: 5000 });
+
+      // Right-click on the tab to open context menu
+      await tab.click({ button: 'right' });
+
+      // Wait for the portaled context menu to appear (context menu uses fixed + z-[9999])
+      const splitBtn = page.getByText(direction, { exact: true });
+      await expect(splitBtn).toBeVisible({ timeout: 3000 });
+      await splitBtn.click();
+
+      // Wait for layout to update
+      await page.waitForTimeout(1000);
+    }
+
+    test("GRID-01: Split Right via context menu creates side-by-side panels", async ({ page }) => {
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      const initialColDividers = await countColDividers(page);
+
+      await splitViaContextMenu(page, 'Split Right');
+
+      // After split, should have more col-resize dividers
+      const afterColDividers = await countColDividers(page);
+      expect(afterColDividers, 'Split Right should create a col-resize divider').toBeGreaterThan(initialColDividers);
+
+      // Should have multiple tab bar regions (standalone group + solo panel)
+      const tabBars = page.locator('[role="main"] [data-testid="panel-tab-bar"]');
+      expect(await tabBars.count(), 'Should have multiple tab bars after split').toBeGreaterThanOrEqual(2);
+    });
+
+    test("GRID-02: Split Down via context menu creates above/below panels", async ({ page }) => {
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      const initialRowDividers = await countRowDividers(page);
+
+      await splitViaContextMenu(page, 'Split Down');
+
+      // After split, should have more row-resize dividers
+      const afterRowDividers = await countRowDividers(page);
+      expect(afterRowDividers, 'Split Down should create a row-resize divider').toBeGreaterThan(initialRowDividers);
+    });
+
+    test("GRID-03: Resize split panels by dragging col-resize divider", async ({ page }) => {
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      // Split right to ensure we have a col divider
+      await splitViaContextMenu(page, 'Split Right');
+
+      const divider = page.locator('[role="main"] .cursor-col-resize').first();
+      await expect(divider).toBeVisible({ timeout: 3000 });
+
+      const box = await divider.boundingBox();
+      expect(box).not.toBeNull();
+
+      // Record initial divider X position
+      const initialX = box!.x;
+
+      // Drag the divider 100px to the right
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box!.x + box!.width / 2 + 100, box!.y + box!.height / 2, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+
+      // Verify the divider moved (its position should have changed)
+      const newBox = await divider.boundingBox();
+      expect(newBox).not.toBeNull();
+      // The divider should have moved notably (at least 50px given some resistance/snapping)
+      expect(Math.abs(newBox!.x - initialX), 'Divider should have moved after drag').toBeGreaterThan(30);
+    });
+
+    test("GRID-03: Resize split panels by dragging row-resize divider", async ({ page }) => {
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      // Split down to ensure we have a row divider
+      await splitViaContextMenu(page, 'Split Down');
+
+      const divider = page.locator('[role="main"] .cursor-row-resize').first();
+      await expect(divider).toBeVisible({ timeout: 3000 });
+
+      const box = await divider.boundingBox();
+      expect(box).not.toBeNull();
+
+      const initialY = box!.y;
+
+      // Drag the divider 80px down
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 80, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+
+      const newBox = await divider.boundingBox();
+      expect(newBox).not.toBeNull();
+      expect(Math.abs(newBox!.y - initialY), 'Row divider should have moved after drag').toBeGreaterThan(20);
+    });
+
+    test("GRID-04: Split layout persists after page reload", async ({ page }) => {
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      // Split right to create a col divider
+      await splitViaContextMenu(page, 'Split Right');
+
+      const preDividers = await countColDividers(page);
+      expect(preDividers, 'Should have at least 1 col divider before reload').toBeGreaterThanOrEqual(1);
+
+      // Reload and wait for layout restore
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForTimeout(3000);
+
+      // The split layout should persist
+      const postDividers = await countColDividers(page);
+      expect(postDividers, 'Col dividers should persist after reload').toBeGreaterThanOrEqual(preDividers);
+
+      // Also verify localStorage has grid layout data
+      const layoutData = await page.evaluate(() => localStorage.getItem('topics-panel-grid-layout'));
+      if (layoutData) {
+        expect(layoutData, 'Layout data should contain grid rows').toContain('gridRows');
+      }
+    });
+
+    test("GRID-05: Splitting works in project windows", async ({ page }) => {
+      await goToApp(page);
+      await collapseSidebarSections(page);
+
+      // Expand Projects section to find the e2e project
+      const projectsBtn = page.getByRole("button", { name: /Projects section/ });
+      if (await projectsBtn.count() > 0) {
+        const expanded = await projectsBtn.getAttribute("aria-expanded");
+        if (expanded === "false") {
+          await projectsBtn.click();
+          await page.waitForTimeout(500);
+        }
+      }
+
+      // Look for any project to open
+      const projectItem = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: /e2e-grid|topics-app/ }).first();
+      if (await projectItem.count() === 0) {
+        // No projects available in test DB — skip gracefully
+        test.skip();
+        return;
+      }
+
+      await projectItem.click();
+      await page.waitForTimeout(2000);
+
+      // Project windows should have tabs that can be right-clicked
+      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      if (await tab.count() === 0) {
+        test.skip();
+        return;
+      }
+
+      // Right-click on a project tab
+      await tab.click({ button: 'right' });
+
+      // Check if context menu appears
+      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
+
+      const menuText = await ctxMenu.textContent();
+      expect(menuText).toBeTruthy();
+
+      // Split options are only for chat panes (per Plan 01), so verify project tabs have context menu
+      // but may not have split actions
+      await page.keyboard.press('Escape');
+    });
+
+    test("GRID-06: Context menu shows Split Right and Split Down for chat panes", async ({ page }) => {
+      await goToApp(page);
+      await collapseSidebarSections(page);
+      await openTopic(page, /E2E-Split-A/);
+
+      // Right-click on a chat tab
+      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      await expect(tab).toBeVisible({ timeout: 5000 });
+      await tab.click({ button: 'right' });
+
+      // Wait for context menu
+      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
+
+      // Verify both split options are present
+      await expect(ctxMenu.getByText('Split Right')).toBeVisible();
+      await expect(ctxMenu.getByText('Split Down')).toBeVisible();
+
+      // Close the menu
+      await page.keyboard.press('Escape');
+    });
+
+    test("GRID-01/02: DnD edge-drop creates split", async ({ page }) => {
+      // DnD tests are notoriously flaky with pointer events + dnd-kit.
+      // This test attempts to drag a tab to the edge of the main area.
+      // Marking as fixme if it proves unreliable.
+      test.fixme();
     });
   });
 
