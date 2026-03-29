@@ -3,6 +3,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "*.spec.ts",
+  globalSetup: "./tests/e2e/global-setup.ts",
+  globalTeardown: "./tests/e2e/global-teardown.ts",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false, // sequential to avoid race conditions on shared DB
@@ -12,7 +14,7 @@ export default defineConfig({
     ["list"],
   ],
   use: {
-    baseURL: "https://localhost:3333",
+    baseURL: "https://localhost:3334",
     ignoreHTTPSErrors: true,
     video: "on", // always record video
     screenshot: "only-on-failure",
