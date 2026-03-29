@@ -98,7 +98,7 @@ const uiStateRouter = createUiStateRouter(ctx);
 // Initialize VAPID keys on startup
 initVapid();
 // Start agent heartbeat checker
-startHeartbeatChecker(db);
+startHeartbeatChecker(db, broadcastToAll);
 
 // Init activity monitor (watches gateway log files)
 const activityMonitor = new ActivityMonitor();

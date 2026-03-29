@@ -181,6 +181,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         const row = stmts.listTasks.all(params.projectId).find((r: any) => r.id === id);
         const task = row ? toTask(row) : { id };
         broadcastToAll({ type: "task:created", projectId: params.projectId, task });
+        broadcastToAll({ type: "dashboard:updated" });
         return json(task, 201);
       }
     }
@@ -235,6 +236,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         const updated = stmts.listTasks.all(params.projectId).find((r: any) => r.id === params.id);
         const task = updated ? toTask(updated) : { id: params.id };
         broadcastToAll({ type: "task:updated", projectId: params.projectId, task });
+        broadcastToAll({ type: "dashboard:updated" });
         return json(task);
       }
 
@@ -244,6 +246,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         if (!row) return errorResponse(404, "Task not found");
         stmts.deleteTask.run(params.id, params.projectId);
         broadcastToAll({ type: "task:deleted", projectId: params.projectId, taskId: params.id });
+        broadcastToAll({ type: "dashboard:updated" });
         return json({ ok: true });
       }
     }
@@ -281,6 +284,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         const updated = stmts.listTasks.all(params.projectId).find((r: any) => r.id === params.id);
         const task = updated ? toTask(updated) : { id: params.id };
         broadcastToAll({ type: "task:moved", projectId: params.projectId, task });
+        broadcastToAll({ type: "dashboard:updated" });
         return json(task);
       }
     }
@@ -485,6 +489,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         const now = new Date().toISOString();
         archiveTask.run(now, params.id, params.projectId);
         broadcastToAll({ type: "task:archived", projectId: params.projectId, taskId: params.id });
+        broadcastToAll({ type: "dashboard:updated" });
         return json({ ok: true });
       }
     }
@@ -501,6 +506,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         const updated = stmts.listTasks.all(params.projectId).find((r: any) => r.id === params.id);
         const task = updated ? toTask(updated) : { id: params.id };
         broadcastToAll({ type: "task:unarchived", projectId: params.projectId, task });
+        broadcastToAll({ type: "dashboard:updated" });
         return json(task);
       }
     }
@@ -512,6 +518,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         const now = new Date().toISOString();
         const result = archiveAllForProject.run(now, params.projectId);
         broadcastToAll({ type: "board:archived_all", projectId: params.projectId });
+        broadcastToAll({ type: "dashboard:updated" });
         return json({ ok: true, archivedCount: result.changes });
       }
     }

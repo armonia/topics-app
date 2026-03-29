@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 const HEARTBEAT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 
-export function startHeartbeatChecker(db: Database): void {
+export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object) => void): void {
   const staleSessionsStmt = db.prepare(`
     SELECT id, agent_id, session_key, last_heartbeat
     FROM agent_sessions
@@ -88,6 +88,7 @@ export function startHeartbeatChecker(db: Database): void {
 
       if (staleCount > 0) {
         console.log(`[Heartbeat] Marked ${staleCount} session(s)/profile(s) as stale, ${affectedAgentIds.size} agent(s) affected`);
+        broadcastToAll({ type: "dashboard:updated" });
       }
     } catch (err) {
       console.warn("[Heartbeat] Check failed:", err);
