@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Globe, X } from 'lucide-react';
 
 interface BrowserContext {
@@ -14,33 +14,61 @@ interface BrowserSidebarControlProps {
   onOpenBrowser?: (contextId: string) => void;
   openBrowserContextIds?: string[];
   focusedBrowserContextId?: string | null;
+  onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
-export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBrowser, openBrowserContextIds, focusedBrowserContextId }: BrowserSidebarControlProps) {
-  const [contexts, setContexts] = useState<BrowserContext[]>([]);
+const POLL_INTERVAL_FALLBACK = 30_000; // 30s fallback
 
+export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBrowser, openBrowserContextIds, focusedBrowserContextId, onMessage }: BrowserSidebarControlProps) {
+  const [contexts, setContexts] = useState<BrowserContext[]>([]);
+  const lastUpdateRef = useRef<number>(0);
+
+  const loadContexts = useCallback(async () => {
+    try {
+      const fetchTime = Date.now();
+      const resp = await fetch('/api/browser/status');
+      if (resp.ok) {
+        // Only apply if no newer WS-triggered fetch arrived
+        if (lastUpdateRef.current > fetchTime) return;
+        lastUpdateRef.current = fetchTime;
+        const data = await resp.json();
+        const details = data.details || [];
+        setContexts(details);
+        onContextCount?.(details.length);
+      }
+    } catch {
+      setContexts([]);
+      onContextCount?.(0);
+    }
+  }, [onContextCount]);
+
+  // Initial fetch
   useEffect(() => {
     if (!enabled) return;
-
-    const loadContexts = async () => {
-      try {
-        const resp = await fetch('/api/browser/status');
-        if (resp.ok) {
-          const data = await resp.json();
-          const details = data.details || [];
-          setContexts(details);
-          onContextCount?.(details.length);
-        }
-      } catch {
-        setContexts([]);
-        onContextCount?.(0);
-      }
-    };
-
     loadContexts();
-    const interval = setInterval(loadContexts, 3000);
+  }, [enabled, loadContexts]);
+
+  // WS subscription — trigger re-fetch on browser navigation events
+  useEffect(() => {
+    if (!enabled || !onMessage) return;
+    const unsub = onMessage((msg: any) => {
+      try {
+        if (msg.type === 'browser:navigate') {
+          const now = Date.now();
+          lastUpdateRef.current = now;
+          loadContexts();
+        }
+      } catch { /* ignore */ }
+    });
+    return unsub;
+  }, [enabled, onMessage, loadContexts]);
+
+  // Fallback polling — 30s (reduced from 3s)
+  useEffect(() => {
+    if (!enabled) return;
+    const interval = setInterval(loadContexts, POLL_INTERVAL_FALLBACK);
     return () => clearInterval(interval);
-  }, [enabled, onContextCount]);
+  }, [enabled, loadContexts]);
 
   const closeContext = useCallback(async (id: string) => {
     try {

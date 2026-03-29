@@ -72,6 +72,7 @@ interface MessageBubbleProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
+  onMessage?: (handler: (msg: any) => void) => () => void;
   onRetry?: () => void;
 }
 
@@ -93,6 +94,7 @@ export const MessageBubble = memo(function MessageBubble({
   onEdit,
   onSwitchBranch,
   onOpenSessionViewer,
+  onMessage,
   onRetry,
 }: MessageBubbleProps) {
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
@@ -203,6 +205,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onPlanApprove={onPlanApprove}
                 onPlanReject={onPlanReject}
                 onOpenSessionViewer={onOpenSessionViewer}
+                onMessage={onMessage}
               />
             </div>
           </div>

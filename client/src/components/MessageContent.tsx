@@ -760,9 +760,11 @@ interface MessageContentProps {
   onPlanReject?: () => void;
   // Session viewer
   onOpenSessionViewer?: (sessionKey: string) => void;
+  // WebSocket message subscription (for AgentSpawnCard real-time updates)
+  onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject, onOpenSessionViewer }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject, onOpenSessionViewer, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -830,7 +832,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // Agent spawn card — detect marker format {{AGENT_SPAWN:sessionKey|label}}
   const spawnMatch = content.match(/^\{\{AGENT_SPAWN:(.+?)\|(.+)\}\}$/);
   if (spawnMatch) {
-    return <AgentSpawnCard sessionKey={spawnMatch[1]} label={spawnMatch[2]} onOpenInPane={onOpenSessionViewer} />;
+    return <AgentSpawnCard sessionKey={spawnMatch[1]} label={spawnMatch[2]} onOpenInPane={onOpenSessionViewer} onMessage={onMessage} />;
   }
 
   // Assistant message - render thinking, tool calls, content, and media

@@ -31,6 +31,7 @@ interface MessageListProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
+  onMessage?: (handler: (msg: any) => void) => () => void;
   onRetry?: () => void;
 }
 
@@ -58,6 +59,7 @@ export function MessageList({
   onEdit,
   onSwitchBranch,
   onOpenSessionViewer,
+  onMessage,
   onRetry,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -297,6 +299,7 @@ export function MessageList({
                   onEdit={onEdit}
                   onSwitchBranch={onSwitchBranch}
                   onOpenSessionViewer={onOpenSessionViewer}
+                  onMessage={onMessage}
                   onRetry={isLastAssistant ? onRetry : undefined}
                 />
               </div>
