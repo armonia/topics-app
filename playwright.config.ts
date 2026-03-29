@@ -4,7 +4,6 @@ export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   testDir: "./tests/e2e",
   testMatch: "*.spec.ts",
-  globalSetup: "./tests/e2e/global-setup.ts",
   globalTeardown: "./tests/e2e/global-teardown.ts",
   timeout: 30_000,
   expect: { timeout: 10_000 },
