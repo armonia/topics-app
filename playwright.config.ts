@@ -14,11 +14,12 @@ export default defineConfig({
     ["list"],
   ],
   use: {
-    baseURL: "http://localhost:3334",
+    baseURL: "http://localhost:13334",
     video: "on", // always record video
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     viewport: { width: 1280, height: 800 },
+    permissions: ["clipboard-read", "clipboard-write"],
   },
   outputDir: "test-results/artifacts",
   projects: [

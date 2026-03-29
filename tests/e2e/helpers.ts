@@ -8,7 +8,23 @@ import { type Page } from "@playwright/test";
 
 /** Navigate to Topics app and wait for sidebar to load */
 export async function goToApp(page: Page) {
+  // Reset open panels and panel order via API before loading to prevent stale tab accumulation
+  await Promise.all([
+    page.request.put("http://localhost:13334/api/ui-state/panels", {
+      data: { openPanels: [] },
+    }).catch(() => {}),
+    page.request.put("http://localhost:13334/api/ui-state/panel-order", {
+      data: { order: [], pinned: [] },
+    }).catch(() => {}),
+  ]);
+  // Wait for the panels fetch to complete during page load to prevent race conditions
+  // where clicking a topic is overwritten by the server's empty panels response
+  const panelsFetchPromise = page.waitForResponse(
+    (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
+    { timeout: 10000 }
+  ).catch(() => {});
   await page.goto("/");
+  await panelsFetchPromise;
   // Wait for sidebar navigation to appear (role="navigation" aria-label="Topics sidebar")
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
   // Ensure Chats section is expanded

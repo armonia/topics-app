@@ -132,7 +132,7 @@ export function StandaloneChatGroup({
     persistOrder ? orderedIds : [],
     persistOrder ? pinnedArray : [],
     useCallback((state) => {
-      if (state.order.length > 0) {
+      if (state.order?.length > 0) {
         setOrderedIds(prev => {
           // Filter incoming order by our actual topicIds to prevent cross-group contamination
           const validSet = new Set(topicIdsRef.current);
@@ -142,7 +142,7 @@ export function StandaloneChatGroup({
           return [...filtered, ...localOnly];
         });
       }
-      if (state.pinned.length > 0) {
+      if (state.pinned?.length > 0) {
         setPinnedIds(new Set(state.pinned));
       }
     }, []),

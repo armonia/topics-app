@@ -12,8 +12,10 @@ import { spawn, execSync, type ChildProcess } from "child_process";
 import { resolve } from "path";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
-const BASE = "http://localhost:3334";
-const TEST_SERVER_PORT = 3334;
+// Port 13334 chosen to avoid conflicts with production services
+// (port 3334 is used by the openclaw-gateway voice-call webhook)
+const BASE = "http://localhost:13334";
+const TEST_SERVER_PORT = 13334;
 
 let serverProcess: ChildProcess | null = null;
 
@@ -82,32 +84,17 @@ async function globalSetup() {
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-  // Stop the openclaw-gateway LaunchAgent if it's running — it binds to port 3334
-  // as a reverse proxy and has KeepAlive=true, so killing it alone causes macOS to restart it.
-  // We unload it, wait for it to die, then kill any remaining processes on the port.
+  // Kill any stale test server processes on the test port before starting
   try {
-    const plistPath = `${process.env.HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist`;
-    execSync(`launchctl unload ${plistPath} 2>/dev/null || true`);
-    console.log(`[global-setup] Unloaded openclaw-gateway LaunchAgent`);
-    await new Promise((r) => setTimeout(r, 2000)); // Wait for gateway to fully stop
+    const stalePids = execSync(
+      `lsof -ti :${TEST_SERVER_PORT} 2>/dev/null || true`
+    ).toString().trim();
+    if (stalePids) {
+      execSync(`kill ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
+      console.log(`[global-setup] Killed stale test processes on port ${TEST_SERVER_PORT}`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   } catch {}
-
-  // Kill any stale processes on the test port before starting
-  // Retry to handle race conditions with LaunchAgent restarts
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const stalePids = execSync(
-        `lsof -ti :${TEST_SERVER_PORT} 2>/dev/null || true`
-      ).toString().trim();
-      if (stalePids) {
-        execSync(`kill -9 ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
-        console.log(`[global-setup] Killed stale processes on port ${TEST_SERVER_PORT} (attempt ${attempt + 1})`);
-        await new Promise((r) => setTimeout(r, 1000));
-      } else {
-        break;
-      }
-    } catch {}
-  }
 
   // Start isolated test server
   await startTestServer();
@@ -121,8 +108,16 @@ async function globalSetup() {
       const data = (await topicsRes.json()) as {
         topics: Record<string, { id: string; name: string }>;
       };
+      const E2E_TOPIC_PATTERNS = [
+        /^E2E-/,
+        /^Toolbar E2E /,
+        /^Pin E2E /,
+        /^Chat E2E Test /,
+        /^Input Feature Test /,
+        /^Branch E2E /,
+      ];
       const staleTopics = Object.values(data.topics).filter(
-        (t) => t.name && t.name.startsWith("E2E-")
+        (t) => t.name && E2E_TOPIC_PATTERNS.some((p) => p.test(t.name))
       );
       if (staleTopics.length > 0) {
         console.log(
@@ -135,6 +130,21 @@ async function globalSetup() {
         }
       }
     }
+
+    // Reset UI state to prevent stale panels/layout from breaking tests
+    const uiResets: Record<string, any> = {
+      panels: { openPanels: [] },
+      "grid-layout": { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
+      "panel-order": { order: [], pinned: [] },
+    };
+    for (const [key, value] of Object.entries(uiResets)) {
+      await fetch(`${BASE}/api/ui-state/${key}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+      }).catch(() => {});
+    }
+    console.log("[global-setup] Reset UI state (panels, grid-layout, panel-order)");
 
     // Clean up stale E2E tasks — the /api/boards/tasks endpoint returns
     // an object with project keys, each containing an array of tasks
