@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -57,7 +58,22 @@ async function openProject(page: Page, name: string | RegExp) {
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
 
+let projectTopicId: string | null = null;
+
 test.describe("Grid Split System", () => {
+  test.beforeAll(async ({ request }) => {
+    // Create a project-linked topic so the "Projects" section has an entry
+    const topic = await createTopic(request, "E2E-GridProject", {
+      projectPath: "/tmp/e2e-grid",
+    });
+    projectTopicId = topic.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (projectTopicId) {
+      await deleteTopic(request, projectTopicId);
+    }
+  });
 
   test.describe("Chat splits", () => {
     test.beforeEach(async ({ page }) => {
@@ -91,8 +107,8 @@ test.describe("Grid Split System", () => {
     });
 
     test("layout persists after page reload", async ({ page }) => {
-      // Open a project to ensure we have tabs
-      await openProject(page, /topics-app/);
+      // Open the self-provisioned project to ensure we have tabs
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
       const initialLabels = await getVisibleTabLabels(page);
@@ -104,7 +120,7 @@ test.describe("Grid Split System", () => {
       await page.reload({ waitUntil: 'networkidle' });
       await page.waitForTimeout(3000);
       // Re-open the same project
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
       const reloadedLabels = await getVisibleTabLabels(page);
@@ -140,7 +156,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("project window opens with tab bar", async ({ page }) => {
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
       const labels = await getVisibleTabLabels(page);
@@ -148,7 +164,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("project tabs include utility types (terminal, git, browser)", async ({ page }) => {
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
       const addBtn = page.locator('[role="main"] button[title*="Add"], [role="main"] button:has-text("+")');
@@ -166,7 +182,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("project window tab bar remains compact", async ({ page }) => {
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
       const tabBars = page.locator('[role="main"] .border-b.border-app-border.flex-shrink-0');
@@ -181,7 +197,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("no duplicate tabs after project operations", async ({ page }) => {
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
 
       const labels = await getVisibleTabLabels(page);
@@ -235,7 +251,7 @@ test.describe("Grid Split System", () => {
   test.describe("Split handler correctness (unit-level via evaluate)", () => {
     test("split removes pane from source group when it is the only pane", async ({ page }) => {
       await goToApp(page);
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
 
       const result = await page.evaluate(() => {
@@ -398,8 +414,8 @@ test.describe("Grid Split System", () => {
   test.describe("DnD MIME types", () => {
     test("all pane tabs set PANE_TAB on drag", async ({ page }) => {
       await goToApp(page);
-      // Open a project to ensure we have draggable tabs
-      await openProject(page, /topics-app/);
+      // Open the self-provisioned project to ensure we have draggable tabs
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
 
       const draggableTabs = page.locator('[role="main"] [draggable="true"]');
@@ -409,7 +425,7 @@ test.describe("Grid Split System", () => {
 
     test("tabs within project window are draggable", async ({ page }) => {
       await goToApp(page);
-      await openProject(page, /topics-app/);
+      await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
 
       const draggableTabs = page.locator('[role="main"] [draggable="true"]');

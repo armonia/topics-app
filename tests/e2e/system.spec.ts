@@ -23,7 +23,8 @@ test.describe("System & Infrastructure", () => {
     expect(text!.length).toBeGreaterThan(0);
 
     await statusBtn.click();
-    await page.waitForLoadState("networkidle");
+    // Don't use networkidle — SSE/WS connections prevent idle state
+    await page.waitForTimeout(2000);
     expect((await page.locator("body").textContent())!.length).toBeGreaterThan(50);
   });
 
@@ -115,7 +116,8 @@ test.describe("System & Infrastructure", () => {
 
   test("error recovery — invalid route + invalid API", async ({ page }) => {
     // Navigate to non-existent route
-    await page.goto("/nonexistent-page", { waitUntil: "networkidle" });
+    await page.goto("/nonexistent-page");
+    await page.waitForTimeout(1000);
     const bodyText = await page.locator("body").textContent();
     expect(bodyText!.length).toBeGreaterThan(0);
 
