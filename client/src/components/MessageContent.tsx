@@ -168,6 +168,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
 
   return createPortal(
     <div
+      data-testid="image-lightbox"
       className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center overflow-hidden"
       style={{ touchAction: 'none' }}
       onClick={handleBackdropClick}
@@ -184,6 +185,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
         draggable={false}
       />
       <button
+        data-testid="lightbox-close"
         className="absolute top-4 right-4 text-white text-2xl bg-black/50 rounded-full w-10 h-10 flex items-center justify-center"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       >×</button>
@@ -205,7 +207,7 @@ function MediaImage({ path }: { path: string }) {
 
   if (error) {
     return (
-      <div className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
+      <div data-testid="media-image-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
         🖼️ Image failed to load: {getFileName(path)}
       </div>
     );
@@ -213,7 +215,7 @@ function MediaImage({ path }: { path: string }) {
 
   return (
     <>
-      <img src={src} alt={getFileName(path)} className="max-w-full max-h-80 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1" onClick={() => setLightbox(true)} onError={() => setError(true)} loading="lazy" />
+      <img data-testid="media-image" src={src} alt={getFileName(path)} className="max-w-full max-h-80 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1" onClick={() => setLightbox(true)} onError={() => setError(true)} loading="lazy" />
       {lightbox && <ImageLightbox src={src} alt={getFileName(path)} onClose={() => setLightbox(false)} />}
     </>
   );
@@ -277,7 +279,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-2.5 py-1 min-w-[180px] max-w-[260px]">
+    <div data-testid="voice-player" className="flex items-center gap-2.5 py-1 min-w-[180px] max-w-[260px]">
       <audio ref={audioRef} src={src} preload="auto" />
       <button
         onClick={toggle}
@@ -320,7 +322,7 @@ function MediaAudio({ path, isVoice, isUserMessage }: { path: string; isVoice?: 
   if (isVoice) return <VoiceMessagePlayer path={path} isUserMessage={isUserMessage} />;
   const src = getMediaUrl(path);
   return (
-    <div className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
+    <div data-testid="media-audio" className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
       <div className="flex items-center gap-2 mb-2 text-sm text-app-text-secondary">🎵 {getFileName(path)}</div>
       <audio controls className="w-full" preload="metadata">
         <source src={src} />
@@ -334,6 +336,7 @@ function MediaFile({ path }: { path: string }) {
   const src = getMediaUrl(path);
   return (
     <a
+      data-testid="media-file"
       href={src}
       target="_blank"
       rel="noopener noreferrer"
@@ -342,7 +345,7 @@ function MediaFile({ path }: { path: string }) {
     >
       <FileIcon path={path} size={24} />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{getFileName(path)}</div>
+        <div data-testid="media-file-name" className="text-sm font-medium truncate">{getFileName(path)}</div>
         <div className="text-xs text-app-text-muted uppercase">{getExtension(path)} file</div>
       </div>
       <Download size={16} className="text-app-text-muted flex-shrink-0" />
@@ -822,7 +825,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     };
 
     return (
-      <div>
+      <div data-testid="message-content-user">
         {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={role === "user"} /></div>)}
         {cleanText && renderUserText(cleanText)}
       </div>
@@ -837,7 +840,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
   // Assistant message - render thinking, tool calls, content, and media
   return (
-    <div>
+    <div data-testid="message-content-assistant">
       {/* Thinking block - always show if present */}
       {thinking && <ThinkingBlock content={thinking} />}
 
