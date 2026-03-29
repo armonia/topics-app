@@ -1,7 +1,12 @@
 /**
  * Playwright global teardown — runs AFTER all test suites.
  * Kills the isolated test server process started by global-setup.
+ * Also cleans up any stale processes on the test port.
  */
+
+import { execSync } from "child_process";
+
+const TEST_PORT = 3334;
 
 async function globalTeardown() {
   const pid = process.env.__TEST_SERVER_PID;
@@ -13,16 +18,29 @@ async function globalTeardown() {
       process.kill(-Number(pid), "SIGTERM");
     } catch {
       try {
-        // Fallback: kill just the process
         process.kill(Number(pid), "SIGTERM");
       } catch {
         // Already dead
       }
     }
-    console.log("[global-teardown] Test server stopped.");
-  } else {
-    console.log("[global-teardown] No test server PID found — nothing to stop.");
   }
+
+  // Also kill any stale processes on the test port
+  try {
+    const pids = execSync(
+      `lsof -ti :${TEST_PORT} 2>/dev/null || true`
+    )
+      .toString()
+      .trim();
+    if (pids) {
+      execSync(`kill -9 ${pids.split("\n").join(" ")} 2>/dev/null || true`);
+      console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.replace(/\n/g, ", ")}`);
+    }
+  } catch {
+    // No stale processes
+  }
+
+  console.log("[global-teardown] Test server stopped.");
 }
 
 export default globalTeardown;

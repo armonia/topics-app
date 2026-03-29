@@ -8,28 +8,28 @@
  * completely isolated from the production data/ directory.
  */
 
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, execSync, type ChildProcess } from "child_process";
 import { resolve } from "path";
 
-const BASE = "https://localhost:3334";
+// Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
+const BASE = "http://localhost:3334";
 const TEST_SERVER_PORT = 3334;
 
 let serverProcess: ChildProcess | null = null;
 
-async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
+async function waitForServer(_url: string, timeoutMs = 30000): Promise<void> {
+  const net = await import("net");
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`${url}/api/topics`, {
-        signal: AbortSignal.timeout(1000),
-      });
-      if (res.ok || res.status === 401 || res.status === 403) {
-        // Server is up (even if auth fails, it's responding)
-        return;
-      }
-    } catch {
-      // Not ready yet
-    }
+    const isOpen = await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection(
+        { port: TEST_SERVER_PORT, host: "127.0.0.1" },
+        () => { socket.destroy(); resolve(true); }
+      );
+      socket.on("error", () => resolve(false));
+      socket.setTimeout(1000, () => { socket.destroy(); resolve(false); });
+    });
+    if (isOpen) return;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`Test server did not start within ${timeoutMs}ms`);
@@ -45,6 +45,7 @@ async function startTestServer(): Promise<void> {
       ...process.env,
       BUN_PORT: String(TEST_SERVER_PORT),
       DATA_DIR: "/tmp/topics-test-data",
+      NO_TLS: "1",
       GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
       GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",
     },
@@ -80,6 +81,18 @@ async function startTestServer(): Promise<void> {
 async function globalSetup() {
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+  // Kill any stale processes on the test port before starting
+  try {
+    const stalePids = execSync(
+      `lsof -ti :${TEST_SERVER_PORT} 2>/dev/null || true`
+    ).toString().trim();
+    if (stalePids) {
+      execSync(`kill -9 ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
+      console.log(`[global-setup] Killed stale processes on port ${TEST_SERVER_PORT}`);
+      await new Promise((r) => setTimeout(r, 1000)); // Wait for port release
+    }
+  } catch {}
 
   // Start isolated test server
   await startTestServer();
@@ -144,6 +157,52 @@ async function globalSetup() {
     // Server might have issues — don't fail setup, tests will catch errors
     console.warn(
       "[global-setup] Could not clean stale data:",
+      (err as Error).message
+    );
+  }
+
+  // Seed baseline data that legacy tests (Phase 1-2) expect
+  await seedBaselineData();
+}
+
+/**
+ * Create baseline topics that older tests reference by name.
+ * Phase 3-12 tests self-provision via API fixtures; these are for Phase 1-2 tests.
+ */
+async function seedBaselineData() {
+  const requiredTopics = [
+    { name: "Web Search Test", type: "chat" },
+    { name: "Best Ramen", type: "chat" },
+  ];
+
+  try {
+    const topicsRes = await fetch(`${BASE}/api/topics`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!topicsRes.ok) return;
+
+    const data = (await topicsRes.json()) as {
+      topics: Record<string, { id: string; name: string }>;
+    };
+    const existingNames = new Set(
+      Object.values(data.topics).map((t) => t.name)
+    );
+
+    for (const topic of requiredTopics) {
+      if (!existingNames.has(topic.name)) {
+        const res = await fetch(`${BASE}/api/topics`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: topic.name, type: topic.type }),
+        });
+        if (res.ok) {
+          console.log(`[global-setup] Seeded topic: "${topic.name}"`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[global-setup] Could not seed baseline data:",
       (err as Error).message
     );
   }

@@ -415,7 +415,7 @@ test.describe("Topic Management - Settings & Organization", () => {
 
     // Verify the reorder was persisted server-side
     // Use API to check that sortOrder values were set
-    const topicsResp = await request.get("https://localhost:3334/api/topics", {
+    const topicsResp = await request.get("http://localhost:3334/api/topics", {
       ignoreHTTPSErrors: true,
     });
     const topicsData = await topicsResp.json() as { topics: Record<string, { sortOrder?: number }> };

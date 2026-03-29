@@ -294,7 +294,7 @@ test.describe("Command Palette", () => {
     // Test 5: Verify the route mock intercepts file API requests
     // Make a direct request to confirm the mock is properly configured
     const fileListResponse = await page.request.get(
-      "https://localhost:3334/api/files/flat?path=/tmp/test-project&maxFiles=2000",
+      "http://localhost:3334/api/files/flat?path=/tmp/test-project&maxFiles=2000",
       { ignoreHTTPSErrors: true }
     );
     // Note: page.request bypasses page.route -- use the route's presence in the test

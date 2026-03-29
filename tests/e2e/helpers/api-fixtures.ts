@@ -1,6 +1,6 @@
 import type { APIRequestContext } from "@playwright/test";
 
-const BASE = "https://localhost:3334";
+const BASE = "http://localhost:3334";
 
 // --- Topic fixtures ---
 

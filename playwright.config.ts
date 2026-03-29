@@ -14,8 +14,7 @@ export default defineConfig({
     ["list"],
   ],
   use: {
-    baseURL: "https://localhost:3334",
-    ignoreHTTPSErrors: true,
+    baseURL: "http://localhost:3334",
     video: "on", // always record video
     screenshot: "only-on-failure",
     trace: "on-first-retry",
