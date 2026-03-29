@@ -1,7 +1,24 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+
+let projectTopicId: string | null = null;
 
 test.describe("Sidebar", () => {
+  test.beforeAll(async ({ request }) => {
+    // Create a project-linked topic so the "Projects" section has an entry
+    const topic = await createTopic(request, "E2E-ProjectTest", {
+      projectPath: "/tmp/e2e-project",
+    });
+    projectTopicId = topic.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (projectTopicId) {
+      await deleteTopic(request, projectTopicId);
+    }
+  });
+
   test("clicking topics switches the main panel", async ({ page }) => {
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
@@ -22,7 +39,8 @@ test.describe("Sidebar", () => {
     const projectsBtn = page.getByRole("button", { name: /Projects/ }).first();
     await expect(projectsBtn).toBeVisible({ timeout: 10000 });
 
-    const projectBtn = page.locator('button:has-text("topics-app")');
+    // Use the project-linked topic we created (folder name = "e2e-project")
+    const projectBtn = page.locator('button:has-text("e2e-project")');
     await expect(projectBtn.first()).toBeVisible({ timeout: 5000 });
 
     await projectBtn.first().click();

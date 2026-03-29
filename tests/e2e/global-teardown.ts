@@ -40,6 +40,15 @@ async function globalTeardown() {
     // No stale processes
   }
 
+  // Re-enable the openclaw-gateway LaunchAgent (if it was stopped by global-setup)
+  try {
+    const plistPath = `${process.env.HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist`;
+    execSync(
+      `launchctl load ${plistPath} 2>/dev/null || true`
+    );
+    console.log("[global-teardown] Re-enabled openclaw-gateway LaunchAgent");
+  } catch {}
+
   console.log("[global-teardown] Test server stopped.");
 }
 

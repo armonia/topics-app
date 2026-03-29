@@ -82,17 +82,32 @@ async function globalSetup() {
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-  // Kill any stale processes on the test port before starting
+  // Stop the openclaw-gateway LaunchAgent if it's running — it binds to port 3334
+  // as a reverse proxy and has KeepAlive=true, so killing it alone causes macOS to restart it.
+  // We unload it, wait for it to die, then kill any remaining processes on the port.
   try {
-    const stalePids = execSync(
-      `lsof -ti :${TEST_SERVER_PORT} 2>/dev/null || true`
-    ).toString().trim();
-    if (stalePids) {
-      execSync(`kill -9 ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
-      console.log(`[global-setup] Killed stale processes on port ${TEST_SERVER_PORT}`);
-      await new Promise((r) => setTimeout(r, 1000)); // Wait for port release
-    }
+    const plistPath = `${process.env.HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist`;
+    execSync(`launchctl unload ${plistPath} 2>/dev/null || true`);
+    console.log(`[global-setup] Unloaded openclaw-gateway LaunchAgent`);
+    await new Promise((r) => setTimeout(r, 2000)); // Wait for gateway to fully stop
   } catch {}
+
+  // Kill any stale processes on the test port before starting
+  // Retry to handle race conditions with LaunchAgent restarts
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const stalePids = execSync(
+        `lsof -ti :${TEST_SERVER_PORT} 2>/dev/null || true`
+      ).toString().trim();
+      if (stalePids) {
+        execSync(`kill -9 ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
+        console.log(`[global-setup] Killed stale processes on port ${TEST_SERVER_PORT} (attempt ${attempt + 1})`);
+        await new Promise((r) => setTimeout(r, 1000));
+      } else {
+        break;
+      }
+    } catch {}
+  }
 
   // Start isolated test server
   await startTestServer();
