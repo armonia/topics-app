@@ -1,7 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
 
 export function createCronRouter(ctx: AppContext): RouteHandler {
-  const { GATEWAY_URL, GATEWAY_TOKEN, readJSON, json, matchRoute } = ctx;
+  const { GATEWAY_URL, GATEWAY_TOKEN, readJSON, json, matchRoute, broadcastToAll } = ctx;
 
   return async function cronRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -21,6 +21,19 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
         const body = await readJSON(req);
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "update", jobId: cronJobMatch.jobId, patch: body } }) });
         if (!resp.ok) { const errText = await resp.text(); return json({ error: `Gateway error: ${resp.status} - ${errText}` }, resp.status); }
+        // Broadcast updated cron jobs list (best-effort)
+        try {
+          const listResp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+            body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }),
+          });
+          if (listResp.ok) {
+            const listData = await listResp.json() as any;
+            const jobs = listData.result?.details?.jobs || listData.result?.jobs || listData.jobs || [];
+            broadcastToAll({ type: "cron:updated", jobs });
+          }
+        } catch { /* non-fatal */ }
         return json({ ok: true });
       } catch (err: any) { return json({ error: err.message }, 500); }
     }
@@ -30,6 +43,19 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "run", jobId: cronRunMatch.jobId } }) });
         if (!resp.ok) return json({ error: `Gateway error: ${resp.status}` }, resp.status);
+        // Broadcast updated cron jobs list (best-effort)
+        try {
+          const listResp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+            body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }),
+          });
+          if (listResp.ok) {
+            const listData = await listResp.json() as any;
+            const jobs = listData.result?.details?.jobs || listData.result?.jobs || listData.jobs || [];
+            broadcastToAll({ type: "cron:updated", jobs });
+          }
+        } catch { /* non-fatal */ }
         return json({ ok: true });
       } catch (err: any) { return json({ error: err.message }, 500); }
     }
@@ -38,6 +64,19 @@ export function createCronRouter(ctx: AppContext): RouteHandler {
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "cron", args: { action: "remove", jobId: cronJobMatch.jobId } }) });
         if (!resp.ok) return json({ error: `Gateway error: ${resp.status}` }, resp.status);
+        // Broadcast updated cron jobs list (best-effort)
+        try {
+          const listResp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+            body: JSON.stringify({ tool: "cron", args: { action: "list", includeDisabled: true } }),
+          });
+          if (listResp.ok) {
+            const listData = await listResp.json() as any;
+            const jobs = listData.result?.details?.jobs || listData.result?.jobs || listData.jobs || [];
+            broadcastToAll({ type: "cron:updated", jobs });
+          }
+        } catch { /* non-fatal */ }
         return json({ ok: true });
       } catch (err: any) { return json({ error: err.message }, 500); }
     }
