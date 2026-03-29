@@ -152,7 +152,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     try {
       const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" },
         body: JSON.stringify({
           sessionKey: watched.sessionKey,
           messages: [{ role: "user", content: `[System: sub-agent completed. Present the result to the user naturally.]` }],
@@ -505,7 +505,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
       const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": sessionKey },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write", "x-openclaw-session-key": sessionKey },
         body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
         signal: abortController.signal,
       });
@@ -1071,7 +1071,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
                     if (session) {
                       try {
-                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/pause`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}` } });
+                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/pause`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" } });
                         response = `Paused agent @${agentName}`;
                       } catch { response = `Failed to pause @${agentName} — no reachable session`; }
                     } else { response = `No active session found for @${agentName}`; }
@@ -1085,7 +1085,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'paused' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
                     if (session) {
                       try {
-                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/resume`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}` } });
+                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/resume`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" } });
                         response = `Resumed agent @${agentName}`;
                       } catch { response = `Failed to resume @${agentName} — no reachable session`; }
                     } else { response = `No paused session found for @${agentName}`; }
@@ -1646,7 +1646,7 @@ Wait for the user to approve the plan before executing any changes.` };
 
           const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": sessionKey },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write", "x-openclaw-session-key": sessionKey },
             body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
             signal: abortController.signal,
           });
@@ -2016,7 +2016,7 @@ Wait for the user to approve the plan before executing any changes.` };
         try {
           const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" },
             body: JSON.stringify({ tool: "sessions_history", args: { sessionKey, limit: limit + offset, includeTools: false } }),
           });
           const data = await resp.json() as any;
@@ -2168,7 +2168,7 @@ Wait for the user to approve the plan before executing any changes.` };
             setTimeout(() => controller.abort(), 8000);
             const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": `auto-name:${topicId}:${Date.now()}` },
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write", "x-openclaw-session-key": `auto-name:${topicId}:${Date.now()}` },
               body: JSON.stringify({ model: "openclaw", stream: false, messages: [
                 { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
               ] }),
@@ -2219,20 +2219,20 @@ Wait for the user to approve the plan before executing any changes.` };
               try { mkdirSync(backupDir, { recursive: true }); const timestamp = new Date().toISOString().replace(/[:.]/g, "-"); const backupFile = join(backupDir, `${sessionKey.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`); writeFileSync(backupFile, JSON.stringify(existingMsgs, null, 2)); console.log(`[clear] Backed up ${existingMsgs.length} messages to ${backupFile}`); } catch (err) { console.warn("[clear] Backup failed:", err); }
             }
             saveLocalMessages(sessionKey, []);
-            try { await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "sessions_send", args: { sessionKey, message: "/clear" } }) }); } catch (err) { console.warn("Failed to clear gateway session:", err); }
+            try { await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ tool: "sessions_send", args: { sessionKey, message: "/clear" } }) }); } catch (err) { console.warn("Failed to clear gateway session:", err); }
             broadcastToAll({ type: "clear", sessionKey });
             return json({ ok: true, command: "clear", message: "Conversation cleared" });
           }
           case "model": {
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
-            const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
+            const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
             if (!resp.ok) return json({ error: "Failed to set model" }, 500);
             return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
           }
           case "reasoning": {
             const level = args?.level || "on";
-            const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
+            const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
             if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
             const text = await resp.text();
             return json({ ok: true, command: "reasoning", level, message: `Reasoning set to: ${level}`, output: text });
@@ -2306,7 +2306,7 @@ Wait for the user to approve the plan before executing any changes.` };
       const topicId = url.searchParams.get("topicId");
       if (!topicId) return json({ error: "topicId parameter required" }, 400);
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "sessions_list", args: { kinds: ["other"], activeMinutes: 30 } }) });
+        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ tool: "sessions_list", args: { kinds: ["other"], activeMinutes: 30 } }) });
         const result = await resp.json() as any;
         const sessions = result?.result?.sessions || [];
         const processes = sessions.filter((s: any) => s.sessionKey?.includes("subagent")).map((s: any) => ({ sessionKey: s.sessionKey, label: s.label || s.sessionKey.split(":").pop() || "Sub-agent", status: s.status === "active" ? "running" : "done", startedAt: s.createdAt || new Date().toISOString(), completedAt: s.status !== "active" ? (s.updatedAt || new Date().toISOString()) : undefined }));
