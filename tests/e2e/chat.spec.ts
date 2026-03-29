@@ -1,7 +1,7 @@
 import { expect, type APIRequestContext } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTestChat, openTopic } from "./helpers";
-import { mockChatStream } from "./helpers/sse-helpers";
+import { mockChatStream, unmockChatStream } from "./helpers/sse-helpers";
 import { createTopic, deleteTopic, patchTopic } from "./helpers/api-fixtures";
 
 test.describe.serial("Chat", () => {
@@ -35,6 +35,7 @@ test.describe.serial("Chat", () => {
     // Set up SSE mock AFTER navigation to avoid interfering with page load
     await mockChatStream(page, {
       chunks: ["Hello ", "from ", "the ", "assistant!"],
+      userMessage: "test message",
     });
 
     // Send message
@@ -145,6 +146,7 @@ test.describe.serial("Chat", () => {
     // Mock SSE to return a long response that will extend the message list
     await mockChatStream(page, {
       chunks: ["This is a response that should trigger auto-scroll to bottom."],
+      userMessage: "Test auto-scroll",
     });
 
     // Record scroll position before sending
@@ -179,7 +181,7 @@ test.describe.serial("Chat", () => {
     ).toBe(true);
 
     // Clean up route
-    await page.unroute("**/api/chat/*");
+    await unmockChatStream(page);
   });
 
   test("input toolbar has all buttons", async ({ page }) => {
@@ -498,7 +500,7 @@ test.describe("Message Branching", () => {
     const textarea = await openTestChat(page);
 
     // First, send a message with mocked SSE response
-    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 1!"] });
+    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 1!"], userMessage: "Test message for branching" });
     await textarea.fill("Test message for branching");
     await textarea.press("Control+Enter");
 
@@ -511,7 +513,7 @@ test.describe("Message Branching", () => {
     await expect(assistantResponse).toBeVisible({ timeout: 15_000 });
 
     // Remove the first route to set up a new mock for the edit response
-    await page.unroute("**/api/chat/*");
+    await unmockChatStream(page);
 
     // Now hover over the user message to reveal the edit button
     await userMessage.hover();
@@ -524,7 +526,7 @@ test.describe("Message Branching", () => {
     await expect(page.getByText("Editing message")).toBeVisible({ timeout: 5_000 });
 
     // Mock SSE for the second branch response
-    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 2!"] });
+    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 2!"], userMessage: "Edited message for branching" });
 
     // Clear and type new content, then submit
     await textarea.fill("Edited message for branching");
