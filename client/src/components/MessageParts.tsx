@@ -14,8 +14,9 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, defaultColla
   if (!content) return null;
 
   return (
-    <div className="mb-2 border border-app-border-light rounded-lg overflow-hidden bg-elevated">
+    <div data-testid="thinking-block" className="mb-2 border border-app-border-light rounded-lg overflow-hidden bg-elevated">
       <button
+        data-testid="thinking-toggle"
         onClick={() => setCollapsed(!collapsed)}
         className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-app-text-secondary hover:bg-app-hover transition-colors"
       >
@@ -47,17 +48,22 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
   const [expanded, setExpanded] = useState(false);
 
   const statusIcon = () => {
+    let icon;
     switch (toolCall.status) {
       case 'running':
       case 'pending':
-        return <Loader2 size={12} className="animate-spin text-blue-500" />;
+        icon = <Loader2 size={12} className="animate-spin text-blue-500" />;
+        break;
       case 'success':
-        return <Check size={12} className="text-green-500" />;
+        icon = <Check size={12} className="text-green-500" />;
+        break;
       case 'error':
-        return <X size={12} className="text-red-500" />;
+        icon = <X size={12} className="text-red-500" />;
+        break;
       default:
-        return <Loader2 size={12} className="animate-spin text-blue-500" />;
+        icon = <Loader2 size={12} className="animate-spin text-blue-500" />;
     }
+    return <span data-testid="tool-call-status" data-status={toolCall.status || 'pending'}>{icon}</span>;
   };
 
   const statusColor = () => {
@@ -78,12 +84,13 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
     return (
       <span className="inline-block align-middle">
         <button
+          data-testid={`tool-call-${toolCall.id}`}
           onClick={() => setExpanded(!expanded)}
           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border cursor-pointer hover:brightness-95 dark:hover:brightness-110 transition-all ${statusColor()}`}
         >
           {statusIcon()}
           <Wrench size={10} className="text-app-text-secondary" />
-          {toolCall.name}
+          <span data-testid="tool-call-name">{toolCall.name}</span>
           {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
         </button>
         {expanded && (
@@ -91,7 +98,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
             {Object.keys(toolCall.args).length > 0 && (
               <div className="px-3 py-2 border-b border-inherit">
                 <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
-                <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
+                <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
                   {JSON.stringify(toolCall.args, null, 2)}
                 </pre>
               </div>
@@ -99,7 +106,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
             {toolCall.result && (
               <div className="px-3 py-2 border-b border-inherit">
                 <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
-                <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
+                <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
                   {toolCall.result}
                 </pre>
               </div>
@@ -107,7 +114,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
             {toolCall.error && (
               <div className="px-3 py-2">
                 <div className="text-[10px] uppercase text-red-500 mb-1 font-semibold">Error</div>
-                <pre className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
+                <pre data-testid="tool-call-error" className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
                   {toolCall.error}
                 </pre>
               </div>
@@ -122,7 +129,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
   }
 
   return (
-    <div className={`my-2 border rounded-lg overflow-hidden ${statusColor()}`}>
+    <div data-testid={`tool-call-${toolCall.id}`} className={`my-2 border rounded-lg overflow-hidden ${statusColor()}`}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
@@ -130,7 +137,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         {statusIcon()}
         <Wrench size={14} className="text-app-text-secondary" />
-        <span className="font-mono font-medium">{toolCall.name}</span>
+        <span data-testid="tool-call-name" className="font-mono font-medium">{toolCall.name}</span>
         {!expanded && Object.keys(toolCall.args).length > 0 && (
           <span className="text-[11px] text-app-text-muted ml-2">
             ({Object.keys(toolCall.args).length} args)
@@ -143,7 +150,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {Object.keys(toolCall.args).length > 0 && (
             <div className="px-3 py-2 border-b border-inherit">
               <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
-              <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
+              <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
                 {JSON.stringify(toolCall.args, null, 2)}
               </pre>
             </div>
@@ -152,7 +159,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {toolCall.result && (
             <div className="px-3 py-2">
               <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
-              <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
+              <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
                 {toolCall.result}
               </pre>
             </div>
@@ -161,7 +168,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {toolCall.error && (
             <div className="px-3 py-2">
               <div className="text-[10px] uppercase text-red-500 mb-1 font-semibold">Error</div>
-              <pre className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
+              <pre data-testid="tool-call-error" className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
                 {toolCall.error}
               </pre>
             </div>
@@ -193,7 +200,7 @@ export function ToolCallsList({ toolCalls, compact = false }: ToolCallsListProps
 
   if (compact) {
     return (
-      <div className="flex flex-wrap gap-1 mb-2">
+      <div data-testid="tool-calls-list" className="flex flex-wrap gap-1 mb-2">
         {toolCalls.map((tc, i) => (
           <ToolCallBadge key={tc.id || i} toolCall={tc} compact />
         ))}
@@ -202,7 +209,7 @@ export function ToolCallsList({ toolCalls, compact = false }: ToolCallsListProps
   }
 
   return (
-    <div className="space-y-1">
+    <div data-testid="tool-calls-list" className="space-y-1">
       {toolCalls.map((tc, i) => (
         <ToolCallBadge key={tc.id || i} toolCall={tc} />
       ))}
