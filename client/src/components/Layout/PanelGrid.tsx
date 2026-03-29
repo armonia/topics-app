@@ -162,6 +162,10 @@ export function PanelGrid({
   const [standaloneHasUtility, setStandaloneHasUtility] = useState(false);
   const handleStandaloneUtilityChange = useCallback((has: boolean) => setStandaloneHasUtility(has), []);
 
+  // Pending split placement: when a pane is split, we track where the new solo key should go
+  // so the sync effect places it correctly instead of dumping into the first row
+  const pendingSplitRef = useRef<{ key: string; direction: 'right' | 'down'; nearKey: string } | null>(null);
+
   /* ---- Build natural grid items (flat) ---- */
   const naturalGridItems = useMemo<GridItem[]>(() => {
     const items: GridItem[] = [];
@@ -244,11 +248,52 @@ export function PanelGrid({
       const existing = new Set(rows.flatMap(r => r.itemKeys));
       const newKeys = naturalGridItems.map(i => i.key).filter(k => !existing.has(k));
 
-      // 4. Add new keys to first row (or create one)
+      // 4. Add new keys — check pendingSplitRef for directed placement
       if (newKeys.length > 0) {
+        const pending = pendingSplitRef.current;
+
         if (rows.length === 0) {
           rows = [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
+          pendingSplitRef.current = null;
+        } else if (pending && newKeys.includes(pending.key)) {
+          // Place the pending split key according to its direction
+          const remainingKeys = newKeys.filter(k => k !== pending.key);
+
+          // Find which row contains the nearKey
+          let nearRowIdx = -1, nearColIdx = -1;
+          for (let r = 0; r < rows.length; r++) {
+            const c = rows[r].itemKeys.indexOf(pending.nearKey);
+            if (c >= 0) { nearRowIdx = r; nearColIdx = c; break; }
+          }
+
+          if (nearRowIdx >= 0) {
+            if (pending.direction === 'right') {
+              // Insert as new column to the right in the same row
+              const row = rows[nearRowIdx];
+              row.itemKeys.splice(nearColIdx + 1, 0, pending.key);
+              row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
+            } else {
+              // Create a new row below
+              const newRow: PanelGridRow = { itemKeys: [pending.key], widths: [1] };
+              rows.splice(nearRowIdx + 1, 0, newRow);
+            }
+          } else {
+            // Fallback: add to first row
+            const first = rows[0];
+            first.itemKeys.push(pending.key);
+            first.widths = first.itemKeys.map(() => 1 / first.itemKeys.length);
+          }
+
+          // Add any remaining new keys to first row
+          if (remainingKeys.length > 0) {
+            const first = rows[0];
+            const allKeys = [...first.itemKeys, ...remainingKeys];
+            rows[0] = { itemKeys: allKeys, widths: allKeys.map(() => 1 / allKeys.length) };
+          }
+
+          pendingSplitRef.current = null;
         } else {
+          // Default: add new keys to first row
           const first = rows[0];
           const allKeys = [...first.itemKeys, ...newKeys];
           rows = [{ itemKeys: allKeys, widths: allKeys.map(() => 1 / allKeys.length) }, ...rows.slice(1)];
@@ -285,6 +330,23 @@ export function PanelGrid({
     }
     return () => { if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current); };
   }, [gridRows, gridRowHeights, soloTopicIds]);
+
+  /* ---- Split pane handler (context menu: Split Right / Split Down) ---- */
+  const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
+    // Don't split if already solo
+    if (soloTopicIds.includes(topicId)) return;
+
+    const soloKey = `solo:${topicId}`;
+    // Find which grid item currently contains this topicId
+    // Non-solo topics live in the 'standalone' group
+    const nearKey = 'standalone';
+
+    // Set pending split placement so the sync effect places it correctly
+    pendingSplitRef.current = { key: soloKey, direction, nearKey };
+
+    // Make it solo — this triggers naturalGridItems recalc, then the sync effect
+    setSoloTopicIds(prev => prev.includes(topicId) ? prev : [...prev, topicId]);
+  }, [soloTopicIds]);
 
   /* ---- Resize via useGridResize ---- */
   const resizeCallbacks = useMemo(() => ({
@@ -774,6 +836,7 @@ export function PanelGrid({
                       onOpenBrowserContextIds={key === 'standalone' ? onOpenBrowserContextIds : undefined}
                       promoteDraft={promoteDraft}
                       draftMeta={draftMeta}
+                      onSplitPane={handleSplitPane}
                       persistOrder={key === 'standalone'}
                     />
 

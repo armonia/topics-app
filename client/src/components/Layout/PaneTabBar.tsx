@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare } from 'lucide-react';
+import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare, Columns2, Rows2 } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { PANE_CONFIG } from '../../lib/paneConfig';
@@ -31,6 +31,8 @@ interface PaneTabBarProps {
   onContextRingClick?: (paneId: string) => void;
   onCloseOthers?: (paneId: string) => void;
   onDetach?: (paneId: string) => void;
+  onSplitRight?: (paneId: string) => void;
+  onSplitDown?: (paneId: string) => void;
   onRename?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
@@ -72,7 +74,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -459,6 +461,29 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               <X size={14} />
               <span>Close Others</span>
             </button>
+          )}
+          {(onSplitRight || onSplitDown) && (
+            <>
+              <div className="h-px bg-app-border my-1" />
+              {onSplitRight && (
+                <button
+                  onClick={() => { onSplitRight(ctxMenu.paneId); setCtxMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                >
+                  <Columns2 size={14} />
+                  <span>Split Right</span>
+                </button>
+              )}
+              {onSplitDown && (
+                <button
+                  onClick={() => { onSplitDown(ctxMenu.paneId); setCtxMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                >
+                  <Rows2 size={14} />
+                  <span>Split Down</span>
+                </button>
+              )}
+            </>
           )}
           {onDetach && (
             <>
