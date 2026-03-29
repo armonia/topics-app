@@ -81,6 +81,8 @@ interface StandaloneChatGroupProps {
   // Draft chat support
   promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
+  // Split a pane into its own grid cell (right or down)
+  onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
 }
@@ -100,6 +102,7 @@ export function StandaloneChatGroup({
   pendingBrowserPane, onPendingBrowserPaneConsumed,
   onOpenBrowserContextIds,
   promoteDraft, draftMeta: _draftMeta,
+  onSplitPane,
   persistOrder = true,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
@@ -621,6 +624,31 @@ export function StandaloneChatGroup({
     onClosePanel(paneId);
   }, [onClosePanel]);
 
+  // Split Right: detach pane to a new grid column on the right
+  const handleSplitRight = useCallback((paneId: string) => {
+    if (!onSplitPane) return;
+    // Only chat panes with topic IDs can be split to solo grid items
+    const topic = topics[paneId];
+    if (!topic) return;
+    onSplitPane(paneId, 'right');
+  }, [onSplitPane, topics]);
+
+  // Split Down: detach pane to a new grid row below
+  const handleSplitDown = useCallback((paneId: string) => {
+    if (!onSplitPane) return;
+    const topic = topics[paneId];
+    if (!topic) return;
+    onSplitPane(paneId, 'down');
+  }, [onSplitPane, topics]);
+
+  // Detach: same as Split Right (detaches a tab from the group into its own grid cell)
+  const handleDetach = useCallback((paneId: string) => {
+    if (!onSplitPane) return;
+    const topic = topics[paneId];
+    if (!topic) return;
+    onSplitPane(paneId, 'right');
+  }, [onSplitPane, topics]);
+
   if (orderedIds.length === 0) return null;
   // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
   if (!activeTopic && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer) return null;
@@ -658,6 +686,9 @@ export function StandaloneChatGroup({
       onCrossGroupDrop={onAcceptProjectTopicDrop ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
+      onSplitRight={onSplitPane ? handleSplitRight : undefined}
+      onSplitDown={onSplitPane ? handleSplitDown : undefined}
+      onDetach={onSplitPane ? handleDetach : undefined}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
       streamingPaneIds={streamingPaneIds}
