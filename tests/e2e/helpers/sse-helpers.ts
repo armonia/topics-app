@@ -115,6 +115,191 @@ export async function unmockChatStream(page: Page) {
  * The client will show streaming indicator until aborted.
  * Use for abort/stop-streaming tests.
  */
+// --- Tool call and attachment mock helpers ---
+
+export interface ToolCallSSEMockOptions {
+  /** Text content chunks to interleave (optional) */
+  contentChunks?: string[];
+  /** Tool calls to include in the SSE stream */
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    args: Record<string, any>;
+    /** If provided, sends a tool_result event after the tool_call */
+    result?: string;
+    /** If provided, the result is treated as an error */
+    error?: boolean;
+    /** Content offset for inline tool calls */
+    contentOffset?: number;
+  }>;
+  /** User message for history mock */
+  userMessage?: string;
+}
+
+/**
+ * Mock the chat SSE endpoint with tool call deltas AND the history endpoint.
+ * Sends content chunks first, then tool_calls deltas, then tool_result deltas.
+ */
+export async function mockChatStreamWithToolCalls(page: Page, opts: ToolCallSSEMockOptions) {
+  const { contentChunks = [], toolCalls, userMessage } = opts;
+  const fullContent = contentChunks.join("");
+
+  await page.route(CHAT_ROUTE_PATTERN, async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      return route.fallback();
+    }
+
+    const lines: string[] = [];
+
+    // 1. Content chunks
+    for (const chunk of contentChunks) {
+      const data = JSON.stringify({
+        choices: [{ index: 0, delta: { content: chunk } }],
+      });
+      lines.push(`data: ${data}\n\n`);
+    }
+
+    // 2. Tool call deltas
+    for (const tc of toolCalls) {
+      const data = JSON.stringify({
+        choices: [{
+          index: 0,
+          delta: {
+            tool_calls: [{
+              id: tc.id,
+              function: { name: tc.name, arguments: JSON.stringify(tc.args) },
+              ...(tc.contentOffset !== undefined ? { contentOffset: tc.contentOffset } : {}),
+            }],
+          },
+        }],
+      });
+      lines.push(`data: ${data}\n\n`);
+    }
+
+    // 3. Tool result deltas (for those with a result)
+    for (const tc of toolCalls) {
+      if (tc.result !== undefined) {
+        const data = JSON.stringify({
+          choices: [{
+            index: 0,
+            delta: {
+              tool_result: {
+                id: tc.id,
+                status: tc.error ? "error" : "success",
+                result: tc.result,
+              },
+            },
+          }],
+        });
+        lines.push(`data: ${data}\n\n`);
+      }
+    }
+
+    lines.push("data: [DONE]\n\n");
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+      body: lines.join(""),
+    });
+  });
+
+  // Mock history endpoint to return messages with toolCalls
+  await page.route(HISTORY_ROUTE_PATTERN, async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      return route.fallback();
+    }
+
+    const historyToolCalls = toolCalls.map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      args: tc.args,
+      status: tc.error ? "error" : "success",
+      result: tc.error ? undefined : tc.result,
+      error: tc.error ? tc.result : undefined,
+      ...(tc.contentOffset !== undefined ? { contentOffset: tc.contentOffset } : {}),
+    }));
+
+    await route.fulfill({
+      status: 200,
+      json: {
+        messages: [
+          ...(userMessage
+            ? [{
+                id: "mock-user-1",
+                role: "user",
+                content: userMessage,
+                timestamp: new Date().toISOString(),
+              }]
+            : []),
+          {
+            id: "mock-assistant-1",
+            role: "assistant",
+            content: fullContent,
+            toolCalls: historyToolCalls,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+  });
+}
+
+export interface MediaHistoryMockOptions {
+  /** Media paths to include in the history message */
+  mediaPaths: string[];
+  /** Message content text */
+  content?: string;
+  /** User message text */
+  userMessage?: string;
+}
+
+/**
+ * Mock the history endpoint to return messages with media attachments.
+ * Use this for testing media/attachment rendering from persisted history.
+ */
+export async function mockHistoryWithMedia(page: Page, opts: MediaHistoryMockOptions) {
+  const { mediaPaths, content = "", userMessage } = opts;
+
+  await page.route(HISTORY_ROUTE_PATTERN, async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      return route.fallback();
+    }
+
+    await route.fulfill({
+      status: 200,
+      json: {
+        messages: [
+          ...(userMessage
+            ? [{
+                id: "mock-user-1",
+                role: "user",
+                content: userMessage,
+                timestamp: new Date().toISOString(),
+              }]
+            : []),
+          {
+            id: "mock-assistant-1",
+            role: "assistant",
+            content,
+            media: mediaPaths,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+  });
+}
+
+/**
+ * Mock the chat endpoint that returns partial content but never sends [DONE].
+ * The client will show streaming indicator until aborted.
+ * Use for abort/stop-streaming tests.
+ */
 export async function mockHangingStream(page: Page, partialContent: string) {
   await page.route(CHAT_ROUTE_PATTERN, async (route: Route) => {
     if (route.request().method() !== "POST") {
