@@ -6,7 +6,7 @@
 
 import { execSync } from "child_process";
 
-const TEST_PORT = 3334;
+const TEST_PORT = 13334;
 
 async function globalTeardown() {
   const pid = process.env.__TEST_SERVER_PID;
@@ -33,21 +33,12 @@ async function globalTeardown() {
       .toString()
       .trim();
     if (pids) {
-      execSync(`kill -9 ${pids.split("\n").join(" ")} 2>/dev/null || true`);
+      execSync(`kill ${pids.split("\n").join(" ")} 2>/dev/null || true`);
       console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.replace(/\n/g, ", ")}`);
     }
   } catch {
     // No stale processes
   }
-
-  // Re-enable the openclaw-gateway LaunchAgent (if it was stopped by global-setup)
-  try {
-    const plistPath = `${process.env.HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist`;
-    execSync(
-      `launchctl load ${plistPath} 2>/dev/null || true`
-    );
-    console.log("[global-teardown] Re-enabled openclaw-gateway LaunchAgent");
-  } catch {}
 
   console.log("[global-teardown] Test server stopped.");
 }
