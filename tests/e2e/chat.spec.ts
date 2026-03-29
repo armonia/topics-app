@@ -133,6 +133,55 @@ test.describe.serial("Chat", () => {
       .toBeGreaterThan(0);
   });
 
+  test("auto-scrolls to bottom on new streamed message", async ({ page, chatPage }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    // Open test topic (created in beforeAll)
+    await openTopic(page, new RegExp(testTopicName));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Mock SSE to return a long response that will extend the message list
+    await mockChatStream(page, {
+      chunks: ["This is a response that should trigger auto-scroll to bottom."],
+    });
+
+    // Record scroll position before sending
+    const scrollBefore = await chatPage.messageList.evaluate(
+      (el) => el.scrollTop
+    );
+
+    // Send a message (triggers mocked SSE response)
+    await textarea.fill("Test auto-scroll");
+    await textarea.press("Control+Enter");
+
+    // Wait for assistant response to appear
+    await expect(
+      page.locator(".message-appear").filter({ hasText: "auto-scroll to bottom" })
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Verify the message list scrolled down (scrollTop increased or is at bottom)
+    await expect.poll(
+      async () => {
+        const el = chatPage.messageList;
+        const { scrollTop, scrollHeight, clientHeight } = await el.evaluate(
+          (e) => ({
+            scrollTop: e.scrollTop,
+            scrollHeight: e.scrollHeight,
+            clientHeight: e.clientHeight,
+          })
+        );
+        // Either scrolled further than before, or at/near the bottom
+        return scrollTop + clientHeight >= scrollHeight - 50 || scrollTop > scrollBefore;
+      },
+      { message: "Message list should auto-scroll to bottom on new message" }
+    ).toBe(true);
+
+    // Clean up route
+    await page.unroute("**/api/chat");
+  });
+
   test("input toolbar has all buttons", async ({ page }) => {
     await goToApp(page);
     await openTestChat(page);
