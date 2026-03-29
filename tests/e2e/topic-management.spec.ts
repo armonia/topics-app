@@ -61,7 +61,7 @@ test.describe("Topic Management", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // Clean up: find the created topic via API
-    const response = await request.get("http://localhost:3334/api/topics", {
+    const response = await request.get("http://localhost:13334/api/topics", {
       ignoreHTTPSErrors: true,
     });
     const data = (await response.json()) as {
@@ -292,7 +292,7 @@ test.describe("Topic Management", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // Clean up: find the created topic via API
-    const response = await request.get("http://localhost:3334/api/topics", {
+    const response = await request.get("http://localhost:13334/api/topics", {
       ignoreHTTPSErrors: true,
     });
     const topicData = (await response.json()) as {

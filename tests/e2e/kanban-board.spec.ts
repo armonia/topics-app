@@ -121,7 +121,7 @@ test.describe("Kanban Board", () => {
 
     // Move the task via API (simulates the move that drag-drop triggers)
     const moveResp = await request.post(
-      `http://localhost:3334/api/boards/${projectId}/tasks/${todoTaskId}/move`,
+      `http://localhost:13334/api/boards/${projectId}/tasks/${todoTaskId}/move`,
       { data: { status: "in_progress" }, ignoreHTTPSErrors: true }
     );
     expect(moveResp.ok()).toBeTruthy();

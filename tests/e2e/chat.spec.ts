@@ -51,19 +51,34 @@ test.describe.serial("Chat", () => {
   });
 
   test("loads history when switching topics", async ({ page }) => {
+    // Mock ALL history requests to return messages for ANY topic
+    // This verifies that switching between topics loads different content
+    await page.route(/\/api\/history\//, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        json: {
+          messages: [
+            { id: "hist-user-1", role: "user", content: "test message", timestamp: new Date().toISOString() },
+            { id: "hist-asst-1", role: "assistant", content: "Hello from the assistant!", timestamp: new Date().toISOString() },
+          ],
+        },
+      });
+    });
+
     await goToApp(page);
 
-    // Open a topic known to have existing messages
-    await openTopic(page, /Web Search Test/);
+    // Open the test topic — mock history will provide messages
+    await openTopic(page, new RegExp(testTopicName));
 
-    // Wait for at least one message to appear
+    // Wait for at least one message to appear from mocked history
     const messages = page.locator(".message-appear");
     await expect(messages.first()).toBeVisible({ timeout: 15_000 });
     const firstTopicCount = await messages.count();
     expect(firstTopicCount).toBeGreaterThan(0);
 
-    // Switch to the empty test topic and verify content changes
-    await openTopic(page, new RegExp(testTopicName));
+    // Switch to a different topic and verify content changes
+    await openTopic(page, /Web Search Test/);
 
     // Wait for main content to settle after topic switch
     await page.locator('[role="main"]').waitFor({
@@ -71,7 +86,7 @@ test.describe.serial("Chat", () => {
       timeout: 10_000,
     });
 
-    // The test topic should show different content than Web Search Test
+    // The other topic should show different content
     await expect(page.locator('[role="main"]')).toBeVisible();
   });
 
@@ -229,9 +244,46 @@ test.describe.serial("Chat", () => {
 });
 
 test.describe("Chat — Rich Content Rendering", () => {
-  test("renders markdown formatting in messages", async ({ page }) => {
+  test("renders markdown formatting in messages", async ({ page, request }) => {
+    // Create a topic and send a message with rich markdown content via SSE mock
+    const { createTopic: ct, deleteTopic: dt } = await import("./helpers/api-fixtures");
+    const topic = await ct(request, `E2E-Markdown-${Date.now()}`);
+
+    // Mock the chat endpoint to return markdown-rich content
+    await page.route(/\/api\/chat$/, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const mdContent = "Here is **bold** and `code` and:\n\n```js\nconsole.log('hello');\n```\n\n- list item 1\n- list item 2";
+      const data = JSON.stringify({ choices: [{ index: 0, delta: { content: mdContent } }] });
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+        body: `data: ${data}\n\ndata: [DONE]\n\n`,
+      });
+    });
+
+    // Mock history to return the markdown message (prevents overwrite after stream)
+    await page.route(/\/api\/history\//, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        json: {
+          messages: [
+            { id: "md-user-1", role: "user", content: "Show me markdown", timestamp: new Date().toISOString() },
+            { id: "md-asst-1", role: "assistant", content: "Here is **bold** and `code` and:\n\n```js\nconsole.log('hello');\n```\n\n- list item 1\n- list item 2", timestamp: new Date().toISOString() },
+          ],
+        },
+      });
+    });
+
     await goToApp(page);
-    await openTopic(page, /Web Search Test/);
+    await openTopic(page, new RegExp(topic.name));
+
+    // Send a message to trigger SSE mock
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+    await textarea.click();
+    await textarea.fill("Show me markdown");
+    await textarea.press("Enter");
 
     // Wait for messages to load
     await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 15_000 });
@@ -239,6 +291,9 @@ test.describe("Chat — Rich Content Rendering", () => {
     // Structural: at least one rich HTML element across all visible message content (D-05)
     const richElements = page.locator(".message-content p, .message-content strong, .message-content code, .message-content pre, .message-content ul, .message-content ol, .message-content a, .message-content h1, .message-content h2, .message-content h3");
     expect(await richElements.count()).toBeGreaterThan(0);
+
+    // Clean up
+    await dt(request, topic.id);
   });
 
   test("plan mode shows plan view with approve/reject", async ({ page }) => {

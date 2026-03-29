@@ -225,6 +225,44 @@ async function seedBaselineData() {
         }
       }
     }
+
+    // Seed messages into "Web Search Test" so tests that depend on it having
+    // messages (e.g., scroll position, markdown rendering) work reliably
+    const topicsAfterSeed = await fetch(`${BASE}/api/topics`, {
+      headers: { Accept: "application/json" },
+    });
+    if (topicsAfterSeed.ok) {
+      const afterData = (await topicsAfterSeed.json()) as {
+        topics: Record<string, { id: string; name: string }>;
+      };
+      const webSearchTopic = Object.values(afterData.topics).find(
+        (t) => t.name === "Web Search Test"
+      );
+      if (webSearchTopic) {
+        // Check if it already has messages via history endpoint
+        const historyRes = await fetch(
+          `${BASE}/api/history/${webSearchTopic.id}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
+        );
+        const historyData = historyRes.ok ? await historyRes.json() as { messages?: any[] } : { messages: [] };
+        if (!historyData.messages || historyData.messages.length === 0) {
+          // Seed sample messages for tests that expect content
+          const sampleMessages = [
+            "Here is a **bold** statement and some `inline code`.\n\n```javascript\nconst x = 42;\nconsole.log(x);\n```\n\n- Item one\n- Item two\n\n[A link](https://example.com)",
+            "This is a follow-up response with more content.\n\n## Heading\n\nSome paragraph text with *italics* and **bold**.",
+            "Final message with a longer response to ensure scrollable content is present for scroll position tests.",
+          ];
+          for (const content of sampleMessages) {
+            await fetch(`${BASE}/api/topics/${webSearchTopic.id}/system-message`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content }),
+            }).catch(() => {});
+          }
+          console.log(`[global-setup] Seeded ${sampleMessages.length} messages into "Web Search Test"`);
+        }
+      }
+    }
   } catch (err) {
     console.warn(
       "[global-setup] Could not seed baseline data:",
