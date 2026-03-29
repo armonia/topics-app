@@ -54,6 +54,7 @@ export function AgentsPane({ onNavigateToTopic, onOpenSessionViewer, onMessage }
             liveSessions={liveSessions}
             onNavigateToTopic={onNavigateToTopic}
             onOpenSessionViewer={onOpenSessionViewer}
+            onMessage={onMessage}
           />
         )}
         {tab === 'roster' && (
