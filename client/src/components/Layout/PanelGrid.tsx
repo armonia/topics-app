@@ -535,8 +535,12 @@ export function PanelGrid({
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceTopicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
 
-    // For PANE_TAB center drops: let children handle
-    if (!effectiveKey && sourcePaneTab && dropTarget.zone === 'center') return;
+    // For PANE_TAB drops: only intercept at explicit edge zones (left/right/top/bottom).
+    // Center drops and within-tab-bar reorders must pass through to children.
+    if (!effectiveKey && sourcePaneTab) {
+      if (dropTarget.zone === 'center') return; // let tab bar handle reorder
+      if (!sourceTopicId) return; // no PANEL_ID means project-internal tab — skip
+    }
 
     e.preventDefault();
     e.stopPropagation(); // Prevent children from also handling this drop
