@@ -857,7 +857,7 @@ export function StandaloneChatGroup({
                   onOpenSessionViewer={handleOpenSessionViewer}
                   onMessage={onWSMessage}
                 />}
-                {activeUtilityType === 'dashboard' && <DashboardPane />}
+                {activeUtilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
                 {activeUtilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} />}
               </Suspense>
             </div>

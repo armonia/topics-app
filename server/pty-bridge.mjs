@@ -22,8 +22,21 @@ process.stdin.on('data', (chunk) => {
 });
 
 function send(msg) {
-  process.stdout.write(JSON.stringify(msg) + '\n');
+  try {
+    process.stdout.write(JSON.stringify(msg) + '\n');
+  } catch (e) {
+    // Parent process closed the pipe — nothing we can do, exit gracefully
+    if (e.code === 'EPIPE' || e.code === 'ERR_STREAM_DESTROYED') {
+      process.exit(0);
+    }
+    throw e;
+  }
 }
+
+// Prevent unhandled EPIPE from crashing the process
+process.stdout.on('error', (err) => {
+  if (err.code === 'EPIPE') process.exit(0);
+});
 
 function handleMessage(msg) {
   switch (msg.type) {

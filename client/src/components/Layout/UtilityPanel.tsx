@@ -73,7 +73,7 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
         <Suspense fallback={Spinner}>
           {type === 'activity' && <ActivityFeedPanel enabled />}
           {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
-          {type === 'dashboard' && <DashboardPane />}
+          {type === 'dashboard' && <DashboardPane onMessage={onMessage} />}
           {type === 'all-boards' && <AllBoardsPane onMessage={onMessage} />}
         </Suspense>
       </div>

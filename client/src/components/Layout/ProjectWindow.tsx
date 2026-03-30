@@ -1246,7 +1246,7 @@ export function ProjectWindowPane({
       case 'dashboard':
         return (
           <Suspense fallback={LazySpinner}>
-            <DashboardPane />
+            <DashboardPane onMessage={onWSMessage} />
           </Suspense>
         );
       case 'process-log':

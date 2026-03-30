@@ -12,7 +12,11 @@ const METRIC_OPTIONS = [
   { value: 'errors', label: 'Errors' },
 ];
 
-export function DashboardPane() {
+interface DashboardPaneProps {
+  onMessage?: (handler: (msg: any) => void) => () => void;
+}
+
+export function DashboardPane({ onMessage }: DashboardPaneProps) {
   const {
     kpis,
     timeSeries,
@@ -23,7 +27,7 @@ export function DashboardPane() {
     setSelectedMetric,
     range,
     setRange,
-  } = useDashboard();
+  } = useDashboard(onMessage);
 
   // First load spinner
   if (loading && !kpis) {
@@ -54,7 +58,7 @@ export function DashboardPane() {
           {loading && (
             <RefreshCw size={12} className="animate-spin text-app-text-muted" />
           )}
-          <span className="text-[10px] text-app-text-muted">Auto-refresh 15s</span>
+          <span className="text-[10px] text-app-text-muted">Auto-refresh 60s</span>
         </div>
       </div>
 

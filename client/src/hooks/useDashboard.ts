@@ -3,7 +3,7 @@ import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint, type AgentStat 
 
 const REFRESH_INTERVAL_MS = 60_000;
 
-export function useDashboard() {
+export function useDashboard(onMessage?: (handler: (msg: any) => void) => () => void) {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
   const [agentStats, setAgentStats] = useState<AgentStat[]>([]);
@@ -48,6 +48,19 @@ export function useDashboard() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [fetchAll]);
+
+  // WS subscription for real-time dashboard updates
+  useEffect(() => {
+    if (!onMessage) return;
+    let debounceTimer: ReturnType<typeof setTimeout>;
+    const unsub = onMessage((msg: any) => {
+      if (msg.type === 'dashboard:updated' || msg.type === 'cron:updated') {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(fetchAll, 500);
+      }
+    });
+    return () => { unsub(); clearTimeout(debounceTimer); };
+  }, [onMessage, fetchAll]);
 
   return {
     kpis,
