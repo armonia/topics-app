@@ -406,9 +406,21 @@ export function PanelGrid({
     };
   }, []);
 
+  // Ref to read gridRows synchronously for limit checks
+  const gridRowsRef = useRef(gridRows);
+  useEffect(() => { gridRowsRef.current = gridRows; }, [gridRows]);
+
   /* ---- Split pane: move a topic to its own solo grid cell ---- */
   const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
-    // Mark as solo first
+    // Check grid limits BEFORE marking as solo to prevent orphaned soloTopicIds
+    const currentRows = gridRowsRef.current;
+    if (direction === 'down' && currentRows.length >= MAX_ROWS) return;
+    if (direction === 'right') {
+      const firstRow = currentRows[0];
+      if (firstRow && firstRow.itemKeys.length >= MAX_COLS_PER_ROW) return;
+    }
+
+    // Mark as solo (only after limit check passes)
     setSoloTopicIds(prev => {
       if (prev.includes(topicId)) return prev;
       return [...prev, topicId];
@@ -417,7 +429,7 @@ export function PanelGrid({
     // Place in grid
     const soloKey = `solo:${topicId}`;
     setGridRows(prev => {
-      // Enforce grid limits
+      // Double-check limits (state may have changed between ref read and updater)
       if (direction === 'down' && prev.length >= MAX_ROWS) return prev;
       if (direction === 'right') {
         const firstRow = prev[0];

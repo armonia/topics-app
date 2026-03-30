@@ -263,10 +263,22 @@ test.describe("B: Asymmetric Grid Layouts", () => {
   });
 
   test("B5: splitting to 5th column is blocked by MAX_COLS_PER_ROW", async ({ page }) => {
-    // BUG: handleSplitPane calls setSoloTopicIds before setGridRows, so even when
-    // the grid row update is blocked by MAX_COLS_PER_ROW, the topic is still marked
-    // solo. The sync effect then places it anyway, bypassing the limit.
-    test.fixme(true, "App bug: setSoloTopicIds runs before MAX_COLS_PER_ROW check in setGridRows — limit not enforced");
+    const [idA, idB, idC, idD, idE] = topicIds;
+    // Seed 4 columns (at the limit): standalone + 3 solo items in a single row
+    await seedAndLoad(page, [idA, idB, idC, idD, idE], {
+      soloTopicIds: [idB, idC, idD],
+      gridRows: [
+        { itemKeys: ["standalone", `solo:${idB}`, `solo:${idC}`, `solo:${idD}`], widths: [0.25, 0.25, 0.25, 0.25] },
+      ],
+      gridRowHeights: [1],
+    });
+    await waitForTabs(page);
+    expect(await countTabBars(page)).toBe(4);
+
+    // Try to split a 5th topic right via context menu on standalone's tab
+    await rightClickTabAndSelect(page, 0, "Split Right");
+    // Should still have 4 tab bars (5th column blocked)
+    expect(await countTabBars(page)).toBe(4);
   });
 
   test("B6: 4 rows seeded render correctly", async ({ page }) => {
@@ -290,9 +302,25 @@ test.describe("B: Asymmetric Grid Layouts", () => {
   });
 
   test("B7: splitting to 5th row is blocked by MAX_ROWS", async ({ page }) => {
-    // BUG: Same as B5 — handleSplitPane calls setSoloTopicIds before setGridRows,
-    // so the MAX_ROWS check is bypassed by the sync effect placing the solo item.
-    test.fixme(true, "App bug: setSoloTopicIds runs before MAX_ROWS check in setGridRows — limit not enforced");
+    const [idA, idB, idC, idD, idE] = topicIds;
+    // Seed 4 rows (at the limit): standalone + 3 solo items each in their own row
+    await seedAndLoad(page, [idA, idB, idC, idD, idE], {
+      soloTopicIds: [idB, idC, idD],
+      gridRows: [
+        { itemKeys: ["standalone"], widths: [1] },
+        { itemKeys: [`solo:${idB}`], widths: [1] },
+        { itemKeys: [`solo:${idC}`], widths: [1] },
+        { itemKeys: [`solo:${idD}`], widths: [1] },
+      ],
+      gridRowHeights: [0.25, 0.25, 0.25, 0.25],
+    });
+    await waitForTabs(page);
+    expect(await countTabBars(page)).toBe(4);
+
+    // Try to split a 5th topic down via context menu on standalone's tab
+    await rightClickTabAndSelect(page, 0, "Split Down");
+    // Should still have 4 tab bars (5th row blocked)
+    expect(await countTabBars(page)).toBe(4);
   });
 });
 
