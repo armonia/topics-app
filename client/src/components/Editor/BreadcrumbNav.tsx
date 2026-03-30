@@ -17,6 +17,11 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
   const btnRef = useRef<HTMLButtonElement>(null);
   const [items, setItems] = useState<FileNode[] | null>(null);
 
+  // Reset cached items when directory changes so next dropdown open re-fetches
+  useEffect(() => {
+    setItems(null);
+  }, [parentDir]);
+
   useEffect(() => {
     if (!isOpen) return;
     if (items) return;

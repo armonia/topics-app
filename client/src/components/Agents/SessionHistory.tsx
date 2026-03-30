@@ -218,6 +218,7 @@ function SessionList({ liveSessions, onSelect }: {
   // Filter live sessions by search/status if filters are active
   const filteredLive = liveSessions.filter(s => {
     if (statusFilter && s.status !== statusFilter) return false;
+    // Exclude if NEITHER displayName nor key matches search (correct: && means both must fail to exclude)
     if (search && !s.displayName.toLowerCase().includes(search.toLowerCase()) && !s.key.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });

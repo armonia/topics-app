@@ -384,6 +384,194 @@ test.describe("File Explorer & Git", () => {
     // The breadcrumb interaction itself is verified by the click not erroring
   });
 
+  test("FIX-07: breadcrumb dropdown refreshes on directory change", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    // Open src/index.ts to get breadcrumbs for a nested file
+    const srcDir = fileExplorerPage.getDirNode(/^src$/);
+    await expect(srcDir).toBeVisible();
+
+    const indexItem = fileExplorerPage.fileTree.getByRole("treeitem", {
+      name: /index\.ts/,
+    });
+    const indexVisible = await indexItem.isVisible().catch(() => false);
+    if (!indexVisible) {
+      await srcDir.click();
+    }
+    await expect(indexItem).toBeVisible();
+    await indexItem.click();
+
+    // Wait for breadcrumb to appear
+    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]');
+    await expect(breadcrumb).toBeVisible({ timeout: 5000 });
+    await expect(breadcrumb).toContainText("index.ts");
+
+    // Click the first breadcrumb segment (project root directory name) to open dropdown
+    // The first segment is the root-level segment before "src"
+    const segments = breadcrumb.locator("button");
+    const firstSegmentText = await segments.first().textContent();
+
+    // Click the "src" segment to open dropdown -- this lists children of the parent directory
+    const srcSegment = breadcrumb.getByRole("button", { name: "src" });
+    await srcSegment.click();
+
+    // Wait a moment for the dropdown to load via API
+    await page.waitForTimeout(500);
+
+    // The dropdown should show index.ts (child of src/)
+    // DropdownPortal renders at page level
+    const dropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    const firstDropdownCount = await dropdownItems.count();
+
+    // Close the dropdown by clicking the segment again
+    await srcSegment.click();
+
+    // Now open a different file at root level: README.md
+    const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", {
+      name: /README\.md/,
+    });
+    await readmeItem.click();
+
+    // Wait for breadcrumb to update to README.md path (root level)
+    await expect(breadcrumb).toContainText("README.md");
+
+    // The breadcrumb now shows a root-level path, so the directory context is different
+    // Click the first segment (project root) to open its dropdown
+    const rootSegment = breadcrumb.locator("button").first();
+    await rootSegment.click();
+    await page.waitForTimeout(500);
+
+    // This dropdown should show root-level children (README.md, package.json, src/, etc.)
+    // If the fix is working, the dropdown content reflects the new directory, not stale cache
+    const rootDropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    const rootDropdownCount = await rootDropdownItems.count();
+
+    // Root directory should have multiple items (README.md, package.json, src/, newfile.txt)
+    // This verifies the dropdown refreshed with the correct directory's contents
+    expect(rootDropdownCount).toBeGreaterThanOrEqual(3);
+  });
+
+  test("FIX-08: rapid file opens show correct final content", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    // Open files rapidly in quick succession: README.md, package.json, then src/index.ts
+    const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", {
+      name: /README\.md/,
+    });
+    await readmeItem.click();
+
+    const packageItem = fileExplorerPage.fileTree.getByRole("treeitem", {
+      name: /package\.json/,
+    });
+    await packageItem.click();
+
+    // Expand src if needed
+    const srcDir = fileExplorerPage.getDirNode(/^src$/);
+    const indexItem = fileExplorerPage.fileTree.getByRole("treeitem", {
+      name: /index\.ts/,
+    });
+    const indexVisible = await indexItem.isVisible().catch(() => false);
+    if (!indexVisible) {
+      await srcDir.click();
+      await expect(indexItem).toBeVisible();
+    }
+    await indexItem.click();
+
+    // Wait for the last file to finish loading
+    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]');
+    await expect(breadcrumb).toContainText("index.ts", { timeout: 5000 });
+
+    // Verify the active tab shows the LAST file's name
+    const panelTabBar = page.locator('[data-testid="panel-tab-bar"]').last();
+    await expect(panelTabBar).toBeVisible();
+
+    // The content in the editor should be from the LAST file (src/index.ts)
+    // which contains 'export const hello = "modified"'
+    // Wait for loading spinner to disappear
+    const spinner = page.locator('[data-testid="editor-tabs"] .animate-spin');
+    await expect(spinner).not.toBeVisible({ timeout: 5000 });
+
+    // Check that CodeEditor content shows the correct file content
+    // CodeMirror renders text in .cm-content
+    const cmContent = page.locator('.cm-content');
+    await expect(cmContent).toContainText('hello', { timeout: 5000 });
+  });
+
+  test("FIX-09: script stop updates UI correctly", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    // Mock the scripts list API (useScripts calls GET /api/scripts) BEFORE navigation
+    // so the running process appears immediately when ScriptRunner mounts
+    let stopCalled = false;
+    await page.route("**/api/scripts", async (route) => {
+      // Only intercept GET requests for the scripts list endpoint (not sub-paths)
+      const url = new URL(route.request().url());
+      if (route.request().method() !== "GET" || url.pathname !== "/api/scripts") {
+        return route.fallback();
+      }
+      const scripts = stopCalled
+        ? [{ processId: "proc-1", scriptName: "dev", status: "stopped", projectPath: tmpDir, command: "echo dev", ports: [], startedAt: Date.now() - 60000 }]
+        : [{ processId: "proc-1", scriptName: "dev", status: "running", projectPath: tmpDir, command: "echo dev", ports: [3000], startedAt: Date.now() - 60000 }];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ scripts }),
+      });
+    });
+
+    await page.route("**/api/scripts/*/stop", async (route) => {
+      stopCalled = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    // Navigate to Processes section
+    const processesBtn = page.locator("button", { hasText: "Processes" });
+    await expect(processesBtn).toBeVisible({ timeout: 5000 });
+    await processesBtn.click();
+
+    // Wait for ScriptRunner to load with the running script
+    const scriptRunner = page.locator('[data-testid="script-runner"]');
+    await expect(scriptRunner).toBeVisible({ timeout: 10000 });
+
+    // The "dev" script should show as running (green pulse indicator)
+    const devScript = scriptRunner.locator("span").filter({ hasText: "dev" }).first();
+    await expect(devScript).toBeVisible();
+
+    // Verify running state: green pulse indicator
+    const runningIndicator = scriptRunner.locator('.animate-pulse');
+    await expect(runningIndicator).toBeVisible({ timeout: 5000 });
+
+    // Click stop button
+    const stopBtn = scriptRunner.locator('button[title="Stop"]');
+    await expect(stopBtn).toBeVisible();
+    await stopBtn.click();
+
+    // The stop spinner should appear briefly
+    const stopSpinner = scriptRunner.locator('.animate-spin');
+    await expect(stopSpinner).toBeVisible({ timeout: 3000 });
+
+    // After polling resolves (stop API called + refresh shows stopped state),
+    // the spinner should disappear. The ref-based fix ensures the polling
+    // reads the updated runningScripts value.
+    await expect(stopSpinner).not.toBeVisible({ timeout: 15000 });
+
+    // The running pulse indicator should no longer be present
+    await expect(runningIndicator).not.toBeVisible();
+  });
+
   test("FILE-07: diff viewer renders with CodeMirror MergeView", async ({
     fileExplorerPage,
     page,
