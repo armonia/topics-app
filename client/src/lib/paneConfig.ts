@@ -34,7 +34,7 @@ export function createPaneId(type: PaneType, key?: string): string {
   if (type === 'browser' && key) return `browser:${key}`;
   if (type === 'terminal' && key) return `terminal:${key}`;
   if (type === 'session-viewer' && key) return `session-viewer:${key}`;
-  return `${type}:${Date.now()}`;
+  return `${type}:${crypto.randomUUID()}`;
 }
 
 export function parsePaneId(id: string): { type: PaneType; key: string } {

@@ -334,8 +334,15 @@ export function ProjectWindowPane({
       updated = updated.filter(g => g.paneIds.length > 0);
       if (updated.length !== beforeFilterLen) anyGroupChanged = true;
 
-      const usedAfterClean = new Set(updated.flatMap(g => g.paneIds));
-      const orphanPanes = panes.filter(p => !usedAfterClean.has(p.id));
+      // Build a lookup map: paneId → groupIndex (O(n) instead of nested searches)
+      const paneToGroupIdx = new Map<string, number>();
+      for (let i = 0; i < updated.length; i++) {
+        for (const pid of updated[i].paneIds) {
+          paneToGroupIdx.set(pid, i);
+        }
+      }
+
+      const orphanPanes = panes.filter(p => !paneToGroupIdx.has(p.id));
 
       if (!anyGroupChanged && orphanPanes.length === 0) return prev;
 
@@ -346,18 +353,45 @@ export function ProjectWindowPane({
         orphansByType.get(gt)!.push(p);
       }
 
-      const curFocusedGroupId = focusedGroupIdRef.current;
-      for (const [gt, orphans] of orphansByType) {
-        const focusedGroup = curFocusedGroupId ? updated.find(g => g.id === curFocusedGroupId) : null;
-        const targetGroup = (focusedGroup?.type === gt ? focusedGroup : null)
-          || updated.find(g => g.type === gt)
-          || focusedGroup
-          || updated[0];
+      // Build groupId → index map for O(1) lookups
+      const groupIdToIdx = new Map<string, number>();
+      for (let i = 0; i < updated.length; i++) {
+        groupIdToIdx.set(updated[i].id, i);
+      }
+      // Build groupType → first index map for O(1) type lookups
+      const groupTypeToFirstIdx = new Map<PaneGroupType, number>();
+      for (let i = 0; i < updated.length; i++) {
+        if (!groupTypeToFirstIdx.has(updated[i].type)) {
+          groupTypeToFirstIdx.set(updated[i].type, i);
+        }
+      }
 
-        if (targetGroup) {
-          const tIdx = updated.indexOf(targetGroup);
+      // Derive focused group from prev state instead of reading stale ref
+      const curFocusedGroupId = focusedGroupIdRef.current;
+      const focusedIdx = curFocusedGroupId ? groupIdToIdx.get(curFocusedGroupId) : undefined;
+      const focusedGroup = focusedIdx !== undefined ? updated[focusedIdx] : null;
+
+      for (const [gt, orphans] of orphansByType) {
+        // Find target group using map lookups (O(1) each)
+        let targetIdx: number | undefined;
+        if (focusedGroup?.type === gt) {
+          targetIdx = focusedIdx;
+        }
+        if (targetIdx === undefined) {
+          targetIdx = groupTypeToFirstIdx.get(gt);
+        }
+        if (targetIdx === undefined && focusedIdx !== undefined) {
+          targetIdx = focusedIdx;
+        }
+        if (targetIdx === undefined && updated.length > 0) {
+          targetIdx = 0;
+        }
+
+        if (targetIdx !== undefined) {
+          const tIdx = targetIdx;
           const previewOrphan = orphans.find(o => o.preview);
           if (previewOrphan) {
+            const targetGroup = updated[tIdx];
             const existingPreview = findPreviewPane(
               targetGroup.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p && paneTypeToGroupType(p.type) === gt),
               previewOrphan.id
@@ -828,10 +862,14 @@ export function ProjectWindowPane({
   }, []); // stable — reads from refs
 
   const handleOpenProcessLog = useCallback((processId: string, scriptName: string) => {
+    const curPanes = panesRef.current;
+    const curGroups = groupsRef.current;
+    const curFocused = focusedGroupIdRef.current;
+
     const paneKey = `process-log:${processId}`;
-    const existing = panes.find(p => p.id === paneKey);
+    const existing = curPanes.find(p => p.id === paneKey);
     if (existing) {
-      const g = groups.find(g => g.paneIds.includes(existing.id));
+      const g = curGroups.find(g => g.paneIds.includes(existing.id));
       if (g) {
         setFocusedGroupId(g.id);
         setGroups(prev => prev.map(gg =>
@@ -848,7 +886,7 @@ export function ProjectWindowPane({
       title: scriptName,
     };
 
-    const targetGroup = (focusedGroupId ? groups.find(g => g.id === focusedGroupId) : null) || groups[0];
+    const targetGroup = (curFocused ? curGroups.find(g => g.id === curFocused) : null) || curGroups[0];
     if (!targetGroup) {
       setPanes(prev => [...prev, newPane]);
       return;
@@ -861,7 +899,7 @@ export function ProjectWindowPane({
         : g
     ));
     setFocusedGroupId(targetGroup.id);
-  }, [panes, groups, focusedGroupId]);
+  }, []); // stable — reads from refs
 
   const handleOpenDiff = useCallback((filePath: string, diffProjectPath: string) => {
     const diffKey = `diff:${filePath}`;
