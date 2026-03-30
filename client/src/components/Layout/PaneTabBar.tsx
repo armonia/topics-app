@@ -189,6 +189,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       const sourceIdx = currentIds.indexOf(sourcePaneId);
       if (sourceIdx === -1) return;
 
+      // No-op: tab dropped at its own position or immediately after itself
+      if (sourceIdx === dragOverIdx || sourceIdx + 1 === dragOverIdx) return;
+
       const newIds = currentIds.filter(id => id !== sourcePaneId);
       let insertIdx = dragOverIdx;
       if (sourceIdx < dragOverIdx) insertIdx--;
