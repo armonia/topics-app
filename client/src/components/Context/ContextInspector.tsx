@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2 } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';
@@ -19,6 +19,9 @@ interface ContextInspectorProps {
 }
 
 export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile }: ContextInspectorProps) {
+  const topicRef = useRef(topic);
+  topicRef.current = topic;
+
   const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id, onMessage);
   const { data: openclawData } = useOpenClawContext();
   const { saveTopicMemory, saveGlobalMemory } = useMemory(topic.id, { onMessage });
@@ -31,17 +34,17 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   }, [topic.id, isOpen, reload]);
 
   const handleToggleSource = useCallback(async (sourceId: string, enabled: boolean) => {
-    const current = topic.disabledContextSources || [];
+    const current = topicRef.current.disabledContextSources || [];
     let newDisabled: string[];
     if (enabled) {
       newDisabled = current.filter(id => id !== sourceId);
     } else {
       newDisabled = [...current, sourceId];
     }
-    await onUpdateTopic(topic.id, { disabledContextSources: newDisabled });
+    await onUpdateTopic(topicRef.current.id, { disabledContextSources: newDisabled });
     // Reload analysis after toggle
     setTimeout(reload, 300);
-  }, [topic.id, topic.disabledContextSources, onUpdateTopic, reload]);
+  }, [onUpdateTopic, reload]);
 
   const handleEditSource = useCallback(async (sourceId: string, content: string) => {
     if (sourceId === 'memory:topic') {
