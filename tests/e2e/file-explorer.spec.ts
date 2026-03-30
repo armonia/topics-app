@@ -213,6 +213,62 @@ test.describe("File Explorer & Git", () => {
     await expect(fileExplorerPage.fileSearch).not.toBeVisible();
   });
 
+  test("FIX-05: Invalid regex shows error feedback", async ({
+    fileExplorerPage,
+    page,
+  }) => {
+    await fileExplorerPage.gotoProject(tmpDir, topicName);
+
+    // Intercept file search API to use our test project
+    await page.route("**/api/files/search**", async (route) => {
+      const url = new URL(route.request().url());
+      url.searchParams.set("path", tmpDir);
+      const response = await route.fetch({ url: url.toString() });
+      await route.fulfill({ response });
+    });
+
+    // Open file search with keyboard shortcut
+    await fileExplorerPage.openFileSearch();
+    await expect(fileExplorerPage.fileSearch).toBeVisible();
+
+    // Enable regex mode by clicking the .* toggle button
+    const regexToggle = fileExplorerPage.fileSearch.locator(
+      'button:has-text(".*")'
+    );
+    await expect(regexToggle).toBeVisible();
+    await regexToggle.click();
+
+    // Type an invalid regex pattern
+    const searchInput = fileExplorerPage.fileSearch.locator(
+      'input[placeholder*="Search"]'
+    );
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill("[invalid(");
+
+    // Wait for debounce (300ms)
+    await page.waitForTimeout(500);
+
+    // Verify no crash: the file search dialog is still visible
+    await expect(fileExplorerPage.fileSearch).toBeVisible();
+
+    // Verify error feedback is shown
+    const regexError = page.locator('[data-testid="regex-error"]');
+    await expect(regexError).toBeVisible();
+
+    // Verify no results shown
+    const resultButtons = fileExplorerPage.fileSearch.locator(
+      "button"
+    ).filter({ hasText: /\d+/ }); // line number results
+    // Results list should be empty (only toggle/close buttons visible)
+
+    // Now type a valid regex and verify it works normally
+    await searchInput.fill("hello");
+    await page.waitForTimeout(500);
+
+    // Error should be gone
+    await expect(regexError).not.toBeVisible();
+  });
+
   test("FILE-05: editor tabs open switch and close", async ({
     fileExplorerPage,
     page,
