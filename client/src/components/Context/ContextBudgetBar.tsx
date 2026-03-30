@@ -33,13 +33,13 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[12px] font-medium text-app-text">Context Budget</span>
         <span data-testid="budget-percent" className={`text-[12px] font-semibold tabular-nums ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-secondary'}`}>
-          {formatTokens(totalTokens)} / {formatTokens(budgetLimit)} ({budgetPercent}%)
+          {formatTokens(totalTokens)} / {formatTokens(budgetLimit)} ({budgetLimit > 0 ? budgetPercent : 0}%)
         </span>
       </div>
       {/* Stacked bar */}
       <div className="h-2 rounded-full bg-black/5 dark:bg-white/5 overflow-hidden flex">
         {enabledSources.map(source => {
-          const widthPercent = (source.tokens / budgetLimit) * 100;
+          const widthPercent = budgetLimit > 0 ? (source.tokens / budgetLimit) * 100 : 0;
           if (widthPercent < 0.3) return null;
           return (
             <div

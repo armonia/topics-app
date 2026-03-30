@@ -22,6 +22,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   const [useRegex, setUseRegex] = useState<boolean>(false);
   const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
+  const [regexError, setRegexError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const resultRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -31,9 +32,13 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   }, []);
 
   const doSearch = useCallback(async (q: string) => {
+    setRegexError(null);
     if (!q.trim()) {
       setResults([]);
       return;
+    }
+    if (useRegex) {
+      try { new RegExp(q); } catch (e: any) { setRegexError(e.message || 'Invalid regex'); setResults([]); return; }
     }
     setLoading(true);
     try {
@@ -160,7 +165,10 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
               <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
             </div>
           )}
-          {!loading && query && results.length === 0 && (
+          {regexError && !loading && (
+            <div data-testid="regex-error" className="text-center text-red-400 text-xs py-4 px-3">{regexError}</div>
+          )}
+          {!loading && !regexError && query && results.length === 0 && (
             <div className="text-center text-app-text-muted text-xs py-6">No results found</div>
           )}
           {!loading && (() => {
