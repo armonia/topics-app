@@ -246,6 +246,81 @@ test.describe("Agent Management", () => {
     ).toBeVisible();
   });
 
+  test("FIX-06: session search filter matches by display name or key", async ({
+    agentPage,
+    page,
+  }) => {
+    // Use distinct live sessions where displayName and key differ clearly
+    const searchSessions = [
+      {
+        key: "unique-key-xyz",
+        kind: "main",
+        channel: "web",
+        displayName: "SearchBot Alpha",
+        status: "active",
+        model: "claude-sonnet-4-20250514",
+        updatedAt: Date.now(),
+        totalTokens: 5000,
+        topicId: "topic-1",
+        topicName: "Test Topic",
+      },
+      {
+        key: "another-key-abc",
+        kind: "main",
+        channel: "web",
+        displayName: "Worker Beta",
+        status: "active",
+        model: "claude-sonnet-4-20250514",
+        updatedAt: Date.now(),
+        totalTokens: 3000,
+        topicId: "topic-2",
+        topicName: "Other Topic",
+      },
+    ];
+
+    // Re-mock sessions endpoint with our specific test data
+    await agentPage.mockSessionsEndpoint(searchSessions);
+
+    await agentPage.openAgentsPane();
+
+    // Both live sessions should be visible initially
+    await expect(page.getByText("SearchBot Alpha")).toBeVisible();
+    await expect(page.getByText("Worker Beta")).toBeVisible();
+
+    // Search by displayName: "SearchBot" should match first session only
+    const searchInput = page.locator('input[placeholder="Search sessions..."]');
+    await searchInput.fill("SearchBot");
+
+    // Wait for debounce (300ms)
+    await page.waitForTimeout(400);
+
+    // "SearchBot Alpha" should still be visible (matches displayName)
+    await expect(page.getByText("SearchBot Alpha")).toBeVisible();
+    // "Worker Beta" should be filtered out
+    await expect(page.getByText("Worker Beta")).not.toBeVisible();
+
+    // Now search by key: "unique-key" should match first session
+    await searchInput.fill("unique-key");
+    await page.waitForTimeout(400);
+
+    await expect(page.getByText("SearchBot Alpha")).toBeVisible();
+    await expect(page.getByText("Worker Beta")).not.toBeVisible();
+
+    // Search by key of second session: "another-key" should match second only
+    await searchInput.fill("another-key");
+    await page.waitForTimeout(400);
+
+    await expect(page.getByText("Worker Beta")).toBeVisible();
+    await expect(page.getByText("SearchBot Alpha")).not.toBeVisible();
+
+    // Search term matching NEITHER field should show no live sessions
+    await searchInput.fill("nonexistent-term");
+    await page.waitForTimeout(400);
+
+    await expect(page.getByText("SearchBot Alpha")).not.toBeVisible();
+    await expect(page.getByText("Worker Beta")).not.toBeVisible();
+  });
+
   test("AGENT-07: agent assignment to topic", async ({ agentPage, page }) => {
     await agentPage.openAgentsPane();
     await agentPage.switchToRosterTab();
