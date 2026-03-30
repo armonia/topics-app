@@ -66,17 +66,32 @@ export function GroupLayout({
     },
   }), [rows, onUpdateRows, onUpdateRowHeights]);
 
-  // DOM-direct resolvers: divider is INSIDE the group wrapper (same as PaneLayout)
+  // ISSUE 24 FIX: Use data attributes instead of unsafe DOM tree navigation.
+  // Dividers carry data-divider-row and data-divider-col; group wrappers carry data-group-cell.
+  // This avoids breakage if React reconciliation reorders elements.
   const resizeOptions = useMemo(() => ({
     resolveHorizontal: (divider: HTMLElement) => {
-      const left = divider.parentElement!;
-      const right = left.nextElementSibling as HTMLElement;
-      if (!right) return null;
+      const rowIdx = divider.getAttribute('data-divider-row');
+      const colIdx = divider.getAttribute('data-divider-col');
+      if (rowIdx == null || colIdx == null) return null;
+      const container = containerRef.current;
+      if (!container) return null;
+      const leftCol = parseInt(colIdx, 10);
+      const rightCol = leftCol + 1;
+      const left = container.querySelector(`[data-group-cell="${rowIdx}-${leftCol}"]`) as HTMLElement;
+      const right = container.querySelector(`[data-group-cell="${rowIdx}-${rightCol}"]`) as HTMLElement;
+      if (!left || !right) return null;
       return { apply: (l: number, r: number) => { left.style.width = `${l * 100}%`; right.style.width = `${r * 100}%`; } };
     },
     resolveVertical: (divider: HTMLElement) => {
-      const top = divider.previousElementSibling as HTMLElement;
-      const bottom = divider.parentElement?.nextElementSibling?.firstElementChild as HTMLElement;
+      const rowIdx = divider.getAttribute('data-divider-row');
+      if (rowIdx == null) return null;
+      const container = containerRef.current;
+      if (!container) return null;
+      const topIdx = parseInt(rowIdx, 10);
+      const bottomIdx = topIdx + 1;
+      const top = container.querySelector(`[data-group-row="${topIdx}"]`) as HTMLElement;
+      const bottom = container.querySelector(`[data-group-row="${bottomIdx}"]`) as HTMLElement;
       if (!top || !bottom) return null;
       return { apply: (t: number, b: number) => { top.style.flex = `${t} 1 0%`; bottom.style.flex = `${b} 1 0%`; } };
     },
@@ -239,6 +254,7 @@ export function GroupLayout({
         return (
           <div
             key={rowIdx}
+            data-group-row={rowIdx}
             className={`flex flex-col min-h-0 ${isDraggingRow ? 'opacity-40' : ''}`}
             style={{ flex: `${rowHeights[rowIdx] ?? 1 / rows.length} 1 0%` }}
           >
@@ -275,6 +291,7 @@ export function GroupLayout({
                 return (
                   <div
                     key={groupId}
+                    data-group-cell={`${rowIdx}-${groupIdx}`}
                     className="flex min-h-0 min-w-0 overflow-hidden"
                     style={{ width: `${row.widths[groupIdx] * 100}%` }}
                   >
@@ -347,6 +364,8 @@ export function GroupLayout({
                     {/* Horizontal divider between groups in a row */}
                     {groupIdx < row.groupIds.length - 1 && (
                       <div
+                        data-divider-row={rowIdx}
+                        data-divider-col={groupIdx}
                         className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
                         onMouseDown={startHorizontalResize(rowIdx, groupIdx, row.widths)}
                       >
@@ -361,6 +380,7 @@ export function GroupLayout({
             {/* Vertical divider between rows */}
             {rowIdx < rows.length - 1 && (
               <div
+                data-divider-row={rowIdx}
                 className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
                 onMouseDown={startVerticalResize(rowIdx, rowHeights)}
               >

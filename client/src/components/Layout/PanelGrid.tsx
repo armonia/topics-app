@@ -138,7 +138,7 @@ export function PanelGrid({
 
   /* ---- All panels are treated flat (no project grouping) ---- */
   /* Solo topic IDs = panels placed independently in the grid */
-  const [soloTopicIds, setSoloTopicIds] = useState<string[]>(() => {
+  const [soloTopicIdsRaw, setSoloTopicIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -149,14 +149,14 @@ export function PanelGrid({
     return [];
   });
 
-  // Cleanup: remove soloTopicIds for panels no longer open
-  useEffect(() => {
+  // ISSUE 6 FIX: Derive effective soloTopicIds synchronously filtered against openPanels.
+  // This avoids the transient render where naturalGridItems includes a solo item
+  // for a panel that no longer exists (the old useEffect had a dependency gap).
+  const soloTopicIds = useMemo(() => {
     const openSet = new Set(openPanels);
-    setSoloTopicIds(prev => {
-      const filtered = prev.filter(id => openSet.has(id));
-      return filtered.length === prev.length ? prev : filtered;
-    });
-  }, [openPanels]);
+    const filtered = soloTopicIdsRaw.filter(id => openSet.has(id));
+    return filtered.length === soloTopicIdsRaw.length ? soloTopicIdsRaw : filtered;
+  }, [soloTopicIdsRaw, openPanels]);
 
   // Track whether standalone group has utility panes (browser/terminal)
   const [standaloneHasUtility, setStandaloneHasUtility] = useState(false);
@@ -312,21 +312,23 @@ export function PanelGrid({
   }, [gridRows.length]);
 
   // Persist layout to localStorage + server (debounced)
+  // ISSUE 11 FIX: Always persist, even when gridRows is empty.
+  // Previously, stale layout persisted when all panels were closed because
+  // the save was gated on gridRows.length > 0. On load, empty gridRows
+  // naturally starts fresh (the sync effect creates rows from naturalGridItems).
   const gridSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (gridRows.length > 0) {
-      const data = { gridRows, gridRowHeights, soloTopicIds };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      // Debounced server sync (2s to avoid spam during resize)
-      if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current);
-      gridSaveTimerRef.current = setTimeout(() => {
-        fetch('/api/ui-state/grid-layout', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        }).catch(() => {});
-      }, 2000);
-    }
+    const data = { gridRows, gridRowHeights, soloTopicIds };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    // Debounced server sync (2s to avoid spam during resize)
+    if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current);
+    gridSaveTimerRef.current = setTimeout(() => {
+      fetch('/api/ui-state/grid-layout', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).catch(() => {});
+    }, 2000);
     return () => { if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current); };
   }, [gridRows, gridRowHeights, soloTopicIds]);
 
@@ -386,6 +388,21 @@ export function PanelGrid({
 
   const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
 
+  // ISSUE 19 FIX: Track ghost DOM elements so they can be cleaned up
+  // if the component unmounts during a rAF callback.
+  const activeGhostsRef = useRef<Set<HTMLElement>>(new Set());
+  useEffect(() => {
+    return () => {
+      // Cleanup any ghost elements still in the DOM on unmount
+      for (const ghost of activeGhostsRef.current) {
+        if (ghost.parentElement) {
+          ghost.parentElement.removeChild(ghost);
+        }
+      }
+      activeGhostsRef.current.clear();
+    };
+  }, []);
+
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [emptyDragOver, setEmptyDragOver] = useState(false);
@@ -408,8 +425,12 @@ export function PanelGrid({
     `;
     ghost.textContent = `${topic?.icon || '\uD83D\uDCAC'} ${topic?.name || 'Chat'}`;
     document.body.appendChild(ghost);
+    activeGhostsRef.current.add(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => document.body.removeChild(ghost));
+    requestAnimationFrame(() => {
+      if (ghost.parentElement) document.body.removeChild(ghost);
+      activeGhostsRef.current.delete(ghost);
+    });
 
     if (windowId) {
       sendWS({ type: 'drag:start', topicId, windowId });
@@ -470,8 +491,12 @@ export function PanelGrid({
     `;
     ghost.textContent = `\uD83D\uDCAC Chats`;
     document.body.appendChild(ghost);
+    activeGhostsRef.current.add(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => document.body.removeChild(ghost));
+    requestAnimationFrame(() => {
+      if (ghost.parentElement) document.body.removeChild(ghost);
+      activeGhostsRef.current.delete(ghost);
+    });
   }, []);
 
   // Capture phase: fires BEFORE children, so we can intercept edge drags
@@ -561,20 +586,21 @@ export function PanelGrid({
           const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
           if (!targetKey) return prev;
 
+          // ISSUE 8 FIX: Use immutable operations instead of splice()
           let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
 
-          // Safety: remove soloKey if already present
-          for (const row of rows) {
+          // Safety: remove soloKey if already present (immutably)
+          rows = rows.map(row => {
             const idx = row.itemKeys.indexOf(soloKey);
-            if (idx >= 0) {
-              row.itemKeys.splice(idx, 1);
-              row.widths.splice(idx, 1);
-              if (row.itemKeys.length > 0) {
-                const total = row.widths.reduce((s, w) => s + w, 0);
-                row.widths = row.widths.map(w => w / total);
-              }
+            if (idx < 0) return row;
+            const newKeys = row.itemKeys.filter((_, i) => i !== idx);
+            const newWidths = row.widths.filter((_, i) => i !== idx);
+            if (newKeys.length > 0) {
+              const total = newWidths.reduce((s, w) => s + w, 0);
+              return { itemKeys: newKeys, widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length) };
             }
-          }
+            return { itemKeys: newKeys, widths: newWidths };
+          });
           rows = rows.filter(r => r.itemKeys.length > 0);
 
           let tRow = -1, tCol = -1;
@@ -586,14 +612,15 @@ export function PanelGrid({
 
           if (zone === 'top' || zone === 'bottom') {
             const newRow: PanelGridRow = { itemKeys: [soloKey], widths: [1] };
-            rows.splice(zone === 'top' ? tRow : tRow + 1, 0, newRow);
+            const insertIdx = zone === 'top' ? tRow : tRow + 1;
+            rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
           } else {
             const row = rows[tRow];
             const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
               ? tCol + 1
               : tCol;
-            row.itemKeys.splice(insertAt, 0, soloKey);
-            row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
+            const newKeys = [...row.itemKeys.slice(0, insertAt), soloKey, ...row.itemKeys.slice(insertAt)];
+            rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) } : r);
           }
 
           return rows;
@@ -611,6 +638,10 @@ export function PanelGrid({
     const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
 
     setGridRows(prev => {
+      // ISSUE 18 FIX: Validate drop target against current grid state at drop time.
+      // If the target row/column is invalid, fall back to "add to end" behavior.
+      const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
+
       // Find source position
       let srcRow = -1, srcCol = -1;
       for (let r = 0; r < prev.length; r++) {
@@ -619,21 +650,46 @@ export function PanelGrid({
       }
       if (srcRow === -1) return prev;
 
-      // Find target key
-      const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
-      if (!targetKey || effectiveKey === targetKey) return prev;
+      if (!targetKey || effectiveKey === targetKey) {
+        // ISSUE 18: Invalid target — fall back to "add to end" if target disappeared
+        if (!targetKey && prev.length > 0) {
+          // Move source to end of last row
+          let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+          // Remove source immutably
+          rows = rows.map((r, i) => {
+            if (i !== srcRow) return r;
+            const newKeys = r.itemKeys.filter((_, j) => j !== srcCol);
+            const newWidths = r.widths.filter((_, j) => j !== srcCol);
+            if (newKeys.length > 0) {
+              const total = newWidths.reduce((s, w) => s + w, 0);
+              return { itemKeys: newKeys, widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length) };
+            }
+            return { itemKeys: newKeys, widths: newWidths };
+          }).filter(r => r.itemKeys.length > 0);
+          // Append to last row
+          const lastRow = rows[rows.length - 1];
+          const newKeys = [...lastRow.itemKeys, effectiveKey];
+          rows = rows.map((r, i) => i === rows.length - 1 ? { itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) } : r);
+          return rows;
+        }
+        return prev;
+      }
 
+      // ISSUE 8 FIX: Use immutable operations instead of splice()
       // Deep copy rows
       let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
 
-      // Remove source from its row
-      rows[srcRow].itemKeys.splice(srcCol, 1);
-      rows[srcRow].widths.splice(srcCol, 1);
-      // Renormalize source row widths
-      if (rows[srcRow].itemKeys.length > 0) {
-        const total = rows[srcRow].widths.reduce((s, w) => s + w, 0);
-        rows[srcRow].widths = rows[srcRow].widths.map(w => w / total);
-      }
+      // Remove source from its row (immutably)
+      rows = rows.map((r, i) => {
+        if (i !== srcRow) return r;
+        const newKeys = r.itemKeys.filter((_, j) => j !== srcCol);
+        const newWidths = r.widths.filter((_, j) => j !== srcCol);
+        if (newKeys.length > 0) {
+          const total = newWidths.reduce((s, w) => s + w, 0);
+          return { itemKeys: newKeys, widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length) };
+        }
+        return { itemKeys: newKeys, widths: newWidths };
+      });
 
       // Remove empty rows (source row may now be empty)
       rows = rows.filter(r => r.itemKeys.length > 0);
@@ -646,19 +702,20 @@ export function PanelGrid({
       }
       if (tRow === -1) return rows;
 
-      // Insert source based on zone
+      // Insert source based on zone (immutably)
       if (zone === 'top' || zone === 'bottom') {
         // Create new row above/below target
         const newRow: PanelGridRow = { itemKeys: [effectiveKey], widths: [1] };
-        rows.splice(zone === 'top' ? tRow : tRow + 1, 0, newRow);
+        const insertIdx = zone === 'top' ? tRow : tRow + 1;
+        rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
       } else {
         // left/right/center — insert as column in target's row
         const row = rows[tRow];
         const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
           ? tCol + 1
           : tCol;
-        row.itemKeys.splice(insertAt, 0, effectiveKey);
-        row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
+        const newKeys = [...row.itemKeys.slice(0, insertAt), effectiveKey, ...row.itemKeys.slice(insertAt)];
+        rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) } : r);
       }
 
       return rows;
