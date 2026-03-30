@@ -83,6 +83,8 @@ interface StandaloneChatGroupProps {
   draftMeta?: Record<string, { projectPath?: string }>;
   // Split a pane into its own grid cell (right or down)
   onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
+  // Batch-close multiple panels atomically (for "Close Others" etc.)
+  onCloseMultiplePanels?: (panelIds: string[]) => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
 }
@@ -103,6 +105,7 @@ export function StandaloneChatGroup({
   onOpenBrowserContextIds,
   promoteDraft, draftMeta: _draftMeta,
   onSplitPane,
+  onCloseMultiplePanels,
   persistOrder = true,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
@@ -128,7 +131,8 @@ export function StandaloneChatGroup({
   });
   // Ref for topicIds to use in the external update callback without recreating it
   const topicIdsRef = useRef(topicIds);
-  topicIdsRef.current = topicIds;
+  // ISSUE 3 fix: move ref assignment to useEffect instead of during render
+  useEffect(() => { topicIdsRef.current = topicIds; });
   // Persist tab order and pinned state (only for main group, not solo groups)
   const pinnedArray = useMemo(() => Array.from(pinnedIds), [pinnedIds]);
   usePanelOrderPersistence(
@@ -152,18 +156,42 @@ export function StandaloneChatGroup({
     persistOrder ? onWSMessage : undefined,
   );
 
+  // ISSUE 2 guard: orderedIds must NEVER contain an ID not in openPanels (topicIds)
+  // This runs synchronously via useMemo so it's atomic with the render cycle
+  const validatedOrderedIds = useMemo(() => {
+    const openSet = new Set(topicIds);
+    const filtered = orderedIds.filter(id =>
+      openSet.has(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id)
+    );
+    return filtered.length === orderedIds.length ? orderedIds : filtered;
+  }, [orderedIds, topicIds]);
+
+  // If validation pruned stale IDs, sync state (deferred to avoid render-phase setState)
+  useEffect(() => {
+    if (validatedOrderedIds !== orderedIds) {
+      setOrderedIds(validatedOrderedIds);
+    }
+  }, [validatedOrderedIds, orderedIds]);
+
   // Effective pinned set: always includes project & utility panes (they must never be replaced)
+  // ISSUE 23 fix: cache previous result and only return new reference when contents change
+  const prevEffectivePinnedRef = useRef<Set<string>>(new Set());
   const effectivePinnedIds = useMemo(() => {
     const s = new Set(pinnedIds);
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) s.add(id);
     }
+    // Compare with previous: if contents are identical, return same reference
+    const prev = prevEffectivePinnedRef.current;
+    if (s.size === prev.size && [...s].every(id => prev.has(id))) {
+      return prev;
+    }
+    prevEffectivePinnedRef.current = s;
     return s;
-  }, [pinnedIds, orderedIds]);
+  }, [pinnedIds, validatedOrderedIds]);
   const pinnedIdsRef = useRef(effectivePinnedIds);
-  pinnedIdsRef.current = effectivePinnedIds;
-  // Pending preview close (deferred to avoid loop with parent)
-  const pendingCloseRef = useRef<string | null>(null);
+  // ISSUE 3 fix: move ref assignment to useEffect
+  useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
   // Context inspector state (lifted from ChatPanel so ring click can toggle it)
   const [contextOpen, setContextOpen] = useState(false);
   // Settings modal state (opened via right-click menu on tabs)
@@ -183,10 +211,14 @@ export function StandaloneChatGroup({
 
   // Sync when topicIds change externally (add/remove)
   // Handles preview replacement: new tab replaces the existing preview tab
-  const prevTopicCountRef = useRef(topicIds.length);
+  const prevTopicIdsRef = useRef(topicIds);
+  // ISSUE 5 fix: track pending close with dependency on topicIds instead of running on every render
+  const pendingCloseRef = useRef<string | null>(null);
   useEffect(() => {
-    const wasAdded = topicIds.length > prevTopicCountRef.current;
-    prevTopicCountRef.current = topicIds.length;
+    const prevTopicIds = prevTopicIdsRef.current;
+    prevTopicIdsRef.current = topicIds;
+
+    const wasAdded = topicIds.length > prevTopicIds.length;
 
     setOrderedIds(prev => {
       // Keep browser/session-viewer panes (they are managed locally, not via topicIds)
@@ -216,19 +248,19 @@ export function StandaloneChatGroup({
     });
   }, [topicIds]);
 
-  // Close the replaced preview tab (deferred to next frame to avoid update loop)
+  // ISSUE 5 fix: Close the replaced preview tab — only runs when topicIds change (not every render)
   useEffect(() => {
     if (pendingCloseRef.current) {
       const id = pendingCloseRef.current;
       pendingCloseRef.current = null;
       onClosePanel(id);
     }
-  });
+  }, [topicIds, onClosePanel]);
 
   // Active pane: prefer focusedPanelId if in our list, else first
-  const activePaneId = orderedIds.includes(focusedPanelId || '')
+  const activePaneId = validatedOrderedIds.includes(focusedPanelId || '')
     ? focusedPanelId!
-    : orderedIds[0] || null;
+    : validatedOrderedIds[0] || null;
 
   // Determine if the active pane is a utility panel, project pane, browser pane, terminal pane, session viewer, or a chat topic
   const activeIsBrowser = activePaneId ? isBrowserPaneId(activePaneId) : false;
@@ -243,7 +275,7 @@ export function StandaloneChatGroup({
   // Synthetic topics for draft panes (not yet persisted on server)
   const draftTopics = useMemo(() => {
     const map: Record<string, Topic> = {};
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (isDraftPaneId(id)) {
         map[id] = {
           id,
@@ -257,7 +289,7 @@ export function StandaloneChatGroup({
       }
     }
     return map;
-  }, [orderedIds]);
+  }, [validatedOrderedIds]);
 
   const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer
     ? (topics[activePaneId] || draftTopics[activePaneId] || null)
@@ -271,7 +303,7 @@ export function StandaloneChatGroup({
       if (ctx) return ctx;
     }
     // Find a topic with projectPath among ordered IDs for context
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (isProjectPaneId(id)) {
         const p = getProjectPathFromPaneId(id);
         if (p) return p;
@@ -279,15 +311,16 @@ export function StandaloneChatGroup({
       const t = topics[id];
       if (t?.projectPath) return t.id.slice(0, 8);
     }
-    return orderedIds[0]?.slice(0, 8) || 'default';
-  }, [activePaneId, orderedIds, topics]);
+    return validatedOrderedIds[0]?.slice(0, 8) || 'default';
+  }, [activePaneId, validatedOrderedIds, topics]);
   const browserContextIdRef = useRef(browserContextId);
-  browserContextIdRef.current = browserContextId;
+  // ISSUE 3 fix: move ref assignment to useEffect
+  useEffect(() => { browserContextIdRef.current = browserContextId; });
 
   // Report utility pane status to parent (PanelGrid uses this to keep standalone alive)
   const hasUtilityPanes = useMemo(
-    () => orderedIds.some(id => isBrowserPaneId(id) || isSessionViewerPaneId(id)),
-    [orderedIds],
+    () => validatedOrderedIds.some(id => isBrowserPaneId(id) || isSessionViewerPaneId(id)),
+    [validatedOrderedIds],
   );
   useEffect(() => {
     onUtilityPaneChange?.(hasUtilityPanes);
@@ -295,8 +328,8 @@ export function StandaloneChatGroup({
 
   // Report open browser context IDs to parent for sidebar highlighting
   const openBrowserContextIds = useMemo(
-    () => orderedIds.filter(isBrowserPaneId).map(id => getBrowserContextFromPaneId(id)).filter((id): id is string => id !== null),
-    [orderedIds],
+    () => validatedOrderedIds.filter(isBrowserPaneId).map(id => getBrowserContextFromPaneId(id)).filter((id): id is string => id !== null),
+    [validatedOrderedIds],
   );
   useEffect(() => {
     onOpenBrowserContextIds?.(openBrowserContextIds);
@@ -305,7 +338,8 @@ export function StandaloneChatGroup({
   // Listen for browser:navigate WS — add browser pane if needed and navigate
   // Skip when a project pane exists (projects manage their own browser internally)
   const hasProjectPaneRef = useRef(false);
-  hasProjectPaneRef.current = orderedIds.some(id => isProjectPaneId(id));
+  // ISSUE 3 fix: move ref assignment to useEffect
+  useEffect(() => { hasProjectPaneRef.current = validatedOrderedIds.some(id => isProjectPaneId(id)); });
   useEffect(() => {
     const unsub = onWSMessage((msg: any) => {
       if (msg.type === 'browser:navigate' && msg.url) {
@@ -326,11 +360,11 @@ export function StandaloneChatGroup({
           if (msg.topicId && !prev.includes(msg.topicId)) return prev;
           const existing = prev.find(id => isBrowserPaneId(id));
           if (existing) {
-            setTimeout(() => onFocusPanel(existing), 0);
+            queueMicrotask(() => onFocusPanel(existing));
             return prev;
           }
           const newId = createPaneId('browser');
-          setTimeout(() => onFocusPanel(newId), 0);
+          queueMicrotask(() => onFocusPanel(newId));
           return [...prev, newId];
         });
       }
@@ -345,11 +379,11 @@ export function StandaloneChatGroup({
       setOrderedIds(prev => {
         const existing = prev.find(id => isBrowserPaneId(id));
         if (existing) {
-          setTimeout(() => onFocusPanel(existing), 0);
+          queueMicrotask(() => onFocusPanel(existing));
           return prev;
         }
         const newId = createPaneId('browser');
-        setTimeout(() => onFocusPanel(newId), 0);
+        queueMicrotask(() => onFocusPanel(newId));
         return [...prev, newId];
       });
     }
@@ -366,16 +400,16 @@ export function StandaloneChatGroup({
       setOrderedIds(prev => {
         // Check if we already have a pane for this context
         if (prev.includes(targetId)) {
-          setTimeout(() => onFocusPanel(targetId), 0);
+          queueMicrotask(() => onFocusPanel(targetId));
           return prev;
         }
         // Check for any existing browser pane — reuse it (swap context)
         const existing = prev.find(id => isBrowserPaneId(id));
         if (existing) {
-          setTimeout(() => onFocusPanel(targetId), 0);
+          queueMicrotask(() => onFocusPanel(targetId));
           return prev.map(id => id === existing ? targetId : id);
         }
-        setTimeout(() => onFocusPanel(targetId), 0);
+        queueMicrotask(() => onFocusPanel(targetId));
         return [...prev, targetId];
       });
     }
@@ -383,7 +417,7 @@ export function StandaloneChatGroup({
 
   // Build Pane[] for PaneTabBar (mix of chat topics, utility panes, project panes, browser panes, and terminal panes)
   const panes: Pane[] = useMemo(() =>
-    orderedIds.map(id => {
+    validatedOrderedIds.map(id => {
       const isPreview = !effectivePinnedIds.has(id);
       if (isBrowserPaneId(id)) {
         return {
@@ -447,7 +481,7 @@ export function StandaloneChatGroup({
         title: topics[id]?.name || 'Chat',
         preview: isPreview,
       };
-    }), [orderedIds, topics, effectivePinnedIds, terminalLabels]);
+    }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels]);
 
   const handleReorderPanes = useCallback((newPaneIds: string[]) => {
     setOrderedIds(newPaneIds);
@@ -462,19 +496,19 @@ export function StandaloneChatGroup({
   const handleAddPane = useCallback(async (type: PaneType, subType?: string) => {
     if (type === 'browser') {
       // Singleton: if browser pane already exists, just focus it
-      const existing = orderedIds.find(id => isBrowserPaneId(id));
+      const existing = validatedOrderedIds.find(id => isBrowserPaneId(id));
       if (existing) {
         onFocusPanel(existing);
         return;
       }
       const newId = createPaneId('browser');
       setOrderedIds(prev => [...prev, newId]);
-      setTimeout(() => onFocusPanel(newId), 0);
+      queueMicrotask(() => onFocusPanel(newId));
     } else if (type === 'terminal') {
       const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
       onCreateTerminal?.(termType, claudeSkipPermissions);
     }
-  }, [orderedIds, onFocusPanel, claudeSkipPermissions, onCreateTerminal]);
+  }, [validatedOrderedIds, onFocusPanel, claudeSkipPermissions, onCreateTerminal]);
 
   // Close handler: support closing browser/terminal panes locally (they're not in topicIds)
   const handleClosePane = useCallback((paneId: string) => {
@@ -487,13 +521,13 @@ export function StandaloneChatGroup({
       }
       // If the closed pane was active, focus the first remaining
       if (activePaneId === paneId) {
-        const remaining = orderedIds.filter(id => id !== paneId);
+        const remaining = validatedOrderedIds.filter(id => id !== paneId);
         if (remaining.length > 0) onFocusPanel(remaining[0]);
       }
     } else if (isSessionViewerPaneId(paneId)) {
       setOrderedIds(prev => prev.filter(id => id !== paneId));
       if (activePaneId === paneId) {
-        const remaining = orderedIds.filter(id => id !== paneId);
+        const remaining = validatedOrderedIds.filter(id => id !== paneId);
         if (remaining.length > 0) onFocusPanel(remaining[0]);
       }
     } else if (isTerminalPaneId(paneId)) {
@@ -505,7 +539,7 @@ export function StandaloneChatGroup({
     } else {
       onClosePanel(paneId);
     }
-  }, [onClosePanel, activePaneId, orderedIds, onFocusPanel]);
+  }, [onClosePanel, activePaneId, validatedOrderedIds, onFocusPanel]);
 
   // Cross-group drop: accept a tab dragged from a project tab bar
   const handleCrossGroupDrop = useCallback((sourcePaneId: string, _sourceGroupId: string, _insertIdx: number) => {
@@ -547,40 +581,40 @@ export function StandaloneChatGroup({
   // Build paneId → topicId map for context percent (only for real chat panes, not drafts)
   const paneToTopicMap = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (!isUtilityPanelId(id) && !isProjectPaneId(id) && !isBrowserPaneId(id) && !isTerminalPaneId(id) && !isSessionViewerPaneId(id) && !isDraftPaneId(id)) map[id] = id;
     }
     return map;
-  }, [orderedIds]);
+  }, [validatedOrderedIds]);
   const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
 
   // Project tab status indicators (git + processes)
   const projectPaths = useMemo(() => {
     const paths: string[] = [];
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (isProjectPaneId(id)) {
         const p = getProjectPathFromPaneId(id);
         if (p) paths.push(p);
       }
     }
     return paths;
-  }, [orderedIds]);
+  }, [validatedOrderedIds]);
   const projectStatusByPath = useProjectTabStatus(projectPaths);
   const projectStatus = useMemo(() => {
     const map: Record<string, ProjectTabStatus> = {};
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (isProjectPaneId(id)) {
         const p = getProjectPathFromPaneId(id);
         if (p && projectStatusByPath[p]) map[id] = projectStatusByPath[p];
       }
     }
     return map;
-  }, [orderedIds, projectStatusByPath]);
+  }, [validatedOrderedIds, projectStatusByPath]);
 
   // Build set of pane IDs that are currently streaming (only real chat panes stream, not drafts)
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const id of orderedIds) {
+    for (const id of validatedOrderedIds) {
       if (isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) continue;
       const topic = topics[id];
       if (topic && isSessionStreaming(topic.sessionKey)) {
@@ -588,7 +622,7 @@ export function StandaloneChatGroup({
       }
     }
     return ids;
-  }, [orderedIds, topics, isSessionStreaming]);
+  }, [validatedOrderedIds, topics, isSessionStreaming]);
 
   // Stop streaming for a pane (paneId = topicId in standalone)
   const handleStopStreaming = useCallback((paneId: string) => {
@@ -607,7 +641,7 @@ export function StandaloneChatGroup({
   const handleOpenSessionViewer = useCallback((sessionKey: string) => {
     const newId = createPaneId('session-viewer', sessionKey);
     setOrderedIds(prev => prev.includes(newId) ? prev : [...prev, newId]);
-    setTimeout(() => onFocusPanel(newId), 0);
+    queueMicrotask(() => onFocusPanel(newId));
   }, [onFocusPanel]);
 
   // Right-click menu: Settings opens TopicSettingsModal
@@ -642,7 +676,37 @@ export function StandaloneChatGroup({
     onSplitPane(paneId, 'right');
   }, [onSplitPane]);
 
-  if (orderedIds.length === 0) return null;
+  // ISSUE 22 fix: "Close Others" — batch-close multiple panels atomically
+  const handleCloseOthers = useCallback((keepPaneId: string) => {
+    const toClose = validatedOrderedIds.filter(id => id !== keepPaneId);
+    if (toClose.length === 0) return;
+
+    // Close locally-managed panes (browser/session-viewer) from orderedIds
+    const localToClose = toClose.filter(id => isBrowserPaneId(id) || isSessionViewerPaneId(id));
+    if (localToClose.length > 0) {
+      setOrderedIds(prev => prev.filter(id => id === keepPaneId || (!isBrowserPaneId(id) && !isSessionViewerPaneId(id))));
+      // Destroy browser contexts for closed browser panes
+      for (const id of localToClose) {
+        if (isBrowserPaneId(id)) {
+          const ctx = getBrowserContextFromPaneId(id);
+          if (ctx) fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE' }).catch(() => {});
+        }
+      }
+    }
+
+    // Close parent-managed panes atomically (terminals, topics, utilities, etc.)
+    const parentToClose = toClose.filter(id => !isBrowserPaneId(id) && !isSessionViewerPaneId(id));
+    if (parentToClose.length > 0 && onCloseMultiplePanels) {
+      onCloseMultiplePanels(parentToClose);
+    } else {
+      // Fallback: close one by one if batch callback not available
+      for (const id of parentToClose) onClosePanel(id);
+    }
+
+    onFocusPanel(keepPaneId);
+  }, [validatedOrderedIds, onCloseMultiplePanels, onClosePanel, onFocusPanel]);
+
+  if (validatedOrderedIds.length === 0) return null;
   // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
   if (!activeTopic && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer) return null;
 
@@ -651,7 +715,7 @@ export function StandaloneChatGroup({
     const types: PaneType[] = ['browser', 'terminal'];
     // Only offer types that aren't already open (singleton check)
     return types.filter(t => {
-      if (t === 'browser') return !orderedIds.some(id => isBrowserPaneId(id));
+      if (t === 'browser') return !validatedOrderedIds.some(id => isBrowserPaneId(id));
       return true; // terminal is not singleton — can have multiple
     });
   })();
@@ -682,6 +746,7 @@ export function StandaloneChatGroup({
       onSplitRight={onSplitPane ? handleSplitRight : undefined}
       onSplitDown={onSplitPane ? handleSplitDown : undefined}
       onDetach={onSplitPane ? handleDetach : undefined}
+      onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
       streamingPaneIds={streamingPaneIds}

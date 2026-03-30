@@ -100,14 +100,12 @@ export function usePanelOrderPersistence(
   }, []);
 
   // Persist on change: localStorage immediately, server debounced
-  // Skip saving empty state (solo/non-persisting groups pass empty arrays)
+  // Empty state IS valid state and must be persisted to avoid stale data on server
   useEffect(() => {
     if (isFromServerRef.current) {
       isFromServerRef.current = false;
       return;
     }
-
-    if (currentOrder.length === 0 && currentPinned.length === 0) return;
 
     const state: PanelOrderState = { order: currentOrder, pinned: currentPinned };
 

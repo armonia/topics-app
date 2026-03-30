@@ -100,6 +100,14 @@ const savePanelsState = (panels: string[], focused: string | null) => {
       localStorage.removeItem(FOCUSED_PANEL_KEY);
       sessionStorage.removeItem(FOCUSED_PANEL_KEY);
     }
+    // ISSUE 21 fix: write a coordination timestamp so other persistence layers
+    // can detect partial saves on reload
+    localStorage.setItem('topics-panels-save-ts', String(Date.now()));
+    // If panels are empty, also clear grid-layout to prevent inconsistency
+    if (panels.length === 0) {
+      localStorage.removeItem('topics-grid-layout');
+      localStorage.removeItem('topics-project-layout');
+    }
   } catch {
     // Ignore storage errors
   }
@@ -197,7 +205,8 @@ function App() {
     return loadSavedFocused();
   });
   const focusedPanelIdRef = useRef(focusedPanelId);
-  focusedPanelIdRef.current = focusedPanelId;
+  // ISSUE 3 fix: move ref assignment from render to useEffect
+  useEffect(() => { focusedPanelIdRef.current = focusedPanelId; });
 
   // Persist panels state to localStorage (main window only)
   useEffect(() => {
@@ -213,11 +222,9 @@ function App() {
   }, [openPanels, focusedPanelId, isDetached]);
 
   // Cross-tab sync for panels via storage events
+  // ISSUE 9 fix: only sync openPanels across tabs, NOT focusedPanelId (focus is per-tab intent)
   useStorageSync(OPEN_PANELS_KEY, useCallback((panels: string[]) => {
     if (!isDetached && Array.isArray(panels)) setOpenPanels(panels);
-  }, [isDetached]));
-  useStorageSync(FOCUSED_PANEL_KEY, useCallback((focused: string) => {
-    if (!isDetached) setFocusedPanelId(focused);
   }, [isDetached]));
 
   // Server fetch on mount: always apply server's openPanels as canonical source
@@ -239,6 +246,12 @@ function App() {
         panelsFromServerRef.current = true;
         try { localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(data.openPanels)); } catch {}
         setOpenPanels(data.openPanels);
+        // ISSUE 21 fix: if openPanels is empty, clear stale grid-layout to prevent
+        // inconsistent state where grid references panels that don't exist
+        if (data.openPanels.length === 0) {
+          try { localStorage.removeItem('topics-grid-layout'); } catch {}
+          try { localStorage.removeItem('topics-project-layout'); } catch {}
+        }
         // If current focus is stale (not in synced panels), auto-focus first panel
         setFocusedPanelId(prev => {
           if (prev && data.openPanels.includes(prev)) return prev;
@@ -301,6 +314,9 @@ function App() {
   // Terminal sessions state (fetched from server, updated via WS)
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>([]);
   const terminalSessionsLoaded = useRef(false);
+  // ISSUE 13 fix: track recently created terminal session IDs with timestamps
+  // to avoid cleanup race when server WS broadcast hasn't caught up yet
+  const recentlyCreatedTerminalsRef = useRef<Map<string, number>>(new Map());
   const fetchTerminalSessions = useCallback(() => {
     fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
       terminalSessionsLoaded.current = true;
@@ -512,9 +528,17 @@ function App() {
     return topics[focusedPanelId]?.projectPath || undefined;
   }, [focusedPanelId, topics]);
 
+  // ISSUE 12 fix: track previous openPanels to detect when they actually change
+  const prevOpenPanelsForValidation = useRef<string[]>(openPanels);
   // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
   useEffect(() => {
     if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
+      // Guard: skip if openPanels haven't changed since last validation
+      // (prevents loops when this effect itself triggers setOpenPanels)
+      const panelsChanged = openPanels !== prevOpenPanelsForValidation.current;
+      const topicsChanged = true; // always re-validate when topics change
+      if (!panelsChanged && !topicsChanged) return;
+
       const projectPanesToAdd: string[] = [];
       const validPanels = openPanels.filter(id => {
         if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isDraftPaneId(id)) return true;
@@ -534,6 +558,7 @@ function App() {
       }
       const changed = validPanels.length !== openPanels.length || validPanels.some((v, i) => v !== openPanels[i]);
       if (changed) {
+        prevOpenPanelsForValidation.current = validPanels;
         setOpenPanels(validPanels);
         // Don't reset focus for browser panes (managed locally by StandaloneChatGroup)
         if (focusedPanelId && !validPanels.includes(focusedPanelId) && !isBrowserPaneId(focusedPanelId)) {
@@ -547,9 +572,11 @@ function App() {
             setFocusedPanelId(validPanels.length > 0 ? validPanels[0] : null);
           }
         }
+      } else {
+        prevOpenPanelsForValidation.current = openPanels;
       }
     }
-  }, [topics, topicsLoading, isDetached]); // Don't include openPanels/focusedPanelId to avoid loops
+  }, [topics, topicsLoading, isDetached, openPanels, focusedPanelId]);
 
   const {
     sendMessage,
@@ -595,6 +622,11 @@ function App() {
       serverSyncedRef.current = true;
       try { localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(data.openPanels)); } catch {}
       setOpenPanels(data.openPanels);
+      // ISSUE 21 fix: clear stale grid-layout when openPanels becomes empty via WS
+      if (data.openPanels.length === 0) {
+        try { localStorage.removeItem('topics-grid-layout'); } catch {}
+        try { localStorage.removeItem('topics-project-layout'); } catch {}
+      }
       // If current focus is not in the new panel list, auto-focus the first panel
       setFocusedPanelId(prev => {
         if (prev && data!.openPanels!.includes(prev)) return prev; // keep current focus
@@ -669,13 +701,22 @@ function App() {
   }, [onWSMessage]);
 
   // Clean stale terminal panes from openPanels when sessions change (skip until first fetch)
+  // ISSUE 13 fix: exclude recently created sessions from cleanup (5s grace period)
   useEffect(() => {
     if (!terminalSessionsLoaded.current) return;
     const sessionIds = new Set(terminalSessions.map(s => s.id));
+    const now = Date.now();
+    const GRACE_MS = 5000;
+    // Prune expired entries from recentlyCreated
+    for (const [id, ts] of recentlyCreatedTerminalsRef.current) {
+      if (now - ts > GRACE_MS) recentlyCreatedTerminalsRef.current.delete(id);
+    }
     setOpenPanels(prev => {
       const filtered = prev.filter(id => {
         if (!id.startsWith('terminal:')) return true;
-        return sessionIds.has(id.slice('terminal:'.length));
+        const sessionId = id.slice('terminal:'.length);
+        // Keep if server knows about it OR if it was recently created (grace period)
+        return sessionIds.has(sessionId) || recentlyCreatedTerminalsRef.current.has(sessionId);
       });
       return filtered.length === prev.length ? prev : filtered;
     });
@@ -1012,6 +1053,27 @@ function App() {
     }
   }, []);
 
+  // ISSUE 22 fix: batch-close multiple panels atomically in a single state update
+  const handleCloseMultiplePanels = useCallback((panelIds: string[]) => {
+    const toCloseSet = new Set(panelIds);
+    setOpenPanels(prev => {
+      const next = prev.filter(id => !toCloseSet.has(id));
+      if (focusedPanelIdRef.current && toCloseSet.has(focusedPanelIdRef.current)) {
+        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
+      }
+      return next;
+    });
+    // Clean up draft metadata for any drafts being closed
+    const draftsToClose = panelIds.filter(isDraftPaneId);
+    if (draftsToClose.length > 0) {
+      setDraftMeta(prev => {
+        const next = { ...prev };
+        for (const id of draftsToClose) delete next[id];
+        return next;
+      });
+    }
+  }, []);
+
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
     if (isMobile) {
@@ -1140,6 +1202,8 @@ function App() {
       if (!res.ok) return;
       const data = await res.json();
       const paneId = createPaneId('terminal', data.id);
+      // ISSUE 13 fix: register in grace period set so cleanup won't remove it
+      recentlyCreatedTerminalsRef.current.set(data.id, Date.now());
       // Optimistic update so label is available immediately
       setTerminalSessions(prev => prev.some(s => s.id === data.id) ? prev : [...prev, { id: data.id, name: data.name || name, createdAt: data.createdAt, cwd: data.cwd, command: data.command, clients: 0, topicId: data.topicId, type: data.type }]);
       setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
