@@ -9,6 +9,9 @@ const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.m
 
 const STORAGE_KEY = 'topics-panel-grid-layout';
 
+const MAX_COLS_PER_ROW = 4;
+const MAX_ROWS = 4;
+
 /* ------------------------------------------------------------------ */
 /*  Layout model                                                       */
 /* ------------------------------------------------------------------ */
@@ -403,6 +406,62 @@ export function PanelGrid({
     };
   }, []);
 
+  /* ---- Split pane: move a topic to its own solo grid cell ---- */
+  const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
+    // Mark as solo first
+    setSoloTopicIds(prev => {
+      if (prev.includes(topicId)) return prev;
+      return [...prev, topicId];
+    });
+
+    // Place in grid
+    const soloKey = `solo:${topicId}`;
+    setGridRows(prev => {
+      // Enforce grid limits
+      if (direction === 'down' && prev.length >= MAX_ROWS) return prev;
+      if (direction === 'right') {
+        const firstRow = prev[0];
+        if (firstRow && firstRow.itemKeys.length >= MAX_COLS_PER_ROW) return prev;
+      }
+
+      // Deep copy
+      let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+
+      // Safety: remove soloKey if already present
+      for (const row of rows) {
+        const idx = row.itemKeys.indexOf(soloKey);
+        if (idx >= 0) {
+          row.itemKeys.splice(idx, 1);
+          row.widths.splice(idx, 1);
+          if (row.itemKeys.length > 0) {
+            const total = row.widths.reduce((s, w) => s + w, 0);
+            row.widths = row.widths.map(w => w / total);
+          }
+        }
+      }
+      rows = rows.filter(r => r.itemKeys.length > 0);
+
+      if (direction === 'down') {
+        rows.push({ itemKeys: [soloKey], widths: [1] });
+      } else {
+        if (rows.length === 0) {
+          rows = [{ itemKeys: [soloKey], widths: [1] }];
+        } else {
+          const first = rows[0];
+          first.itemKeys.push(soloKey);
+          first.widths = first.itemKeys.map(() => 1 / first.itemKeys.length);
+        }
+      }
+
+      return rows;
+    });
+  }, []);
+
+  /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
+  const handleUnsoloTopic = useCallback((topicId: string) => {
+    setSoloTopicIds(prev => prev.filter(id => id !== topicId));
+  }, []);
+
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [emptyDragOver, setEmptyDragOver] = useState(false);
@@ -579,13 +638,20 @@ export function PanelGrid({
         effectiveKey = soloKey;
       } else {
         // Make it solo
-        setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
-
         const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
+
+        // Use a flag to track whether grid placement succeeded (checked via ref for sync)
+        let placed = false;
+
         setGridRows(prev => {
+          // Enforce grid limits
+          if ((zone === 'top' || zone === 'bottom') && prev.length >= MAX_ROWS) return prev;
+          if ((zone === 'left' || zone === 'right' || zone === 'center') && prev[targetRowIdx]?.itemKeys.length >= MAX_COLS_PER_ROW) return prev;
+
           const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
           if (!targetKey) return prev;
 
+          placed = true;
           // ISSUE 8 FIX: Use immutable operations instead of splice()
           let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
 
@@ -625,6 +691,11 @@ export function PanelGrid({
 
           return rows;
         });
+
+        // Only mark as solo if grid placement succeeded
+        if (placed) {
+          setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
+        }
 
         setDraggingGridKey(null);
         setGridDropTarget(null);
@@ -701,6 +772,10 @@ export function PanelGrid({
         if (c >= 0) { tRow = r; tCol = c; break; }
       }
       if (tRow === -1) return rows;
+
+      // Enforce grid limits
+      if ((zone === 'top' || zone === 'bottom') && rows.length >= MAX_ROWS) return rows;
+      if ((zone === 'left' || zone === 'right' || zone === 'center') && rows[tRow].itemKeys.length >= MAX_COLS_PER_ROW) return rows;
 
       // Insert source based on zone (immutably)
       if (zone === 'top' || zone === 'bottom') {
@@ -898,6 +973,9 @@ export function PanelGrid({
                       draftMeta={draftMeta}
                       onSplitPane={handleSplitPane}
                       persistOrder={key === 'standalone'}
+                      onSplitPane={handleSplitPane}
+                      onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
+                      onAcceptSoloDrop={key === 'standalone' ? handleUnsoloTopic : undefined}
                     />
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}

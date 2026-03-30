@@ -87,6 +87,12 @@ interface StandaloneChatGroupProps {
   onCloseMultiplePanels?: (panelIds: string[]) => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
+  // Split pane into its own grid cell
+  onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
+  // Unsolo: merge a solo topic back into the main group
+  onUnsolo?: (topicId: string) => void;
+  // Accept a solo topic drop (main group only) — unsolos the dropped topic
+  onAcceptSoloDrop?: (topicId: string) => void;
 }
 
 export function StandaloneChatGroup({
@@ -107,6 +113,7 @@ export function StandaloneChatGroup({
   onSplitPane,
   onCloseMultiplePanels,
   persistOrder = true,
+  onSplitPane, onUnsolo, onAcceptSoloDrop,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
   // Track order locally for tab reordering
@@ -541,42 +548,58 @@ export function StandaloneChatGroup({
     }
   }, [onClosePanel, activePaneId, validatedOrderedIds, onFocusPanel]);
 
-  // Cross-group drop: accept a tab dragged from a project tab bar
-  const handleCrossGroupDrop = useCallback((sourcePaneId: string, _sourceGroupId: string, _insertIdx: number) => {
-    if (!onAcceptProjectTopicDrop) return;
+  // Cross-group drop: accept a tab dragged from a project tab bar or solo group
+  const handleCrossGroupDrop = useCallback((sourcePaneId: string, sourceGroupId: string, _insertIdx: number) => {
     // sourcePaneId from project is "chat:<topicId>" — extract topicId
     const topicId = sourcePaneId.startsWith('chat:') ? sourcePaneId.slice(5) : sourcePaneId;
+
+    // If dropped from a solo group, unsolo the topic
+    if (onAcceptSoloDrop && sourceGroupId !== 'standalone' && !sourcePaneId.startsWith('chat:')) {
+      onAcceptSoloDrop(topicId);
+      return;
+    }
+
+    if (!onAcceptProjectTopicDrop) return;
     if (topicIds.includes(topicId)) return; // already here
     onAcceptProjectTopicDrop(topicId);
-  }, [onAcceptProjectTopicDrop, topicIds]);
+  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, topicIds]);
 
-  // Handle drops from project tabs (cross-panel-type)
+  // Handle drops from project tabs or solo groups (cross-panel-type)
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
-    if (!onAcceptProjectTopicDrop) return;
-    // Accept PANEL_ID drops that also have PANE_TAB (from project tab bars)
+    if (!onAcceptProjectTopicDrop && !onAcceptSoloDrop) return;
+    // Accept PANEL_ID drops that also have PANE_TAB (from project tab bars or solo groups)
     if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
     // Don't accept grid item drags
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     setPanelDragOver(true);
-  }, [onAcceptProjectTopicDrop]);
+  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop]);
 
   const handleStandaloneDragLeave = useCallback(() => {
     setPanelDragOver(false);
   }, []);
 
   const handleStandaloneDrop = useCallback((e: React.DragEvent) => {
-    if (!onAcceptProjectTopicDrop) return;
     const topicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
     if (!topicId) return;
-    // Don't accept topics already standalone
-    if (topicIds.includes(topicId)) return;
     e.preventDefault();
     e.stopPropagation();
     setPanelDragOver(false);
-    onAcceptProjectTopicDrop(topicId);
-  }, [onAcceptProjectTopicDrop, topicIds]);
+
+    // If the topic is already in this group, skip
+    if (topicIds.includes(topicId)) return;
+
+    // Try unsolo first (for solo group drops)
+    if (onAcceptSoloDrop) {
+      onAcceptSoloDrop(topicId);
+      return;
+    }
+    // Otherwise accept from project
+    if (onAcceptProjectTopicDrop) {
+      onAcceptProjectTopicDrop(topicId);
+    }
+  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, topicIds]);
 
   // Build paneId → topicId map for context percent (only for real chat panes, not drafts)
   const paneToTopicMap = useMemo(() => {
@@ -658,23 +681,41 @@ export function StandaloneChatGroup({
     onClosePanel(paneId);
   }, [onClosePanel]);
 
+  // Determine if a pane type can be split to its own grid cell
+  // Only regular topic IDs (chat topics) are splittable — not project/terminal/browser/utility/draft/session-viewer
+  const isSplittable = useCallback((id: string) =>
+    !isProjectPaneId(id) && !isTerminalPaneId(id) && !isBrowserPaneId(id) &&
+    !isUtilityPanelId(id) && !isDraftPaneId(id) && !isSessionViewerPaneId(id),
+  []);
+
   // Split Right: detach pane to a new grid column on the right
   const handleSplitRight = useCallback((paneId: string) => {
-    if (!onSplitPane) return;
+    if (!onSplitPane || !isSplittable(paneId)) return;
     onSplitPane(paneId, 'right');
-  }, [onSplitPane]);
+  }, [onSplitPane, isSplittable]);
 
   // Split Down: detach pane to a new grid row below
   const handleSplitDown = useCallback((paneId: string) => {
-    if (!onSplitPane) return;
+    if (!onSplitPane || !isSplittable(paneId)) return;
     onSplitPane(paneId, 'down');
-  }, [onSplitPane]);
+  }, [onSplitPane, isSplittable]);
 
-  // Detach: same as Split Right (detaches a tab from the group into its own grid cell)
-  const handleDetach = useCallback((paneId: string) => {
-    if (!onSplitPane) return;
-    onSplitPane(paneId, 'right');
-  }, [onSplitPane]);
+  // Detach handler: split the pane to its own grid cell (right by default)
+  const handleDetach = useMemo(() => {
+    if (!onSplitPane) return undefined;
+    return (paneId: string) => {
+      if (!isSplittable(paneId)) return;
+      onSplitPane(paneId, 'right');
+    };
+  }, [onSplitPane, isSplittable]);
+
+  // Unsolo handler: merge a solo pane back into the main group
+  const handleUnsolo = useMemo(() => {
+    if (!onUnsolo) return undefined;
+    return (paneId: string) => {
+      onUnsolo(paneId);
+    };
+  }, [onUnsolo]);
 
   // ISSUE 22 fix: "Close Others" — batch-close multiple panels atomically
   const handleCloseOthers = useCallback((keepPaneId: string) => {
@@ -740,7 +781,7 @@ export function StandaloneChatGroup({
       groupId="standalone"
       onNewChat={onNewChat}
       onReorderPanes={handleReorderPanes}
-      onCrossGroupDrop={onAcceptProjectTopicDrop ? handleCrossGroupDrop : undefined}
+      onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
       onSplitRight={onSplitPane ? handleSplitRight : undefined}
@@ -749,6 +790,7 @@ export function StandaloneChatGroup({
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
+      onDetach={handleUnsolo || handleDetach}
       streamingPaneIds={streamingPaneIds}
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}
