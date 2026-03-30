@@ -1,5 +1,6 @@
 import { test } from "./fixtures/dashboard.fixture";
 import { expect } from "@playwright/test";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 
 test.describe("Dashboard & Analytics", () => {
   test("DASH-01: KPI cards render with data", async ({
@@ -174,6 +175,60 @@ test.describe("Dashboard & Analytics", () => {
     await expect(
       dashboardPage.activityFeed.getByText("No activity yet"),
     ).not.toBeVisible();
+  });
+
+  test("FIX-01: Dashboard refetches on WS dashboard:updated message", async ({
+    page,
+    dashboardPage,
+  }) => {
+    // Set up WS interception BEFORE navigation so we can inject messages
+    const ws = await interceptWebSocket(page);
+
+    // Mock dashboard endpoints and track KPI request count
+    let kpiRequestCount = 0;
+    await page.route("**/api/dashboard/kpis", async (route) => {
+      kpiRequestCount++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          throughputDay: 12, throughputWeek: 47, avgCycleTimeHours: 3.2,
+          wipCount: 5, errorRate: 0.03, tokenSpendDay: 4.56,
+          tokenSpendWeek: 23.89, agentUtilization: 0.72,
+          approvalTurnaroundHours: 1.5, pendingApprovals: 3,
+        }),
+      });
+    });
+    await dashboardPage.mockTimeseriesEndpoint();
+    await dashboardPage.mockAgentStatsEndpoint();
+
+    await page.goto("/");
+    await dashboardPage.openDashboard();
+    await expect(dashboardPage.kpiGrid).toBeVisible();
+
+    // Record baseline KPI request count after initial load
+    const baselineCount = kpiRequestCount;
+
+    // Inject a dashboard:updated WS message from "server"
+    ws.send({ type: "dashboard:updated" });
+
+    // Wait for debounced refetch (500ms debounce + network time)
+    await expect.poll(() => kpiRequestCount, {
+      message: "Dashboard should refetch after WS dashboard:updated message",
+      timeout: 5_000,
+    }).toBeGreaterThan(baselineCount);
+  });
+
+  test("FIX-02: Dashboard auto-refresh label shows 60s", async ({
+    page,
+    dashboardPage,
+  }) => {
+    await dashboardPage.mockAllDashboardEndpoints();
+    await page.goto("/");
+    await dashboardPage.openDashboard();
+    await expect(page.getByText("Auto-refresh 60s")).toBeVisible();
+    // Ensure the old incorrect label is not present
+    await expect(page.getByText("Auto-refresh 15s")).not.toBeVisible();
   });
 
   test("DASH-07: Journal pane loads with date navigation", async ({
