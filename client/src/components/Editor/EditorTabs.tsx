@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useRef, lazy, Suspense } from 'react';
 import { X, File, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -31,6 +31,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('editor-word-wrap') === '1');
   const [mdPreviewTabs, setMdPreviewTabs] = useState<Record<string, boolean>>({});
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const check = () => setDarkMode(document.documentElement.classList.contains('dark'));
@@ -50,6 +51,8 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       localStorage.setItem(key, JSON.stringify(filtered.slice(0, 20)));
     } catch {}
 
+    let shouldFetch = false;
+
     setTabs(prev => {
       const existing = prev.findIndex(t => t.path === path);
       if (existing >= 0) {
@@ -61,16 +64,12 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
         return prev;
       }
 
+      // New tab needed — mark for content fetch
+      shouldFetch = true;
+
       // If there's an existing preview tab, replace it
       const previewIndex = prev.findIndex(t => t.preview);
       const newTab: TabInfo = { path, name, content: '', originalContent: '', loading: true, preview, lineNumber };
-
-      // Load content async
-      filesApi.content(path).then(content => {
-        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content, originalContent: content, loading: false } : tab));
-      }).catch((err: any) => {
-        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: `Error: ${err.message}`, originalContent: '', loading: false } : tab));
-      });
 
       if (previewIndex >= 0 && preview) {
         // Replace the existing preview tab
@@ -83,6 +82,21 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       setActiveIndex(prev.length);
       return [...prev, newTab];
     });
+
+    // Fetch content OUTSIDE setTabs — cancel any previous in-flight fetch (prevents stale content on rapid opens)
+    if (shouldFetch) {
+      if (fetchAbortRef.current) fetchAbortRef.current.abort();
+      const controller = new AbortController();
+      fetchAbortRef.current = controller;
+
+      filesApi.content(path).then(content => {
+        if (controller.signal.aborted) return; // Discard if overtaken by newer open
+        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content, originalContent: content, loading: false } : tab));
+      }).catch((err: any) => {
+        if (controller.signal.aborted) return;
+        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: `Error: ${err.message}`, originalContent: '', loading: false } : tab));
+      });
+    }
   }, [projectPath]);
 
   const pinTab = useCallback((path: string) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Square } from 'lucide-react';
 import { filesApi, scriptsApi } from '../../lib/api';
 import type { ScriptProcessInfo } from '../../lib/api';
@@ -21,6 +21,8 @@ function getScriptColor(name: string): string {
 export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: ScriptRunnerProps) {
   const [scripts, setScripts] = useState<Record<string, string>>({});
   const { scripts: runningScripts, refresh: refreshScripts } = useScripts({ projectPath });
+  const runningScriptsRef = useRef(runningScripts);
+  runningScriptsRef.current = runningScripts;
   const [ready, setReady] = useState(false);
   const [startingScript, setStartingScript] = useState<string | null>(null);
   const [stoppingScript, setStoppingScript] = useState<string | null>(null);
@@ -59,7 +61,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       // Poll until the process is actually gone
       const poll = async (attempts: number) => {
         await refreshScripts();
-        const stillRunning = runningScripts.some(s => s.scriptName === scriptName && s.status === 'running');
+        const stillRunning = runningScriptsRef.current.some(s => s.scriptName === scriptName && s.status === 'running');
         if (stillRunning && attempts > 0) {
           setTimeout(() => poll(attempts - 1), 500);
         } else {
@@ -70,7 +72,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     } catch {
       setStoppingScript(null);
     }
-  }, [refreshScripts, runningScripts]);
+  }, [refreshScripts]);
 
   const scriptEntries = Object.entries(scripts);
 
