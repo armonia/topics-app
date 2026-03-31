@@ -1,6 +1,6 @@
-# Chat & Messaging
+## Purpose
 
-**Purpose:** Specifies behavioral scenarios for the chat messaging system including message lifecycle, rich content rendering, message actions, and input features.
+Specifies behavioral scenarios for the chat messaging system including message lifecycle, rich content rendering, message actions, and input features.
 
 ## Background
 
@@ -11,266 +11,266 @@ Common preconditions shared across scenarios:
 
 ## Requirements
 
-### CHAT-01: Message Lifecycle
+### Requirement: CHAT-01 — Message Lifecycle
 
 The system SHALL support sending messages, receiving streamed responses, loading conversation history, and aborting in-progress streams.
 
 #### Scenario: Send message and receive streamed response
-- GIVEN the message input is visible in an active topic
-- WHEN the user types a message and presses Enter
-- THEN the user message appears in the message list
-- AND an assistant response streams in progressively
+- **GIVEN** the message input is visible in an active topic
+- **WHEN** the user types a message and presses Enter
+- **THEN** the user message appears in the message list
+- **AND** an assistant response streams in progressively
 
 #### Scenario: Load message history on topic switch
-- GIVEN two topics exist with different message histories
-- WHEN the user switches from one topic to another
-- THEN the new topic's message history loads in the message list
+- **GIVEN** two topics exist with different message histories
+- **WHEN** the user switches from one topic to another
+- **THEN** the new topic's message history loads in the message list
 
 #### Scenario: Abort streaming via stop button
-- GIVEN a message is being streamed with a streaming indicator visible
-- WHEN the user clicks the stop button
-- THEN streaming stops immediately
-- AND the partial response text remains visible
-- AND the message input becomes re-enabled
+- **GIVEN** a message is being streamed with a streaming indicator visible
+- **WHEN** the user clicks the stop button
+- **THEN** streaming stops immediately
+- **AND** the partial response text remains visible
+- **AND** the message input becomes re-enabled
 
 #### Scenario: Auto-scroll to bottom on new message
-- GIVEN the user is viewing the latest messages at the bottom of the list
-- WHEN a new assistant response arrives
-- THEN the message list auto-scrolls to show the new content
+- **GIVEN** the user is viewing the latest messages at the bottom of the list
+- **WHEN** a new assistant response arrives
+- **THEN** the message list auto-scrolls to show the new content
 
 #### Scenario: No auto-scroll when reading history
-- GIVEN the user has scrolled up to read older messages
-- WHEN a new assistant response arrives
-- THEN the message list does NOT auto-scroll
-- AND the user stays at their current scroll position
+- **GIVEN** the user has scrolled up to read older messages
+- **WHEN** a new assistant response arrives
+- **THEN** the message list does NOT auto-scroll
+- **AND** the user stays at their current scroll position
 
 #### Scenario: Scroll-to-bottom button appears when scrolled up
-- GIVEN the message list contains enough messages to scroll
-- WHEN the user scrolls up away from the bottom
-- THEN a scroll-to-bottom button appears
-- AND clicking it scrolls to the latest message
+- **GIVEN** the message list contains enough messages to scroll
+- **WHEN** the user scrolls up away from the bottom
+- **THEN** a scroll-to-bottom button appears
+- **AND** clicking it scrolls to the latest message
 
 #### Scenario: Multiline input with Shift+Enter
-- GIVEN the message input is focused
-- WHEN the user presses Shift+Enter
-- THEN a new line is inserted in the input
-- AND the message is NOT submitted
+- **GIVEN** the message input is focused
+- **WHEN** the user presses Shift+Enter
+- **THEN** a new line is inserted in the input
+- **AND** the message is NOT submitted
 
 #### Scenario: Submit message via keyboard shortcut
-- GIVEN the message input contains text
-- WHEN the user presses Ctrl+Enter
-- THEN the message is submitted
+- **GIVEN** the message input contains text
+- **WHEN** the user presses Ctrl+Enter
+- **THEN** the message is submitted
 
 #### Scenario: Empty message submission is blocked
-- GIVEN the message input is empty
-- WHEN the user presses Enter
-- THEN no message is sent
-- AND the input remains focused
+- **GIVEN** the message input is empty
+- **WHEN** the user presses Enter
+- **THEN** no message is sent
+- **AND** the input remains focused
 
-### CHAT-02: Rich Content Rendering
+### Requirement: CHAT-02 — Rich Content Rendering
 
 The system SHALL render rich content types within messages including markdown, code blocks, diffs, sub-agent cards, plan mode views, and tool call results.
 
 #### Scenario: Markdown text renders with formatting
-- GIVEN an assistant message contains markdown syntax including bold, inline code, and lists
-- WHEN the message is displayed in the message list
-- THEN bold text appears with strong emphasis
-- AND inline code appears with distinct styling
-- AND lists render as properly formatted items
+- **GIVEN** an assistant message contains markdown syntax including bold, inline code, and lists
+- **WHEN** the message is displayed in the message list
+- **THEN** bold text appears with strong emphasis
+- **AND** inline code appears with distinct styling
+- **AND** lists render as properly formatted items
 
 #### Scenario: Code blocks render with syntax highlighting
-- GIVEN an assistant message contains a fenced code block with a language identifier
-- WHEN the message is displayed in the message list
-- THEN the code block renders in a distinct container
-- AND the code content preserves whitespace and formatting
+- **GIVEN** an assistant message contains a fenced code block with a language identifier
+- **WHEN** the message is displayed in the message list
+- **THEN** the code block renders in a distinct container
+- **AND** the code content preserves whitespace and formatting
 
 #### Scenario: Diff block shows file changes with apply and reject actions
-- GIVEN an assistant message contains a search-and-replace diff for a file
-- WHEN the message is displayed in the message list
-- THEN a diff block renders showing the file path
-- AND an Apply button is visible to accept the change
-- AND a Reject button is visible to discard the change
+- **GIVEN** an assistant message contains a search-and-replace diff for a file
+- **WHEN** the message is displayed in the message list
+- **THEN** a diff block renders showing the file path
+- **AND** an Apply button is visible to accept the change
+- **AND** a Reject button is visible to discard the change
 
 #### Scenario: Diff block apply action applies the change
-- GIVEN a diff block is displayed with pending status
-- WHEN the user clicks the Apply button
-- THEN the file change is applied to the source file
-- AND the diff block shows an applied status indicator
+- **GIVEN** a diff block is displayed with pending status
+- **WHEN** the user clicks the Apply button
+- **THEN** the file change is applied to the source file
+- **AND** the diff block shows an applied status indicator
 
 #### Scenario: Diff block reject action discards the change
-- GIVEN a diff block is displayed with pending status
-- WHEN the user clicks the Reject button
-- THEN the change is discarded without modifying the file
-- AND the diff block shows a rejected status indicator
+- **GIVEN** a diff block is displayed with pending status
+- **WHEN** the user clicks the Reject button
+- **THEN** the change is discarded without modifying the file
+- **AND** the diff block shows a rejected status indicator
 
 #### Scenario: Sub-agent spawn card shows agent name and status
-- GIVEN an assistant message contains a sub-agent spawn marker
-- WHEN the message is displayed in the message list
-- THEN a spawn card renders showing the agent task label
-- AND the card displays the agent's current status
-- AND token usage information is shown
+- **GIVEN** an assistant message contains a sub-agent spawn marker
+- **WHEN** the message is displayed in the message list
+- **THEN** a spawn card renders showing the agent task label
+- **AND** the card displays the agent's current status
+- **AND** token usage information is shown
 
 #### Scenario: Plan mode displays steps with execute and reject options
-- GIVEN an assistant message contains a numbered implementation plan
-- WHEN the message is displayed in the message list
-- THEN a plan view renders showing the individual steps
-- AND an Execute Plan button is visible
-- AND a Reject button is visible
+- **GIVEN** an assistant message contains a numbered implementation plan
+- **WHEN** the message is displayed in the message list
+- **THEN** a plan view renders showing the individual steps
+- **AND** an Execute Plan button is visible
+- **AND** a Reject button is visible
 
 #### Scenario: Tool call card shows tool name and execution status
-- GIVEN an assistant message includes a tool call invocation
-- WHEN the message is displayed in the message list
-- THEN a tool call card renders showing the tool name
-- AND the card shows the execution status (success or error)
+- **GIVEN** an assistant message includes a tool call invocation
+- **WHEN** the message is displayed in the message list
+- **THEN** a tool call card renders showing the tool name
+- **AND** the card shows the execution status (success or error)
 
 #### Scenario: Tool call card expands to show arguments and result
-- GIVEN a tool call card is displayed in a message
-- WHEN the user clicks on the tool call card
-- THEN the card expands to show the tool arguments
-- AND the tool result or output is displayed
+- **GIVEN** a tool call card is displayed in a message
+- **WHEN** the user clicks on the tool call card
+- **THEN** the card expands to show the tool arguments
+- **AND** the tool result or output is displayed
 
 #### Scenario: Tool call error renders with error styling
-- GIVEN a tool call completed with an error
-- WHEN the tool call card is displayed in the message list
-- THEN the card shows an error status indicator
-- AND expanding the card reveals the error message
+- **GIVEN** a tool call completed with an error
+- **WHEN** the tool call card is displayed in the message list
+- **THEN** the card shows an error status indicator
+- **AND** expanding the card reveals the error message
 
 #### Scenario: Image attachment renders as inline thumbnail
-- GIVEN an assistant message includes an image attachment
-- WHEN the message is displayed in the message list
-- THEN the image renders as a visible thumbnail
+- **GIVEN** an assistant message includes an image attachment
+- **WHEN** the message is displayed in the message list
+- **THEN** the image renders as a visible thumbnail
 
 #### Scenario: Image attachment opens lightbox on click
-- GIVEN an image thumbnail is displayed in a message
-- WHEN the user clicks on the image
-- THEN a lightbox overlay opens showing the full-size image
-- AND a close button is available to dismiss the lightbox
+- **GIVEN** an image thumbnail is displayed in a message
+- **WHEN** the user clicks on the image
+- **THEN** a lightbox overlay opens showing the full-size image
+- **AND** a close button is available to dismiss the lightbox
 
 #### Scenario: File attachment renders as download link
-- GIVEN an assistant message includes a non-image file attachment
-- WHEN the message is displayed in the message list
-- THEN a file attachment element renders showing the filename
-- AND the element links to the file for download
+- **GIVEN** an assistant message includes a non-image file attachment
+- **WHEN** the message is displayed in the message list
+- **THEN** a file attachment element renders showing the filename
+- **AND** the element links to the file for download
 
-### CHAT-03: Message Actions
+### Requirement: CHAT-03 — Message Actions
 
 The system SHALL provide message-level actions including pinning, branching, hover toolbar, and navigation controls.
 
 #### Scenario: Hover toolbar appears on message hover
-- GIVEN a message is displayed in the message list
-- WHEN the user hovers over the message
-- THEN a floating action toolbar appears with action buttons
+- **GIVEN** a message is displayed in the message list
+- **WHEN** the user hovers over the message
+- **THEN** a floating action toolbar appears with action buttons
 
 #### Scenario: Copy message copies text to clipboard
-- GIVEN the hover toolbar is visible on a message
-- WHEN the user clicks the Copy button
-- THEN the message text is copied to the clipboard
-- AND the Copy button changes to a success indicator
+- **GIVEN** the hover toolbar is visible on a message
+- **WHEN** the user clicks the Copy button
+- **THEN** the message text is copied to the clipboard
+- **AND** the Copy button changes to a success indicator
 
 #### Scenario: Pin message toggles pin status
-- GIVEN the hover toolbar is visible on a message
-- WHEN the user clicks the Pin button
-- THEN the message is marked as pinned
-- AND the Pin button changes to indicate pinned state
+- **GIVEN** the hover toolbar is visible on a message
+- **WHEN** the user clicks the Pin button
+- **THEN** the message is marked as pinned
+- **AND** the Pin button changes to indicate pinned state
 
 #### Scenario: Unpin message removes pin status
-- GIVEN a message is currently pinned
-- WHEN the user hovers over the message and clicks the Pin button
-- THEN the message is unpinned
-- AND the Pin button returns to its default state
+- **GIVEN** a message is currently pinned
+- **WHEN** the user hovers over the message and clicks the Pin button
+- **THEN** the message is unpinned
+- **AND** the Pin button returns to its default state
 
 #### Scenario: Pinned messages panel shows pinned messages
-- GIVEN one or more messages are pinned in the current topic
-- WHEN the chat panel renders
-- THEN a pinned messages section appears above the message list
-- AND each pinned message shows a preview of its content
+- **GIVEN** one or more messages are pinned in the current topic
+- **WHEN** the chat panel renders
+- **THEN** a pinned messages section appears above the message list
+- **AND** each pinned message shows a preview of its content
 
 > Note: Pinned messages panel component exists; functional status in current UI may be a gap.
 
 #### Scenario: Reply to message creates threaded reply
-- GIVEN the hover toolbar is visible on a message
-- WHEN the user clicks the Reply button
-- THEN the message input shows a reply indicator referencing the original message
+- **GIVEN** the hover toolbar is visible on a message
+- **WHEN** the user clicks the Reply button
+- **THEN** the message input shows a reply indicator referencing the original message
 
 #### Scenario: Edit message opens editing mode
-- GIVEN a user message is displayed in the message list
-- WHEN the user hovers over the message and clicks the Edit button
-- THEN the message input switches to editing mode
-- AND an "Editing message" indicator is visible
-- AND the original message text appears in the input field
+- **GIVEN** a user message is displayed in the message list
+- **WHEN** the user hovers over the message and clicks the Edit button
+- **THEN** the message input switches to editing mode
+- **AND** an "Editing message" indicator is visible
+- **AND** the original message text appears in the input field
 
 #### Scenario: Branch from edited message creates new conversation branch
-- GIVEN a user message is in editing mode
-- WHEN the user modifies the text and submits the edit
-- THEN a new conversation branch is created with the edited content
-- AND the assistant provides a new response for the edited message
+- **GIVEN** a user message is in editing mode
+- **WHEN** the user modifies the text and submits the edit
+- **THEN** a new conversation branch is created with the edited content
+- **AND** the assistant provides a new response for the edited message
 
 #### Scenario: Navigate between branches with arrows
-- GIVEN a message has multiple conversation branches
-- WHEN the user views the branched message
-- THEN previous and next branch navigation buttons appear
-- AND a branch counter shows the current position (e.g., "2/3")
-- AND clicking navigation buttons switches between branches
+- **GIVEN** a message has multiple conversation branches
+- **WHEN** the user views the branched message
+- **THEN** previous and next branch navigation buttons appear
+- **AND** a branch counter shows the current position (e.g., "2/3")
+- **AND** clicking navigation buttons switches between branches
 
-### CHAT-04: Input Features
+### Requirement: CHAT-04 — Input Features
 
 The system SHALL provide input enhancements including @mentions, slash commands, file attachments, voice recording, and context display.
 
 #### Scenario: Input toolbar displays all action buttons
-- GIVEN the chat panel is active with a topic selected
-- WHEN the message input area is visible
-- THEN an Attach file button is visible
-- AND a Toggle plan mode button is visible
-- AND a Record voice button is visible
-- AND a Tools button is visible
-- AND a Send message button is visible
+- **GIVEN** the chat panel is active with a topic selected
+- **WHEN** the message input area is visible
+- **THEN** an Attach file button is visible
+- **AND** a Toggle plan mode button is visible
+- **AND** a Record voice button is visible
+- **AND** a Tools button is visible
+- **AND** a Send message button is visible
 
 #### Scenario: @mention shows autocomplete dropdown
-- GIVEN the topic has a linked project folder
-- WHEN the user types @ in the message input
-- THEN a mention autocomplete menu appears with file suggestions
+- **GIVEN** the topic has a linked project folder
+- **WHEN** the user types @ in the message input
+- **THEN** a mention autocomplete menu appears with file suggestions
 
 #### Scenario: @mention selects file and adds context
-- GIVEN the mention autocomplete menu is open with file suggestions
-- WHEN the user selects a file from the dropdown
-- THEN the selected file is added as context for the message
+- **GIVEN** the mention autocomplete menu is open with file suggestions
+- **WHEN** the user selects a file from the dropdown
+- **THEN** the selected file is added as context for the message
 
 #### Scenario: Slash command menu appears on / input
-- GIVEN the message input is focused
-- WHEN the user types / in the input
-- THEN a slash command menu appears showing available commands
-- AND commands such as /status, /help, and /clear are listed
+- **GIVEN** the message input is focused
+- **WHEN** the user types / in the input
+- **THEN** a slash command menu appears showing available commands
+- **AND** commands such as /status, /help, and /clear are listed
 
 #### Scenario: Slash command executes selected command
-- GIVEN the slash command menu is visible
-- WHEN the user selects and submits a command
-- THEN the command executes
-- AND a result indicator appears confirming the action
+- **GIVEN** the slash command menu is visible
+- **WHEN** the user selects and submits a command
+- **THEN** the command executes
+- **AND** a result indicator appears confirming the action
 
 #### Scenario: File attachment shows preview before send
-- GIVEN the message input is visible
-- WHEN the user attaches a file via the file picker
-- THEN a preview of the attached file appears in the input area showing the filename
+- **GIVEN** the message input is visible
+- **WHEN** the user attaches a file via the file picker
+- **THEN** a preview of the attached file appears in the input area showing the filename
 
 #### Scenario: Voice recording button starts and stops recording
-- GIVEN the message input toolbar is visible
-- WHEN the user clicks the Record voice button
-- THEN the recording interface activates with a recording timer
-- AND clicking the button again stops the recording
+- **GIVEN** the message input toolbar is visible
+- **WHEN** the user clicks the Record voice button
+- **THEN** the recording interface activates with a recording timer
+- **AND** clicking the button again stops the recording
 
 > Note: Voice recording has limited test coverage. Full recording-to-transcription behavior may be a gap.
 
 #### Scenario: Context pills display attached context sources
-- GIVEN a topic has context files attached
-- WHEN the chat panel is visible for that topic
-- THEN context pills appear near the input showing the attached filenames
+- **GIVEN** a topic has context files attached
+- **WHEN** the chat panel is visible for that topic
+- **THEN** context pills appear near the input showing the attached filenames
 
 #### Scenario: Plan mode toggle switches input behavior
-- GIVEN the message input toolbar is visible
-- WHEN the user clicks the Toggle plan mode button
-- THEN the input mode switches between normal and plan mode
+- **GIVEN** the message input toolbar is visible
+- **WHEN** the user clicks the Toggle plan mode button
+- **THEN** the input mode switches between normal and plan mode
 
 #### Scenario: @mention menu requires project folder
-- GIVEN the topic does not have a linked project folder
-- WHEN the user types @ in the message input
-- THEN no mention autocomplete menu appears
+- **GIVEN** the topic does not have a linked project folder
+- **WHEN** the user types @ in the message input
+- **THEN** no mention autocomplete menu appears
