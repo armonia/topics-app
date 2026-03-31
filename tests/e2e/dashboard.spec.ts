@@ -397,6 +397,263 @@ test.describe("Dashboard & Analytics", () => {
     await expect(dashboardPage.kpiCards).toHaveCount(10);
   });
 
+  // ── DASH-02: Activity Feed Interactions ──────────────────────
+
+  test("DASH-16: pause button stops feed and shows paused label", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-02" });
+    await dashboardPage.mockActivityStream([
+      { id: "evt-p1", timestamp: "2026-03-28T10:00:00Z", category: "session", level: "info", title: "First event" },
+      { id: "evt-p2", timestamp: "2026-03-28T10:01:00Z", category: "tool:exec", level: "info", title: "Second event" },
+    ]);
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+
+    // Verify events are visible
+    await expect(dashboardPage.activityFeed.getByText("First event")).toBeVisible();
+    await expect(dashboardPage.activityFeed.getByText("Second event")).toBeVisible();
+
+    // Click Pause button (title="Pause feed")
+    const pauseBtn = dashboardPage.activityFeed.locator('button[title="Pause feed"]');
+    await expect(pauseBtn).toBeVisible();
+    await pauseBtn.click();
+
+    // After pause: button changes to Resume (title="Resume feed") with yellow styling
+    const resumeBtn = dashboardPage.activityFeed.locator('button[title="Resume feed"]');
+    await expect(resumeBtn).toBeVisible();
+    const resumeClasses = await resumeBtn.getAttribute("class");
+    expect(resumeClasses).toContain("yellow");
+
+    // "paused" label should appear in toolbar
+    await expect(dashboardPage.activityFeed.getByText("paused")).toBeVisible();
+  });
+
+  test("DASH-17: resume button restarts feed after pause", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-02" });
+    await dashboardPage.mockActivityStream([
+      { id: "evt-r1", timestamp: "2026-03-28T10:00:00Z", category: "session", level: "info", title: "Resume test event" },
+    ]);
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+
+    // Pause
+    await dashboardPage.activityFeed.locator('button[title="Pause feed"]').click();
+    await expect(dashboardPage.activityFeed.getByText("paused")).toBeVisible();
+
+    // Resume
+    await dashboardPage.activityFeed.locator('button[title="Resume feed"]').click();
+
+    // Pause button should be back (title="Pause feed")
+    await expect(dashboardPage.activityFeed.locator('button[title="Pause feed"]')).toBeVisible();
+    // "paused" label gone
+    await expect(dashboardPage.activityFeed.getByText("paused")).not.toBeVisible();
+  });
+
+  test("DASH-18: search bar filters events by title text", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-02" });
+    await dashboardPage.mockActivityStream([
+      { id: "evt-s1", timestamp: "2026-03-28T10:00:00Z", category: "session", level: "info", title: "Alpha session started" },
+      { id: "evt-s2", timestamp: "2026-03-28T10:01:00Z", category: "tool:exec", level: "info", title: "Beta build executed" },
+      { id: "evt-s3", timestamp: "2026-03-28T10:02:00Z", category: "session", level: "info", title: "Gamma session ended" },
+    ]);
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+
+    // Open search
+    const searchBtn = dashboardPage.activityFeed.locator('button[title="Search"]');
+    await searchBtn.click();
+
+    // Type in search input
+    const searchInput = dashboardPage.activityFeed.locator('input[placeholder="Filter events..."]');
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill("Beta");
+
+    // Wait for debounce (200ms) + rendering
+    await expect(dashboardPage.activityFeed.getByText("Beta build executed")).toBeVisible({ timeout: 5000 });
+    // Others should not be visible — check by polling since virtual list may not render hidden items
+    await expect(dashboardPage.activityFeed.getByText("Alpha session started")).not.toBeVisible({ timeout: 3000 });
+
+    // Clear search via X button
+    const clearBtn = dashboardPage.activityFeed.locator('input[placeholder="Filter events..."]').locator("..").locator("button");
+    await clearBtn.click();
+
+    // All events restored
+    await expect(dashboardPage.activityFeed.getByText("Alpha session started")).toBeVisible({ timeout: 5000 });
+    await expect(dashboardPage.activityFeed.getByText("Beta build executed")).toBeVisible();
+  });
+
+  test("DASH-19: category filter narrows visible events", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-02" });
+    await dashboardPage.mockActivityStream([
+      { id: "evt-f1", timestamp: "2026-03-28T10:00:00Z", category: "session", level: "info", title: "Session filter event" },
+      { id: "evt-f2", timestamp: "2026-03-28T10:01:00Z", category: "tool:exec", level: "info", title: "Exec filter event" },
+      { id: "evt-f3", timestamp: "2026-03-28T10:02:00Z", category: "session", level: "info", title: "Another session event" },
+    ]);
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+
+    // Verify all events visible initially
+    await expect(dashboardPage.activityFeed.getByText("Session filter event")).toBeVisible();
+    await expect(dashboardPage.activityFeed.getByText("Exec filter event")).toBeVisible();
+
+    // Click Filter button
+    const filterBtn = dashboardPage.activityFeed.locator('button[title="Filter by type"]');
+    await filterBtn.click();
+
+    // Click the "exec" category button
+    const execFilter = dashboardPage.activityFeed.locator("button").filter({ hasText: "exec" }).first();
+    await execFilter.click();
+
+    // Only exec events should be visible
+    await expect(dashboardPage.activityFeed.getByText("Exec filter event")).toBeVisible({ timeout: 5000 });
+    await expect(dashboardPage.activityFeed.getByText("Session filter event")).not.toBeVisible({ timeout: 3000 });
+  });
+
+  test("DASH-20: disconnected state shows connecting message", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-02" });
+    // Mock SSE endpoint to abort (simulates connection failure)
+    await page.route("**/api/activity/stream", async (route) => {
+      await route.abort("connectionrefused");
+    });
+    await page.goto("/");
+
+    // Open activity feed manually (without waiting for Live tab, since connection fails)
+    const activityBtn = page.locator('button[title="Activity"]');
+    await activityBtn.click();
+
+    // Should show "disconnected" indicator text
+    await expect(page.getByText("disconnected").first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  // ── DASH-03: Journal Deeper Coverage ────────────────────────
+
+  test("DASH-21: next day button disabled on today", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-03" });
+    await dashboardPage.mockActivityStream([]);
+    await dashboardPage.mockJournalEndpoints({ events: [], digest: "Today's digest" });
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+    await dashboardPage.digestTab.click();
+
+    // Wait for journal to load
+    await expect(dashboardPage.journalPrevDay).toBeVisible({ timeout: 10_000 });
+
+    // Next day button should be disabled (has opacity-30 class when isToday)
+    const nextDayBtn = dashboardPage.journalNextDay;
+    await expect(nextDayBtn).toBeVisible();
+    // Check the disabled attribute or opacity class
+    const isDisabled = await nextDayBtn.isDisabled();
+    expect(isDisabled).toBe(true);
+
+    // Go to previous day
+    await dashboardPage.journalPrevDay.click();
+    // Now next day should be enabled
+    await expect(nextDayBtn).toBeEnabled();
+  });
+
+  test("DASH-22: generate button shows when no digest exists", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-03" });
+    await dashboardPage.mockActivityStream([]);
+    await dashboardPage.mockJournalEndpoints({
+      events: [
+        { id: "j-gen-1", timestamp: "2026-03-28T09:00:00Z", type: "session_start", summary: "Started session" },
+      ],
+      digest: null,
+    });
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+    await dashboardPage.digestTab.click();
+
+    // Wait for journal to load
+    await expect(dashboardPage.journalPrevDay).toBeVisible({ timeout: 10_000 });
+
+    // Should show "No journal entry for this day yet."
+    await expect(page.getByText("No journal entry for this day yet.")).toBeVisible();
+
+    // "Generate Journal Entry" button should be visible
+    await expect(page.getByText("Generate Journal Entry")).toBeVisible();
+  });
+
+  test("DASH-23: refresh button reloads journal data", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-03" });
+    await dashboardPage.mockActivityStream([]);
+    await dashboardPage.mockJournalEndpoints({ events: [], digest: "Initial digest" });
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+    await dashboardPage.digestTab.click();
+
+    // Wait for journal to load
+    await expect(dashboardPage.journalPrevDay).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Initial digest")).toBeVisible();
+
+    // Track journal API calls
+    let journalApiCalls = 0;
+    await page.route("**/api/journal/digest*", async (route) => {
+      if (route.request().url().includes("/digest/generate")) {
+        return route.fallback();
+      }
+      journalApiCalls++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ digest: "Refreshed digest", exists: true }),
+      });
+    });
+
+    // Click the refresh button (title="Refresh")
+    const refreshBtn = page.locator('button[title="Refresh"]');
+    await expect(refreshBtn).toBeVisible();
+    await refreshBtn.click();
+
+    // Verify the journal API was called (re-fetched)
+    await expect.poll(() => journalApiCalls).toBeGreaterThan(0);
+  });
+
+  test("DASH-24: events tab empty state for day with no activity", async ({
+    page,
+    dashboardPage,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-03" });
+    await dashboardPage.mockActivityStream([]);
+    await dashboardPage.mockJournalEndpoints({ events: [], digest: null });
+    await page.goto("/");
+    await dashboardPage.openActivityFeed();
+    await dashboardPage.digestTab.click();
+
+    // Wait for journal to load
+    await expect(dashboardPage.journalPrevDay).toBeVisible({ timeout: 10_000 });
+
+    // Click Events tab
+    const eventsTab = page.getByRole("button", { name: /Events \(/ });
+    await eventsTab.click();
+
+    // Verify "No events recorded for this day." message
+    await expect(page.getByText("No events recorded for this day.")).toBeVisible();
+  });
+
   test("DASH-07: Journal pane loads with date navigation", async ({
     page,
     dashboardPage,
