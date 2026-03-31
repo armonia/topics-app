@@ -69,6 +69,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-01: Board renders with all 5 columns visible
   test("KANBAN-01: board renders with all 5 columns visible", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     // Board container is visible
@@ -89,6 +90,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-02: User can create a new task in a column
   test("KANBAN-02: user can create a new task in a column", async ({ kanbanPage }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     const todoColumn = kanbanPage.getColumn("todo");
@@ -111,6 +113,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-03: Move task between columns and verify it appears in the new column
   test("KANBAN-03: drag task between columns moves it", async ({ kanbanPage, page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     const todoColumn = kanbanPage.getColumn("todo");
@@ -142,6 +145,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-04: Task detail panel opens on card click with correct content
   test("KANBAN-04: task detail panel opens on card click", async ({ kanbanPage }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     // Click on the task card text (not the drag handle)
@@ -176,6 +180,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-05: Task filters hide/show tasks by status, priority, and agent
   test("KANBAN-05: task filters work for status, priority, and agent", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     // Verify multiple tasks visible initially
@@ -222,6 +227,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-10: Drag reorder within a column changes task order
   test("KANBAN-10: drag reorder within column changes task position", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     const todoColumn = kanbanPage.getColumn("todo");
@@ -262,6 +268,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-06: Task approval workflow — banner visible, review modal opens, approve works
   test("KANBAN-06: task approval workflow with review modal", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     // Find the task card with the approval
@@ -302,6 +309,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-07: Board settings panel — open, toggle, save, verify persistence
   test("KANBAN-07: board settings panel toggle and persistence", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     await kanbanPage.gotoProjectBoard(projectPath, new RegExp(`E2E-Kanban-${TS}`));
 
     // Click the settings button (gear icon with title "Board settings")
@@ -354,6 +362,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-08: Board memory panel — render entries and accept new entries
   test("KANBAN-08: board memory panel renders and accepts new entries", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     // Seed a memory entry via API first
     await createBoardMemory(page.request, projectId, `Seeded memory ${TS}`, { tags: "decision" });
 
@@ -412,6 +421,7 @@ test.describe("Kanban Board", () => {
 
   // KANBAN-09: AllBoardsPane multi-board — tasks from multiple projects visible
   test("KANBAN-09: AllBoardsPane shows tasks from multiple projects", async ({ kanbanPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-02" });
     // Navigate to AllBoardsPane
     await kanbanPage.gotoAllBoards();
 

@@ -65,6 +65,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Assert the file tree container is visible
@@ -103,6 +104,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Click README.md in the file tree to open it
@@ -133,6 +135,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Ensure src/ is expanded (tree loads 3 levels deep by default)
@@ -171,6 +174,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Intercept file search API to force using our test project path
@@ -217,6 +221,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Intercept file search API to use our test project
@@ -273,6 +278,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // The panel tab bar contains pane tabs (file panes appear here in compact mode)
@@ -340,6 +346,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Ensure src/ is expanded and click index.ts to open a nested file
@@ -388,6 +395,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Open src/index.ts to get breadcrumbs for a nested file
@@ -458,6 +466,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Open files rapidly in quick succession: README.md, package.json, then src/index.ts
@@ -507,6 +516,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     // Mock the scripts list API (useScripts calls GET /api/scripts) BEFORE navigation
     // so the running process appears immediately when ScriptRunner mounts
     let stopCalled = false;
@@ -576,6 +586,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-02" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // The Git section header is a div (not a button) rendered by GitChanges compact mode
@@ -624,6 +635,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // Click the Processes section button to expand it (no aria-expanded attribute)
@@ -649,6 +661,7 @@ test.describe("File Explorer & Git", () => {
     fileExplorerPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
     // The ProcessList component takes topicId and shows agent sub-processes
