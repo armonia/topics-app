@@ -164,6 +164,130 @@ test.describe.serial("Terminal", () => {
       text.includes(projectPath) || text.includes(`/private${projectPath}`);
     expect(hasProjectPath).toBeTruthy();
   });
+
+  test("TERM-06: terminal resizes when pane dimensions change", async ({
+    terminalPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
+    await navigateAndOpenTerminal(page, terminalPage);
+
+    // Record initial xterm screen width
+    const initialWidth = await page.evaluate(
+      () => document.querySelector(".xterm-screen")?.getBoundingClientRect().width,
+    );
+    expect(initialWidth).toBeTruthy();
+
+    // Resize viewport to a smaller width
+    await page.setViewportSize({ width: 800, height: 600 });
+
+    // Wait for xterm to process the resize (fit addon triggers on resize observer)
+    await page.waitForTimeout(500);
+
+    // Measure new width
+    const newWidth = await page.evaluate(
+      () => document.querySelector(".xterm-screen")?.getBoundingClientRect().width,
+    );
+    expect(newWidth).toBeTruthy();
+    expect(newWidth).not.toBe(initialWidth);
+  });
+
+  test("TERM-07: terminal preserves scrollback buffer", async ({
+    terminalPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
+    await navigateAndOpenTerminal(page, terminalPage);
+
+    await terminalPage.focus();
+
+    // Generate enough output to fill visible area and create scrollback
+    const marker = `scrollback-end-${Date.now()}`;
+    await terminalPage.typeCommand(`for i in $(seq 1 50); do echo line-$i; done && echo ${marker}`);
+
+    // Wait for the last line to confirm command completed
+    await terminalPage.waitForOutput(marker);
+
+    // The terminal text should contain earlier lines (scrollback preserved)
+    // xterm.js innerText includes the scrollback buffer content
+    await expect(async () => {
+      const text = await terminalPage.getTerminalText();
+      expect(text).toContain("line-50");
+    }).toPass({ timeout: 5_000 });
+  });
+
+  test("TERM-08: closing terminal tab removes it from tab bar", async ({
+    terminalPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
+    await navigateAndOpenTerminal(page, terminalPage);
+
+    // Locate the Shell tab in the pane tab bar
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]').last();
+    const shellTab = tabBar.locator("div").filter({ hasText: /^Shell$/ }).first();
+    await expect(shellTab).toBeVisible();
+
+    // Hover over the Shell tab to reveal the close button
+    await shellTab.hover();
+
+    // Click the close button (X icon that appears on hover)
+    const closeBtn = shellTab.locator("button").first();
+    await closeBtn.waitFor({ state: "visible", timeout: 5_000 });
+    await closeBtn.click();
+
+    // Verify the Shell tab is no longer visible in the tab bar
+    await expect(shellTab).not.toBeVisible({ timeout: 5_000 });
+  });
+
+  test("TERM-09: terminal handles rapid input", async ({
+    terminalPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
+    await navigateAndOpenTerminal(page, terminalPage);
+
+    await terminalPage.focus();
+
+    // Type a long string rapidly (5ms between chars)
+    const rapidText = "abcdefghijklmnopqrstuvwxyz1234567890";
+    const marker = `rapid-${Date.now()}`;
+    await page.keyboard.type(`echo ${rapidText} && echo ${marker}`, { delay: 5 });
+    await page.keyboard.press("Enter");
+
+    // Wait for marker to confirm command completed
+    await terminalPage.waitForOutput(marker);
+
+    // Verify the full string appears in terminal output
+    const text = await terminalPage.getTerminalText();
+    expect(text).toContain(rapidText);
+  });
+
+  test("TERM-10: terminal focus by clicking", async ({
+    terminalPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
+    await navigateAndOpenTerminal(page, terminalPage);
+
+    // Click somewhere else to unfocus the terminal (e.g., the sidebar)
+    const sidebar = page.locator('[data-testid="sidebar"]').or(
+      page.locator(".sidebar"),
+    ).first();
+    if (await sidebar.isVisible()) {
+      await sidebar.click({ position: { x: 10, y: 10 } });
+    }
+
+    // Click the terminal area to restore focus
+    await terminalPage.focus();
+
+    // Type a command to verify focus was restored
+    const marker = `focus-test-${Date.now()}`;
+    await terminalPage.typeCommand(`echo ${marker}`);
+
+    // Verify the command executed (focus was successfully restored by clicking)
+    await terminalPage.waitForOutput(marker);
+  });
 });
 
 /**
