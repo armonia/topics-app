@@ -46,6 +46,7 @@ export class BrowserProcessPage {
 
   /**
    * Mock all ScriptRunner API endpoints. Call BEFORE page.goto().
+   * Also mocks file-related APIs used by ProjectSidebar to prevent real requests.
    */
   async mockScriptRunner(
     scripts: Record<string, string> = MOCK_PACKAGE_SCRIPTS,
@@ -59,6 +60,7 @@ export class BrowserProcessPage {
       });
     });
 
+    // Mock /scripts endpoint (GET only — list running scripts)
     await this.page.route("**/scripts", async (route) => {
       if (route.request().method() === "GET") {
         await route.fulfill({
@@ -89,6 +91,24 @@ export class BrowserProcessPage {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true }),
+      });
+    });
+
+    // Mock file listing for project sidebar (prevents real file system reads)
+    await this.page.route("**/api/files*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ files: [] }),
+      });
+    });
+
+    // Mock git status for project sidebar
+    await this.page.route("**/api/git/status*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ files: [], branch: "main", ahead: 0, behind: 0 }),
       });
     });
   }
@@ -138,7 +158,7 @@ export class BrowserProcessPage {
     const url = opts?.url ?? "";
     const title = opts?.title ?? "";
 
-    // GET /api/browsers/:id — info endpoint
+    // GET /api/browsers/:id — info endpoint (match paths with exactly one segment after /browsers/)
     await this.page.route(/\/api\/browsers\/[^/]+$/, async (route) => {
       if (route.request().method() === "GET") {
         if (connected) {
@@ -192,14 +212,28 @@ export class BrowserProcessPage {
   // ── Navigation Helpers ──
 
   /**
-   * Open a topic that has a project, then expand the Processes section.
-   * The project topic must already exist (created in beforeAll/beforeEach).
+   * Open a project topic via the Projects section, then expand Processes.
+   * Project topics appear in the "Projects" sidebar section, not in Chats treeitems.
    */
-  async openProcessesSection(topicName: string | RegExp) {
-    // Click the topic in the sidebar
-    const item = this.page.getByRole("treeitem", { name: topicName });
-    await item.waitFor({ state: "visible", timeout: 10000 });
-    await item.click();
+  async openProjectAndProcesses(projectNamePattern: RegExp) {
+    // Expand Projects section if collapsed
+    const projectsSection = this.page.getByRole("button", { name: /Projects section/ });
+    if (await projectsSection.count() > 0) {
+      const expanded = await projectsSection.getAttribute("aria-expanded");
+      if (expanded === "false") {
+        await projectsSection.click();
+      }
+    }
+
+    // Click the project folder button in the sidebar
+    const projectBtn = this.page
+      .locator('[aria-label="Topics sidebar"] button')
+      .filter({ hasText: projectNamePattern })
+      .first();
+    await projectBtn.waitFor({ state: "visible", timeout: 10000 });
+    await projectBtn.click();
+
+    // Wait for project pane to appear (the ProjectSidebar with Processes section)
     await this.page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
 
     // Click "Processes" section header to expand it
@@ -216,16 +250,17 @@ export class BrowserProcessPage {
    */
   async expandBrowserSection() {
     const browserBtn = this.page.getByRole("button", { name: "Browser section" });
+    await browserBtn.waitFor({ state: "visible", timeout: 10000 });
     const isExpanded = await browserBtn.getAttribute("aria-expanded");
     if (isExpanded !== "true") {
       await browserBtn.click();
     }
-    // Wait for browser sidebar content to render
+    // Wait for browser sidebar content to render (BrowserSidebarControl root div.pb-2)
     await this.page.locator('.pb-2 .px-2').first().waitFor({ state: "visible", timeout: 10000 });
   }
 
   /**
-   * Open a browser pane via the Settings & Tools menu.
+   * Open a browser pane via the Settings & Tools dropdown menu.
    */
   async openBrowserPaneViaMenu() {
     const settingsBtn = this.page.locator('button[title="Settings & Tools"]');
@@ -242,10 +277,6 @@ export class BrowserProcessPage {
 
   get browserSectionButton() {
     return this.page.getByRole("button", { name: "Browser section" });
-  }
-
-  get browserToolbar() {
-    return this.page.locator('[title="Back"]').locator("..");
   }
 
   get urlInput() {
