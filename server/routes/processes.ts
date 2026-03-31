@@ -404,7 +404,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
           cwd: projectPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", HOST: "0.0.0.0" },
+          env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", HOST: "0.0.0.0", NODE_ENV: "development" },
         });
       } catch (err: any) {
         return json({ error: `Failed to spawn: ${err.message}` }, 500);
