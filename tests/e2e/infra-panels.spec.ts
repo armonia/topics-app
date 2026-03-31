@@ -7,7 +7,7 @@ test.describe("Cron Jobs Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-CRON-01" });
+    test.info().annotations.push({ type: "spec", description: "CRON-01" });
     await infraPage.mockCronJobs();
     await page.goto("/");
     await infraPage.openCronPanel();
@@ -24,7 +24,7 @@ test.describe("Cron Jobs Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-CRON-01" });
+    test.info().annotations.push({ type: "spec", description: "CRON-01" });
     await infraPage.mockCronJobs();
     await page.goto("/");
     await infraPage.openCronPanel();
@@ -41,7 +41,7 @@ test.describe("Cron Jobs Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-CRON-01" });
+    test.info().annotations.push({ type: "spec", description: "CRON-01" });
     await infraPage.mockCronJobs();
 
     // Track POST /run request
@@ -72,7 +72,7 @@ test.describe("Cron Jobs Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-CRON-01" });
+    test.info().annotations.push({ type: "spec", description: "CRON-01" });
     await infraPage.mockCronJobs();
 
     // Accept the confirm dialog
@@ -98,7 +98,7 @@ test.describe("Cron Jobs Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-CRON-01" });
+    test.info().annotations.push({ type: "spec", description: "CRON-01" });
     await infraPage.mockCronJobs([]);
     await page.goto("/");
     await infraPage.openCronPanel();
@@ -112,7 +112,7 @@ test.describe("Webhooks Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-WEBHOOK-01" });
+    test.info().annotations.push({ type: "spec", description: "WEBHOOK-01" });
     await infraPage.mockWebhooks();
     await page.goto("/");
     await infraPage.openWebhooksPanel();
@@ -129,7 +129,7 @@ test.describe("Webhooks Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-WEBHOOK-01" });
+    test.info().annotations.push({ type: "spec", description: "WEBHOOK-01" });
     await infraPage.mockWebhooks();
     await page.goto("/");
     await infraPage.openWebhooksPanel();
@@ -160,7 +160,7 @@ test.describe("Webhooks Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-WEBHOOK-01" });
+    test.info().annotations.push({ type: "spec", description: "WEBHOOK-01" });
     await infraPage.mockWebhooks();
     await page.goto("/");
     await infraPage.openWebhooksPanel();
@@ -180,7 +180,7 @@ test.describe("Webhooks Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-WEBHOOK-01" });
+    test.info().annotations.push({ type: "spec", description: "WEBHOOK-01" });
     await infraPage.mockWebhooks();
     await page.goto("/");
     await infraPage.openWebhooksPanel();
@@ -200,7 +200,7 @@ test.describe("Webhooks Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-WEBHOOK-01" });
+    test.info().annotations.push({ type: "spec", description: "WEBHOOK-01" });
     await infraPage.mockWebhooks();
 
     page.on("dialog", (d) => d.accept());
@@ -224,7 +224,7 @@ test.describe("Webhooks Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-WEBHOOK-01" });
+    test.info().annotations.push({ type: "spec", description: "WEBHOOK-01" });
     await infraPage.mockWebhooks([]);
     await page.goto("/");
     await infraPage.openWebhooksPanel();
@@ -238,7 +238,7 @@ test.describe("Remote Access Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-REMOTE-01" });
+    test.info().annotations.push({ type: "spec", description: "REMOTE-01" });
     await infraPage.mockRemoteStatus(MOCK_TUNNEL_ACTIVE);
     await page.goto("/");
     await infraPage.openRemoteAccessPanel();
@@ -260,7 +260,7 @@ test.describe("Remote Access Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-REMOTE-01" });
+    test.info().annotations.push({ type: "spec", description: "REMOTE-01" });
     await infraPage.mockRemoteStatus(MOCK_TUNNEL_INACTIVE);
     await page.goto("/");
     await infraPage.openRemoteAccessPanel();
@@ -276,7 +276,7 @@ test.describe("Remote Access Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-REMOTE-01" });
+    test.info().annotations.push({ type: "spec", description: "REMOTE-01" });
     await infraPage.mockRemoteStatus(MOCK_TUNNEL_INACTIVE);
 
     // Track the tunnel POST request
@@ -311,7 +311,7 @@ test.describe("System Status Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-SYSTEM-01" });
+    test.info().annotations.push({ type: "spec", description: "SYSTEM-01" });
     await infraPage.mockSystemStatus();
     await page.goto("/");
     await infraPage.openSystemStatusPanel();
@@ -337,7 +337,7 @@ test.describe("System Status Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-SYSTEM-01" });
+    test.info().annotations.push({ type: "spec", description: "SYSTEM-01" });
     await infraPage.mockSystemStatus();
     await page.goto("/");
     await infraPage.openSystemStatusPanel();
@@ -360,7 +360,7 @@ test.describe("System Status Panel", () => {
     page,
     infraPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-SYSTEM-01" });
+    test.info().annotations.push({ type: "spec", description: "SYSTEM-01" });
     await infraPage.mockSystemStatus();
     await infraPage.mockOpenclawRestart();
     await page.goto("/");

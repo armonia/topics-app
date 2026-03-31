@@ -26,7 +26,7 @@ test.describe("ScriptRunner", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-PROCESS-01" });
+    test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     await browserProcessPage.mockScriptRunner();
     await goToApp(page);
@@ -46,7 +46,7 @@ test.describe("ScriptRunner", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-PROCESS-01" });
+    test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     // Set projectPath in running scripts to match our test project
     const running = MOCK_RUNNING_SCRIPTS.map((s) => ({ ...s, projectPath: PROJECT_PATH }));
@@ -74,7 +74,7 @@ test.describe("ScriptRunner", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-PROCESS-01" });
+    test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     await browserProcessPage.mockScriptRunner();
     await goToApp(page);
@@ -100,7 +100,7 @@ test.describe("ScriptRunner", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-PROCESS-01" });
+    test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     const running = MOCK_RUNNING_SCRIPTS.map((s) => ({ ...s, projectPath: PROJECT_PATH }));
     await browserProcessPage.mockScriptRunner(
@@ -130,7 +130,7 @@ test.describe("ScriptRunner", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-PROCESS-01" });
+    test.info().annotations.push({ type: "spec", description: "PROCESS-01" });
 
     const running = MOCK_RUNNING_SCRIPTS.map((s) => ({ ...s, projectPath: PROJECT_PATH }));
     await browserProcessPage.mockScriptRunner(
@@ -157,7 +157,7 @@ test.describe("BrowserSidebarControl", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-01" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-01" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await goToApp(page);
@@ -172,7 +172,7 @@ test.describe("BrowserSidebarControl", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-01" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-01" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await goToApp(page);
@@ -198,7 +198,7 @@ test.describe("BrowserSidebarControl", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-01" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-01" });
 
     await browserProcessPage.mockBrowserContexts([]);
     await goToApp(page);
@@ -215,7 +215,7 @@ test.describe("RemoteBrowserPanel", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-02" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-02" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await browserProcessPage.mockRemoteBrowserPane();
@@ -236,7 +236,7 @@ test.describe("RemoteBrowserPanel", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-02" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-02" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await browserProcessPage.mockRemoteBrowserPane();
@@ -268,7 +268,7 @@ test.describe("RemoteBrowserPanel", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-02" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-02" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await browserProcessPage.mockRemoteBrowserPane({ connected: false });
@@ -287,7 +287,7 @@ test.describe("RemoteBrowserPanel", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-02" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-02" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await browserProcessPage.mockRemoteBrowserPane({ connected: true, url: "" });
@@ -305,7 +305,7 @@ test.describe("RemoteBrowserPanel", () => {
     page,
     browserProcessPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "TEST-BROWSER-02" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-02" });
 
     await browserProcessPage.mockBrowserContexts(MOCK_BROWSER_CONTEXTS);
     await browserProcessPage.mockRemoteBrowserPane({
