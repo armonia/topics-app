@@ -114,3 +114,80 @@ The system SHALL support creating, renaming, archiving, deleting, and restoring 
 - GIVEN a topic named "My Topic" exists in the sidebar
 - WHEN the user creates another topic also named "My Topic"
 - THEN both topics appear in the sidebar with the same name
+
+### TOPIC-02: Organization
+
+The system SHALL provide organizational features for topics including drag-and-drop reordering, search and filtering, unread indicators, color customization, and project folder grouping.
+
+#### Scenario: Search filters topics by name
+- GIVEN multiple topics exist in the sidebar
+- WHEN the user types a search term in the topic search field
+- THEN only topics whose names match the search term are displayed
+
+#### Scenario: Search is case-insensitive
+- GIVEN a topic named "My Project" exists in the sidebar
+- WHEN the user types "my project" in lowercase in the search field
+- THEN the "My Project" topic is displayed in the filtered results
+
+#### Scenario: Clear search restores all topics
+- GIVEN the search field contains a filter term with some topics hidden
+- WHEN the user clears the search field
+- THEN all topics are displayed again in the sidebar
+
+#### Scenario: Search with no matches shows empty state
+- GIVEN topics exist in the sidebar
+- WHEN the user types a search term that matches no topic names
+- THEN a no-results indicator is shown in the sidebar
+
+#### Scenario: Drag-reorder changes topic position
+- GIVEN multiple topics are visible in the sidebar
+- WHEN the user drags a topic above or below another topic
+- THEN the topic list updates to reflect the new position
+
+#### Scenario: Drag-reorder persists after reload
+- GIVEN the user has reordered topics via drag-and-drop
+- WHEN the user reloads the page
+- THEN the topics appear in the reordered position
+
+#### Scenario: Unread badge appears on new message
+- GIVEN a topic is not currently selected
+- WHEN a new message arrives for that topic via the server
+- THEN an unread badge with the message count appears on the topic
+
+#### Scenario: Unread badge clears when topic is focused
+- GIVEN a topic has an unread badge showing a message count
+- WHEN the user clicks on that topic to select it
+- THEN the unread badge disappears
+
+#### Scenario: Color customization via context menu
+- GIVEN a topic exists in the sidebar
+- WHEN the user right-clicks the topic and selects Change color
+- THEN a color picker submenu appears
+- AND selecting a color applies a visual color indicator to the topic
+
+#### Scenario: Color persists after reload
+- GIVEN a topic has been assigned a custom color
+- WHEN the user reloads the page
+- THEN the topic retains its color indicator
+
+#### Scenario: Project folder expand and collapse
+- GIVEN a project folder section exists in the sidebar
+- WHEN the user clicks the project folder header to collapse it
+- THEN the folder's contents are hidden
+- AND clicking the header again expands the folder to show its contents
+
+#### Scenario: Sidebar sections toggle visibility
+- GIVEN the sidebar contains multiple collapsible sections
+- WHEN the user clicks a section header to collapse it
+- THEN that section's items are hidden
+- AND the section can be expanded again by clicking the header
+
+#### Scenario: Topic with messages retains history on switch
+- GIVEN a topic contains previous messages
+- WHEN the user switches to another topic and then switches back
+- THEN the original topic's message history is still visible
+
+#### Scenario: Drag to nest topic under parent
+- GIVEN two topics exist at the same level in the sidebar
+- WHEN the user drags one topic directly onto another topic
+- THEN the dragged topic becomes a nested child of the target topic
