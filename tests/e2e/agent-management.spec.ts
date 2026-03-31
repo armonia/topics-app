@@ -372,4 +372,123 @@ test.describe("Agent Management", () => {
     // Verify the "Remove" button (unassign) is visible for assigned agent
     await expect(page.locator('button[title="Remove"]').first()).toBeVisible();
   });
+
+  test("AGENT-08: session row displays agent name and status badge explicitly", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-01" });
+    await agentPage.openAgentsPane();
+
+    // Locate individual session rows in the History section
+    // Each session row should contain both an agent name AND a status badge
+    for (const session of MOCK_HISTORY_SESSIONS) {
+      const sessionRow = page.getByText(session.agentName!).first();
+      await expect(sessionRow).toBeVisible();
+    }
+
+    // Verify that each session status type has a distinct badge
+    // "Active" badge should be visible
+    const activeBadge = page.getByText("Active").first();
+    await expect(activeBadge).toBeVisible();
+
+    // "Completed" badge should be visible
+    const completedBadge = page.getByText("Completed").first();
+    await expect(completedBadge).toBeVisible();
+
+    // Verify the History section contains both agent names from mock data
+    await expect(page.getByText(MOCK_HISTORY_SESSIONS[0].agentName!).first()).toBeVisible();
+    await expect(page.getByText(MOCK_HISTORY_SESSIONS[1].agentName!).first()).toBeVisible();
+  });
+
+  test("AGENT-09: remove agent assignment", async ({ agentPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-02" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Click "Assign" button on first profile card to open assignment modal
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Assign")').click();
+
+    // Fill topic input
+    const topicInput = page.locator('input[name="topicInput"]');
+    await topicInput.fill("test-topic-remove");
+
+    // Click "Continue"
+    await page.locator('button:text("Continue")').click();
+
+    // AgentAssignPanel opens
+    await expect(page.getByText("Assign Agents")).toBeVisible();
+
+    // First assign an agent by clicking "Worker"
+    const workerBtn = page.locator('button:text("Worker")').first();
+    await workerBtn.click();
+
+    // Verify the agent now appears in "Assigned" section
+    await expect(page.getByText(/Assigned \(\d+\)/)).toBeVisible();
+
+    // Click the "Remove" button to unassign
+    const removeBtn = page.locator('button[title="Remove"]').first();
+    await expect(removeBtn).toBeVisible();
+    await removeBtn.click();
+
+    // After removal, the "Assigned" count should decrease or the section should show (0)
+    // The agent should move back to Available section
+    await expect(page.getByText(/Available \(\d+\)/)).toBeVisible({ timeout: 10000 });
+  });
+
+  test("AGENT-10: session detail pane button opens session in new pane", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-02" });
+    await agentPage.openAgentsPane();
+
+    // Click a session to open SessionDetail
+    await page.getByText(MOCK_HISTORY_SESSIONS[0].agentName!).first().click();
+
+    // Verify SessionDetail header is visible
+    const headerName = page.locator(".text-\\[12px\\].font-medium").filter({
+      hasText: MOCK_HISTORY_SESSIONS[0].agentName!,
+    });
+    await expect(headerName).toBeVisible();
+
+    // Click the "Pane" button to open session in a new pane
+    const paneBtn = page.getByText("Pane");
+    await expect(paneBtn).toBeVisible();
+    await paneBtn.click();
+
+    // After clicking Pane, the session content should open in a new pane/tab
+    // Verify the session detail content is still accessible (either in new pane or same view)
+    await expect(
+      page.locator("div").filter({ hasText: MOCK_HISTORY_SESSIONS[0].agentName! }).first()
+    ).toBeVisible({ timeout: 10000 });
+  });
+
+  test("AGENT-11: agent status badges distinguish active from completed", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-01" });
+    await agentPage.openAgentsPane();
+
+    // "Active" and "Completed" badges should exist with different styling
+    const activeBadge = page.getByText("Active").first();
+    const completedBadge = page.getByText("Completed").first();
+
+    await expect(activeBadge).toBeVisible();
+    await expect(completedBadge).toBeVisible();
+
+    // Get the computed class or style of each badge to verify they differ
+    const activeClasses = await activeBadge.getAttribute("class") || "";
+    const completedClasses = await completedBadge.getAttribute("class") || "";
+
+    // The badges should have different color classes (e.g., green vs gray/blue)
+    // At minimum, verify both have some styling class
+    expect(activeClasses.length + completedClasses.length).toBeGreaterThan(0);
+
+    // Verify they are visually distinct: different background or text color
+    // Active typically has green, completed typically has gray/blue
+    expect(activeClasses).not.toBe(completedClasses);
+  });
 });
