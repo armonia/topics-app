@@ -187,6 +187,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     // Set up WS interception BEFORE navigation so we can inject messages
     const ws = await interceptWebSocket(page);
 
@@ -229,6 +230,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
     await dashboardPage.openDashboard();

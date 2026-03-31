@@ -461,6 +461,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Verify inspector is visible
@@ -516,6 +517,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     // Override mock with zero budgetLimit BEFORE navigation
     await page.unroute("**/api/context/analyze*");
     await contextPage.mockContextAnalyze({

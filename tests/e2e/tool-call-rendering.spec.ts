@@ -52,6 +52,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
   test("TOOL-01/03 - tool call card renders with name, args, and status", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(testTopicName));
@@ -115,6 +116,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
   test("TOOL-02 - tool call error renders with error styling", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(testTopicName));
@@ -167,6 +169,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
   test("ATTACH-01 - image attachment renders as thumbnail", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     // Mock the image route so MediaImage renders successfully
     await mockImageRoute(page);
 
@@ -194,6 +197,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
   });
 
   test("ATTACH-01 - image lightbox opens on click", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     // Mock the image route so MediaImage renders successfully
     await mockImageRoute(page);
 
@@ -233,6 +237,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
   test("ATTACH-02 - file attachment renders as download link", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     // Mock history with a PDF file
     await mockHistoryWithMedia(page, {
       mediaPaths: ["/uploads/report.pdf"],

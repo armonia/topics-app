@@ -256,6 +256,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-02" });
     // Use distinct live sessions where displayName and key differ clearly
     const searchSessions = [
       {

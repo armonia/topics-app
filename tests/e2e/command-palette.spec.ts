@@ -382,6 +382,7 @@ test.describe("Command Palette", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     const projectPath = `/tmp/e2e-cmdpalette-${TS}`;
     const topicName = `E2E-CmdProject-${TS}`;
 
