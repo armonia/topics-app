@@ -1,0 +1,58 @@
+## ADDED Requirements
+
+### Requirement: PROJECT-TABS-01 — Project Window Pane Management
+
+The system SHALL support opening, switching, and closing pane tabs within a project window context.
+
+#### Scenario: Project window displays its own tab bar
+- **GIVEN** the user opens a project from the sidebar
+- **WHEN** the project window loads
+- **THEN** a tab bar is visible within the project window
+- **AND** at least one default pane tab is shown
+
+#### Scenario: Add pane via project window add-pane menu
+- **GIVEN** a project window is open with its tab bar visible
+- **WHEN** the user clicks the add pane (+) button in the project tab bar
+- **THEN** a dropdown menu appears with available pane types (Files, Terminal, Browser, Git, etc.)
+- **AND** selecting a pane type adds a new tab to the project window
+
+#### Scenario: Switch between project pane tabs
+- **GIVEN** a project window has multiple tabs open (e.g., Files and Terminal)
+- **WHEN** the user clicks a different tab in the project tab bar
+- **THEN** the content area switches to show the selected pane
+- **AND** the clicked tab becomes the active tab
+
+#### Scenario: Close a project pane tab
+- **GIVEN** a project window has multiple tabs open
+- **WHEN** the user clicks the close button on a tab
+- **THEN** the tab is removed from the project tab bar
+- **AND** the adjacent tab becomes active
+
+### Requirement: PROJECT-TABS-02 — Project Tab State Persistence
+
+The system SHALL persist project window tab layout and restore it when the project is reopened.
+
+#### Scenario: Project pane tabs persist after reload
+- **GIVEN** the user has opened specific pane tabs in a project window (e.g., Files, Terminal, Git)
+- **WHEN** the user reloads the page
+- **THEN** the project window restores with the same pane tabs
+- **AND** the active tab is the one that was active before reload
+
+#### Scenario: Project layout with splits persists after reload
+- **GIVEN** the user has split the project window into multiple pane groups
+- **WHEN** the user reloads the page
+- **THEN** the split layout is restored with the same groups and tabs
+
+### Requirement: PROJECT-TABS-03 — Project Tab Status Badges
+
+The system SHALL display status badges on project tabs indicating git status and running processes.
+
+#### Scenario: Project tab shows git modified file count
+- **GIVEN** a project has modified files tracked by git
+- **WHEN** the project tab is visible in the tab bar
+- **THEN** the tab displays a badge or indicator showing the number of modified files
+
+#### Scenario: Project tab shows running process count
+- **GIVEN** a project has running processes (e.g., dev server)
+- **WHEN** the project tab is visible in the tab bar
+- **THEN** the tab displays a badge or indicator showing the number of running processes

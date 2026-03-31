@@ -50,8 +50,11 @@ interface PersistedState {
   activeChatTopicId?: string;      // which chat tab was active when last saved
 }
 
-function loadPersistedState(projectPath: string): PersistedState | null {
-  return loadProjectLayout(storageKey(projectPath), projectPath);
+function loadPersistedState(
+  projectPath: string,
+  onUpdate?: (fresh: PersistedState) => void
+): PersistedState | null {
+  return loadProjectLayout(storageKey(projectPath), projectPath, onUpdate) as PersistedState | null;
 }
 
 function savePersistedState(projectPath: string, state: PersistedState) {
@@ -134,7 +137,10 @@ export function ProjectWindowPane({
     [topics, projectPath]
   );
 
-  // Load persisted state
+  // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
+  const userEditedRef = useRef(false);
+  const mountedRef = useRef(false);
+  const initialChatsSyncedRef = useRef(false);
   const persisted = useRef(loadPersistedState(projectPath));
 
   // Responsive: overlay context inspector when window is narrow
@@ -154,6 +160,42 @@ export function ProjectWindowPane({
     if (window.innerWidth < 768) return true; // Always collapsed on mobile
     return persisted.current?.sidebarCollapsed ?? false;
   });
+
+  // Fetch fresh state from server — re-render if it differs from localStorage cache.
+  // Skip if user has already edited the layout (their changes take priority).
+  useEffect(() => {
+    userEditedRef.current = false;
+    loadPersistedState(projectPath, (fresh) => {
+      if (userEditedRef.current) return; // User already edited — don't overwrite
+      if (fresh.nonChatPanes) setPanes(fresh.nonChatPanes);
+      if (fresh.groups) setGroups(fresh.groups.filter((g: PaneGroup) => g.paneIds.length > 0));
+      if (fresh.rows) setRows(fresh.rows);
+      if (fresh.rowHeights) setRowHeights(fresh.rowHeights);
+      if (fresh.sidebarCollapsed !== undefined && window.innerWidth >= 768) {
+        setSidebarCollapsed(fresh.sidebarCollapsed);
+      }
+      // Restore chat topics from server if they differ from what was loaded locally
+      if (fresh.openChatTopicIds) {
+        persisted.current = { ...persisted.current, ...fresh };
+        const freshChatIds = new Set(fresh.openChatTopicIds);
+        setPanes(prev => {
+          const existingChatIds = new Set(prev.filter(p => p.type === 'chat').map(p => p.topicId));
+          const missing = fresh.openChatTopicIds!.filter((tid: string) => !existingChatIds.has(tid));
+          if (missing.length === 0) return prev;
+          const newChatPanes: Pane[] = missing.map((tid: string) => ({
+            id: createPaneId('chat', tid),
+            type: 'chat' as PaneType,
+            topicId: tid,
+            title: topics[tid]?.name || 'Chat',
+            preview: false,
+          }));
+          return [...prev, ...newChatPanes];
+        });
+        // Mark initial chat sync as done so the later effect doesn't double-add
+        initialChatsSyncedRef.current = true;
+      }
+    });
+  }, [projectPath]);
   const [showContext, setShowContext] = useState(() => {
     try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
   });
@@ -211,8 +253,11 @@ export function ProjectWindowPane({
     try { localStorage.setItem('topics-context-inspector-open', String(showContext)); } catch {}
   }, [showContext]);
 
-  // Persist non-chat panes, groups, rows, and open chat topic IDs
+  // Persist non-chat panes, groups, rows, and open chat topic IDs.
+  // Mark userEditedRef after mount so server-fetch callback skips stale overwrites.
   useEffect(() => {
+    if (mountedRef.current) userEditedRef.current = true;
+    else mountedRef.current = true;
     const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
     const nonChatGroups = groups.filter(g => g.type !== 'chat').map(g => ({
       ...g,
@@ -261,7 +306,6 @@ export function ProjectWindowPane({
   }, [onWSMessage]);
 
   // --- Sync chat panes with topicIds + title sync (consolidated) ---
-  const initialChatsSyncedRef = useRef(false);
   useEffect(() => {
     const currentSet = new Set(topicIds);
 

@@ -1,0 +1,64 @@
+## ADDED Requirements
+
+### Requirement: TAB-SYNC-01 — Tab State Persistence Across Reload
+
+The system SHALL persist open tabs to the server and restore them after page reload, ensuring no tab loss.
+
+#### Scenario: Open tabs survive page reload
+- **GIVEN** the user has multiple tabs open in the tab bar
+- **WHEN** the user reloads the page
+- **THEN** all previously open tabs reappear in the tab bar
+- **AND** the active tab is restored to the one that was active before reload
+
+#### Scenario: Closing a tab persists after reload
+- **GIVEN** the user closes a tab from the tab bar
+- **WHEN** the user reloads the page
+- **THEN** the closed tab does not reappear
+- **AND** only the remaining tabs are shown
+
+#### Scenario: Tab order persists after reload
+- **GIVEN** the user has reordered tabs via drag-and-drop
+- **WHEN** the user reloads the page
+- **THEN** the tabs appear in the reordered sequence
+
+#### Scenario: Server receives tab state update via API
+- **GIVEN** the user opens a new tab
+- **WHEN** the debounced sync fires
+- **THEN** a PUT request is sent to `/api/ui-state` with the updated panel state
+
+### Requirement: TAB-SYNC-02 — WebSocket Cross-Client Tab Sync
+
+The system SHALL broadcast tab state changes via WebSocket so that other connected clients receive updates.
+
+#### Scenario: Tab opened in one context appears in another
+- **GIVEN** two browser contexts are connected to the app
+- **WHEN** context A opens a new pane tab
+- **THEN** context B receives a `ui-state:updated` WebSocket message
+- **AND** context B's tab bar reflects the new tab
+
+#### Scenario: Tab closed in one context is removed in another
+- **GIVEN** two browser contexts are connected to the app with the same tabs open
+- **WHEN** context A closes a tab
+- **THEN** context B receives the updated state via WebSocket
+- **AND** context B no longer shows the closed tab
+
+### Requirement: TAB-SYNC-03 — Preview (Transient) Tab Behavior
+
+The system SHALL support preview tabs that are replaced when opening another item, and can be pinned by double-clicking.
+
+#### Scenario: Single-click opens a preview tab
+- **GIVEN** the user single-clicks a topic in the sidebar
+- **WHEN** the topic opens as a tab
+- **THEN** the tab appears with italic styling indicating it is a preview tab
+
+#### Scenario: Preview tab is replaced by next single-click
+- **GIVEN** a preview tab is open for topic A
+- **WHEN** the user single-clicks topic B in the sidebar
+- **THEN** the preview tab switches to topic B
+- **AND** topic A's tab is no longer visible
+
+#### Scenario: Double-click pins a preview tab
+- **GIVEN** a preview tab is open for a topic
+- **WHEN** the user double-clicks the tab
+- **THEN** the tab loses its italic preview styling
+- **AND** opening another topic creates a new preview tab instead of replacing the pinned one

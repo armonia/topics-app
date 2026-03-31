@@ -66,6 +66,22 @@ export async function openTopic(page: Page, name: string | RegExp) {
   await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
 }
 
+/** Single-click a topic in the sidebar (opens as preview/transient tab) */
+export async function openTopicByClick(page: Page, name: string | RegExp) {
+  const item = page.getByRole("treeitem", { name });
+  await item.waitFor({ state: "visible", timeout: 10000 });
+  await item.click();
+  await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
+}
+
+/** Double-click a topic in the sidebar (opens and pins the tab) */
+export async function openTopicByDoubleClick(page: Page, name: string | RegExp) {
+  const item = page.getByRole("treeitem", { name });
+  await item.waitFor({ state: "visible", timeout: 10000 });
+  await item.dblclick();
+  await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
+}
+
 /** Open the default test chat (Web Search Test) and wait for textarea */
 export async function openTestChat(page: Page) {
   await openTopic(page, /Web Search Test/);

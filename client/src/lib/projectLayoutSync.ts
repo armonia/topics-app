@@ -35,29 +35,49 @@ export function saveProjectLayout(localKey: string, projectPath: string, state: 
   }, DEBOUNCE_MS));
 }
 
-/** Load project layout: try localStorage first, then server */
-export function loadProjectLayout(localKey: string, projectPath: string): any | null {
+/** Load project layout: try localStorage first, then server.
+ *  If `onUpdate` is provided, it fires when the server returns data
+ *  that differs from what was initially read from localStorage. */
+export function loadProjectLayout(
+  localKey: string,
+  projectPath: string,
+  onUpdate?: (freshState: any) => void
+): any | null {
   // Fast-paint from localStorage
   try {
     const raw = localStorage.getItem(localKey);
     if (raw) {
-      // Also fire async server fetch to ensure localStorage is up-to-date
-      fetchAndCacheProjectLayout(localKey, projectPath);
-      return JSON.parse(raw);
+      const cached = JSON.parse(raw);
+      // Fire async server fetch — notify via callback if data differs
+      fetchAndCacheProjectLayout(localKey, projectPath, raw, onUpdate);
+      return cached;
     }
   } catch {}
+  // No localStorage — try server directly
+  fetchAndCacheProjectLayout(localKey, projectPath, null, onUpdate);
   return null;
 }
 
-/** Async fetch from server and update localStorage cache */
-async function fetchAndCacheProjectLayout(localKey: string, projectPath: string): Promise<void> {
+/** Async fetch from server and update localStorage cache.
+ *  Calls `onUpdate` when server data differs from `cachedRaw`. */
+async function fetchAndCacheProjectLayout(
+  localKey: string,
+  projectPath: string,
+  cachedRaw: string | null,
+  onUpdate?: (freshState: any) => void
+): Promise<void> {
   try {
     const key = serverKey(projectPath);
     const res = await fetch(`/api/ui-state/${encodeURIComponent(key)}`);
     if (!res.ok) return;
     const data = await res.json();
     if (data) {
-      try { localStorage.setItem(localKey, JSON.stringify(data)); } catch {}
+      const freshRaw = JSON.stringify(data);
+      try { localStorage.setItem(localKey, freshRaw); } catch {}
+      // Notify consumer if server data differs from what was cached
+      if (onUpdate && freshRaw !== cachedRaw) {
+        onUpdate(data);
+      }
     }
   } catch {}
 }

@@ -13,7 +13,21 @@ Common preconditions shared across scenarios:
 
 ### Requirement: LAYOUT-01 — PanelGrid, Split, Resize & Persistence
 
-The system SHALL support splitting the panel grid horizontally and vertically, resizing split panels via drag dividers, moving panes between groups, and persisting layout state across page reloads.
+The system SHALL support splitting the panel grid horizontally and vertically, resizing split panels via drag dividers, moving panes between groups, and persisting layout state across page reloads. The system SHALL fetch the latest state from the server on load and re-render with fresh data when it differs from the cached localStorage state, ensuring stale browser sessions display current state.
+
+#### Scenario: Stale project layout is replaced by fresh server state on load
+- **GIVEN** a project window was previously opened with a specific tab layout
+- **AND** the layout was changed on another device (or the server state was updated directly)
+- **WHEN** the user opens a browser tab with stale localStorage referencing the old layout
+- **THEN** the project window initially renders with the cached layout
+- **AND** within a short time the project window re-renders with the server's current layout
+- **AND** the final displayed state matches the server state
+
+#### Scenario: User edits during fetch window are preserved
+- **GIVEN** the app loads with stale localStorage and the server fetch is in flight
+- **WHEN** the user adds or closes a pane before the server response arrives
+- **THEN** the user's local changes are preserved
+- **AND** the server response does not overwrite the user's changes
 
 #### Scenario: Split Right via tab context menu creates side-by-side panels
 - **GIVEN** at least two chat panes are open in the tab bar
