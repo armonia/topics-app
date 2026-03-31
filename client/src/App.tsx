@@ -206,7 +206,7 @@ function App() {
   });
   const focusedPanelIdRef = useRef(focusedPanelId);
   // ISSUE 3 fix: move ref assignment from render to useEffect
-  useEffect(() => { focusedPanelIdRef.current = focusedPanelId; });
+  useEffect(() => { focusedPanelIdRef.current = focusedPanelId; }, [focusedPanelId]);
 
   // Persist panels state to localStorage (main window only)
   useEffect(() => {
@@ -528,15 +528,17 @@ function App() {
     return topics[focusedPanelId]?.projectPath || undefined;
   }, [focusedPanelId, topics]);
 
-  // ISSUE 12 fix: track previous openPanels to detect when they actually change
+  // ISSUE 12 fix: track previous openPanels and topics to detect when they actually change
   const prevOpenPanelsForValidation = useRef<string[]>(openPanels);
+  const prevTopicsForValidation = useRef(topics);
   // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
   useEffect(() => {
     if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
-      // Guard: skip if openPanels haven't changed since last validation
+      // Guard: skip if neither openPanels nor topics changed since last validation
       // (prevents loops when this effect itself triggers setOpenPanels)
       const panelsChanged = openPanels !== prevOpenPanelsForValidation.current;
-      const topicsChanged = true; // always re-validate when topics change
+      const topicsChanged = topics !== prevTopicsForValidation.current;
+      prevTopicsForValidation.current = topics;
       if (!panelsChanged && !topicsChanged) return;
 
       const projectPanesToAdd: string[] = [];

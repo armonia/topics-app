@@ -347,12 +347,19 @@ export function PanelGrid({
     },
   }), []);
 
-  // DOM-direct resolvers: dividers are SIBLINGS of item wrappers (Fragment flattens)
+  // Data-attribute resolvers: dividers and cells use data-panel-* attributes for safe DOM resolution
   // Item wrappers have transition-all (for drag opacity) which must be disabled during resize
   const resizeOptions = useMemo(() => ({
     resolveHorizontal: (divider: HTMLElement) => {
-      const left = divider.previousElementSibling as HTMLElement;
-      const right = divider.nextElementSibling as HTMLElement;
+      const rowIdx = divider.getAttribute('data-panel-divider-row');
+      const colIdx = divider.getAttribute('data-panel-divider-col');
+      if (!rowIdx || !colIdx) return null;
+      const container = divider.closest('[data-panel-row]');
+      if (!container) return null;
+      const leftCol = parseInt(colIdx);
+      const rightCol = leftCol + 1;
+      const left = container.querySelector(`[data-panel-cell="${rowIdx}-${leftCol}"]`) as HTMLElement;
+      const right = container.querySelector(`[data-panel-cell="${rowIdx}-${rightCol}"]`) as HTMLElement;
       if (!left || !right) return null;
       left.style.transition = 'none';
       right.style.transition = 'none';
@@ -362,8 +369,14 @@ export function PanelGrid({
       };
     },
     resolveVertical: (divider: HTMLElement) => {
-      const top = divider.previousElementSibling as HTMLElement;
-      const bottom = divider.nextElementSibling as HTMLElement;
+      const rowIdx = divider.getAttribute('data-panel-row-divider');
+      if (!rowIdx) return null;
+      const container = divider.parentElement;
+      if (!container) return null;
+      const topRow = parseInt(rowIdx);
+      const bottomRow = topRow + 1;
+      const top = container.querySelector(`[data-panel-row="${topRow}"]`) as HTMLElement;
+      const bottom = container.querySelector(`[data-panel-row="${bottomRow}"]`) as HTMLElement;
       if (!top || !bottom) return null;
       top.style.transition = 'none';
       bottom.style.transition = 'none';
@@ -905,6 +918,7 @@ export function PanelGrid({
           <div
             className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0 min-w-0 overflow-hidden`}
             style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / gridRows.length} 1 0%` }}
+            data-panel-row={rowIdx}
           >
             {row.itemKeys.map((key, colIdx) => {
               const item = itemMap.get(key);
@@ -926,6 +940,7 @@ export function PanelGrid({
                         ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
                         : undefined,
                     }}
+                    data-panel-cell={`${rowIdx}-${colIdx}`}
                     onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
                     onDropCapture={handleGridItemDropCapture}
                   >
@@ -995,6 +1010,8 @@ export function PanelGrid({
                   {colIdx < row.itemKeys.length - 1 && !isMobile && (
                     <div
                       className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+                      data-panel-divider-row={rowIdx}
+                      data-panel-divider-col={colIdx}
                       onMouseDown={startHorizontalResize(rowIdx, colIdx, row.widths)}
                     >
                       <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
@@ -1009,6 +1026,7 @@ export function PanelGrid({
           {rowIdx < gridRows.length - 1 && !isMobile && (
             <div
               className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+              data-panel-row-divider={rowIdx}
               onMouseDown={startVerticalResize(rowIdx, gridRowHeights)}
             >
               <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
