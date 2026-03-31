@@ -239,6 +239,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Verify the settings modal is visible
@@ -270,6 +271,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Click the "Dark" theme button
@@ -353,6 +355,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Change message density to "Compact"
@@ -406,6 +409,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Playwright Chromium has ServiceWorker/PushManager APIs available but
