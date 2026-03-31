@@ -24,6 +24,11 @@ test.describe.serial("Chat", () => {
     page,
     chatPage,
   }) => {
+    // Spec traceability: links this test to an OpenSpec requirement ID.
+    // Convention: test.info().annotations.push({ type: "spec", description: "REQ-ID" })
+    // See: openspec/specs/<domain>/spec.md for requirement definitions
+    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
+
     await goToApp(page);
     // Close any open dialogs/palettes
     await page.keyboard.press("Escape");
