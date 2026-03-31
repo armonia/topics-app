@@ -33,6 +33,11 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const fetchAbortRef = useRef<AbortController | null>(null);
 
+  // Abort any in-flight fetch when component unmounts
+  useEffect(() => {
+    return () => { fetchAbortRef.current?.abort(); };
+  }, []);
+
   useEffect(() => {
     const check = () => setDarkMode(document.documentElement.classList.contains('dark'));
     check();
