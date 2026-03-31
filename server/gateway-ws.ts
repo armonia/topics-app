@@ -354,9 +354,14 @@ export function routeGatewayEvent(event: GatewayEvent): boolean {
     const entry = sessionHandlers.get(sessionKey);
     if (!entry) return false;
     
-    // Ignore events from a different runId (stale runs)
+    // CHAT-REL-04: Ignore stale events. HTTP-path handlers use sentinel runId (http:*)
+    // which never matches gateway runIds, so stale chat events are always rejected.
+    // Tool events (via "agent" event type) are routed separately and still work.
     if (entry.runId && payload.runId && payload.runId !== entry.runId) {
-      console.log(`[GatewayWS:Route] ignoring stale chat event runId=${payload.runId?.slice(0,8)} (expected ${entry.runId?.slice(0,8)})`);
+      // Don't log for http: sentinel — this is expected behavior, not stale
+      if (!entry.runId.startsWith('http:')) {
+        console.log(`[GatewayWS:Route] ignoring stale chat event runId=${payload.runId?.slice(0,8)} (expected ${entry.runId?.slice(0,8)})`);
+      }
       return true; // consumed but ignored
     }
 

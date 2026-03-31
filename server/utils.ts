@@ -616,6 +616,21 @@ export function createAppContext(baseDir: string): AppContext {
     return stream;
   }
 
+  // CHAT-REL-05: Periodic cleanup of stale active streams (every 60s)
+  const STREAM_CLEANUP_INTERVAL_MS = 60000;
+  const STREAM_MAX_AGE_MS = 3 * 60 * 1000; // 3 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, stream] of activeStreams) {
+      const lastActivity = new Date(stream.lastActivity).getTime();
+      if (now - lastActivity > STREAM_MAX_AGE_MS) {
+        console.log(`[StreamCleanup] Removing stale stream for ${key} (last activity: ${stream.lastActivity})`);
+        activeStreams.delete(key);
+        broadcastToAll({ type: "stream:end", sessionKey: key, messageId: stream.messageId });
+      }
+    }
+  }, STREAM_CLEANUP_INTERVAL_MS);
+
   // --- Request helpers (unchanged) ---
   async function readJSON(req: Request): Promise<any> {
     try { return await req.json(); } catch { return null; }

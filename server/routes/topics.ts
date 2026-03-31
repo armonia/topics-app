@@ -1713,9 +1713,10 @@ Wait for the user to approve the plan before executing any changes.` };
           startStream(sessionKey, partialMsg.id, abortController);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
-          // Register WS handler for tool events (text comes from HTTP SSE, tools from gateway WS)
+          // CHAT-REL-04: Register WS handler with sentinel runId to isolate from stale gateway events
+          const httpRunId = `http:${crypto.randomUUID()}`;
           if (gatewayWS?.connected) {
-            registerSessionHandler(sessionKey, undefined, {
+            registerSessionHandler(sessionKey, httpRunId, {
               onTextDelta() {},  // Handled by HTTP SSE processLine
               onThinkingDelta() {},
               onToolStart(toolCallId: string, name: string, args: Record<string, any>) {
@@ -1747,6 +1748,11 @@ Wait for the user to approve the plan before executing any changes.` };
             if (!line.startsWith("data: ")) return;
             const data = line.slice(6).trim();
             if (data === "[DONE]") {
+              // CHAT-REL-01: Detect empty response and surface error
+              if (!fullContent.trim()) {
+                fullContent = "⚠️ No response received. The AI service may be overloaded. Please try again.";
+                console.warn(`[Stream] Empty response for ${sessionKey} — surfacing error to client`);
+              }
               updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
               endStream(sessionKey);
               unregisterSessionHandler(sessionKey);
@@ -1806,10 +1812,26 @@ Wait for the user to approve the plan before executing any changes.` };
             abortController.signal.addEventListener("abort", onAbort, { once: true });
             const decoder = new TextDecoder();
             let sseBuffer = "";
+            let streamError: string | null = null;
+
+            // CHAT-REL-03: Inactivity timeout (60s per chunk)
+            const INACTIVITY_TIMEOUT_MS = 60000;
+            let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+            const resetInactivityTimer = () => {
+              if (inactivityTimer) clearTimeout(inactivityTimer);
+              inactivityTimer = setTimeout(() => {
+                console.warn(`[Stream] Inactivity timeout (${INACTIVITY_TIMEOUT_MS / 1000}s) for ${sessionKey}`);
+                streamError = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
+                abortController.abort();
+              }, INACTIVITY_TIMEOUT_MS);
+            };
+            resetInactivityTimer();
+
             try {
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
+                resetInactivityTimer();
                 await forwardToClient(value);
                 sseBuffer += decoder.decode(value, { stream: true });
                 const lines = sseBuffer.split("\n");
@@ -1817,8 +1839,21 @@ Wait for the user to approve the plan before executing any changes.` };
                 for (const line of lines) processLine(line);
               }
               if (sseBuffer.trim()) processLine(sseBuffer);
-            } catch (err) { console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err); }
+            } catch (err: any) {
+              // CHAT-REL-02: Propagate errors to client via SSE
+              const isAbort = err?.name === "AbortError" || abortController.signal.aborted;
+              const errorMsg = streamError || (isAbort
+                ? "⚠️ Response timed out. Please try again."
+                : "⚠️ Connection lost during response. Please try again.");
+              console.warn(`[Stream] Gateway read error for ${sessionKey}:`, err?.message || err);
+              if (!fullContent.trim()) fullContent = errorMsg;
+              else fullContent += `\n\n---\n*${errorMsg}*`;
+              // Send error to client SSE
+              const errPayload = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `\n\n${errorMsg}` }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+              if (!clientDisconnected) { try { await writer.write(encoder.encode(errPayload)); } catch {} }
+            }
             finally {
+              if (inactivityTimer) clearTimeout(inactivityTimer);
               abortController.signal.removeEventListener("abort", onAbort);
               reader.releaseLock();
               await closeClient();
