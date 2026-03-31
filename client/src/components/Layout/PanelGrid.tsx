@@ -335,22 +335,7 @@ export function PanelGrid({
     return () => { if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current); };
   }, [gridRows, gridRowHeights, soloTopicIds]);
 
-  /* ---- Split pane handler (context menu: Split Right / Split Down) ---- */
-  const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
-    // Don't split if already solo
-    if (soloTopicIds.includes(topicId)) return;
-
-    const soloKey = `solo:${topicId}`;
-    // Find which grid item currently contains this topicId
-    // Non-solo topics live in the 'standalone' group
-    const nearKey = 'standalone';
-
-    // Set pending split placement so the sync effect places it correctly
-    pendingSplitRef.current = { key: soloKey, direction, nearKey };
-
-    // Make it solo — this triggers naturalGridItems recalc, then the sync effect
-    setSoloTopicIds(prev => prev.includes(topicId) ? prev : [...prev, topicId]);
-  }, [soloTopicIds]);
+  /* ---- Split pane handler: see handleSplitPane below (with grid limit checks) ---- */
 
   /* ---- Resize via useGridResize ---- */
   const resizeCallbacks = useMemo(() => ({
@@ -985,7 +970,6 @@ export function PanelGrid({
                       draftMeta={draftMeta}
                       onSplitPane={handleSplitPane}
                       persistOrder={key === 'standalone'}
-                      onSplitPane={handleSplitPane}
                       onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
                       onAcceptSoloDrop={key === 'standalone' ? handleUnsoloTopic : undefined}
                     />

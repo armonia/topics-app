@@ -188,10 +188,10 @@ export class GatewayWS {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: "openclaw-control-ui",
+        id: "gateway-client",
         version: "1.0.0",
         platform: "server",
-        mode: "webchat",
+        mode: "backend",
         instanceId: crypto.randomUUID(),
       },
       role: "operator",

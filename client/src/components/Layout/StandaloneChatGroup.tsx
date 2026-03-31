@@ -87,8 +87,6 @@ interface StandaloneChatGroupProps {
   onCloseMultiplePanels?: (panelIds: string[]) => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
-  // Split pane into its own grid cell
-  onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
   // Unsolo: merge a solo topic back into the main group
   onUnsolo?: (topicId: string) => void;
   // Accept a solo topic drop (main group only) — unsolos the dropped topic
@@ -113,7 +111,7 @@ export function StandaloneChatGroup({
   onSplitPane,
   onCloseMultiplePanels,
   persistOrder = true,
-  onSplitPane, onUnsolo, onAcceptSoloDrop,
+  onUnsolo, onAcceptSoloDrop,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
   // Track order locally for tab reordering

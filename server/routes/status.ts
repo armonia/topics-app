@@ -96,14 +96,19 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
   // Periodic background checks (every 30s)
   async function runBackgroundChecks() {
-    const [health, cron, sessions] = await Promise.all([
-      checkGatewayHealth(),
-      fetchCronStatus(),
-      fetchSessionsStatus(),
-    ]);
-    lastGatewayCheck = { ...health, checkedAt: new Date().toISOString() };
-    lastCronStatus = cron;
-    lastSessionsStatus = sessions;
+    try {
+      const [health, cron, sessions] = await Promise.all([
+        checkGatewayHealth(),
+        fetchCronStatus(),
+        fetchSessionsStatus(),
+      ]);
+      lastGatewayCheck = { ...health, checkedAt: new Date().toISOString() };
+      lastCronStatus = cron;
+      lastSessionsStatus = sessions;
+    } catch (err) {
+      // Update checkedAt even on failure so the status bar shows freshness
+      lastGatewayCheck = { status: "offline", online: false, latencyMs: 0, checkedAt: new Date().toISOString() };
+    }
   }
 
   setInterval(runBackgroundChecks, 30000);
