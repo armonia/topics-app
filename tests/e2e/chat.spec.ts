@@ -24,6 +24,7 @@ test.describe.serial("Chat", () => {
     page,
     chatPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
     await goToApp(page);
     // Close any open dialogs/palettes
     await page.keyboard.press("Escape");
@@ -51,6 +52,7 @@ test.describe.serial("Chat", () => {
   });
 
   test("loads history when switching topics", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
     await goToApp(page);
 
     // Open a topic known to have existing messages
@@ -76,6 +78,7 @@ test.describe.serial("Chat", () => {
   });
 
   test("aborts streaming via stop button", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
     test.slow(); // Real streaming needs extra time
 
     await goToApp(page);
@@ -107,6 +110,7 @@ test.describe.serial("Chat", () => {
   });
 
   test("scroll-to-bottom button works", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -135,6 +139,7 @@ test.describe.serial("Chat", () => {
   });
 
   test("auto-scrolls to bottom on new streamed message", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     // Open test topic (created in beforeAll)
@@ -185,6 +190,7 @@ test.describe.serial("Chat", () => {
   });
 
   test("input toolbar has all buttons", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await openTestChat(page);
 
@@ -206,6 +212,7 @@ test.describe.serial("Chat", () => {
   });
 
   test("Shift+Enter creates multiline input", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     const textarea = await openTestChat(page);
 
@@ -224,6 +231,7 @@ test.describe.serial("Chat", () => {
 
 test.describe("Chat — Rich Content Rendering", () => {
   test("renders markdown formatting in messages", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -236,6 +244,7 @@ test.describe("Chat — Rich Content Rendering", () => {
   });
 
   test("plan mode shows plan view with approve/reject", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     // Intercept WebSocket to prevent real-time updates from resetting component state
     await page.routeWebSocket(/ws/, ws => {
       const server = ws.connectToServer();
@@ -303,6 +312,7 @@ test.describe("Chat — Rich Content Rendering", () => {
   });
 
   test("renders sub-agent spawn card with status", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     const spawnMarker = "{{AGENT_SPAWN:test-session-key-123|Run unit tests}}";
 
     // Mock agent sessions API that AgentSpawnCard polls
@@ -364,6 +374,7 @@ test.describe("Chat — Rich Content Rendering", () => {
   });
 
   test("renders diff block with file path and code", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     const diffContent = "Here is the change:\n\nsrc/app.ts\n<<<<<<< SEARCH\nold code here\n=======\nnew code here\n>>>>>>> REPLACE";
 
     // Mock chat SSE to return diff content
@@ -412,6 +423,7 @@ test.describe("Chat — Rich Content Rendering", () => {
 
 test.describe("Message Action Toolbar", () => {
   test("message toolbar shows on hover with copy and pin actions", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -438,6 +450,7 @@ test.describe("Message Action Toolbar", () => {
   });
 
   test("pin action toggles pin state on message", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -495,6 +508,7 @@ test.describe("Message Action Toolbar", () => {
 
 test.describe("Message Branching", () => {
   test("message branching shows navigation arrows after edit", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     test.slow();
     await goToApp(page);
     const textarea = await openTestChat(page);
@@ -576,6 +590,7 @@ test.describe.serial("Chat Input Features", () => {
   });
 
   test("file attachment shows preview via setInputFiles", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp("Input Feature Test"));
@@ -595,6 +610,7 @@ test.describe.serial("Chat Input Features", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp("Input Feature Test"));
@@ -631,6 +647,7 @@ test.describe.serial("Chat Input Features", () => {
   });
 
   test("slash command menu shows and executes command", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp("Input Feature Test"));
@@ -677,6 +694,7 @@ test.describe.serial("Chat Input Features", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     // PATCH the test topic to add contextFiles (use package.json as a known file)
     const contextFile = process.cwd() + "/package.json";
     await patchTopic(request, topicId, {

@@ -19,6 +19,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-01" });
     await agentPage.openAgentsPane();
 
     // Verify "History" section header is visible (uppercase span)
@@ -45,6 +46,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-01" });
     await agentPage.openAgentsPane();
     await agentPage.switchToRosterTab();
 
@@ -74,6 +76,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-01" });
     await agentPage.openAgentsPane();
     await agentPage.switchToRosterTab();
 
@@ -121,6 +124,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-02" });
     await agentPage.openAgentsPane();
     await agentPage.switchToRosterTab();
 
@@ -161,6 +165,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-01" });
     // Override default empty chat history mocks with real messages
     await agentPage.mockChatApiHistory(MOCK_CHAT_MESSAGES);
 
@@ -208,6 +213,7 @@ test.describe("Agent Management", () => {
     agentPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-02" });
     await agentPage.openAgentsPane();
 
     // Verify session list is visible (History section header)
@@ -247,6 +253,7 @@ test.describe("Agent Management", () => {
   });
 
   test("AGENT-07: agent assignment to topic", async ({ agentPage, page }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-02" });
     await agentPage.openAgentsPane();
     await agentPage.switchToRosterTab();
 
