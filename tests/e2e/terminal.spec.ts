@@ -110,6 +110,7 @@ test.describe.serial("Terminal", () => {
     terminalPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
     await navigateAndOpenTerminal(page, terminalPage);
 
     // Verify xterm.js DOM renderer created .xterm-rows
@@ -125,6 +126,7 @@ test.describe.serial("Terminal", () => {
     terminalPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
     await navigateAndOpenTerminal(page, terminalPage);
 
     // Click terminal to focus
@@ -142,6 +144,7 @@ test.describe.serial("Terminal", () => {
     terminalPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
     await navigateAndOpenTerminal(page, terminalPage);
 
     // Click terminal to focus
@@ -191,6 +194,7 @@ test.describe("Terminal Reconnect", () => {
     page,
     terminalPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
     // Set up WS interception BEFORE navigation to capture terminal WS connections
     const serverConnections: { close: () => void }[] = [];
     await page.routeWebSocket(/\/ws\/terminal\//, (ws) => {
@@ -331,6 +335,7 @@ test.describe("Terminal Multi-Instance", () => {
     terminalPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-01" });
     await goToApp(page);
 
     // Expand Projects section if collapsed

@@ -28,6 +28,7 @@ test.describe("Topic Management", () => {
     request,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     // Enable the NewTopicModal keyboard shortcut by faking Electron context
     await page.addInitScript(() => {
       (window as any).electronAPI = { isElectron: true };
@@ -77,6 +78,7 @@ test.describe("Topic Management", () => {
   test("TOPIC-02: switch between topics changes main panel content", async ({
     topicPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await topicPage.goto();
     await topicPage.openTopic(new RegExp(`E2E-Alpha-${TS}`));
     await expect(topicPage.mainPanel).toContainText("E2E-Alpha", {
@@ -93,6 +95,7 @@ test.describe("Topic Management", () => {
   test("TOPIC-03: search filters topics by name in sidebar", async ({
     topicPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await topicPage.goto();
 
     // Verify test topics are visible first
@@ -132,6 +135,7 @@ test.describe("Topic Management", () => {
     topicPage,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     // Create a disposable topic via API
     const disp = await createTopic(
       request,
@@ -168,6 +172,7 @@ test.describe("Topic Management", () => {
   test("TOPIC-05: rename topic via context menu persists new name", async ({
     topicPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await topicPage.goto();
     await expect(
       topicPage.findTopic(new RegExp(`E2E-Gamma-${TS}`))
@@ -208,6 +213,7 @@ test.describe("Topic Management", () => {
     topicPage,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     // Create a dedicated disposable topic
     const disp2 = await createTopic(
       request,
@@ -255,6 +261,7 @@ test.describe("Topic Management", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     // Enable the NewTopicModal keyboard shortcut by faking Electron context
     await page.addInitScript(() => {
       (window as any).electronAPI = { isElectron: true };

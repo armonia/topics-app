@@ -106,6 +106,7 @@ test.describe("Topic Management - Settings & Organization", () => {
   test("TOPIC-07: topic settings modal with system prompt and context files", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     await goToApp(page);
 
     // Click the topic in the sidebar to open it as a panel
@@ -223,6 +224,7 @@ test.describe("Topic Management - Settings & Organization", () => {
   });
 
   test("TOPIC-09: project folder expand and collapse", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     await goToApp(page);
 
     // Locate the Projects section button
@@ -274,6 +276,7 @@ test.describe("Topic Management - Settings & Organization", () => {
   });
 
   test("TOPIC-10: unread indicator via WebSocket mock", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     // Intercept WebSocket BEFORE page.goto() — keeps real connection alive + allows injection
     const ws = await interceptWebSocket(page);
 
@@ -314,6 +317,7 @@ test.describe("Topic Management - Settings & Organization", () => {
   test("TOPIC-11: color customization via context menu persists", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     // Navigate to app and find Beta topic
     await goToApp(page);
     const betaTopic = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
@@ -359,6 +363,7 @@ test.describe("Topic Management - Settings & Organization", () => {
   test("TOPIC-12: drag-reorder using dnd-helpers persists across reload", async ({
     page, request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     await goToApp(page);
 
     // Ensure test topics are visible in sidebar and scrolled into view

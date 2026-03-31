@@ -20,6 +20,7 @@ test.describe("Sidebar", () => {
   });
 
   test("clicking topics switches the main panel", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -34,6 +35,7 @@ test.describe("Sidebar", () => {
   });
 
   test("project folders expand and collapse", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     await goToApp(page);
 
     const projectsBtn = page.getByRole("button", { name: /Projects/ }).first();
@@ -49,6 +51,7 @@ test.describe("Sidebar", () => {
   });
 
   test("search filters topics", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     await goToApp(page);
 
     const searchbox = page.getByRole("searchbox", { name: /Search topics/ });
@@ -78,6 +81,7 @@ test.describe("Sidebar", () => {
   });
 
   test("create new chat topic", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -102,6 +106,7 @@ test.describe("Sidebar", () => {
   });
 
   test("archive topic via context menu", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await goToApp(page);
 
     // Create a new topic to archive
@@ -132,6 +137,7 @@ test.describe("Sidebar", () => {
   });
 
   test("topic context menu has options", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await goToApp(page);
 
     const topic = page.getByRole("treeitem", { name: /Web Search Test/ });
