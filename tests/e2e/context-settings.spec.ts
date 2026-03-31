@@ -39,6 +39,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Verify inspector is visible
@@ -71,6 +72,7 @@ test.describe("Context, Memory & Settings", () => {
   test("CTX-02: budget bar with percentage and color coding", async ({
     contextPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Verify budget bar is visible
@@ -85,6 +87,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Find the Topic Memory source row within the inspector
@@ -119,6 +122,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     // Override mock with high-budget analysis BEFORE navigation
     // Unroute the default mock first, then register the high-budget one
     await page.unroute("**/api/context/analyze*");
@@ -152,6 +156,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Find Topic Memory source row within the inspector
@@ -197,6 +202,7 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Find Global Memory source row within the inspector
@@ -239,6 +245,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await settingsPage.openSettings();
 
     // Verify the settings modal is visible
@@ -270,6 +277,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await settingsPage.openSettings();
 
     // Click the "Dark" theme button
@@ -353,6 +361,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await settingsPage.openSettings();
 
     // Change message density to "Compact"
@@ -406,6 +415,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await settingsPage.openSettings();
 
     // Playwright Chromium has ServiceWorker/PushManager APIs available but
@@ -451,6 +461,7 @@ test.describe("Context, Memory & Settings", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     // Create a dedicated topic with contextFiles already set
     const { createTopic, patchTopic, deleteTopic } = await import(
       "./helpers/api-fixtures"

@@ -6,6 +6,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
     await dashboardPage.openDashboard();
@@ -29,6 +30,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
     await dashboardPage.openDashboard();
@@ -50,6 +52,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
     await dashboardPage.openDashboard();
@@ -79,6 +82,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
     await dashboardPage.openDashboard();
@@ -108,6 +112,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     await dashboardPage.mockAllDashboardEndpoints();
     await page.goto("/");
     await dashboardPage.openDashboard();
@@ -135,6 +140,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     // Mock SSE activity stream with deterministic events BEFORE navigation
     await dashboardPage.mockActivityStream([
       {
@@ -180,6 +186,7 @@ test.describe("Dashboard & Analytics", () => {
     page,
     dashboardPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "DASH-01" });
     // Mock SSE stream (activity feed needs it to connect)
     await dashboardPage.mockActivityStream([]);
 

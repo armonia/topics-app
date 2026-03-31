@@ -25,6 +25,7 @@ let contextTopicId: string | null = null;
 
 test.describe("Layout Persistence", () => {
   test("open panels are restored after reload", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
     const textarea = await openAnyTopic(page);
     if (!textarea) { test.skip(); return; }
@@ -42,6 +43,7 @@ test.describe("Layout Persistence", () => {
   });
 
   test("panels state saved to server", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
     const textarea = await openAnyTopic(page);
     if (!textarea) { test.skip(); return; }
@@ -59,6 +61,7 @@ test.describe("Layout Persistence", () => {
   });
 
   test("panel order persisted to server", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
     const textarea = await openAnyTopic(page);
     if (!textarea) { test.skip(); return; }
@@ -92,6 +95,7 @@ test.describe("Project Context", () => {
   });
 
   test("project topic has context in analyze API", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await goToApp(page);
 
     // Find any project topic with a projectPath
@@ -125,6 +129,7 @@ test.describe("Project Context", () => {
   });
 
   test("project template files are toggleable in context API", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await goToApp(page);
 
     const topic = await page.evaluate(async () => {
@@ -153,6 +158,7 @@ test.describe("Project Context", () => {
 
 test.describe("Message Content Rendering", () => {
   test("app renders messages without errors", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await goToApp(page);
     const textarea = await openAnyTopic(page);
     if (!textarea) { test.skip(); return; }
@@ -167,6 +173,7 @@ test.describe("Message Content Rendering", () => {
   });
 
   test("chat API is healthy", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await goToApp(page);
     const ok = await page.evaluate(async () => {
       const res = await fetch("/api/topics");

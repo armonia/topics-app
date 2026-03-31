@@ -22,6 +22,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     await commandPalettePage.open();
@@ -42,6 +43,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     // Open palette and verify it's visible
@@ -60,6 +62,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     await commandPalettePage.open();
@@ -89,6 +92,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     // Search for a specific topic by partial name
@@ -124,6 +128,7 @@ test.describe("Command Palette", () => {
     page,
     request,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     // --- Part A: Theme toggle ---
@@ -247,6 +252,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     // Set up route mock for file list API -- this mock would intercept the palette's
     // file list fetch when projectPath is set on the focused topic
     await page.route("**/api/files/flat*", (route) =>
@@ -306,6 +312,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
     // Mock the search API BEFORE opening palette
@@ -372,6 +379,7 @@ test.describe("Command Palette", () => {
   test("CMD-08: Cmd+/ opens keyboard shortcuts modal with all shortcut groups", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     // Use addInitScript to fake Electron context for desktop-only shortcuts
     await page.addInitScript(() => {
       (window as any).electronAPI = { isElectron: true };
