@@ -64,7 +64,7 @@ const ROOT = resolve(import.meta.dir, "..");
 const SPECS_DIR = join(ROOT, "openspec", "specs");
 const TESTS_DIR = join(ROOT, "tests", "e2e");
 
-const REQUIREMENT_RE = /^###\s+([A-Z]+-\d+):\s*(.+)/gm;
+const REQUIREMENT_RE = /^###\s+Requirement:\s+([A-Z]+-\d+)\s*[—–-]\s*(.+)/gm;
 const ANNOTATION_RE =
   /annotations\.push\(\s*\{\s*type:\s*["']spec["'],\s*description:\s*["']([A-Z]+-\d+)["']\s*\}\s*\)/g;
 
