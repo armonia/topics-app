@@ -314,6 +314,27 @@ export function PanelGrid({
     });
   }, [gridRows.length]);
 
+  // --- Server fetch on mount: apply fresh grid layout if it differs from localStorage ---
+  const gridUserEditedRef = useRef(false);
+  const gridMountedRef = useRef(false);
+  useEffect(() => {
+    gridUserEditedRef.current = false;
+    const cachedRaw = localStorage.getItem(STORAGE_KEY);
+    fetch('/api/ui-state/grid-layout')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || gridUserEditedRef.current) return;
+        const freshRaw = JSON.stringify(data);
+        if (freshRaw === cachedRaw) return; // Same data — no update needed
+        // Server data differs from cache — apply it
+        if (Array.isArray(data.soloTopicIds)) setSoloTopicIds(data.soloTopicIds);
+        if (Array.isArray(data.gridRows)) setGridRows(data.gridRows);
+        if (Array.isArray(data.gridRowHeights)) setGridRowHeights(data.gridRowHeights);
+        try { localStorage.setItem(STORAGE_KEY, freshRaw); } catch {}
+      })
+      .catch(() => {});
+  }, []);
+
   // Persist layout to localStorage + server (debounced)
   // ISSUE 11 FIX: Always persist, even when gridRows is empty.
   // Previously, stale layout persisted when all panels were closed because
@@ -321,6 +342,9 @@ export function PanelGrid({
   // naturally starts fresh (the sync effect creates rows from naturalGridItems).
   const gridSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    // Mark user-edited after mount so server fetch callback skips stale overwrites
+    if (gridMountedRef.current) gridUserEditedRef.current = true;
+    else gridMountedRef.current = true;
     const data = { gridRows, gridRowHeights, soloTopicIds };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     // Debounced server sync (2s to avoid spam during resize)

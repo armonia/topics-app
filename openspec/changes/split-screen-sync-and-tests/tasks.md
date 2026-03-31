@@ -1,7 +1,7 @@
 ## 1. PanelGrid server fetch on mount
 
-- [ ] 1.1 Add useEffect in PanelGrid.tsx that fetches `/api/ui-state/grid-layout` on mount and applies the response when it differs from localStorage (setSoloTopicIds, setGridRows, setGridRowHeights)
-- [ ] 1.2 Add userEditedRef + mountedRef guards (same pattern as ProjectWindow) — set userEditedRef on persist effect after mount, skip server callback if user has already edited
+- [x] 1.1 Add useEffect in PanelGrid.tsx that fetches `/api/ui-state/grid-layout` on mount and applies the response when it differs from localStorage (setSoloTopicIds, setGridRows, setGridRowHeights)
+- [x] 1.2 Add userEditedRef + mountedRef guards (same pattern as ProjectWindow) — set userEditedRef on persist effect after mount, skip server callback if user has already edited
 
 ## 2. E2E tests for split persistence and correctness
 
