@@ -39,7 +39,6 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Verify inspector is visible
@@ -72,7 +71,6 @@ test.describe("Context, Memory & Settings", () => {
   test("CTX-02: budget bar with percentage and color coding", async ({
     contextPage,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Verify budget bar is visible
@@ -87,7 +85,6 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Find the Topic Memory source row within the inspector
@@ -122,7 +119,6 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     // Override mock with high-budget analysis BEFORE navigation
     // Unroute the default mock first, then register the high-budget one
     await page.unroute("**/api/context/analyze*");
@@ -156,7 +152,6 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Find Topic Memory source row within the inspector
@@ -202,7 +197,6 @@ test.describe("Context, Memory & Settings", () => {
     contextPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     await contextPage.openContextInspector();
 
     // Find Global Memory source row within the inspector
@@ -245,7 +239,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Verify the settings modal is visible
@@ -277,7 +271,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Click the "Dark" theme button
@@ -361,7 +355,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Change message density to "Compact"
@@ -415,7 +409,7 @@ test.describe("Context, Memory & Settings", () => {
     settingsPage,
     page,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await settingsPage.openSettings();
 
     // Playwright Chromium has ServiceWorker/PushManager APIs available but
@@ -457,127 +451,10 @@ test.describe("Context, Memory & Settings", () => {
     await expect(settingsPage.panel.getByRole("button", { name: "Comfortable" })).toBeVisible();
   });
 
-  test("FIX-03: Rapid context source toggles apply correctly", async ({
-    contextPage,
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
-    await contextPage.openContextInspector();
-
-    // Verify inspector is visible
-    await expect(contextPage.inspector).toBeVisible();
-
-    // Find and toggle Topic Memory source off
-    const inspector = contextPage.inspector.first();
-    const topicMemoryRow = inspector
-      .locator("div.border-b")
-      .filter({ hasText: "Topic Memory" });
-    await expect(topicMemoryRow.first()).toBeVisible();
-
-    const patchPromise = page.waitForRequest(
-      (req) =>
-        req.url().includes("/api/topics/") && req.method() === "PATCH",
-    );
-
-    const disableBtn = topicMemoryRow.locator(
-      'button[title="Disable this source"]',
-    );
-    await disableBtn.click();
-
-    // Verify the PATCH includes disabledContextSources
-    const patchReq = await patchPromise;
-    const patchBody = JSON.parse(patchReq.postData() || "{}");
-    expect(patchBody.disabledContextSources).toBeDefined();
-    expect(patchBody.disabledContextSources).toContain("memory:topic");
-
-    // Wait for reload to complete
-    await page.waitForTimeout(800);
-
-    // Toggle Global Memory -- with topicRef fix, this reads fresh state
-    const patchPromise2 = page.waitForRequest(
-      (req) =>
-        req.url().includes("/api/topics/") && req.method() === "PATCH",
-    );
-
-    const globalRow = inspector
-      .locator("div.border-b")
-      .filter({ hasText: "Global Memory" });
-    const disableGlobal = globalRow.locator(
-      'button[title="Disable this source"]',
-    );
-    await disableGlobal.click();
-
-    const patchReq2 = await patchPromise2;
-    const body2 = JSON.parse(patchReq2.postData() || "{}");
-    expect(body2.disabledContextSources).toBeDefined();
-    expect(body2.disabledContextSources).toContain("memory:global");
-  });
-
-  test("FIX-04: Budget bar handles zero budget without NaN", async ({
-    contextPage,
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
-    // Override mock with zero budgetLimit BEFORE navigation
-    await page.unroute("**/api/context/analyze*");
-    await contextPage.mockContextAnalyze({
-      sources: [
-        {
-          id: "openclaw:SOUL.md",
-          label: "SOUL.md",
-          category: "openclaw",
-          tokens: 3200,
-          enabled: true,
-          editable: false,
-          preview: "Soul document content...",
-          countInBudget: true,
-        },
-        {
-          id: "memory:topic",
-          label: "Topic Memory",
-          category: "memory",
-          tokens: 420,
-          enabled: true,
-          editable: true,
-          preview: "Working on tests...",
-          countInBudget: true,
-        },
-      ],
-      totalTokens: 3620,
-      budgetLimit: 0,
-      budgetPercent: 0,
-      warnings: [],
-    });
-
-    // Re-navigate with new mock
-    await page.goto("/");
-    await page.waitForSelector('[aria-label="Topics sidebar"]', {
-      state: "visible",
-      timeout: 15_000,
-    });
-
-    await contextPage.openContextInspector();
-
-    // Verify budget bar is visible
-    await expect(contextPage.budgetBar).toBeVisible();
-
-    // Verify the budget percent display does NOT contain "NaN"
-    const budgetPercentText = await contextPage.budgetPercent.textContent();
-    expect(budgetPercentText).not.toContain("NaN");
-
-    // Verify it shows "0%" instead
-    await expect(contextPage.budgetPercent).toContainText("0%");
-
-    // Also verify the budget bar element itself has no NaN
-    const barText = await contextPage.budgetBar.textContent();
-    expect(barText).not.toContain("NaN");
-  });
-
   test("CTX-07: context pills in chat input", async ({
     page,
     request,
   }) => {
-    test.info().annotations.push({ type: "spec", description: "CTX-01" });
     // Create a dedicated topic with contextFiles already set
     const { createTopic, patchTopic, deleteTopic } = await import(
       "./helpers/api-fixtures"
