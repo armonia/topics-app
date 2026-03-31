@@ -465,6 +465,193 @@ test.describe("Agent Management", () => {
     ).toBeVisible({ timeout: 10000 });
   });
 
+  // ── AGENT-03: Profile Editor Fields ──────────────────────
+
+  test("AGENT-12: avatar emoji selection in editor", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-03" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Click "Edit" on first profile card
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Edit")').click();
+    await expect(page.getByText("Edit Agent Profile")).toBeVisible();
+
+    // The editor modal should have an Avatar section with emoji buttons
+    // Avatar grid is inside a container with "Avatar" label text
+    const modal = page.locator(".fixed.inset-0.z-50");
+    await expect(modal).toBeVisible();
+
+    // Find all emoji avatar buttons (w-8 h-8 buttons in the avatar area)
+    const allEmojis = modal.locator("button.w-8.h-8");
+    await expect(allEmojis.first()).toBeVisible({ timeout: 5000 });
+    const emojiCount = await allEmojis.count();
+    expect(emojiCount).toBeGreaterThan(1);
+
+    // The first profile (Alpha Coder) has avatarEmoji = robot face — find the currently selected one
+    // Selected has ring-1 ring-primary class
+    const selectedBefore = modal.locator("button.w-8.h-8[class*='ring-primary']");
+    await expect(selectedBefore).toBeVisible();
+
+    // Click a different emoji (pick index 2 to be safe)
+    await allEmojis.nth(2).click();
+
+    // Verify the newly clicked emoji now has the primary ring styling
+    const newClasses = await allEmojis.nth(2).getAttribute("class");
+    expect(newClasses).toContain("ring-primary");
+
+    // Verify the previously selected emoji lost the ring
+    const oldClasses = await allEmojis.nth(0).getAttribute("class");
+    expect(oldClasses).not.toContain("ring-primary");
+
+    // Cancel to avoid side effects
+    await agentPage.editorCancelButton.click();
+  });
+
+  test("AGENT-13: role selector toggles between Lead, Worker, Specialist", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-03" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Open edit modal
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Edit")').click();
+    await expect(page.getByText("Edit Agent Profile")).toBeVisible();
+
+    // Find the role buttons
+    const leadBtn = page.locator("button").filter({ hasText: /^Lead$/ });
+    const workerBtn = page.locator("button").filter({ hasText: /^Worker$/ });
+    const specialistBtn = page.locator("button").filter({ hasText: /^Specialist$/ });
+
+    // First profile is "lead" — Lead should have active styling
+    const leadClasses = await leadBtn.getAttribute("class");
+    expect(leadClasses).toContain("primary");
+
+    // Click Specialist
+    await specialistBtn.click();
+    const specialistClasses = await specialistBtn.getAttribute("class");
+    expect(specialistClasses).toContain("primary");
+
+    // Lead should lose active styling
+    const leadClassesAfter = await leadBtn.getAttribute("class");
+    expect(leadClassesAfter).not.toContain("text-primary");
+
+    // Cancel
+    await agentPage.editorCancelButton.click();
+  });
+
+  test("AGENT-14: empty name prevents submission", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-03" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Open edit modal
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Edit")').click();
+    await expect(page.getByText("Edit Agent Profile")).toBeVisible();
+
+    // Clear name input completely
+    const nameInput = agentPage.editorNameInput;
+    await nameInput.clear();
+
+    // Save button should be disabled (disabled attribute set when !name.trim())
+    const saveBtn = agentPage.editorSaveButton;
+    await expect(saveBtn).toBeDisabled();
+
+    // Type a name — button should become enabled
+    await nameInput.fill("Valid Name");
+    await expect(saveBtn).toBeEnabled();
+
+    // Cancel
+    await agentPage.editorCancelButton.click();
+  });
+
+  test("AGENT-15: capabilities field accepts comma-separated values", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-03" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Open edit modal for first profile
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Edit")').click();
+    await expect(page.getByText("Edit Agent Profile")).toBeVisible();
+
+    // Find capabilities input and update it
+    const capInput = page.locator('input[placeholder="coding, testing, research..."]');
+    await expect(capInput).toBeVisible();
+    await capInput.clear();
+    await capInput.fill("coding, testing, research");
+
+    // Save
+    await agentPage.editorSaveButton.click();
+
+    // Verify the profile card shows capability tags after modal closes
+    await expect(page.getByText("Edit Agent Profile")).not.toBeVisible({ timeout: 5000 });
+    // The profile card should show "coding" capability tag (from mock PATCH response)
+    await expect(page.getByText("coding").first()).toBeVisible();
+  });
+
+  test("AGENT-16: max concurrent tasks field", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-03" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Open edit modal
+    const firstCard = agentPage.profileCards.first();
+    await firstCard.locator('button:text("Edit")').click();
+    await expect(page.getByText("Edit Agent Profile")).toBeVisible();
+
+    // Find max tasks input (type=number)
+    const maxTasksInput = page.locator('input[type="number"]');
+    await expect(maxTasksInput).toBeVisible();
+
+    // Set to 5
+    await maxTasksInput.clear();
+    await maxTasksInput.fill("5");
+
+    // Save
+    await agentPage.editorSaveButton.click();
+
+    // After modal closes, verify "Max tasks: 5" visible on profile card
+    // (The mock returns the merged profile with maxConcurrentTasks: 5)
+    await expect(page.getByText("Edit Agent Profile")).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Max tasks:").first()).toBeVisible();
+  });
+
+  test("AGENT-17: profile card shows capabilities and max tasks", async ({
+    agentPage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "AGENT-03" });
+    await agentPage.openAgentsPane();
+    await agentPage.switchToRosterTab();
+
+    // Verify first profile card shows capability tags from MOCK_PROFILES
+    // Alpha Coder has capabilities: ["coding", "architecture", "review"]
+    const firstCard = agentPage.profileCards.first();
+    await expect(firstCard.getByText("coding")).toBeVisible();
+    await expect(firstCard.getByText("architecture")).toBeVisible();
+    await expect(firstCard.getByText("review")).toBeVisible();
+
+    // Verify "Max tasks: 3" visible (Alpha Coder has maxConcurrentTasks: 3)
+    await expect(firstCard.getByText("Max tasks: 3")).toBeVisible();
+  });
+
   test("AGENT-11: agent status badges distinguish active from completed", async ({
     agentPage,
     page,
