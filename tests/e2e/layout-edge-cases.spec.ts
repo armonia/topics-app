@@ -177,6 +177,7 @@ test.afterAll(async ({ request }) => {
 
 test.describe("A: Drag No-Op", () => {
   test("A1: drag first tab and drop at same position — tab order unchanged", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -194,6 +195,7 @@ test.describe("A: Drag No-Op", () => {
   });
 
   test("A2: drag middle tab and drop at same position — no state change", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -215,6 +217,7 @@ test.describe("A: Drag No-Op", () => {
 
 test.describe("B: Asymmetric Grid Layouts", () => {
   test("B3: split-right then split-down creates asymmetric layout", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -245,6 +248,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
   });
 
   test("B4: 4 columns seeded render correctly", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD, idE] = topicIds;
     // Open 5 topics, 3 solo = 4 columns (standalone + 3 solo)
     await seedAndLoad(page, [idA, idB, idC, idD, idE], {
@@ -263,6 +267,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
   });
 
   test("B5: splitting to 5th column is blocked by MAX_COLS_PER_ROW", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD, idE] = topicIds;
     // Seed 4 columns (at the limit): standalone + 3 solo items in a single row
     await seedAndLoad(page, [idA, idB, idC, idD, idE], {
@@ -282,6 +287,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
   });
 
   test("B6: 4 rows seeded render correctly", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD, idE] = topicIds;
     // 4 rows: standalone + 3 solo items each in their own row
     await seedAndLoad(page, [idA, idB, idC, idD, idE], {
@@ -302,6 +308,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
   });
 
   test("B7: splitting to 5th row is blocked by MAX_ROWS", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD, idE] = topicIds;
     // Seed 4 rows (at the limit): standalone + 3 solo items each in their own row
     await seedAndLoad(page, [idA, idB, idC, idD, idE], {
@@ -330,6 +337,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
 
 test.describe("C: Grid Collapse and Resize", () => {
   test("C8: close middle panel in 3-column row — remaining 2 panels resize", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD] = topicIds;
     // 3 columns: standalone + solo:B + solo:C
     await seedAndLoad(page, [idA, idB, idC, idD], {
@@ -361,6 +369,7 @@ test.describe("C: Grid Collapse and Resize", () => {
   });
 
   test("C9: close all panels in bottom row — top row expands", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     // 2 rows: standalone on top, solo:B on bottom
     await seedAndLoad(page, [idA, idB, idC], {
@@ -385,6 +394,7 @@ test.describe("C: Grid Collapse and Resize", () => {
   });
 
   test("C10: close panels in 2x2 grid until 1 remains — fills entire area", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD] = topicIds;
     // 2x2 grid
     await seedAndLoad(page, [idA, idB, idC, idD], {
@@ -426,6 +436,7 @@ test.describe("D: Split Type Guards", () => {
   });
 
   test("D11: terminal pane — Split Right click is a no-op (pane not splittable)", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // The context menu shows Split Right/Down for ALL panes (UI doesn't filter),
     // but clicking it on a terminal pane is a no-op (handler checks isSplittable).
     const session = await createTerminalSession(request, { name: "EC-Terminal-Guard" });
@@ -447,6 +458,7 @@ test.describe("D: Split Type Guards", () => {
   });
 
   test("D12: activity/utility pane — split is a no-op", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA] = topicIds;
     const utilityPaneId = "activity:main";
     await seedAndLoad(page, [idA, utilityPaneId]);
@@ -474,6 +486,7 @@ test.describe("D: Split Type Guards", () => {
   });
 
   test("D13: regular topic pane shows Split Right / Split Down", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
@@ -492,6 +505,7 @@ test.describe("D: Split Type Guards", () => {
 
 test.describe("E: Un-solo Mechanism", () => {
   test("E14: solo panel close merges topic back to standalone", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     // Start with a seeded solo layout
     await seedAndLoad(page, [idA, idB], {
@@ -516,6 +530,7 @@ test.describe("E: Un-solo Mechanism", () => {
   });
 
   test("E15: after unsolo, grid layout collapses — solo cell disappears", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB], {
       soloTopicIds: [idA],
@@ -558,10 +573,12 @@ test.describe("E: Un-solo Mechanism", () => {
 
 test.describe("F: Cross-Position Operations", () => {
   test("F16: drag tab from right panel to left panel tab bar", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     test.fixme(true, "Cross-group DnD via HTML5 drag events is unreliable in headless Playwright — needs custom dnd-kit pointer event integration");
   });
 
   test("F17: each panel can independently switch active tabs", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     // Two columns: standalone has A+B, solo:C is separate
     await seedAndLoad(page, [idA, idB, idC], {
@@ -586,6 +603,7 @@ test.describe("F: Cross-Position Operations", () => {
   });
 
   test("F18: close solo panel's last tab — solo disappears", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB], {
       soloTopicIds: [idB],
@@ -612,6 +630,7 @@ test.describe("F: Cross-Position Operations", () => {
 
 test.describe("G: Persistence Edge Cases", () => {
   test("G19: asymmetric layout (2 cols top, 1 full bottom) persists after reload", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC], {
       soloTopicIds: [idB, idC],
@@ -643,6 +662,7 @@ test.describe("G: Persistence Edge Cases", () => {
   });
 
   test("G20: create split, close one panel, reload — reduced layout correct", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB], {
       soloTopicIds: [idB],
@@ -673,6 +693,7 @@ test.describe("G: Persistence Edge Cases", () => {
   });
 
   test("G21: rapid open/split/close/reopen/split/reload — final state correct", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
 
     // 1. Open 3 topics with a split (B is solo)
@@ -724,6 +745,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
   });
 
   test("H22: topic shows split, terminal split-right is a no-op", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const session = await createTerminalSession(request, { name: "EC-Mixed-Term" });
     termSessionId = session.id;
 
@@ -747,6 +769,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
   });
 
   test("H23: split a topic while terminal tabs exist — terminal stays in standalone", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     if (!termSessionId) {
       const session = await createTerminalSession(request, { name: "EC-Mixed-Term2" });
       termSessionId = session.id;
@@ -776,6 +799,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
 
 test.describe("I: Full Lifecycle Regression", () => {
   test("I24: stress test — open 5, split 2, close 1, close others, reload, verify", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Start clean with 5 topics
     await seedAndLoad(page, topicIds.slice(0, 5));
     await waitForTabs(page, 5);

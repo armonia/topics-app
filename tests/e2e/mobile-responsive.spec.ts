@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Mobile Responsive", () => {
   test("adapts to 375px viewport", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/");
     // On mobile viewport, sidebar may start hidden — wait for any content to render

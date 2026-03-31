@@ -20,6 +20,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("activity feed shows Live/Digest tabs", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const activityBtn = page.getByRole("button", { name: "Activity" });
     await expect(activityBtn).toBeVisible({ timeout: 10000 });
@@ -35,6 +36,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("agents panel shows content", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const agentsBtn = page.getByRole("button", { name: /Agents/ });
     await expect(agentsBtn).toBeVisible({ timeout: 10000 });
@@ -45,6 +47,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("kanban board renders", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const boardBtn = page.getByRole("button", { name: /Board/ });
     await expect(boardBtn).toBeVisible({ timeout: 10000 });
@@ -55,6 +58,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("multi-pane layout with Add Pane", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -67,6 +71,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("dashboard digest tab", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const activityBtn = page.getByRole("button", { name: "Activity" });
     await expect(activityBtn).toBeVisible({ timeout: 10000 });
@@ -85,12 +90,14 @@ test.describe("Panels & Views", () => {
   });
 
   test("terminal section exists", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const terminalsBtn = page.getByRole("button", { name: /Terminals/ });
     await expect(terminalsBtn).toBeVisible({ timeout: 10000 });
   });
 
   test("browser section shows instances", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const browserSection = page.getByRole("button", { name: /Browser/ });
     await expect(browserSection.first()).toBeVisible({ timeout: 10000 });
@@ -103,6 +110,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("remote access panel opens", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const remoteBtn = page.getByRole("button", { name: /Remote Access/i });
     if (await remoteBtn.count() > 0) {
@@ -113,6 +121,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("file explorer opens project topics", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     // Use the project-linked topic we created (folder name = "e2e-panels")
     const projectBtn = page.locator('button:has-text("e2e-panels")').first();
@@ -140,6 +149,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("command palette opens with Cmd+K", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
@@ -163,6 +173,7 @@ test.describe("Panels & Views", () => {
   });
 
   test("scripts API responds", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     const ok = await page.evaluate(async () => {
       const res = await fetch("/api/scripts");

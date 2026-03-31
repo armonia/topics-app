@@ -7,6 +7,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
     await layoutPage.openProject(/topics-app/i);
 
@@ -50,6 +51,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
 
     // Verify connection status badge is visible
@@ -72,6 +74,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
 
     // Sidebar should be visible initially
@@ -99,6 +102,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     await layoutPage.openProject(/topics-app/i);
 
@@ -146,6 +150,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
     await layoutPage.openAnyTopic();
 
@@ -164,6 +169,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
     await layoutPage.openProject(/topics-app/i);
 
@@ -262,6 +268,7 @@ test.describe("Layout & Navigation", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
 
     // Ensure the app is loaded and WS is connected before testing sync

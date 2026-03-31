@@ -16,6 +16,7 @@ test.describe("Cross-Feature Interactions", () => {
   test("CROSS-01: topic switch preserves or tests scroll position caching", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     // Use "Web Search Test" (known to have messages) as topicA
     // Create a fresh topic as topicB for switching
     const ts = Date.now();
@@ -103,6 +104,7 @@ test.describe("Cross-Feature Interactions", () => {
     chatPage,
     commandPalettePage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-01" });
     test.slow(); // Real streaming + panel interaction
 
     const ts = Date.now();
@@ -186,6 +188,7 @@ test.describe("Cross-Feature Interactions", () => {
   test("CROSS-04: 1000+ messages render via virtual scroll without gaps", async ({
     page,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     test.slow(); // Large data set scrolling takes time
 
     const ts = Date.now();
@@ -310,6 +313,7 @@ test.describe("Cross-Feature Interactions", () => {
     page,
     commandPalettePage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     // Navigate to app root WITHOUT opening any topic
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
@@ -363,6 +367,7 @@ test.describe("Cross-Feature Interactions", () => {
     page,
     settingsPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await goToApp(page);
 
     // Open a topic to get chat panel visible with content
@@ -443,6 +448,7 @@ test.describe("Cross-Feature Interactions", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     // Start at desktop size
     await page.setViewportSize({ width: 1280, height: 800 });
     await goToApp(page);
@@ -548,6 +554,7 @@ test.describe("WS Reconnection", () => {
     page,
     layoutPage,
   }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     test.slow(); // Reconnection with backoff takes time
 
     // Set up WS interception BEFORE navigation to capture the main /ws connection.

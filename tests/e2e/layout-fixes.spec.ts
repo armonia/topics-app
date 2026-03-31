@@ -101,6 +101,7 @@ test.afterAll(async ({ request }) => {
 
 test.describe("Critical: Pane ID uniqueness (Issue 1)", () => {
   test("rapidly creating multiple panes yields unique IDs", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Verify createPaneId uses crypto.randomUUID — generate many IDs client-side
     const ids = await page.goto("/").then(() =>
       page.evaluate(() => {
@@ -117,6 +118,7 @@ test.describe("Critical: Pane ID uniqueness (Issue 1)", () => {
   });
 
   test("opening multiple topics rapidly produces no duplicate tabs", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
     // Rapidly open all test topics
     for (const name of TOPIC_NAMES.slice(0, 4)) {
@@ -131,6 +133,7 @@ test.describe("Critical: Pane ID uniqueness (Issue 1)", () => {
 
 test.describe("Critical: Dual state ownership — orderedIds validated against openPanels (Issue 2)", () => {
   test("tab bar only shows panels that are actually open", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     // Seed with two panels
     await seedAndLoad(page, [idA, idB]);
@@ -150,6 +153,7 @@ test.describe("Critical: Dual state ownership — orderedIds validated against o
   });
 
   test("stale orderedIds are pruned on render", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA] = topicIds;
     // Seed panel-order with extra stale IDs that aren't in openPanels
     await Promise.all([
@@ -172,6 +176,7 @@ test.describe("Critical: Dual state ownership — orderedIds validated against o
 
 test.describe("Critical: Persistence coordination — empty panels clears grid (Issue 3)", () => {
   test("closing all panels then reloading produces clean state", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
@@ -202,6 +207,7 @@ test.describe("Critical: Persistence coordination — empty panels clears grid (
   });
 
   test("empty openPanels persists correctly and does not restore stale tabs on reload", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA] = topicIds;
     // Open a topic first
     await seedAndLoad(page, [idA]);
@@ -232,6 +238,7 @@ test.describe("Critical: Persistence coordination — empty panels clears grid (
 
 test.describe("High: Focus isolation — localActiveRef correctness (Issue 4)", () => {
   test("clicking tabs in different positions maintains correct focus", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -259,6 +266,7 @@ test.describe("High: Focus isolation — localActiveRef correctness (Issue 4)", 
 
 test.describe("High: Focus does not jump on microtask (Issue 5)", () => {
   test("rapidly opening and closing tabs does not cause focus jumps", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
@@ -281,6 +289,7 @@ test.describe("High: Focus does not jump on microtask (Issue 5)", () => {
 
 test.describe("High: Cross-tab focus — no sync between browser tabs (Issue 6)", () => {
   test("focus changes do not propagate through localStorage to affect app state", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
@@ -308,6 +317,7 @@ test.describe("High: Cross-tab focus — no sync between browser tabs (Issue 6)"
 
 test.describe("High: Terminal race — grace period for new terminals (Issue 7)", () => {
   test("newly created terminal persists after creation", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Create a terminal session via API
     const session = await createTerminalSession(request, { name: "E2E-Terminal-Grace" });
 
@@ -333,6 +343,7 @@ test.describe("High: Terminal race — grace period for new terminals (Issue 7)"
 
 test.describe("Medium: Preview close effect dependencies (Issue 8)", () => {
   test("opening a new topic replaces preview tab correctly", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     // Open first topic — should appear as a tab
     await seedAndLoad(page, [idA]);
@@ -351,6 +362,7 @@ test.describe("Medium: Preview close effect dependencies (Issue 8)", () => {
 
 test.describe("Medium: Grid items cleanup — soloTopicIds filtered synchronously (Issue 9)", () => {
   test("closing a split panel removes it without ghost panels", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     // Seed with two panels open
     await seedAndLoad(page, [idA, idB]);
@@ -382,6 +394,7 @@ test.describe("Medium: Grid items cleanup — soloTopicIds filtered synchronousl
 
 test.describe("Medium: Immutable grid rows — no splice mutations (Issue 10)", () => {
   test("split, then close preserves grid state consistency", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -413,6 +426,7 @@ test.describe("Medium: Immutable grid rows — no splice mutations (Issue 10)", 
 
 test.describe("Medium: Panel validation includes openPanels in deps (Issue 11)", () => {
   test("archiving a topic removes its panel from the tab bar", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Create a temporary topic, open it, then archive it
     const tempTopic = await createTopic(request, "LF-Archive-Test-" + Date.now());
     try {
@@ -459,6 +473,7 @@ test.describe("Medium: Panel validation includes openPanels in deps (Issue 11)",
 
 test.describe("Medium: Empty panel order persistence (Issue 12)", () => {
   test("saving empty order then reloading does not restore stale tabs", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA] = topicIds;
     // First: open a panel and let it persist
     await seedAndLoad(page, [idA]);
@@ -486,6 +501,7 @@ test.describe("Medium: Empty panel order persistence (Issue 12)", () => {
 
 test.describe("Medium: Grid drop validation — validates target at drop time (Issue 13)", () => {
   test("split zones are visible when dragging a tab", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
@@ -515,6 +531,7 @@ test.describe("Medium: Grid drop validation — validates target at drop time (I
 
 test.describe("Low: O(n^2) group sync — performance with many panes (Issue 14)", () => {
   test("app remains responsive with multiple open panels", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Open all 5 test topics
     await seedAndLoad(page, topicIds);
     await waitForTabs(page, 5);
@@ -530,6 +547,7 @@ test.describe("Low: O(n^2) group sync — performance with many panes (Issue 14)
 
 test.describe("Low: Browser context ID — deterministic (Issue 15)", () => {
   test("browser pane ID is stable and deterministic", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Use a fixed context ID to test determinism
     const contextId = "e2e-test-ctx";
     const browserPaneId = `browser:${contextId}`;
@@ -550,6 +568,7 @@ test.describe("Low: Browser context ID — deterministic (Issue 15)", () => {
 
 test.describe("Low: Close Others batching — atomic close (Issue 17)", () => {
   test("Close Others removes all other tabs at once", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -568,6 +587,7 @@ test.describe("Low: Close Others batching — atomic close (Issue 17)", () => {
 
 test.describe("Low: effectivePinnedIds stability (Issue 18)", () => {
   test("reordering tabs does not cause visual glitches from unnecessary re-renders", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -592,6 +612,7 @@ test.describe("Low: effectivePinnedIds stability (Issue 18)", () => {
 
 test.describe("Low: GroupLayout resize — uses data attributes (Issue 19)", () => {
   test("resize dividers use correct cursor styles for split panels", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB] = topicIds;
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
@@ -622,6 +643,7 @@ test.describe("Low: GroupLayout resize — uses data attributes (Issue 19)", () 
 
 test.describe("Regression: Full lifecycle", () => {
   test("open multiple topics, split, close some, reload — state is consistent", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC] = topicIds;
     await seedAndLoad(page, [idA, idB, idC]);
     await waitForTabs(page, 3);
@@ -658,6 +680,7 @@ test.describe("Regression: Full lifecycle", () => {
   });
 
   test("rapid open-close cycles do not produce zombie panels", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await goToApp(page);
 
     // Rapidly open and close topics

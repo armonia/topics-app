@@ -82,6 +82,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("no duplicate tabs in initial state", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       const labels = await getVisibleTabLabels(page);
       const counts = new Map<string, number>();
       for (const l of labels) counts.set(l, (counts.get(l) ?? 0) + 1);
@@ -91,6 +92,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("main area has sufficient dimensions", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       const mainBox = await page.locator('[role="main"]').boundingBox();
       expect(mainBox).not.toBeNull();
       expect(mainBox!.width).toBeGreaterThan(400);
@@ -98,6 +100,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("tab bar is not oversized", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       const tabBar = page.locator('[role="main"] .border-b.border-app-border.flex-shrink-0').first();
       if (await tabBar.count() === 0) return;
 
@@ -107,6 +110,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("layout persists after page reload", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       // Open the self-provisioned project to ensure we have tabs
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
@@ -132,6 +136,7 @@ test.describe("Grid Split System", () => {
 
   test.describe("GroupLayout flex fix (Bug 2)", () => {
     test("row wrappers with flex style do not have flex-1", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openAnyTopic(page);
 
@@ -156,6 +161,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("project window opens with tab bar", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
@@ -164,6 +170,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("project tabs include utility types (terminal, git, browser)", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
@@ -182,6 +189,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("project window tab bar remains compact", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(1500);
 
@@ -197,6 +205,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("no duplicate tabs after project operations", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
 
@@ -212,6 +221,7 @@ test.describe("Grid Split System", () => {
 
   test.describe("Resize dividers", () => {
     test("column resize divider has correct cursor", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openAnyTopic(page);
 
@@ -230,6 +240,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("row resize divider has correct cursor", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openAnyTopic(page);
 
@@ -250,6 +261,7 @@ test.describe("Grid Split System", () => {
 
   test.describe("Split handler correctness (unit-level via evaluate)", () => {
     test("split removes pane from source group when it is the only pane", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
@@ -288,6 +300,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("split creates new group with correct type mapping", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await page.waitForTimeout(1000);
 
@@ -319,6 +332,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("move between groups removes from source and adds to target", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await page.waitForTimeout(1000);
 
@@ -367,6 +381,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("move last pane from group removes that group", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await page.waitForTimeout(1000);
 
@@ -509,6 +524,7 @@ test.describe("Grid Split System", () => {
     }
 
     test("GRID-01: Split Right via context menu creates side-by-side panels", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openTwoTopics(page);
 
@@ -526,6 +542,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-02: Split Down via context menu creates above/below panels", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openTwoTopics(page);
 
@@ -539,6 +556,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-03: Resize split panels by dragging col-resize divider", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openTwoTopics(page);
 
@@ -569,6 +587,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-03: Resize split panels by dragging row-resize divider", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openTwoTopics(page);
 
@@ -596,6 +615,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-04: Split layout persists after page reload", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openTwoTopics(page);
 
@@ -621,6 +641,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-05: Splitting works in project windows", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await collapseSidebarSections(page);
 
@@ -668,6 +689,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-06: Context menu shows Split Right and Split Down for chat panes", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await collapseSidebarSections(page);
       await openTopic(page, /E2E-Split-A/);
@@ -690,6 +712,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("GRID-01/02: DnD edge-drop creates split", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       // DnD tests are notoriously flaky with pointer events + dnd-kit.
       // This test attempts to drag a tab to the edge of the main area.
       // Marking as fixme if it proves unreliable.
@@ -699,6 +722,7 @@ test.describe("Grid Split System", () => {
 
   test.describe("DnD MIME types", () => {
     test("all pane tabs set PANE_TAB on drag", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       // Open the self-provisioned project to ensure we have draggable tabs
       await openProject(page, /e2e-grid/);
@@ -710,6 +734,7 @@ test.describe("Grid Split System", () => {
     });
 
     test("tabs within project window are draggable", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openProject(page, /e2e-grid/);
       await page.waitForTimeout(2000);
