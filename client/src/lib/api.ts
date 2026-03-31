@@ -327,6 +327,13 @@ export const filesApi = {
     return request<{ files: string[] }>(`/files/flat?path=${encodeURIComponent(path)}&maxFiles=${maxFiles}`);
   },
 
+  async reveal(path: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/files/reveal', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+  },
+
   async packageScripts(path: string): Promise<{ scripts: Record<string, string>; engines?: Record<string, string> }> {
     return request<{ scripts: Record<string, string>; engines?: Record<string, string> }>(`/files/package-scripts?path=${encodeURIComponent(path)}`);
   },

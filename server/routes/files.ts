@@ -833,6 +833,26 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // --- Reveal in Finder ---
+    if (method === "POST" && pathname === "/api/files/reveal") {
+      const body = await readJSON(req);
+      if (!body?.path) return json({ error: "path required" }, 400);
+      const resolvedFile = resolveProjectPath(body.path);
+      if (!resolvedFile) return errorResponse(400, "Invalid path");
+      if (!existsSync(resolvedFile)) return json({ error: "Path not found" }, 404);
+      try {
+        const proc = Bun.spawn(["open", "-R", resolvedFile], { stdout: "pipe", stderr: "pipe" });
+        await proc.exited;
+        if (proc.exitCode !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          return json({ error: "Failed to reveal: " + stderr }, 500);
+        }
+        return json({ ok: true });
+      } catch (err: any) {
+        return json({ error: "Failed to reveal: " + err.message }, 500);
+      }
+    }
+
     // --- Flat file list (for quick open) ---
     if (method === "GET" && pathname === "/api/files/flat") {
       const dirPath = url.searchParams.get("path");

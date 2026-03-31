@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText } from 'lucide-react';
+import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -985,6 +985,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           >
             <Copy size={14} className="text-app-text-tertiary" /> Copy Relative Path
           </button>
+          <button
+            role="menuitem"
+            onClick={() => { filesApi.reveal(contextMenuNode.path); setContextMenuPos(null); }}
+            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+          >
+            <ExternalLink size={14} className="text-app-text-tertiary" /> Show in Finder
+          </button>
           <div className="border-t border-app-border my-1" />
         </>
       )}
@@ -1081,6 +1088,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >
+          {newItemParent === projectPath && newItemType && (
+            <InlineInput
+              depth={0}
+              icon={newItemType === 'dir'
+                ? <Folder size={14} className="text-amber-400" />
+                : (() => { const d = getFileIconDef(''); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()
+              }
+              onSubmit={handleNewItemSubmit}
+              onCancel={handleNewItemCancel}
+            />
+          )}
           {files.map(node => (
             <TreeNode
               key={node.path}
@@ -1141,6 +1159,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
               </button>
             </div>
           </div>
+          {newItemParent === projectPath && newItemType && (
+            <InlineInput
+              depth={0}
+              icon={newItemType === 'dir'
+                ? <Folder size={14} className="text-amber-400" />
+                : (() => { const d = getFileIconDef(''); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()
+              }
+              onSubmit={handleNewItemSubmit}
+              onCancel={handleNewItemCancel}
+            />
+          )}
           {files.map(node => (
             <TreeNode
               key={node.path}
