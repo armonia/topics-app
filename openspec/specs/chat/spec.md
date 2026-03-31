@@ -151,3 +151,126 @@ The system SHALL render rich content types within messages including markdown, c
 - WHEN the message is displayed in the message list
 - THEN a file attachment element renders showing the filename
 - AND the element links to the file for download
+
+### CHAT-03: Message Actions
+
+The system SHALL provide message-level actions including pinning, branching, hover toolbar, and navigation controls.
+
+#### Scenario: Hover toolbar appears on message hover
+- GIVEN a message is displayed in the message list
+- WHEN the user hovers over the message
+- THEN a floating action toolbar appears with action buttons
+
+#### Scenario: Copy message copies text to clipboard
+- GIVEN the hover toolbar is visible on a message
+- WHEN the user clicks the Copy button
+- THEN the message text is copied to the clipboard
+- AND the Copy button changes to a success indicator
+
+#### Scenario: Pin message toggles pin status
+- GIVEN the hover toolbar is visible on a message
+- WHEN the user clicks the Pin button
+- THEN the message is marked as pinned
+- AND the Pin button changes to indicate pinned state
+
+#### Scenario: Unpin message removes pin status
+- GIVEN a message is currently pinned
+- WHEN the user hovers over the message and clicks the Pin button
+- THEN the message is unpinned
+- AND the Pin button returns to its default state
+
+#### Scenario: Pinned messages panel shows pinned messages
+- GIVEN one or more messages are pinned in the current topic
+- WHEN the chat panel renders
+- THEN a pinned messages section appears above the message list
+- AND each pinned message shows a preview of its content
+
+> Note: Pinned messages panel component exists; functional status in current UI may be a gap.
+
+#### Scenario: Reply to message creates threaded reply
+- GIVEN the hover toolbar is visible on a message
+- WHEN the user clicks the Reply button
+- THEN the message input shows a reply indicator referencing the original message
+
+#### Scenario: Edit message opens editing mode
+- GIVEN a user message is displayed in the message list
+- WHEN the user hovers over the message and clicks the Edit button
+- THEN the message input switches to editing mode
+- AND an "Editing message" indicator is visible
+- AND the original message text appears in the input field
+
+#### Scenario: Branch from edited message creates new conversation branch
+- GIVEN a user message is in editing mode
+- WHEN the user modifies the text and submits the edit
+- THEN a new conversation branch is created with the edited content
+- AND the assistant provides a new response for the edited message
+
+#### Scenario: Navigate between branches with arrows
+- GIVEN a message has multiple conversation branches
+- WHEN the user views the branched message
+- THEN previous and next branch navigation buttons appear
+- AND a branch counter shows the current position (e.g., "2/3")
+- AND clicking navigation buttons switches between branches
+
+### CHAT-04: Input Features
+
+The system SHALL provide input enhancements including @mentions, slash commands, file attachments, voice recording, and context display.
+
+#### Scenario: Input toolbar displays all action buttons
+- GIVEN the chat panel is active with a topic selected
+- WHEN the message input area is visible
+- THEN an Attach file button is visible
+- AND a Toggle plan mode button is visible
+- AND a Record voice button is visible
+- AND a Tools button is visible
+- AND a Send message button is visible
+
+#### Scenario: @mention shows autocomplete dropdown
+- GIVEN the topic has a linked project folder
+- WHEN the user types @ in the message input
+- THEN a mention autocomplete menu appears with file suggestions
+
+#### Scenario: @mention selects file and adds context
+- GIVEN the mention autocomplete menu is open with file suggestions
+- WHEN the user selects a file from the dropdown
+- THEN the selected file is added as context for the message
+
+#### Scenario: Slash command menu appears on / input
+- GIVEN the message input is focused
+- WHEN the user types / in the input
+- THEN a slash command menu appears showing available commands
+- AND commands such as /status, /help, and /clear are listed
+
+#### Scenario: Slash command executes selected command
+- GIVEN the slash command menu is visible
+- WHEN the user selects and submits a command
+- THEN the command executes
+- AND a result indicator appears confirming the action
+
+#### Scenario: File attachment shows preview before send
+- GIVEN the message input is visible
+- WHEN the user attaches a file via the file picker
+- THEN a preview of the attached file appears in the input area showing the filename
+
+#### Scenario: Voice recording button starts and stops recording
+- GIVEN the message input toolbar is visible
+- WHEN the user clicks the Record voice button
+- THEN the recording interface activates with a recording timer
+- AND clicking the button again stops the recording
+
+> Note: Voice recording has limited test coverage. Full recording-to-transcription behavior may be a gap.
+
+#### Scenario: Context pills display attached context sources
+- GIVEN a topic has context files attached
+- WHEN the chat panel is visible for that topic
+- THEN context pills appear near the input showing the attached filenames
+
+#### Scenario: Plan mode toggle switches input behavior
+- GIVEN the message input toolbar is visible
+- WHEN the user clicks the Toggle plan mode button
+- THEN the input mode switches between normal and plan mode
+
+#### Scenario: @mention menu requires project folder
+- GIVEN the topic does not have a linked project folder
+- WHEN the user types @ in the message input
+- THEN no mention autocomplete menu appears
