@@ -632,6 +632,7 @@ function App() {
     clearExpired,
     onWSMessage: chatStreamHandler,
     error: chatError,
+    gatewayConnected,
     isOwnStream,
   } = useChat();
 

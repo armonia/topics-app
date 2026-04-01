@@ -36,10 +36,21 @@ import { createUiStateRouter, loadAllUiState } from "./server/routes/ui-state";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
-// Validate required environment variables
+// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 if (!process.env.GATEWAY_TOKEN) {
-  console.error("ERROR: GATEWAY_TOKEN environment variable is required");
-  process.exit(1);
+  try {
+    const { readFileSync } = require("fs");
+    const { join } = require("path");
+    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
+    if (config?.gateway?.auth?.token) {
+      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
+      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
+    }
+  } catch {}
+  if (!process.env.GATEWAY_TOKEN) {
+    console.error("ERROR: GATEWAY_TOKEN not found in .env or ~/.openclaw/openclaw.json");
+    process.exit(1);
+  }
 }
 
 // Create app context (initializes SQLite database)
@@ -57,9 +68,15 @@ const gatewayWS = initGatewayWS({
   },
   onConnect: () => {
     console.log("[Server] Gateway WS connected");
+    ctx.broadcastToAll({ type: "gateway:status", connected: true });
   },
   onDisconnect: (reason) => {
     console.log(`[Server] Gateway WS disconnected: ${reason}`);
+    ctx.broadcastToAll({ type: "gateway:status", connected: false });
+  },
+  onAuthFailure: () => {
+    // Try to refresh token from openclaw.json
+    return ctx.refreshGatewayToken();
   },
 });
 ctx.gatewayWS = gatewayWS;

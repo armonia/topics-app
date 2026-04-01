@@ -96,6 +96,7 @@ export interface AppContext {
   PORT: number;
   GATEWAY_URL: string;
   GATEWAY_TOKEN: string;
+  refreshGatewayToken: () => string;
   TOPICS_FILE: string;
   UNREAD_FILE: string;
   PUBLIC_DIR: string;

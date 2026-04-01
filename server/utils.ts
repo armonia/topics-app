@@ -14,7 +14,27 @@ export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
   const PORT = parseInt(process.env.BUN_PORT || process.env.PORT || "3333");
   const GATEWAY_URL = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-  const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN!;
+  let GATEWAY_TOKEN = process.env.GATEWAY_TOKEN || readGatewayTokenFromConfig() || "";
+
+  /** Read gateway token from ~/.openclaw/openclaw.json (auto-syncs when OpenClaw rotates) */
+  function readGatewayTokenFromConfig(): string | null {
+    try {
+      const configPath = join(process.env.HOME || "", ".openclaw", "openclaw.json");
+      const raw = readFileSync(configPath, "utf-8");
+      const config = JSON.parse(raw);
+      return config?.gateway?.auth?.token || null;
+    } catch { return null; }
+  }
+
+  /** Refresh token from openclaw.json — called on auth failure */
+  function refreshGatewayToken(): string {
+    const fresh = readGatewayTokenFromConfig();
+    if (fresh && fresh !== GATEWAY_TOKEN) {
+      console.log("[Gateway] Token refreshed from openclaw.json");
+      GATEWAY_TOKEN = fresh;
+    }
+    return GATEWAY_TOKEN;
+  }
 
   const TOPICS_FILE = join(baseDir, "topics.json");
   const UNREAD_FILE = join(baseDir, "unread.json");
@@ -909,7 +929,9 @@ export function createAppContext(baseDir: string): AppContext {
 
   return {
     db,
-    PORT, GATEWAY_URL, GATEWAY_TOKEN,
+    PORT, GATEWAY_URL,
+    get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
+    refreshGatewayToken,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir,
     activeStreams, wsClients,

@@ -17,6 +17,7 @@ interface GatewayWSOptions {
   onEvent?: (event: GatewayEvent) => void;
   onConnect?: () => void;
   onDisconnect?: (reason: string) => void;
+  onAuthFailure?: () => string | null; // Called on auth failure — return fresh token or null
 }
 
 interface GatewayRequest {
@@ -96,6 +97,9 @@ export class GatewayWS {
   private opts: GatewayWSOptions;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _connected = false;
+  private authFailureCount = 0;
+  private static readonly AUTH_FAILURE_LIMIT = 3;
+  private static readonly AUTH_COOLDOWN_MS = 60_000;
 
   constructor(opts: GatewayWSOptions) {
     this.opts = opts;
@@ -103,6 +107,15 @@ export class GatewayWS {
 
   get connected(): boolean {
     return this._connected && this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /** Update the auth token (e.g., after reading fresh token from openclaw.json) */
+  updateToken(token: string): void {
+    if (token && token !== this.opts.token) {
+      this.opts.token = token;
+      this.authFailureCount = 0; // Reset circuit breaker
+      console.log("[GatewayWS] Token updated — will use on next connect");
+    }
   }
 
   start(): void {
@@ -208,9 +221,32 @@ export class GatewayWS {
       console.log("[GatewayWS] Connected to gateway successfully");
       this._connected = true;
       this.backoffMs = 800;
+      this.authFailureCount = 0; // Reset on success
       this.opts.onConnect?.();
     } catch (err: any) {
-      console.error("[GatewayWS] Connect failed:", err.message);
+      const isAuthError = err.message?.includes("unauthorized") || err.message?.includes("token") || err.code === "UNAUTHORIZED";
+      if (isAuthError) {
+        this.authFailureCount++;
+        console.error(`[GatewayWS] Auth failure ${this.authFailureCount}/${GatewayWS.AUTH_FAILURE_LIMIT}: ${err.message}`);
+
+        // Try refreshing token from openclaw.json
+        if (this.opts.onAuthFailure) {
+          const freshToken = this.opts.onAuthFailure();
+          if (freshToken && freshToken !== this.opts.token) {
+            this.opts.token = freshToken;
+            this.authFailureCount = 0; // Reset — new token, try fresh
+            console.log("[GatewayWS] Token refreshed, will retry immediately");
+          }
+        }
+
+        // Circuit breaker: after AUTH_FAILURE_LIMIT consecutive failures, pause
+        if (this.authFailureCount >= GatewayWS.AUTH_FAILURE_LIMIT) {
+          console.error(`[GatewayWS] Circuit breaker: ${this.authFailureCount} auth failures, pausing ${GatewayWS.AUTH_COOLDOWN_MS / 1000}s. Check GATEWAY_TOKEN in .env or ~/.openclaw/openclaw.json`);
+          this.backoffMs = GatewayWS.AUTH_COOLDOWN_MS;
+        }
+      } else {
+        console.error("[GatewayWS] Connect failed:", err.message);
+      }
       this.ws?.close(4008, "connect failed");
     }
   }

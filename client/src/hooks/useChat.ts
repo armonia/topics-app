@@ -84,6 +84,7 @@ export function useChat() {
   const [streaming, setStreaming] = useState<Record<string, boolean>>({});
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
+  const [gatewayConnected, setGatewayConnected] = useState(true); // Assume connected until told otherwise
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
   const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
   const [pendingQueue, setPendingQueue] = useState<QueuedMessage[]>(getOutboundQueue);
@@ -426,6 +427,10 @@ export function useChat() {
 
   // Expose handler for App to connect
   const onWSMessage = useCallback((event: WSMessage) => {
+    // Handle gateway connection status
+    if (event.type === 'gateway:status') {
+      setGatewayConnected(!!event.connected);
+    }
     // Handle stream events directly
     if (event.type?.startsWith('stream:') || event.type === 'message:media') {
       handleStreamEvent(event);
@@ -1174,6 +1179,7 @@ export function useChat() {
     pendingQueueSize: pendingQueue.length,
     getStreamQueueSize: (sessionKey: string) => streamQueueRef.current[sessionKey]?.length || 0,
     error,
+    gatewayConnected,
     isSessionOrphaned: (sessionKey: string) => orphanedSessions.has(sessionKey),
     isOwnStream: (sessionKey: string) => localSSESessionsRef.current.has(sessionKey),
   };
