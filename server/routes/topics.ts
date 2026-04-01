@@ -1507,14 +1507,19 @@ Wait for the user to approve the plan before executing any changes.` };
 
               if (newText) {
                 fullContent += newText;
-                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: newText });
-                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: newText } }] }));
+
+                // Strip internal markers before broadcasting to client
                 fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
                 if (!topicSwitchDetected && (fullContent.includes('{{TOPIC_SWITCH:') || fullContent.includes('{{TOPIC_NEW:'))) {
                   const result = detectAndBroadcastTopicSwitch(fullContent, matchedTopic);
                   fullContent = result.content;
                   if (result.switchedToTopicId) { topicSwitchDetected = true; switchTargetTopicId = result.switchedToTopicId; }
                 }
+
+                // Broadcast clean content (recalculate delta after marker stripping)
+                const cleanContent = fullContent;
+                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: newText.replace(/\{\{(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER):[^}]*\}\}/g, '') });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: newText.replace(/\{\{(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER):[^}]*\}\}/g, '') } }] }));
               }
 
               chunkCount++;
