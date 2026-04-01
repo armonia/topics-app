@@ -201,14 +201,14 @@ export class GatewayWS {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: "gateway-client",
+        id: "topics-app",
         version: "1.0.0",
         platform: "server",
         mode: "backend",
         instanceId: crypto.randomUUID(),
       },
       role: "operator",
-      scopes: ["operator.admin"],
+      scopes: ["operator.admin", "operator.read", "operator.write"],
       caps: ["tool-events"],
       auth: {
         token: this.opts.token,
