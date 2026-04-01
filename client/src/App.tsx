@@ -848,12 +848,14 @@ function App() {
         applyTopicFromWS(msg.topic as Topic);
       }
 
-      // Real-time message sync across windows
+      // Real-time message sync across windows (skip if this client owns the stream)
       if (msg.type === 'message:new' && msg.sessionKey && msg.content) {
         const sessionKey = msg.sessionKey as string;
+        // Skip if this client has an active SSE stream for this session — we already have the messages
+        if (isOwnStream(sessionKey)) return;
         const role = msg.role as 'user' | 'assistant';
         const content = msg.content as string;
-        
+
         // Check if we already have this message (avoid duplicates)
         const existingMessages = getSessionMessages(sessionKey);
         const lastMsgOfRole = [...existingMessages].reverse().find(m => m.role === role);
