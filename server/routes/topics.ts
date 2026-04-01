@@ -1011,6 +1011,37 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       } catch (err: any) { return json({ error: "Upload failed: " + err.message }, 500); }
     }
 
+    // --- Test: Seed message (for E2E tests — inserts a message directly into DB) ---
+    if (method === "POST" && pathname === "/api/test/seed-message") {
+      const body = await readJSON(req);
+      if (!body?.sessionKey || !body?.role) {
+        return json({ error: "sessionKey and role required" }, 400);
+      }
+      const id = body.id || crypto.randomUUID();
+      const timestamp = body.timestamp || new Date().toISOString();
+      const sortOrder = body.sortOrder ?? Date.now();
+      try {
+        db.prepare(`
+          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index)
+          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, 0)
+        `).run({
+          $id: id,
+          $session_key: body.sessionKey,
+          $role: body.role,
+          $content: body.content || '',
+          $thinking: body.thinking || null,
+          $tool_calls: body.toolCalls ? JSON.stringify(body.toolCalls) : null,
+          $media: body.media ? JSON.stringify(body.media) : null,
+          $timestamp: timestamp,
+          $sort_order: sortOrder,
+          $parent_id: body.parentId || null,
+        });
+        return json({ ok: true, id });
+      } catch (err: any) {
+        return json({ error: "Seed failed: " + err.message }, 500);
+      }
+    }
+
     // --- Chat proxy (streaming) ---
     if (method === "POST" && pathname === "/api/chat") {
       console.log(`[HTTP] POST /api/chat received`);
