@@ -257,7 +257,8 @@ export class GatewayWS {
     
     if (msg.type === "event") {
       const event = msg as GatewayEvent;
-      
+
+
       // Handle connect challenge
       if (event.event === "connect.challenge") {
         const nonce = event.payload?.nonce;
