@@ -394,13 +394,13 @@ export function routeGatewayEvent(event: GatewayEvent): boolean {
   if (event.event === "agent") {
     const payload = event.payload as AgentEventPayload;
     if (payload?.stream !== "tool") return false;
-    
+
     const sessionKey = normalizeSessionKey(payload.sessionKey);
     if (!sessionKey) return false;
-    
+
     const entry = sessionHandlers.get(sessionKey);
     if (!entry) return false;
-    
+
     // Ignore stale run events — but NOT for http: sentinel handlers.
     // HTTP fallback handlers use sentinel runIds (http:*) that never match gateway runIds,
     // so we must skip this filter for them or all tool events get silently dropped.
