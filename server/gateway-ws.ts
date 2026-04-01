@@ -201,7 +201,7 @@ export class GatewayWS {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: "topics-app",
+        id: "webchat",
         version: "1.0.0",
         platform: "server",
         mode: "backend",

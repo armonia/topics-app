@@ -1637,9 +1637,11 @@ Wait for the user to approve the plan before executing any changes.` };
               const preamble = contextMessages.map(m => m.content).join("\n\n---\n\n");
               userContent = `<context>\n${preamble}\n</context>\n\n${userContent}`;
             }
+            // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
+            // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
+            registerSessionHandler(sessionKey, undefined, handler);
             const result = await gatewayWS!.sendChat(sessionKey, userContent);
-            // Register handler AFTER sendChat returns with the real runId
-            // (registering before with runId=undefined lets stale events from previous runs through)
+            // Update handler with the real runId now that we have it
             registerSessionHandler(sessionKey, result.runId, handler);
             console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
           } catch (err: any) {
