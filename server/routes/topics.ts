@@ -1337,7 +1337,8 @@ Wait for the user to approve the plan before executing any changes.` };
       // The WS chat.send protocol only takes a single string — it relies on the gateway's
       // own session history which can be out of sync (gateway restart, HTTP sessions, etc.).
       const gatewayWS = ctx.gatewayWS;
-      const useWS = gatewayWS?.connected ?? false;
+      // Always use HTTP for chat (stable, handles history/context). WS is only for tool events.
+      const useWS = false;
 
       console.log(`[Chat] useWS=${useWS}, sessionKey=${sessionKey}`);
       if (useWS) {
