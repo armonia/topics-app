@@ -1747,9 +1747,10 @@ Wait for the user to approve the plan before executing any changes.` };
           startStream(sessionKey, partialMsg.id, abortController);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
-          // CHAT-REL-04: Register WS handler with sentinel runId to isolate from stale gateway events
+          // Always register WS handler for tool events — even if WS appears disconnected,
+          // it may reconnect during the HTTP request. Tool events arrive via WS agent events.
           const httpRunId = `http:${crypto.randomUUID()}`;
-          if (gatewayWS?.connected) {
+          {
             registerSessionHandler(sessionKey, httpRunId, {
               onTextDelta() {},  // Handled by HTTP SSE processLine
               onThinkingDelta() {},
