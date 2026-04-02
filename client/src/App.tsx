@@ -436,6 +436,11 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return isDetached || isMobile ? true : (appSettings.sidebarCollapsed || false);
   });
+
+  // Remove pre-render sidebar-collapsed class now that React owns the state
+  useEffect(() => {
+    document.documentElement.classList.remove('sidebar-pre-collapsed');
+  }, []);
   
   // Auto-collapse sidebar on mobile
   useEffect(() => {
@@ -1043,6 +1048,22 @@ function App() {
     setPreviewPanelId(mode === 'preview' ? topicId : null);
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
   }, [openPanels, previewPanelId, isMobile]);
+
+  // Electron: listen for navigate-to-topic from tray/notifications
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.onNavigateToTopic) return;
+    api.onNavigateToTopic((topicId: string) => {
+      if (topicId) openPanel(topicId, 'permanent');
+    });
+  }, [openPanel]);
+
+  // Electron: report focused topic for notification suppression
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.reportFocusedTopic) return;
+    api.reportFocusedTopic(focusedPanelId || null);
+  }, [focusedPanelId]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];

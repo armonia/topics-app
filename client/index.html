@@ -1,7 +1,6 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <style>html { background: #0d1117; }</style>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png" />
@@ -16,19 +15,28 @@
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
     <title>Topics</title>
-    <style>
-      html, body, #root { background-color: #f8f9fa !important; }
-      html.dark, html.dark body, html.dark #root { background-color: #1a1a1a !important; }
-    </style>
     <script>
-      // Apply theme immediately to prevent FOUC (flash of light borders on dark theme)
+      // Apply theme + sidebar state BEFORE first paint to prevent FOUC/flicker
       (function() {
         var theme = 'system';
         try { theme = localStorage.getItem('theme') || 'system'; } catch(e) {}
         var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) document.documentElement.classList.add('dark');
+
+        // Pre-apply sidebar collapsed state
+        try {
+          var settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
+          if (settings.sidebarCollapsed) document.documentElement.classList.add('sidebar-pre-collapsed');
+        } catch(e) {}
       })();
     </script>
+    <style>
+      /* Critical CSS — must match React theme colors exactly */
+      html, body, #root { background-color: #f8f9fa; color: #1a1a1a; }
+      html.dark, html.dark body, html.dark #root { background-color: #1a1a1a; color: #e6edf3; }
+      /* Hide sidebar instantly when pre-collapsed to avoid flash */
+      html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
