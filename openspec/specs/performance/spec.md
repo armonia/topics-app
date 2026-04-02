@@ -36,6 +36,23 @@ The system SHALL maintain visual stability during all user interactions, with Cu
 - **WHEN** user splits right/down
 - **THEN** no visible content jump occurs during split animation
 
+#### Scenario: UI is visually stable after topic switch
+- **GIVEN** a topic is loaded
+- **WHEN** 2 seconds pass after the switch
+- **THEN** less than 2% of pixels change between screenshots
+- **AND** no text content flickers or changes
+
+#### Scenario: No DOM thrashing during initial load
+- **GIVEN** the app has finished loading (networkidle)
+- **WHEN** 3 seconds pass
+- **THEN** fewer than 50 DOM mutations occur
+- **AND** no "Connecting" or loading text appears and disappears repeatedly
+
+#### Scenario: UI is visually stable after sidebar toggle
+- **GIVEN** the sidebar has been toggled
+- **WHEN** 2 seconds pass
+- **THEN** less than 2% of pixels change between screenshots
+
 #### Scenario: Chat message list does not shift on new message
 - **GIVEN** user is reading messages at bottom
 - **WHEN** a new message arrives

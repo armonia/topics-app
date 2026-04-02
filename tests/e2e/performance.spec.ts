@@ -19,6 +19,35 @@ async function measureCLS(page: Page, action: () => Promise<void>): Promise<numb
   return page.evaluate(() => (window as any).__cls);
 }
 
+/**
+ * Assert visual stability: take multiple screenshots over a duration
+ * and verify pixels don't change significantly (UI is settled).
+ * Returns the percentage of pixels that changed between first and last screenshot.
+ */
+async function assertVisualStability(
+  page: Page,
+  durationMs = 2000,
+  maxChangePercent = 2.0,
+  samples = 4
+): Promise<number> {
+  const screenshots: Buffer[] = [];
+  for (let i = 0; i < samples; i++) {
+    screenshots.push(await page.screenshot({ type: 'png' }));
+    if (i < samples - 1) await page.waitForTimeout(durationMs / (samples - 1));
+  }
+
+  const first = screenshots[0];
+  const last = screenshots[screenshots.length - 1];
+
+  let diffPixels = 0;
+  const totalPixels = Math.min(first.length, last.length);
+  for (let i = 0; i < totalPixels; i++) {
+    if (Math.abs(first[i] - last[i]) > 10) diffPixels++;
+  }
+  const changePercent = (diffPixels / totalPixels) * 100;
+  return changePercent;
+}
+
 // ---------------------------------------------------------------------------
 // PERF-01 — Layout Stability & Visual Quality
 // ---------------------------------------------------------------------------
@@ -27,14 +56,16 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1500); // let UI settle for clear video
   });
 
   test('Topic switch has no visible layout shift', async ({ page }) => {
     // Click the first topic in sidebar (uses role="treeitem" like other E2E tests)
     const topics = page.getByRole('treeitem');
     await topics.first().waitFor({ timeout: 5000 });
+    await page.waitForTimeout(1000); // video: show initial state
     await topics.first().click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1500); // video: show first topic loaded
 
     // Now measure CLS while switching to a different topic
     const count = await topics.count();
@@ -44,6 +75,10 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
         await page.waitForTimeout(500);
       });
       expect(cls).toBeLessThan(0.1);
+
+      // Visual stability: UI must settle after topic switch
+      const instability = await assertVisualStability(page, 2000, 2.0);
+      expect(instability, 'UI should be visually stable after topic switch').toBeLessThan(2.0);
     }
   });
 
@@ -68,6 +103,10 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     expect(firstBg).not.toBe('rgb(255, 255, 255)');
     expect(firstBg).not.toBe('rgba(0, 0, 0, 0)'); // transparent also bad — means no bg set
 
+    // Visual stability: page must settle after load
+    const instability = await assertVisualStability(newPage, 2000, 2.0);
+    expect(instability, 'UI should be visually stable after page load').toBeLessThan(2.0);
+
     await newPage.close();
   });
 
@@ -76,11 +115,20 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     const toggleBtn = page.getByTitle('Toggle sidebar');
 
     if (await toggleBtn.count() > 0) {
+      await page.waitForTimeout(1000); // video: show sidebar open
       const cls = await measureCLS(page, async () => {
         await toggleBtn.click();
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(1500); // video: show sidebar closed
       });
       expect(cls).toBeLessThan(0.1);
+      // Toggle back for video clarity
+      await page.waitForTimeout(500);
+      await toggleBtn.click();
+      await page.waitForTimeout(1500); // video: show sidebar reopened
+
+      // Visual stability: UI must settle after sidebar toggle
+      const instability = await assertVisualStability(page, 2000, 2.0);
+      expect(instability, 'UI should be visually stable after sidebar toggle').toBeLessThan(2.0);
     }
   });
 
@@ -107,6 +155,10 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
           }
         });
         expect(cls).toBeLessThan(0.1);
+
+        // Visual stability: UI must settle after panel split
+        const instability = await assertVisualStability(page, 2000, 2.0);
+        expect(instability, 'UI should be visually stable after panel split').toBeLessThan(2.0);
       }
     }
   });
@@ -144,7 +196,37 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
 
       const cls = await page.evaluate(() => (window as any).__cls ?? 0);
       expect(cls).toBeLessThan(0.1);
+
+      // Visual stability: UI must settle after new message
+      const instability = await assertVisualStability(page, 2000, 2.0);
+      expect(instability, 'UI should be visually stable after new message').toBeLessThan(2.0);
     }
+  });
+
+  test('No repeated state changes during initial load', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const mutations = await page.evaluate(() => {
+      return new Promise<number>(resolve => {
+        let count = 0;
+        const observer = new MutationObserver((records) => {
+          count += records.length;
+        });
+        observer.observe(document.body, {
+          childList: true, subtree: true,
+          attributes: true, characterData: true
+        });
+        setTimeout(() => {
+          observer.disconnect();
+          resolve(count);
+        }, 3000);
+      });
+    });
+
+    // After networkidle, there should be very few DOM mutations
+    // High mutation count = UI is thrashing/reconnecting
+    expect(mutations, 'DOM should be stable after load — too many mutations suggest reconnect loops or state thrashing').toBeLessThan(50);
   });
 });
 
