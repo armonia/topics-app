@@ -19,35 +19,28 @@ async function measureCLS(page: Page, action: () => Promise<void>): Promise<numb
   return page.evaluate(() => (window as any).__cls);
 }
 
-/**
- * Get the background color of the <html> element as rgb string.
- */
-async function getHtmlBgColor(page: Page): Promise<string> {
-  return page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
-}
-
 // ---------------------------------------------------------------------------
 // PERF-01 — Layout Stability & Visual Quality
 // ---------------------------------------------------------------------------
 
 test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('http://localhost:3333');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
   test('Topic switch has no visible layout shift', async ({ page }) => {
-    // Click the first topic in sidebar
-    const topics = page.locator('[data-testid="topic-item"], .sidebar-topic, .topic-list-item').first();
-    await topics.waitFor({ timeout: 5000 });
-    await topics.click();
+    // Click the first topic in sidebar (uses role="treeitem" like other E2E tests)
+    const topics = page.getByRole('treeitem');
+    await topics.first().waitFor({ timeout: 5000 });
+    await topics.first().click();
     await page.waitForTimeout(500);
 
     // Now measure CLS while switching to a different topic
-    const secondTopic = page.locator('[data-testid="topic-item"], .sidebar-topic, .topic-list-item').nth(1);
-    if (await secondTopic.count() > 0) {
+    const count = await topics.count();
+    if (count > 1) {
       const cls = await measureCLS(page, async () => {
-        await secondTopic.click();
+        await topics.nth(1).click();
         await page.waitForTimeout(500);
       });
       expect(cls).toBeLessThan(0.1);
@@ -55,9 +48,6 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Initial page load has no white flash', async ({ page }) => {
-    // Navigate fresh and capture background color immediately
-    const bgColors: string[] = [];
-
     // Create a new page to observe from scratch
     const newPage = await page.context().newPage();
 
@@ -68,7 +58,7 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
       });
     });
 
-    await newPage.goto('http://localhost:3333');
+    await newPage.goto('/');
     await newPage.waitForLoadState('domcontentloaded');
     await newPage.waitForTimeout(200);
 
@@ -82,8 +72,8 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Sidebar toggle does not cause content shift', async ({ page }) => {
-    // Find sidebar toggle button
-    const toggleBtn = page.locator('[data-testid="sidebar-toggle"], [aria-label*="sidebar"], button:has(svg)').first();
+    // Use the same selector as layout.fixture.ts: getByTitle("Toggle sidebar")
+    const toggleBtn = page.getByTitle('Toggle sidebar');
 
     if (await toggleBtn.count() > 0) {
       const cls = await measureCLS(page, async () => {
@@ -95,57 +85,65 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Panel split does not cause layout shift', async ({ page }) => {
-    // Right-click on a tab to get context menu with split option
-    const tab = page.locator('[data-testid="pane-tab"], .pane-tab').first();
+    // Open a topic first so we have a tab bar
+    const topics = page.getByRole('treeitem');
+    if (await topics.count() > 0) {
+      await topics.first().click();
+      await page.waitForTimeout(500);
+    }
 
-    if (await tab.count() > 0) {
-      const cls = await measureCLS(page, async () => {
-        await tab.click({ button: 'right' });
-        await page.waitForTimeout(200);
-        const splitOption = page.locator('text=/split right/i').first();
-        if (await splitOption.count() > 0) {
-          await splitOption.click();
-          await page.waitForTimeout(500);
-        }
-      });
-      expect(cls).toBeLessThan(0.1);
+    // Right-click on a tab to get split context menu (same pattern as grid-split.spec.ts)
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
+    if (await tabBar.count() > 0) {
+      const tab = tabBar.locator('[draggable="true"]').first();
+      if (await tab.count() > 0) {
+        const cls = await measureCLS(page, async () => {
+          await tab.click({ button: 'right' });
+          await page.waitForTimeout(200);
+          const splitOption = page.getByText('Split Right', { exact: true });
+          if (await splitOption.count() > 0) {
+            await splitOption.click();
+            await page.waitForTimeout(500);
+          }
+        });
+        expect(cls).toBeLessThan(0.1);
+      }
     }
   });
 
   test('Chat message list does not shift on new message', async ({ page }) => {
     // Select a topic first
-    const topic = page.locator('[data-testid="topic-item"], .sidebar-topic, .topic-list-item').first();
-    if (await topic.count() > 0) {
-      await topic.click();
+    const topics = page.getByRole('treeitem');
+    if (await topics.count() > 0) {
+      await topics.first().click();
       await page.waitForTimeout(500);
     }
 
-    // Get message list container
-    const messageList = page.locator('[data-testid="message-list"], .message-list, .chat-messages').first();
+    // Get message area (role="main" as used in chat.spec.ts)
+    const mainArea = page.locator('[role="main"]');
+    await mainArea.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
-    if (await messageList.count() > 0) {
-      // Scroll to bottom
-      await messageList.evaluate((el) => el.scrollTo(0, el.scrollHeight));
-      await page.waitForTimeout(200);
-
-      // Record scroll position of last message
-      const lastMsgTopBefore = await messageList.evaluate((el) => {
-        const last = el.lastElementChild;
-        return last ? last.getBoundingClientRect().top : 0;
+    // Type a message using the same input selector as chat.spec.ts
+    const input = page.getByRole('textbox', { name: /Message input/ });
+    if (await input.count() > 0) {
+      // Set up CLS measurement before sending
+      await page.evaluate(() => {
+        (window as any).__cls = 0;
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (!(entry as any).hadRecentInput) {
+              (window as any).__cls += (entry as any).value;
+            }
+          }
+        }).observe({ type: 'layout-shift', buffered: true });
       });
 
-      // Simulate new message by sending via input
-      const input = page.locator('[data-testid="chat-input"], .chat-input, textarea').first();
-      if (await input.count() > 0) {
-        await input.fill('test perf message');
-        await input.press('Enter');
-        await page.waitForTimeout(1000);
+      await input.fill('test perf message');
+      await input.press('Enter');
+      await page.waitForTimeout(1000);
 
-        // Existing messages should not have shifted up unexpectedly
-        // (CLS check covers this too)
-        const cls = await page.evaluate(() => (window as any).__cls ?? 0);
-        expect(cls).toBeLessThan(0.1);
-      }
+      const cls = await page.evaluate(() => (window as any).__cls ?? 0);
+      expect(cls).toBeLessThan(0.1);
     }
   });
 });
@@ -157,7 +155,7 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
 test.describe('PERF-02 — Load Performance', () => {
   test('App loads within 3 seconds', async ({ page }) => {
     const start = Date.now();
-    await page.goto('http://localhost:3333');
+    await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     const loadTime = Date.now() - start;
 
@@ -165,16 +163,21 @@ test.describe('PERF-02 — Load Performance', () => {
   });
 
   test('Topic switch completes within 500ms', async ({ page }) => {
-    await page.goto('http://localhost:3333');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    const topic = page.locator('[data-testid="topic-item"], .sidebar-topic, .topic-list-item').nth(1);
-    if (await topic.count() > 0) {
-      const start = Date.now();
-      await topic.click();
+    const topics = page.getByRole('treeitem');
+    const count = await topics.count();
+    if (count > 1) {
+      // Click first topic to be in a chat
+      await topics.first().click();
+      await page.waitForTimeout(300);
 
-      // Wait for chat content to appear
-      await page.locator('[data-testid="message-list"], .message-list, .chat-messages').first().waitFor({ timeout: 2000 });
+      const start = Date.now();
+      await topics.nth(1).click();
+
+      // Wait for main content area to update
+      await page.locator('[role="main"]').waitFor({ state: 'visible', timeout: 2000 });
       const switchTime = Date.now() - start;
 
       expect(switchTime).toBeLessThan(500);
@@ -182,7 +185,7 @@ test.describe('PERF-02 — Load Performance', () => {
   });
 
   test('No render-blocking long tasks after initial load', async ({ page }) => {
-    await page.goto('http://localhost:3333');
+    await page.goto('/');
     await page.waitForLoadState('networkidle');
 
     // Start observing long tasks
