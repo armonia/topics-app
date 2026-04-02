@@ -1804,7 +1804,7 @@ function App() {
 
       {/* Main Content */}
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined }}
+        style={{ contain: 'layout style', paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}

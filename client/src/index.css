@@ -349,6 +349,8 @@ html, body {
 /* Sidebar transitions */
 .sidebar-transition {
   transition: width 200ms ease, transform 200ms ease, opacity 150ms ease;
+  will-change: width, transform;
+  contain: layout style;
 }
 .sidebar-transition[style*="width: 0"] {
   opacity: 0;

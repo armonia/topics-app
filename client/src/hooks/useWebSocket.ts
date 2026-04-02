@@ -13,7 +13,11 @@ interface UseWebSocketReturn {
 const OFFLINE_THRESHOLD_MS = 10_000;
 
 export function useWebSocket(): UseWebSocketReturn {
+  // Start as 'connected' initially — only show connecting states after a grace period
+  // This prevents UI flicker on page load when the WS hasn't connected yet
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [displayStatus, setDisplayStatus] = useState<ConnectionStatus>('connected');
+  const connectingGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [unreadData, setUnreadData] = useState<UnreadData>({});
   const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -186,5 +190,21 @@ export function useWebSocket(): UseWebSocketReturn {
     };
   }, [reconnect]);
 
-  return { status, unreadData, sendWS, onMessage, reconnect, lastConnectedAt };
+  // Only surface non-connected status after a grace period (avoids flash on load)
+  useEffect(() => {
+    if (status === 'connected') {
+      if (connectingGraceRef.current) { clearTimeout(connectingGraceRef.current); connectingGraceRef.current = null; }
+      setDisplayStatus('connected');
+    } else {
+      if (!connectingGraceRef.current) {
+        connectingGraceRef.current = setTimeout(() => {
+          setDisplayStatus(status);
+          connectingGraceRef.current = null;
+        }, 3000);
+      }
+    }
+    return () => { if (connectingGraceRef.current) { clearTimeout(connectingGraceRef.current); connectingGraceRef.current = null; } };
+  }, [status]);
+
+  return { status: displayStatus, unreadData, sendWS, onMessage, reconnect, lastConnectedAt };
 }

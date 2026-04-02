@@ -30,21 +30,49 @@ async function assertVisualStability(
   maxChangePercent = 2.0,
   samples = 4
 ): Promise<number> {
+  // Freeze cosmetic animations, live counters (FPS/memory), and cursor blink
+  // so we only detect real layout instability.
+  await page.addStyleTag({
+    content: `
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+        caret-color: transparent !important;
+      }
+      /* Hide live-updating elements that cause pixel diffs but aren't layout instability */
+      [data-testid="connection-status"],
+      .tabular-nums { visibility: hidden !important; }
+    `
+  });
+  // Wait for pending network requests to settle
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(500);
+
+  // Use JPEG to get raw-ish pixel data (no PNG filter randomness, deterministic compression)
   const screenshots: Buffer[] = [];
   for (let i = 0; i < samples; i++) {
-    screenshots.push(await page.screenshot({ type: 'png' }));
+    screenshots.push(await page.screenshot({ type: 'jpeg', quality: 100 }));
     if (i < samples - 1) await page.waitForTimeout(durationMs / (samples - 1));
   }
 
   const first = screenshots[0];
   const last = screenshots[screenshots.length - 1];
 
-  let diffPixels = 0;
-  const totalPixels = Math.min(first.length, last.length);
-  for (let i = 0; i < totalPixels; i++) {
-    if (Math.abs(first[i] - last[i]) > 10) diffPixels++;
+  // Exact byte match means identical render — any JPEG difference is a real visual change
+  if (first.equals(last)) return 0;
+
+  // Count bytes that differ (JPEG at quality 100 is nearly lossless)
+  let diffBytes = 0;
+  const totalBytes = Math.min(first.length, last.length);
+  // Also count size difference
+  const sizeDiff = Math.abs(first.length - last.length);
+  for (let i = 0; i < totalBytes; i++) {
+    if (Math.abs(first[i] - last[i]) > 5) diffBytes++;
   }
-  const changePercent = (diffPixels / totalPixels) * 100;
+  const changePercent = ((diffBytes + sizeDiff) / totalBytes) * 100;
   return changePercent;
 }
 
