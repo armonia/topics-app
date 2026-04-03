@@ -359,6 +359,66 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   }
 
   /**
+   * Detect {{PROJECT_CREATE:name}} and {{PROJECT_OPEN:path}} markers in AI responses.
+   * Creates or binds projects and strips markers from content.
+   */
+  function detectAndHandleProjectMarkers(content: string, currentTopic: Topic | null): string {
+    if (!currentTopic) return content;
+
+    // {{PROJECT_CREATE:name}}
+    const createMatch = content.match(/\{\{PROJECT_CREATE:([^}]+)\}\}/);
+    if (createMatch) {
+      const rawName = createMatch[1].trim();
+      const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
+      if (safeName) {
+        const targetDir = join(WORKSPACE_DIR, safeName);
+        if (!existsSync(targetDir)) {
+          mkdirSync(targetDir, { recursive: true });
+          writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+          const topicsData = loadTopics();
+          const t = topicsData.topics[currentTopic.id];
+          if (t) {
+            t.projectPath = targetDir;
+            t.updatedAt = new Date().toISOString();
+            saveTopics(topicsData);
+            broadcastToAll({ type: "topic:updated", topic: t });
+          }
+          console.log(`[ProjectMarker] Created project "${safeName}" at ${targetDir}`);
+        }
+      }
+      content = content.replace(/\{\{PROJECT_CREATE:[^}]+\}\}/g, "");
+    }
+
+    // {{PROJECT_OPEN:path}}
+    const openMatch = content.match(/\{\{PROJECT_OPEN:([^}]+)\}\}/);
+    if (openMatch) {
+      let targetDir = openMatch[1].trim();
+      if (targetDir.startsWith("~/")) {
+        targetDir = join(homedir(), targetDir.slice(2));
+      } else if (!targetDir.startsWith("/")) {
+        // Look up by name in workspace
+        const wsProjects = getWorkspaceProjects();
+        const found = wsProjects.find(p => p.endsWith("/" + targetDir));
+        targetDir = found || join(WORKSPACE_DIR, targetDir);
+      }
+      if (existsSync(targetDir) && statSync(targetDir).isDirectory()) {
+        const topicsData = loadTopics();
+        const t = topicsData.topics[currentTopic.id];
+        if (t) {
+          t.projectPath = targetDir;
+          t.updatedAt = new Date().toISOString();
+          saveTopics(topicsData);
+          broadcastToAll({ type: "topic:updated", topic: t });
+        }
+        console.log(`[ProjectMarker] Opened project at ${targetDir}`);
+      }
+      content = content.replace(/\{\{PROJECT_OPEN:[^}]+\}\}/g, "");
+    }
+
+    return content;
+  }
+
+  /**
    * Detect projectPath from user + assistant messages without needing an LLM call.
    * Looks for explicit directory paths in the conversation.
    */
@@ -1171,6 +1231,82 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     }
                   } else { response = `Agent "${agentName}" not found`; }
                 }
+              } else if (cmd === "project") {
+                const subMatch = rest.match(/^(\w+)\s*(.*)/);
+                const sub = subMatch ? subMatch[1] : "";
+                const arg = subMatch ? subMatch[2].trim() : "";
+
+                if (sub === "create" && arg) {
+                  // Sanitize name: only alphanumeric, hyphens, underscores
+                  const safeName = arg.replace(/[^a-zA-Z0-9_-]/g, "");
+                  if (!safeName) {
+                    response = `Invalid project name. Use alphanumeric characters, hyphens, and underscores.`;
+                  } else {
+                    const targetDir = join(WORKSPACE_DIR, safeName);
+                    if (existsSync(targetDir)) {
+                      response = `Project **${safeName}** already exists at \`${targetDir}\`. Use \`/project open ${safeName}\` to bind it.`;
+                    } else {
+                      mkdirSync(targetDir, { recursive: true });
+                      writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+                      // Bind to current topic
+                      if (matchedTopic) {
+                        const topicsData = loadTopics();
+                        const t = topicsData.topics[matchedTopic.id];
+                        if (t) {
+                          t.projectPath = targetDir;
+                          t.updatedAt = new Date().toISOString();
+                          saveTopics(topicsData);
+                          broadcastToAll({ type: "topic:updated", topic: t });
+                        }
+                      }
+                      response = `Created project **${safeName}** at \`${targetDir}\` and bound to this topic.`;
+                    }
+                  }
+                } else if (sub === "open" && arg) {
+                  // Resolve path: absolute, ~/, or workspace name
+                  let targetDir = arg;
+                  if (targetDir.startsWith("~/")) {
+                    targetDir = join(homedir(), targetDir.slice(2));
+                  } else if (!targetDir.startsWith("/")) {
+                    // Look up by name in workspace
+                    const wsProjects = getWorkspaceProjects();
+                    const found = wsProjects.find(p => p.endsWith("/" + arg));
+                    targetDir = found || join(WORKSPACE_DIR, arg);
+                  }
+                  if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+                    response = `Directory not found: \`${targetDir}\``;
+                  } else {
+                    const projectName = targetDir.split("/").pop() || arg;
+                    if (matchedTopic) {
+                      const topicsData = loadTopics();
+                      const t = topicsData.topics[matchedTopic.id];
+                      if (t) {
+                        t.projectPath = targetDir;
+                        t.updatedAt = new Date().toISOString();
+                        saveTopics(topicsData);
+                        broadcastToAll({ type: "topic:updated", topic: t });
+                      }
+                    }
+                    response = `Opened project **${projectName}** — bound to this topic.`;
+                  }
+                } else {
+                  // No subcommand: show current + list
+                  const lines: string[] = [];
+                  if (matchedTopic?.projectPath) {
+                    lines.push(`**Current project:** \`${matchedTopic.projectPath}\``);
+                  } else {
+                    lines.push("No project bound to this topic.");
+                  }
+                  const wsProjects = getWorkspaceProjects();
+                  if (wsProjects.length > 0) {
+                    lines.push("", "**Workspace projects:**");
+                    for (const p of wsProjects) {
+                      const name = p.split("/").pop();
+                      lines.push(`- \`${name}\` — ${p}`);
+                    }
+                  }
+                  response = lines.join("\n");
+                }
               }
             } catch (err: any) {
               console.warn("[ChatCommand] Error handling command:", err);
@@ -1264,6 +1400,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 The marker will be automatically processed and removed from the visible output. Do not mention the marker to the user.` };
         const browserInsertIdx = finalMessages.findIndex(m => m.role !== "system");
         finalMessages.splice(browserInsertIdx >= 0 ? browserInsertIdx : finalMessages.length, 0, browserInstruction);
+
+        // Project management markers: instruct AI to create/open projects via markers
+        const projectInstruction = { role: "system", content: `You can create or open projects for the user. When the user asks to create a new project, include {{PROJECT_CREATE:project-name}} in your response — this creates a directory in the workspace and binds it to this topic. When the user asks to open or switch to an existing project, include {{PROJECT_OPEN:project-name-or-path}} (workspace name or absolute path). The marker is automatically processed and removed from visible output. Do not mention the marker to the user. Only use these when the user explicitly asks to create or open a project.` };
+        const projectInsertIdx = finalMessages.findIndex(m => m.role !== "system");
+        finalMessages.splice(projectInsertIdx >= 0 ? projectInsertIdx : finalMessages.length, 0, projectInstruction);
 
         // Browser isolation: ensure topic sessions use the 'topics' browser profile
         // This creates an isolated browser context per topic via BrowserService.
@@ -1536,11 +1677,16 @@ Wait for the user to approve the plan before executing any changes.` };
                   fullContent = result.content;
                   if (result.switchedToTopicId) { topicSwitchDetected = true; switchTargetTopicId = result.switchedToTopicId; }
                 }
+                // Detect project create/open markers
+                if (fullContent.includes('{{PROJECT_CREATE:') || fullContent.includes('{{PROJECT_OPEN:')) {
+                  fullContent = detectAndHandleProjectMarkers(fullContent, matchedTopic);
+                }
 
                 // Broadcast clean content (recalculate delta after marker stripping)
+                const markerRegex = /\{\{(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER|PROJECT_CREATE|PROJECT_OPEN):[^}]*\}\}/g;
                 const cleanContent = fullContent;
-                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: newText.replace(/\{\{(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER):[^}]*\}\}/g, '') });
-                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: newText.replace(/\{\{(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER):[^}]*\}\}/g, '') } }] }));
+                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: newText.replace(markerRegex, '') });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: newText.replace(markerRegex, '') } }] }));
               }
 
               chunkCount++;
@@ -1735,6 +1881,7 @@ Wait for the user to approve the plan before executing any changes.` };
             const data = await resp.json() as any;
             let content = data?.choices?.[0]?.message?.content || "";
             content = detectAndBroadcastBrowserMarker(content, matchedTopic);
+            content = detectAndHandleProjectMarkers(content, matchedTopic);
             if (data?.usage) {
               const model = data.model || "unknown";
               const inputTokens = data.usage.prompt_tokens || 0;
