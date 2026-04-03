@@ -412,9 +412,12 @@ if (useTls) console.log(`🔒 TLS enabled (cert: ${tlsCert})`);
 console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/browser/:id)`);
 
 // Graceful shutdown
-process.on("SIGINT", async () => {
-  console.log("\n[Shutdown] Closing browser service...");
+async function gracefulShutdown(signal: string) {
+  console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   await browserService.close();
   closeDatabase();
   process.exit(0);
-});
+}
+
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));

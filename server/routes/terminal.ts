@@ -19,6 +19,7 @@ interface TerminalSession {
   topicId?: string;
   type: 'shell' | 'claude-code';
   skipPermissions: boolean;
+  claudeSessionId?: string;
 }
 
 const MAX_BUFFER_SIZE = 100 * 1024;
@@ -121,13 +122,27 @@ function getBufferedOutput(session: TerminalSession): Uint8Array {
   return result;
 }
 
-function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true): TerminalSession {
+function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, claudeSessionId?: string): TerminalSession {
   let file: string;
   let args: string[];
 
+  // For claude-code sessions, generate or reuse a session ID for resume support
+  let resolvedClaudeSessionId = claudeSessionId;
+  if (sessionType === 'claude-code' && !resolvedClaudeSessionId) {
+    resolvedClaudeSessionId = crypto.randomUUID();
+  }
+
   if (sessionType === 'claude-code') {
     file = 'claude';
-    args = skipPermissions ? ['--dangerously-skip-permissions'] : [];
+    args = [];
+    if (claudeSessionId) {
+      // Restoring — resume the previous conversation
+      args.push('--resume', claudeSessionId);
+    } else if (resolvedClaudeSessionId) {
+      // New session — assign a known session ID for future resume
+      args.push('--session-id', resolvedClaudeSessionId);
+    }
+    if (skipPermissions) args.push('--dangerously-skip-permissions');
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -165,6 +180,7 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
     topicId,
     type: sessionType,
     skipPermissions,
+    claudeSessionId: resolvedClaudeSessionId,
   };
 
   sessions.set(id, session);
@@ -173,9 +189,9 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
   // Persist to DB
   try {
     getDatabase().run(
-      `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt]
+      `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at, claude_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt, resolvedClaudeSessionId || null]
     );
   } catch {}
 
@@ -201,6 +217,7 @@ function restoreSessions() {
           row.topic_id || undefined,
           row.type || 'shell',
           row.skip_permissions !== 0,
+          row.claude_session_id || undefined,
         );
       } catch (err: any) {
         console.warn(`[Terminal] Failed to restore session ${row.id}: ${err.message}`);
@@ -243,6 +260,7 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
         id: s.id, name: s.name, createdAt: s.createdAt, cwd: s.cwd,
         command: s.command, clients: sessionSockets.get(s.id)?.size || 0,
         topicId: s.topicId, type: s.type,
+        claudeSessionId: s.claudeSessionId || null,
       }));
       return json(list);
     }
@@ -262,7 +280,7 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       try {
         const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
         broadcastTerminalSessions();
-        return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type });
+        return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
       } catch (err: any) {
         return errorResponse(500, `Failed to create terminal: ${err.message}`);
       }

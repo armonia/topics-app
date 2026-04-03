@@ -83,6 +83,30 @@ function runMigrations(db: Database, baseDir: string): void {
     db.query("SELECT version FROM schema_migrations").all().map((row: any) => row.version)
   );
 
+  // Backfill: if schema_migrations is empty but tables exist, prior migrations
+  // ran without tracking (the INSERT was missing before this fix).
+  // Only mark migrations 001-008 as applied; newer ones will run normally.
+  if (applied.size === 0) {
+    try {
+      const tables = new Set(
+        (db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
+          .map(t => t.name)
+      );
+      if (tables.has("messages")) {
+        for (const file of readdirSync(migrationsDir).filter(f => f.endsWith(".sql")).sort()) {
+          const m = file.match(/^(\d+)-(.+)\.sql$/);
+          if (!m) continue;
+          const v = parseInt(m[1], 10);
+          if (v > 8) break; // only backfill pre-fix migrations
+          db.run("INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+            [v, file, new Date().toISOString()]);
+          applied.add(v);
+        }
+        console.log(`[DB] Backfilled schema_migrations for ${applied.size} previously-applied migration(s)`);
+      }
+    } catch {}
+  }
+
   // Find migration files
   const files = readdirSync(migrationsDir)
     .filter(f => f.endsWith(".sql"))
@@ -102,15 +126,28 @@ function runMigrations(db: Database, baseDir: string): void {
     try {
       // Run the entire migration in a transaction
       db.transaction(() => {
-        // Split by semicolons but handle multi-line statements
-        // We run the entire SQL as exec for better compatibility
         db.exec(sql);
+        db.run(
+          "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+          [version, file, new Date().toISOString()]
+        );
       })();
       ranCount++;
       console.log(`[DB] Migration ${file} applied successfully`);
-    } catch (err) {
-      console.error(`[DB] Migration ${file} failed:`, err);
-      throw err;
+    } catch (err: any) {
+      // Handle "duplicate column" errors gracefully — the column already exists
+      // (can happen when migration previously ran without schema_migrations tracking)
+      if (err?.message?.includes("duplicate column name")) {
+        db.run(
+          "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+          [version, file, new Date().toISOString()]
+        );
+        ranCount++;
+        console.log(`[DB] Migration ${file} already applied (column exists), tracked`);
+      } else {
+        console.error(`[DB] Migration ${file} failed:`, err);
+        throw err;
+      }
     }
   }
 
