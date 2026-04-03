@@ -42,6 +42,20 @@ async function globalTeardown() {
 
   console.log("[global-teardown] Test server stopped.");
 
+  // Kill ALL orphaned Chromium processes from Playwright test runs
+  // These use a specific user-data-dir that identifies them as Playwright-spawned
+  try {
+    const chromiumPids = execSync(
+      'ps aux | grep -E "chromium|Chromium" | grep "ms-playwright\|mcp-chrome" | grep -v grep | awk \'{ print $2 }\' 2>/dev/null || true'
+    ).toString().trim();
+    if (chromiumPids) {
+      execSync(`kill -9 ${chromiumPids.split('\n').join(' ')} 2>/dev/null || true`);
+      console.log(`[global-teardown] Killed ${chromiumPids.split('\n').length} orphaned Chromium processes`);
+    } else {
+      console.log("[global-teardown] No orphaned Chromium processes found.");
+    }
+  } catch {}
+
   // Auto-run AI visual review on screenshots
   try {
     const reviewScript = `${process.cwd()}/scripts/ai-review-screenshots.sh`;

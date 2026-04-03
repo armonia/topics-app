@@ -271,4 +271,18 @@ async function seedBaselineData() {
   }
 }
 
+// Cleanup on crash/interrupt — kill test server + Chromium processes
+function emergencyCleanup() {
+  try {
+    if (serverProcess?.pid) process.kill(-serverProcess.pid, 'SIGTERM');
+  } catch {}
+  try {
+    execSync(`lsof -ti :${TEST_SERVER_PORT} 2>/dev/null | xargs kill 2>/dev/null || true`);
+    execSync('ps aux | grep -E "chromium|Chromium" | grep "ms-playwright" | grep -v grep | awk \'{ print $2 }\' | xargs kill -9 2>/dev/null || true');
+  } catch {}
+}
+process.on('SIGINT', emergencyCleanup);
+process.on('SIGTERM', emergencyCleanup);
+process.on('exit', emergencyCleanup);
+
 export default globalSetup;
