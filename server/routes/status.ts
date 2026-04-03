@@ -44,7 +44,13 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   async function checkGatewayHealth(): Promise<GatewayHealthResult> {
     const start = Date.now();
     try {
-      const resp = await gatewayFetch("session_status");
+      // Use a simple GET to check if the gateway is reachable
+      // (session_status via /tools/invoke returns 500 without a session context)
+      const resp = await fetch(`${GATEWAY_URL}/`, {
+        method: "GET",
+        headers: GATEWAY_TOKEN ? { Authorization: `Bearer ${GATEWAY_TOKEN}` } : {},
+        signal: AbortSignal.timeout(5000),
+      });
       const latencyMs = Date.now() - start;
       if (resp.ok) return { status: "online", online: true, latencyMs, httpStatus: resp.status };
       if (resp.status === 401 || resp.status === 403) return { status: "auth_error", online: false, latencyMs, httpStatus: resp.status };
