@@ -546,21 +546,27 @@ export function StandaloneChatGroup({
     }
   }, [onClosePanel, activePaneId, validatedOrderedIds, onFocusPanel]);
 
-  // Cross-group drop: accept a tab dragged from a project tab bar or solo group
+  // Cross-group drop: accept a tab dragged from another group (solo or project).
+  // When a tab is dropped onto another group's tab bar:
+  // - Unsolo the dragged topic (returns to standalone)
+  // - If the TARGET is also solo, unsolo it too (both merge into standalone)
   const handleCrossGroupDrop = useCallback((sourcePaneId: string, sourceGroupId: string, _insertIdx: number) => {
-    // sourcePaneId from project is "chat:<topicId>" — extract topicId
     const topicId = sourcePaneId.startsWith('chat:') ? sourcePaneId.slice(5) : sourcePaneId;
 
-    // If dropped from a solo group, unsolo the topic
     if (onAcceptSoloDrop && sourceGroupId !== 'standalone' && !sourcePaneId.startsWith('chat:')) {
+      // Unsolo the dragged topic
       onAcceptSoloDrop(topicId);
+      // Also unsolo this group's topic if it's a solo group (merge both into standalone)
+      if (onUnsolo && topicIds.length === 1) {
+        onUnsolo(topicIds[0]);
+      }
       return;
     }
 
     if (!onAcceptProjectTopicDrop) return;
-    if (topicIds.includes(topicId)) return; // already here
+    if (topicIds.includes(topicId)) return;
     onAcceptProjectTopicDrop(topicId);
-  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, topicIds]);
+  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, onUnsolo, topicIds]);
 
   // Handle drops from project tabs or solo groups (cross-panel-type)
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
@@ -588,16 +594,19 @@ export function StandaloneChatGroup({
     // If the topic is already in this group, skip
     if (topicIds.includes(topicId)) return;
 
-    // Try unsolo first (for solo group drops)
+    // Unsolo the dropped topic
     if (onAcceptSoloDrop) {
       onAcceptSoloDrop(topicId);
+      // Also unsolo this group if it's solo (merge both into standalone)
+      if (onUnsolo && topicIds.length === 1) {
+        onUnsolo(topicIds[0]);
+      }
       return;
     }
-    // Otherwise accept from project
     if (onAcceptProjectTopicDrop) {
       onAcceptProjectTopicDrop(topicId);
     }
-  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, topicIds]);
+  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, onUnsolo, topicIds]);
 
   // Build paneId → topicId map for context percent (only for real chat panes, not drafts)
   const paneToTopicMap = useMemo(() => {

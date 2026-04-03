@@ -20,6 +20,7 @@
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
     "dev:electron": "DEV_URL=http://localhost:5173 npm --prefix electron-app run dev",
+    "prod:electron": "bash scripts/start-electron-prod.sh",
     "build:electron": "cd electron-app && npm run build",
     "test": "npx playwright test",
     "test:ui": "npx playwright test --ui",

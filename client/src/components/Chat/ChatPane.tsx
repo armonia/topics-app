@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
@@ -123,6 +123,8 @@ export function ChatPane({
   useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
   useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus(), 50); }, [isFocused]);
+  // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
+  useEffect(() => { if (isFocused && topic.id) { topicsApi.markRead(topic.id).catch(() => {}); sendWS({ type: 'focus', topicId: topic.id }); } }, [isFocused, topic.id, sendWS]);
 
   // After first assistant response, call server auto-name for project path detection
   // Skip for draft topics (not yet persisted on server)

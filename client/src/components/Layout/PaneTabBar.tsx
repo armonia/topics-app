@@ -144,6 +144,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     setCtxMenu({ paneId, x, y });
   }, []);
 
+  const dragGhostRef = useRef<HTMLDivElement | null>(null);
+  // Cleanup ghost element if component unmounts during drag
+  useEffect(() => {
+    return () => {
+      if (dragGhostRef.current) {
+        dragGhostRef.current.remove();
+        dragGhostRef.current = null;
+      }
+    };
+  }, []);
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
     setDraggedPaneId(paneId);
@@ -152,15 +162,25 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_GROUP, groupId);
     }
     // Set PANEL_ID for edge-split drops at the PanelGrid level.
-    // Only top-level tabs (standalone group) can be split to solo grid items.
-    // Project-internal tabs must NOT carry PANEL_ID — dragging them to the outer
-    // grid edge would disconnect them from their project context.
+    // Only plain chat panes can be split to solo grid items.
+    // Project/terminal/browser/utility panes should NOT be split — they'd lose context.
     const isTopLevel = !groupId || groupId === 'standalone';
     if (isTopLevel) {
       const pane = panes.find(p => p.id === paneId);
-      e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane?.topicId || paneId);
+      const isChatOnly = pane?.type === 'chat' && pane?.topicId;
+      if (isChatOnly) {
+        e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.topicId!);
+      }
     }
     e.dataTransfer.effectAllowed = 'move';
+    // Custom drag image: styled tab preview instead of browser default file icon
+    const ghost = document.createElement('div');
+    const pane = panes.find(p => p.id === paneId);
+    ghost.textContent = pane?.title || paneId;
+    ghost.style.cssText = 'position:fixed;top:-9999px;left:-9999px;padding:4px 12px;border-radius:6px;font-size:12px;background:#333;color:#fff;white-space:nowrap;pointer-events:none;';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+    dragGhostRef.current = ghost;
   }, [onReorderPanes, groupId, panes]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {
@@ -207,6 +227,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const handleTabDragEnd = useCallback(() => {
     setDraggedPaneId(null);
     setDragOverIdx(null);
+    if (dragGhostRef.current) {
+      dragGhostRef.current.remove();
+      dragGhostRef.current = null;
+    }
   }, []);
 
   // Keyboard shortcut: Cmd/Ctrl+1-9 to select tabs

@@ -737,7 +737,27 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (body.name) { topic.name = body.name; topic.slug = slugify(body.name); }
         if (body.color !== undefined) topic.color = body.color;
         if (body.icon !== undefined) topic.icon = body.icon;
-        if (body.parentId !== undefined) topic.parentId = body.parentId || null;
+        if (body.parentId !== undefined) {
+          const newParentId = body.parentId || null;
+          // Prevent circular reference: topic can't be its own parent or ancestor
+          if (newParentId) {
+            if (newParentId === params.id) {
+              return json({ error: "topic cannot be its own parent" }, 400);
+            }
+            // Walk up the ancestor chain to detect cycles
+            let ancestorId: string | null = newParentId;
+            const visited = new Set<string>();
+            while (ancestorId) {
+              if (visited.has(ancestorId)) break; // already a cycle in existing data
+              visited.add(ancestorId);
+              if (ancestorId === params.id) {
+                return json({ error: "circular reference: topic cannot be nested under its own descendant" }, 400);
+              }
+              ancestorId = data.topics[ancestorId]?.parentId || null;
+            }
+          }
+          topic.parentId = newParentId;
+        }
         if (body.systemPrompt !== undefined) topic.systemPrompt = body.systemPrompt;
         if (body.contextFiles !== undefined) topic.contextFiles = body.contextFiles;
         if (body.pinnedMessages !== undefined) topic.pinnedMessages = body.pinnedMessages;
@@ -1281,8 +1301,9 @@ The marker will be automatically processed and removed from the visible output. 
         // Topic auto-switch: inject directory of available topics
         const topicDirectory = buildTopicDirectory(matchedTopic.id);
         {
+          const currentTopicInfo = `You are currently in topic: "${matchedTopic.name}"${matchedTopic.projectPath ? ` (project: ${matchedTopic.projectPath.split('/').pop()})` : ''}.\n\n`;
           const directorySection = topicDirectory ? `Here are the available topics:\n${topicDirectory}\n\nIf the user's message CLEARLY belongs to a different topic (not just a casual reference), include the marker {{TOPIC_SWITCH:topicId}} at the VERY BEGINNING of your response, using the target topic's id. Then respond normally to the user's message after the marker.\n` : '';
-          const topicSwitchInstruction = { role: "system", content: `You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches\n- When in doubt, stay in the current topic` };
+          const topicSwitchInstruction = { role: "system", content: `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches\n- When in doubt, stay in the current topic` };
           const switchInsertIdx = finalMessages.findIndex(m => m.role !== "system");
           finalMessages.splice(switchInsertIdx >= 0 ? switchInsertIdx : finalMessages.length, 0, topicSwitchInstruction);
         }

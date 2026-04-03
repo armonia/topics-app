@@ -41,6 +41,18 @@ async function globalTeardown() {
   }
 
   console.log("[global-teardown] Test server stopped.");
+
+  // Auto-run AI visual review on screenshots
+  try {
+    const reviewScript = `${process.cwd()}/scripts/ai-review-screenshots.sh`;
+    const fs = await import('fs');
+    if (fs.existsSync(reviewScript)) {
+      console.log("[global-teardown] Running AI visual review...");
+      execSync(`bash ${reviewScript}`, { stdio: 'inherit', timeout: 120000 });
+    }
+  } catch (e) {
+    console.log(`[global-teardown] AI review skipped: ${e instanceof Error ? e.message : e}`);
+  }
 }
 
 export default globalTeardown;

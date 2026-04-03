@@ -73,6 +73,9 @@ export function MessageList({
   const prevTopicIdRef = useRef(topic.id);
   const needsScrollRef = useRef(false);
   const prevLoadingRef = useRef(false);
+  // Guard: ignore atBottomStateChange for a brief period after forced scrolls
+  // to prevent Virtuoso's layout measurement from falsely setting isScrolledUp=true
+  const scrollGuardRef = useRef(false);
   const settings = loadSettings();
   const isCompact = settings.messageDensity === 'compact';
 
@@ -90,6 +93,12 @@ export function MessageList({
     [currentMessages]
   );
 
+  // Helper: activate scroll guard for a brief period after forced scrolls
+  const activateScrollGuard = useCallback(() => {
+    scrollGuardRef.current = true;
+    setTimeout(() => { scrollGuardRef.current = false; }, 600);
+  }, []);
+
   // Reset scroll state on topic switch
   useEffect(() => {
     if (prevTopicIdRef.current !== topic.id) {
@@ -100,19 +109,22 @@ export function MessageList({
       setNewMsgCount(0);
       setShowNewBanner(false);
       prevMsgCountRef.current = 0;
+      activateScrollGuard();
     }
-  }, [topic.id]);
+  }, [topic.id, activateScrollGuard]);
 
   // Scroll to bottom after messages load for a new topic
   useEffect(() => {
     if (needsScrollRef.current && filteredMessages.length > 0 && !currentLoading) {
       needsScrollRef.current = false;
-      const timer = setTimeout(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
-      }, 100);
-      return () => clearTimeout(timer);
+      activateScrollGuard();
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+      requestAnimationFrame(() => {
+        const el = scrollerElRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
     }
-  }, [filteredMessages.length, currentLoading]);
+  }, [filteredMessages.length, currentLoading, activateScrollGuard]);
 
   // Scroll to bottom after loadHistory completes (loading: true → false).
   // On page refresh or tab switch, Virtuoso mounts at the bottom via
@@ -122,11 +134,14 @@ export function MessageList({
     const wasLoading = prevLoadingRef.current;
     prevLoadingRef.current = currentLoading;
     if (wasLoading && !currentLoading && filteredMessages.length > 0) {
-      setTimeout(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
-      }, 100);
+      activateScrollGuard();
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+      requestAnimationFrame(() => {
+        const el = scrollerElRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
     }
-  }, [currentLoading, filteredMessages.length]);
+  }, [currentLoading, filteredMessages.length, activateScrollGuard]);
 
   // Force scroll anchor when streaming starts (user just sent a message).
   // When new items are added (user msg + assistant placeholder), Virtuoso may
@@ -138,9 +153,10 @@ export function MessageList({
     if (_currentStreaming && !prevStreamingRef.current) {
       isScrolledUpRef.current = false;
       setIsScrolledUp(false);
+      activateScrollGuard();
     }
     prevStreamingRef.current = _currentStreaming;
-  }, [_currentStreaming]);
+  }, [_currentStreaming, activateScrollGuard]);
 
   // Auto-scroll during streaming: the last message content grows in-place
   // (no new items added), so Virtuoso's followOutput doesn't trigger.
@@ -169,15 +185,18 @@ export function MessageList({
   }, [currentMessages.length, isScrolledUp]);
 
   const scrollToBottom = useCallback(() => {
-    // First scroll smooth, then ensure we're truly at the bottom
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
-    // Follow up with a forced scroll after animation completes
-    setTimeout(() => {
-      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
-    }, 400);
+    activateScrollGuard();
+    isScrolledUpRef.current = false;
+    setIsScrolledUp(false);
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+    // Pin via DOM on next frame to prevent any drift after Virtuoso settles
+    requestAnimationFrame(() => {
+      const el = scrollerElRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
     setNewMsgCount(0);
     setShowNewBanner(false);
-  }, []);
+  }, [activateScrollGuard]);
 
   return (
     <div
@@ -267,6 +286,18 @@ export function MessageList({
           followOutput={_currentStreaming ? false : 'smooth'}
           atBottomThreshold={50}
           atBottomStateChange={(atBottom) => {
+            // During scroll guard, only suppress brief false "not at bottom" reports
+            // (the bounce), but allow genuine user scroll-up to be detected
+            if (!atBottom && scrollGuardRef.current) {
+              const el = scrollerElRef.current;
+              if (el) {
+                const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                // If user genuinely scrolled far from bottom (>150px), respect it
+                if (distFromBottom < 150) return;
+              } else {
+                return;
+              }
+            }
             const scrolledUp = !atBottom;
             isScrolledUpRef.current = scrolledUp;
             setIsScrolledUp(scrolledUp);

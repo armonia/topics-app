@@ -9,6 +9,9 @@
     "postinstall": "/usr/libexec/PlistBuddy -c \"Set :CFBundleName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null; /usr/libexec/PlistBuddy -c \"Set :CFBundleDisplayName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null || true",
     "dev": "electronmon ."
   },
+  "dependencies": {
+    "ws": "^8.20.0"
+  },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
@@ -29,7 +32,13 @@
       "main.js",
       "preload.js",
       "icon.icns",
-      "tray-icon.png"
+      "tray-icon.png",
+      "trayTemplate.png",
+      "trayTemplate@2x.png",
+      "trayUnreadTemplate.png",
+      "trayUnreadTemplate@2x.png",
+      "trayDisconnectedTemplate.png",
+      "trayDisconnectedTemplate@2x.png"
     ]
   }
 }

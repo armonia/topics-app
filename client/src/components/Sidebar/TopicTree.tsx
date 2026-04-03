@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, GitBranch, LayoutGrid, FolderOpen, MoreHorizontal, X } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, GitBranch, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { TopicItem } from './TopicItem';
@@ -118,7 +118,7 @@ export function TopicTree({
   const overflowBtnRef = useRef<HTMLButtonElement>(null);
   const [projectAddMenu, setProjectAddMenu] = useState<string | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
-  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[] } | null>(null);
 
 
   // Project tab status for sidebar indicators
@@ -260,7 +260,12 @@ export function TopicTree({
     await onArchiveTopic(topicId, archive);
   };
 
-  const renderLevel = (parentId: string | null, depth = 0, includeArchived = false, hideIcon = false): React.ReactNode[] => {
+  const renderLevel = (parentId: string | null, depth = 0, includeArchived = false, hideIcon = false, visited?: Set<string>): React.ReactNode[] => {
+    // Guard against circular references (max depth + visited set)
+    if (depth > 20) return [];
+    const seen = visited || new Set<string>();
+    if (parentId && seen.has(parentId)) return []; // circular reference detected
+    if (parentId) seen.add(parentId);
     const children = getChildren(parentId).sort((a, b) => {
       // All levels: respect sortOrder when set, fall back to recency
       // (matches chatTopicIds and handleDragEnd sort logic)
@@ -315,7 +320,7 @@ export function TopicTree({
       );
 
       if (hasChildren && isExpanded) {
-        result.push(...renderLevel(topic.id, depth + 1, includeArchived, hideIcon));
+        result.push(...renderLevel(topic.id, depth + 1, includeArchived, hideIcon, seen));
       }
     }
 
@@ -327,10 +332,13 @@ export function TopicTree({
     return topic.name.toLowerCase().includes(searchQuery.toLowerCase());
   };
 
-  const matchesSearchWithDescendants = (topic: Topic): boolean => {
+  const matchesSearchWithDescendants = (topic: Topic, visited?: Set<string>): boolean => {
     if (matchesSearch(topic)) return true;
+    const seen = visited || new Set<string>();
+    if (seen.has(topic.id)) return false; // circular reference
+    seen.add(topic.id);
     const children = getChildren(topic.id);
-    return children.some(child => matchesSearchWithDescendants(child));
+    return children.some(child => matchesSearchWithDescendants(child, seen));
   };
 
   const archivedTopics = getArchivedTopics();
@@ -393,9 +401,9 @@ export function TopicTree({
           isProjectFocused ? 'bg-primary/8 dark:bg-primary/15' : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
         }`}
         onContextMenu={(e) => {
-          if (!onArchiveProject) return;
           e.preventDefault();
-          setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: path, projectName, allArchived });
+          const unreadTopicIds = allChats.filter(t => (unreadData[t.id]?.unreadCount || 0) > 0).map(t => t.id);
+          setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: path, projectName, allArchived, unreadTopicIds });
         }}
       >
         {isProjectFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
@@ -1086,22 +1094,38 @@ export function TopicTree({
       )}
 
       {/* Project context menu */}
-      {projectContextMenu && onArchiveProject && (
+      {projectContextMenu && (
         <div
           className="fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[100] min-w-[160px]"
           style={{ top: projectContextMenu.y, left: projectContextMenu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={() => {
-              onArchiveProject(projectContextMenu.projectPath, !projectContextMenu.allArchived);
-              setProjectContextMenu(null);
-            }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
-          >
-            {projectContextMenu.allArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-            <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>
-          </button>
+          {projectContextMenu.unreadTopicIds.length > 0 && (
+            <button
+              onClick={() => {
+                for (const id of projectContextMenu.unreadTopicIds) {
+                  topicsApi.markRead(id).catch(() => {});
+                }
+                setProjectContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <CheckCheck size={14} />
+              <span>Mark all as read</span>
+            </button>
+          )}
+          {onArchiveProject && (
+            <button
+              onClick={() => {
+                onArchiveProject(projectContextMenu.projectPath, !projectContextMenu.allArchived);
+                setProjectContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              {projectContextMenu.allArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>
+            </button>
+          )}
         </div>
       )}
     </div>

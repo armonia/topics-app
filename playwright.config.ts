@@ -19,6 +19,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     viewport: { width: 1280, height: 800 },
+    launchOptions: { slowMo: 300 }, // 300ms between actions for watchable videos
     permissions: ["clipboard-read", "clipboard-write"],
   },
   outputDir: "test-results/artifacts",

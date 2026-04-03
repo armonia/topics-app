@@ -36,9 +36,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onBrowserEvent: (callback) => {
     ipcRenderer.on('browser-event', (event, data) => callback(data));
   },
-  
+
   removeBrowserEventListener: () => {
     ipcRenderer.removeAllListeners('browser-event');
+  },
+
+  // Navigate to a specific topic (triggered from tray/notifications)
+  onNavigateToTopic: (callback) => {
+    ipcRenderer.on('navigate-to-topic', (event, topicId) => callback(topicId));
+  },
+
+  // Tell main process which topic is currently focused (for notification suppression)
+  reportFocusedTopic: (topicId) => {
+    ipcRenderer.send('topic:focused', topicId);
   },
 
   // Window control

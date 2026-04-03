@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.armonia.topics-electron-prod</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/user/.openclaw/workspace/topics-app/scripts/start-electron-prod.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/user/.openclaw/workspace/topics-app</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>3333</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>GATEWAY_TOKEN</key>
+        <string>***REMOVED***</string>
+        <key>GATEWAY_URL</key>
+        <string>http://127.0.0.1:18789</string>
+        <key>ELEVENLABS_API_KEY</key>
+        <string>***REMOVED***</string>
+        <key>PATH</key>
+        <string>/Users/user/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/topics-electron-prod.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/topics-electron-prod.err</string>
+</dict>
+</plist>

@@ -4,6 +4,7 @@ import { ProjectHeader, getProjectName } from './ProjectHeader';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
+import { topicsApi } from '../../lib/api';
 import { createPaneId, createGroupId, PANE_CONFIG, getTerminalSessionFromPaneId } from '../../lib/paneConfig';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
@@ -212,6 +213,15 @@ export function ProjectWindowPane({
   useEffect(() => {
     onActiveTopicChange?.(activeTopicId);
   }, [activeTopicId, onActiveTopicChange]);
+
+  // Mark active topic as read when it changes within the project
+  const isProjectFocused = focusedPanelId === createPaneId('project', projectPath);
+  useEffect(() => {
+    if (activeTopicId && isProjectFocused) {
+      topicsApi.markRead(activeTopicId).catch(() => {});
+      sendWS({ type: 'focus', topicId: activeTopicId });
+    }
+  }, [activeTopicId, isProjectFocused, sendWS]);
 
   const paneToTopicMap = useMemo(() => {
     const map: Record<string, string> = {};

@@ -489,6 +489,9 @@ export function PanelGrid({
 
       return rows;
     });
+    // Note: gridRowHeights sync is handled by the effect on [gridRows.length].
+    // The rendering fallback `gridRowHeights[rowIdx] ?? 1 / gridRows.length` covers
+    // the first render cycle before the effect runs.
   }, []);
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
@@ -649,15 +652,31 @@ export function PanelGrid({
     const dropTarget = gridDropTargetRef.current;
     if (!dropTarget) return;
 
+    // Re-verify drop zone from actual mouse position at drop time.
+    // The dragover ref may be stale if the mouse moved between last dragover and drop.
+    const cell = (e.currentTarget as HTMLElement);
+    const rect = cell.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const edgeSize = 30;
+    let actualZone: 'left' | 'right' | 'top' | 'bottom' | 'center';
+    if (x < edgeSize) actualZone = 'left';
+    else if (x > rect.width - edgeSize) actualZone = 'right';
+    else if (y < edgeSize) actualZone = 'top';
+    else if (y > rect.height - edgeSize) actualZone = 'bottom';
+    else actualZone = 'center';
+
     let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceTopicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
 
-    // For PANE_TAB drops: only intercept at explicit edge zones (left/right/top/bottom).
-    // Center drops and within-tab-bar reorders must pass through to children.
+    // PANE_TAB drops: edge zones create split + move tab, center lets tab bar handle reorder.
     if (!effectiveKey && sourcePaneTab) {
-      if (dropTarget.zone === 'center') return; // let tab bar handle reorder
+      // Use actual zone at drop time, not the stale dragover zone
+      if (actualZone === 'center') return; // let tab bar handle reorder
       if (!sourceTopicId) return; // no PANEL_ID means project-internal tab — skip
+      // Update dropTarget zone to match actual position
+      dropTarget.zone = actualZone;
     }
 
     e.preventDefault();
@@ -666,6 +685,15 @@ export function PanelGrid({
     // Tab drag → create a solo standalone item at the target position
     if (!effectiveKey && sourcePaneTab && sourceTopicId) {
       const soloKey = `solo:${sourceTopicId}`;
+
+      // Guard: don't split a solo item onto its own edge (self-drop)
+      const targetKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
+      if (targetKey === soloKey) {
+        setDraggingGridKey(null);
+        setGridDropTarget(null);
+        gridDropTargetRef.current = null;
+        return;
+      }
 
       if (itemMap.has(soloKey)) {
         // Already a solo item — reorder via the grid path below
@@ -1010,7 +1038,7 @@ export function PanelGrid({
                       onSplitPane={handleSplitPane}
                       persistOrder={key === 'standalone'}
                       onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
-                      onAcceptSoloDrop={key === 'standalone' ? handleUnsoloTopic : undefined}
+                      onAcceptSoloDrop={handleUnsoloTopic}
                     />
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}

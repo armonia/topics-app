@@ -1,6 +1,22 @@
-const { app, BrowserWindow, BrowserView, ipcMain, Menu, Tray, nativeImage, shell, session } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, Menu, Tray, nativeImage, shell, session, Notification } = require('electron');
 const path = require('path');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const WebSocket = require('ws');
+
+// For self-signed TLS certs on localhost
+const httpAgent = new https.Agent({ rejectUnauthorized: false });
+function serverGet(urlPath, callback) {
+  const url = new URL(urlPath, SERVER_URL || 'https://localhost:3333');
+  const mod = url.protocol === 'https:' ? https : http;
+  return mod.get(url.href, { agent: url.protocol === 'https:' ? httpAgent : undefined }, callback);
+}
+function serverRequest(urlPath, options = {}) {
+  const url = new URL(urlPath, SERVER_URL || 'https://localhost:3333');
+  const mod = url.protocol === 'https:' ? https : http;
+  return mod.request(url.href, { ...options, agent: url.protocol === 'https:' ? httpAgent : undefined });
+}
 
 let mainWindow = null;
 let tray = null;
@@ -16,8 +32,8 @@ let browserPanelVisible = false;
 let browserPanelWidth = 0.4; // 40% width when visible
 
 // Server URL - use DEV_URL env var for hot reload development
-const SERVER_URL = process.env.DEV_URL || 'http://localhost:3333';
-const isDev = !app.isPackaged;
+const SERVER_URL = process.env.DEV_URL || 'https://localhost:3333';
+const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
 // CDP port for browser control (Electron DevTools)
 // Use a port far from Chrome Topics (19222) to avoid conflicts
@@ -262,66 +278,450 @@ function notifyTopics(event, data) {
   }
 }
 
-// ============ Unread Count Polling ============
-let unreadTimer = null;
-let lastUnreadCount = 0;
+// ============ Tray State ============
 
-function startUnreadPolling() {
-  // Poll every 5 seconds for unread count
-  unreadTimer = setInterval(fetchUnreadCount, 5000);
-  // Initial fetch
-  fetchUnreadCount();
+const trayState = {
+  gatewayConnected: false,
+  agentCount: 0,
+  unread: new Map(),       // topicId -> { unreadCount }
+  topics: new Map(),       // topicId -> { id, name, color, icon }
+  focusedTopicId: null,    // which topic the renderer is showing
+};
+
+// Tray icon images (loaded once)
+let trayIcons = {};
+
+function loadTrayIcons() {
+  // Use the existing tray-icon.png as base for all states
+  const baseIcon = nativeImage.createFromPath(path.join(__dirname, 'tray-icon.png')).resize({ width: 18, height: 18 });
+  baseIcon.setTemplateImage(true);
+
+  // All three states use the same base icon — visual differentiation comes from
+  // tray.setTitle() (unread count) and tooltip text (gateway status)
+  trayIcons = {
+    normal: baseIcon,
+    unread: baseIcon,
+    disconnected: baseIcon,
+  };
 }
 
-async function fetchUnreadCount() {
+// ============ WebSocket Bridge ============
+
+let trayWS = null;
+let wsReconnectTimer = null;
+let wsReconnectDelay = 1000;
+let topicCacheTimer = null;
+
+function startWSBridge() {
+  if (trayWS) return;
+  const wsUrl = SERVER_URL.replace(/^http/, 'ws') + '/ws';
+  console.log('[Topics Electron] WS bridge connecting to', wsUrl);
+
   try {
-    const http = require('http');
-    const req = http.get('http://localhost:3333/api/unread', (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          let totalUnread = 0;
-          let topicsWithUnread = 0;
-          
-          for (const [key, value] of Object.entries(json)) {
-            if (value && value.unreadCount > 0) {
-              totalUnread += value.unreadCount;
-              topicsWithUnread++;
-            }
+    trayWS = new WebSocket(wsUrl, { rejectUnauthorized: false });
+  } catch (err) {
+    console.error('[Topics Electron] WS bridge connection error:', err.message);
+    scheduleWSReconnect();
+    return;
+  }
+
+  trayWS.on('open', () => {
+    console.log('[Topics Electron] WS bridge connected');
+    wsReconnectDelay = 1000; // reset backoff
+    fetchTopicCache();
+    // Refresh topic cache every 60s
+    if (topicCacheTimer) clearInterval(topicCacheTimer);
+    topicCacheTimer = setInterval(fetchTopicCache, 60000);
+  });
+
+  trayWS.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      handleWSMessage(msg);
+    } catch (e) {}
+  });
+
+  trayWS.on('close', () => {
+    console.log('[Topics Electron] WS bridge disconnected');
+    trayWS = null;
+    scheduleWSReconnect();
+  });
+
+  trayWS.on('error', (err) => {
+    console.error('[Topics Electron] WS bridge error:', err.message);
+    if (trayWS) { try { trayWS.close(); } catch (e) {} }
+    trayWS = null;
+    scheduleWSReconnect();
+  });
+}
+
+function scheduleWSReconnect() {
+  if (wsReconnectTimer) return;
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+    startWSBridge();
+  }, wsReconnectDelay);
+}
+
+function stopWSBridge() {
+  if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+  if (topicCacheTimer) { clearInterval(topicCacheTimer); topicCacheTimer = null; }
+  if (trayWS) { try { trayWS.close(); } catch (e) {} trayWS = null; }
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'unread:init':
+      trayState.unread.clear();
+      if (msg.data) {
+        for (const [topicId, info] of Object.entries(msg.data)) {
+          if (info && info.unreadCount > 0) {
+            trayState.unread.set(topicId, { unreadCount: info.unreadCount });
           }
-          
-          updateBadges(topicsWithUnread, totalUnread);
-        } catch (e) {}
-      });
+        }
+      }
+      onStateChanged();
+      break;
+
+    case 'unread:updated':
+      if (msg.unreadCount > 0) {
+        trayState.unread.set(msg.topicId, { unreadCount: msg.unreadCount });
+      } else {
+        trayState.unread.delete(msg.topicId);
+      }
+      onStateChanged();
+      break;
+
+    case 'gateway:status':
+      const wasConnected = trayState.gatewayConnected;
+      trayState.gatewayConnected = !!msg.connected;
+      if (wasConnected !== trayState.gatewayConnected) {
+        notifyGatewayStatus(trayState.gatewayConnected);
+      }
+      onStateChanged();
+      break;
+
+    case 'agents:sessions':
+      if (Array.isArray(msg.sessions)) {
+        const prevCount = trayState.agentCount;
+        trayState.agentCount = msg.sessions.filter(s => s.status === 'active').length;
+        // Notify on agent completion
+        if (prevCount > trayState.agentCount) {
+          const completed = msg.sessions.find(s => s.status === 'completed');
+          if (completed) notifyAgentCompleted(completed);
+        }
+      }
+      onStateChanged();
+      break;
+
+    case 'message':
+      if (msg.sessionKey && msg.message) {
+        handleNewMessage(msg);
+      }
+      break;
+
+    case 'approval:created':
+      notifyApproval(msg);
+      break;
+
+    case 'pong':
+      break; // ignore heartbeats
+  }
+}
+
+// ============ Topic Cache ============
+
+function fetchTopicCache() {
+  const req = serverGet('/api/topics', (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        // API returns { topics: { id: {...}, ... }, workspaceProjects: [...] }
+        const topicsMap = json.topics || json;
+        trayState.topics.clear();
+        for (const [id, t] of Object.entries(topicsMap)) {
+          if (t && !t.archived) {
+            trayState.topics.set(id, { id, name: t.name, color: t.color, icon: t.icon });
+          }
+        }
+        scheduleTrayMenuRebuild();
+      } catch (e) {}
     });
+  });
+  req.on('error', () => {});
+}
+
+function getTopicName(topicId) {
+  const topic = trayState.topics.get(topicId);
+  if (topic) return topic.name;
+  // Unknown topic — trigger cache refresh
+  fetchTopicCache();
+  return topicId;
+}
+
+// ============ Dynamic Tray Menu ============
+
+let menuRebuildTimer = null;
+
+function scheduleTrayMenuRebuild() {
+  if (menuRebuildTimer) return;
+  menuRebuildTimer = setTimeout(() => {
+    menuRebuildTimer = null;
+    rebuildTrayMenu();
+    updateTrayIcon();
+    updateDockBadge();
+  }, 1000);
+}
+
+function onStateChanged() {
+  scheduleTrayMenuRebuild();
+}
+
+function rebuildTrayMenu() {
+  if (!tray) return;
+
+  const appLabel = isDev ? 'Topics DEV' : 'Topics';
+  const items = [];
+
+  // Gateway status
+  items.push({
+    label: trayState.gatewayConnected ? 'Gateway: Connected  \u2713' : 'Gateway: Disconnected  \u2717',
+    enabled: false,
+  });
+
+  // Agent count
+  if (trayState.agentCount > 0) {
+    items.push({ label: `Agents: ${trayState.agentCount} active`, enabled: false });
+  }
+
+  // Unread topics
+  const unreadTopics = [];
+  for (const [topicId, info] of trayState.unread) {
+    unreadTopics.push({ topicId, unreadCount: info.unreadCount, name: getTopicName(topicId) });
+  }
+  unreadTopics.sort((a, b) => b.unreadCount - a.unreadCount);
+
+  if (unreadTopics.length > 0) {
+    items.push({ type: 'separator' });
+    for (const topic of unreadTopics.slice(0, 10)) {
+      items.push({
+        label: `${topic.name} (${topic.unreadCount})`,
+        click: () => navigateToTopic(topic.topicId),
+      });
+    }
+    items.push({ type: 'separator' });
+    items.push({
+      label: 'Mark All Read',
+      click: () => markAllRead(),
+    });
+  }
+
+  items.push({ type: 'separator' });
+  items.push({
+    label: 'Open at Login',
+    type: 'checkbox',
+    checked: app.getLoginItemSettings().openAtLogin,
+    click: (menuItem) => {
+      app.setLoginItemSettings({ openAtLogin: menuItem.checked });
+    },
+  });
+  items.push({ label: `Show ${appLabel}`, click: () => { mainWindow.show(); mainWindow.focus(); } });
+  items.push({ label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } });
+
+  const contextMenu = Menu.buildFromTemplate(items);
+  tray.setContextMenu(contextMenu);
+
+  // Update tooltip
+  const totalUnread = getTotalUnread();
+  if (totalUnread > 0) {
+    tray.setToolTip(`${appLabel} (${totalUnread} unread)`);
+  } else {
+    tray.setToolTip(appLabel);
+  }
+}
+
+function getTotalUnread() {
+  let total = 0;
+  for (const info of trayState.unread.values()) {
+    total += info.unreadCount;
+  }
+  return total;
+}
+
+// ============ Dynamic Tray Icon ============
+
+function updateTrayIcon() {
+  if (!tray || !trayIcons.normal) return;
+
+  const totalUnread = getTotalUnread();
+
+  // Icon priority: unread > disconnected > normal
+  if (totalUnread > 0) {
+    tray.setImage(trayIcons.unread);
+    tray.setTitle(String(totalUnread), { fontType: 'monospacedDigit' });
+  } else if (!trayState.gatewayConnected) {
+    tray.setImage(trayIcons.disconnected);
+    tray.setTitle('');
+  } else {
+    tray.setImage(trayIcons.normal);
+    tray.setTitle('');
+  }
+}
+
+function updateDockBadge() {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  const totalUnread = getTotalUnread();
+  if (totalUnread > 0) {
+    app.dock.setBadge(String(totalUnread));
+  } else {
+    app.dock.setBadge(isDev ? 'DEV' : '');
+  }
+}
+
+// ============ Mark All Read ============
+
+function markAllRead() {
+  for (const topicId of trayState.unread.keys()) {
+    const req = serverRequest(`/api/topics/${topicId}/read`, { method: 'POST' });
     req.on('error', () => {});
     req.end();
-  } catch (e) {}
+  }
 }
 
-function updateBadges(topicsWithUnread, totalUnread) {
-  // Update tray tooltip with count
-  const appLabel = isDev ? 'Topics DEV' : 'Topics';
-  if (tray) {
-    if (topicsWithUnread > 0) {
-      tray.setToolTip(`${appLabel} (${topicsWithUnread} with unread)`);
-    } else {
-      tray.setToolTip(appLabel);
+// ============ Navigate to Topic ============
+
+function navigateToTopic(topicId) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('navigate-to-topic', topicId);
+  }
+}
+
+// ============ Notification Manager ============
+
+const activeNotifications = new Map(); // id -> { notification, createdAt }
+const notificationCooldowns = new Map(); // topicId -> lastNotifiedAt
+let notificationCleanupTimer = null;
+
+function startNotificationCleanup() {
+  notificationCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [id, entry] of activeNotifications) {
+      if (now - entry.createdAt > 5 * 60 * 1000) {
+        activeNotifications.delete(id);
+      }
     }
+  }, 60000);
+}
+
+function stopNotificationCleanup() {
+  if (notificationCleanupTimer) {
+    clearInterval(notificationCleanupTimer);
+    notificationCleanupTimer = null;
+  }
+  activeNotifications.clear();
+}
+
+function showNotification({ id, title, body, topicId }) {
+  if (!Notification.isSupported()) return;
+
+  const notif = new Notification({ title, body, silent: false });
+  const notifId = id || `notif-${Date.now()}`;
+
+  activeNotifications.set(notifId, { notification: notif, createdAt: Date.now() });
+
+  notif.on('click', () => {
+    activeNotifications.delete(notifId);
+    if (topicId) {
+      navigateToTopic(topicId);
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  notif.on('close', () => {
+    activeNotifications.delete(notifId);
+  });
+
+  notif.show();
+}
+
+function isTopicOnCooldown(topicId) {
+  const last = notificationCooldowns.get(topicId);
+  if (last && Date.now() - last < 10000) return true;
+  return false;
+}
+
+function setTopicCooldown(topicId) {
+  notificationCooldowns.set(topicId, Date.now());
+}
+
+// ============ Notification Triggers ============
+
+function handleNewMessage(msg) {
+  // Extract topicId from sessionKey (format: "topic:TOPIC_ID" or similar)
+  const topicId = msg.sessionKey?.replace('topic:', '');
+  if (!topicId) return;
+
+  // Skip if window is focused on this topic
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() && trayState.focusedTopicId === topicId) {
+    return;
   }
 
-  // Update dock badge (macOS)
-  if (process.platform === 'darwin' && app.dock) {
-    if (totalUnread > 0) {
-      app.dock.setBadge(String(totalUnread));
-    } else {
-      app.dock.setBadge(isDev ? 'DEV' : '');
-    }
+  // Rate limit
+  if (isTopicOnCooldown(topicId)) return;
+  setTopicCooldown(topicId);
+
+  const topicName = getTopicName(topicId);
+  const messageText = msg.message?.content || msg.message?.text || '';
+  const preview = messageText.length > 100 ? messageText.substring(0, 100) + '...' : messageText;
+
+  showNotification({
+    id: `msg-${topicId}-${Date.now()}`,
+    title: topicName,
+    body: preview || 'New message',
+    topicId,
+  });
+}
+
+function notifyAgentCompleted(session) {
+  showNotification({
+    id: `agent-${session.id}-${Date.now()}`,
+    title: 'Agent completed',
+    body: session.agent_id || session.agentId || 'Agent session finished',
+    topicId: session.topic_id || session.topicId,
+  });
+}
+
+function notifyApproval(msg) {
+  const topicId = msg.topicId || msg.topic_id;
+  showNotification({
+    id: `approval-${Date.now()}`,
+    title: 'Approval needed',
+    body: msg.toolName || msg.tool_name || 'Action requires approval',
+    topicId,
+  });
+}
+
+function notifyGatewayStatus(connected) {
+  if (connected) {
+    showNotification({
+      id: `gateway-online-${Date.now()}`,
+      title: 'OpenClaw online',
+      body: 'Gateway connection restored',
+    });
+  } else {
+    showNotification({
+      id: `gateway-offline-${Date.now()}`,
+      title: 'OpenClaw offline',
+      body: 'Gateway connection lost',
+    });
   }
-  
-  lastUnreadCount = totalUnread;
 }
 
 // ============ App Menu (Edit/View shortcuts) ============
@@ -420,33 +820,20 @@ function createAppMenu() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'tray-icon.png');
-  const icon = nativeImage.createFromPath(iconPath);
-  tray = new Tray(icon.resize({ width: 18, height: 18 }));
+  loadTrayIcons();
+  console.log('[Topics Electron] Creating tray, icon empty?', trayIcons.normal.isEmpty(), 'size:', trayIcons.normal.getSize());
+  tray = new Tray(trayIcons.normal);
+  console.log('[Topics Electron] Tray created');
 
-  const contextMenu = Menu.buildFromTemplate([
-    { label: isDev ? 'Show Topics DEV' : 'Show Topics', click: () => mainWindow.show() },
-    { type: 'separator' },
-    { 
-      label: 'Open at Login',
-      type: 'checkbox',
-      checked: app.getLoginItemSettings().openAtLogin,
-      click: (menuItem) => {
-        app.setLoginItemSettings({ openAtLogin: menuItem.checked });
-      }
-    },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } },
-  ]);
-
-  tray.setToolTip(isDev ? 'Topics DEV' : 'Topics');
-  tray.setContextMenu(contextMenu);
+  // Build initial menu
+  rebuildTrayMenu();
 
   tray.on('click', () => {
-    if (mainWindow.isVisible()) {
+    if (mainWindow && mainWindow.isVisible()) {
       mainWindow.hide();
-    } else {
+    } else if (mainWindow) {
       mainWindow.show();
+      mainWindow.focus();
     }
   });
 }
@@ -674,6 +1061,11 @@ ipcMain.handle('window:closeDetached', async (event, topicId) => {
   return { success: false };
 });
 
+// --- Topic Focus Tracking (for notification suppression) ---
+ipcMain.on('topic:focused', (event, topicId) => {
+  trayState.focusedTopicId = topicId || null;
+});
+
 ipcMain.handle('window:focusMain', async () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
@@ -776,6 +1168,64 @@ function startCDPInfoServer() {
   });
 }
 
+// ============ Production Asset Watcher ============
+
+let assetWatcher = null;
+let reloadDebounceTimer = null;
+
+function startAssetWatcher() {
+  // Watch /public/ for client asset rebuilds (production hot reload)
+  const publicDir = path.join(__dirname, '..', 'public');
+  if (!fs.existsSync(publicDir)) {
+    console.log('[Topics Electron] /public/ directory not found, skipping asset watcher');
+    return;
+  }
+
+  try {
+    assetWatcher = fs.watch(publicDir, { recursive: true }, (eventType, filename) => {
+      // Debounce: wait 500ms for Vite to finish writing all chunks
+      if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
+      reloadDebounceTimer = setTimeout(() => {
+        console.log(`[Topics Electron] Asset change detected (${filename}), reloading...`);
+        reloadAllAppWindows();
+      }, 500);
+    });
+
+    console.log('[Topics Electron] Asset watcher started on /public/');
+  } catch (err) {
+    console.error('[Topics Electron] Failed to start asset watcher:', err.message);
+  }
+}
+
+function reloadAllAppWindows() {
+  // Reload main window
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.reload();
+  }
+
+  // Reload all detached topic windows
+  for (const [topicId, win] of detachedWindows) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.reload();
+    }
+  }
+
+  // NOTE: BrowserView instances (browser tabs) are NOT reloaded —
+  // they point to external URLs, not the app's client assets.
+}
+
+function stopAssetWatcher() {
+  if (reloadDebounceTimer) {
+    clearTimeout(reloadDebounceTimer);
+    reloadDebounceTimer = null;
+  }
+  if (assetWatcher) {
+    assetWatcher.close();
+    assetWatcher = null;
+    console.log('[Topics Electron] Asset watcher stopped');
+  }
+}
+
 // ============ App Lifecycle ============
 
 app.whenReady().then(() => {
@@ -788,8 +1238,16 @@ app.whenReady().then(() => {
   createAppMenu();
   createWindow();
   createTray();
-  startUnreadPolling();
+  startWSBridge();
+  startNotificationCleanup();
   startCDPInfoServer();
+  startAssetWatcher();
+
+  // Enable auto-start at login on first launch
+  const loginSettings = app.getLoginItemSettings();
+  if (!loginSettings.openAtLogin && !loginSettings.wasOpenedAtLogin) {
+    app.setLoginItemSettings({ openAtLogin: true });
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -808,6 +1266,23 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   app.isQuitting = true;
+});
+
+app.on('will-quit', () => {
+  stopWSBridge();
+  stopNotificationCleanup();
+  stopAssetWatcher();
+});
+
+// Allow self-signed TLS certificates for localhost
+app.commandLine.appendSwitch('ignore-certificate-errors-spki-list', '');
+app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+  if (new URL(url).hostname === 'localhost') {
+    event.preventDefault();
+    callback(true);
+  } else {
+    callback(false);
+  }
 });
 
 // Enable remote debugging for the whole app

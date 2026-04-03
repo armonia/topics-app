@@ -40,6 +40,8 @@ export interface ElectronAPI {
   browser: ElectronBrowserAPI;
   onBrowserEvent: (callback: (data: any) => void) => void;
   removeBrowserEventListener: () => void;
+  onNavigateToTopic: (callback: (topicId: string) => void) => void;
+  reportFocusedTopic: (topicId: string | null) => void;
   window: {
     close: () => void;
   };
