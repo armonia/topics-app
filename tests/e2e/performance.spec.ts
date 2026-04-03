@@ -139,25 +139,46 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Sidebar toggle does not cause content shift', async ({ page }) => {
-    // Use the same selector as layout.fixture.ts: getByTitle("Toggle sidebar")
-    const toggleBtn = page.getByTitle('Toggle sidebar');
-
-    if (await toggleBtn.count() > 0) {
-      await page.waitForTimeout(1000); // video: show sidebar open
-      const cls = await measureCLS(page, async () => {
-        await toggleBtn.click();
-        await page.waitForTimeout(1500); // video: show sidebar closed
-      });
-      expect(cls).toBeLessThan(0.1);
-      // Toggle back for video clarity
-      await page.waitForTimeout(500);
-      await toggleBtn.click();
-      await page.waitForTimeout(1500); // video: show sidebar reopened
-
-      // Visual stability: UI must settle after sidebar toggle
-      const instability = await assertVisualStability(page, 2000, 2.0);
-      expect(instability, 'UI should be visually stable after sidebar toggle').toBeLessThan(2.0);
+    // Must open a topic first — toggle button is in the topbar which only appears with tabs
+    const topics = page.getByRole('treeitem');
+    if (await topics.count() > 0) {
+      await topics.first().click();
+      await page.waitForTimeout(1500);
     }
+
+    const toggleBtn = page.getByTitle('Toggle sidebar');
+    await expect(toggleBtn, 'Toggle sidebar button must exist (requires open tab)').toHaveCount(1);
+
+    // Verify sidebar is visible before toggle
+    const sidebar = page.locator('nav, [role="navigation"], .sidebar').first();
+    const sidebarBefore = await sidebar.isVisible();
+
+    await page.waitForTimeout(1000); // video: show sidebar state BEFORE
+    await page.screenshot({ path: 'test-results/sidebar-BEFORE-toggle.png' });
+
+    // Toggle sidebar
+    const cls = await measureCLS(page, async () => {
+      await toggleBtn.click();
+      await page.waitForTimeout(1500); // video: show state AFTER toggle
+    });
+    expect(cls).toBeLessThan(0.1);
+
+    await page.screenshot({ path: 'test-results/sidebar-AFTER-toggle.png' });
+
+    // Verify sidebar actually changed state
+    const sidebarAfter = await sidebar.isVisible().catch(() => false);
+    expect(sidebarBefore !== sidebarAfter, 'Sidebar visibility should change after toggle').toBeTruthy();
+
+    // Toggle back
+    await page.waitForTimeout(500);
+    await toggleBtn.click();
+    await page.waitForTimeout(1500); // video: show sidebar restored
+
+    await page.screenshot({ path: 'test-results/sidebar-AFTER-restore.png' });
+
+    // Visual stability
+    const instability = await assertVisualStability(page, 2000, 2.0);
+    expect(instability, 'UI should be visually stable after sidebar toggle').toBeLessThan(2.0);
   });
 
   test('Panel split does not cause layout shift', async ({ page }) => {

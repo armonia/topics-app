@@ -33,6 +33,7 @@ interface MessageListProps {
   onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: any) => void) => () => void;
   onRetry?: () => void;
+  inputAreaHeight?: number;
 }
 
 export function MessageList({
@@ -61,6 +62,7 @@ export function MessageList({
   onOpenSessionViewer,
   onMessage,
   onRetry,
+  inputAreaHeight = 0,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -274,6 +276,7 @@ export function MessageList({
             {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
             <span className="flex items-center gap-1.5"><kbd className="kbd">⌘?</kbd> all shortcuts</span>
           </div>
+          {inputAreaHeight > 0 && <div style={{ height: inputAreaHeight }} />}
         </div>
       ) : (
         <Virtuoso
@@ -337,12 +340,15 @@ export function MessageList({
               </div>
             );
           }}
+          components={{
+            Footer: () => inputAreaHeight > 0 ? <div style={{ height: inputAreaHeight }} /> : null,
+          }}
           style={{ height: '100%' }}
         />
       )}
 
       <div ref={messagesEndRef} />
-      <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} />
+      <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} bottomOffset={inputAreaHeight} />
     </div>
   );
 }

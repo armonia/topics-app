@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/zsh
 # AI-powered visual review of E2E test screenshots using Claude Sonnet
 set -euo pipefail
 
@@ -22,7 +22,13 @@ API_KEY=$(python3 -c "
 import json, os
 try:
     d = json.load(open(os.path.expanduser('~/.openclaw/agents/main/agent/auth-profiles.json')))
-    print([p['token'] for p in d['profiles'] if p.get('provider') == 'anthropic'][0])
+    profiles = d.get('profiles', {})
+    if isinstance(profiles, dict):
+        for k, p in profiles.items():
+            if p.get('provider') == 'anthropic' and p.get('token'):
+                print(p['token']); break
+    elif isinstance(profiles, list):
+        print([p['token'] for p in profiles if p.get('provider') == 'anthropic'][0])
 except Exception as e:
     print('')
 " 2>/dev/null)
@@ -67,8 +73,8 @@ echo -e "${BLUE}═════════════════════�
 echo ""
 
 # Group BEFORE/AFTER pairs
-declare -A PAIRS
-declare -a SINGLES
+typeset -A PAIRS
+SINGLES=()
 for img in "${SCREENSHOTS[@]}"; do
   base=$(basename "$img" .png)
   if [[ "$base" == *-BEFORE-* ]]; then

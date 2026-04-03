@@ -1037,6 +1037,7 @@ export function PanelGrid({
                       draftMeta={draftMeta}
                       onSplitPane={handleSplitPane}
                       persistOrder={key === 'standalone'}
+                      gridItemKey={key}
                       onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
                       onAcceptSoloDrop={handleUnsoloTopic}
                     />

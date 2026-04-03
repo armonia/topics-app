@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe, Timer, Link2 } from 'lucide-react';
+import { Plus, Search, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, ChevronRight, Cpu, Activity, BarChart3, Radio, Globe, Timer } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { ClaudeIcon } from './components/Shared/ClaudeIcon';
 import type { Topic, CreateTopicRequest, AppSettings, SidebarTab, TerminalSessionInfo } from './types';
@@ -39,11 +39,9 @@ const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m =
 const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
 const BrowserSidebarControl = lazy(() => import('./components/Browser/BrowserSidebarControl').then(m => ({ default: m.BrowserSidebarControl })));
 const AgentAssignPanel = lazy(() => import('./components/Agents/AgentAssignPanel').then(m => ({ default: m.AgentAssignPanel })));
-const CronJobsPanel = lazy(() => import('./components/Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
-const WebhooksPanel = lazy(() => import('./components/Sidebar/WebhooksPanel').then(m => ({ default: m.WebhooksPanel })));
-
 const TOPICS_MENU_PAGES = [
   { id: 'dashboard' as const, icon: BarChart3, label: 'Statistics' },
+  { id: 'cron' as const, icon: Timer, label: 'Cron Jobs' },
 ];
 
 // Generate unique window ID (persists across reloads via sessionStorage)
@@ -357,10 +355,6 @@ function App() {
   const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
-  const cronBtnRef = useRef<HTMLButtonElement>(null);
-  const cronDropdownRef = useRef<HTMLDivElement>(null);
-  const webhooksBtnRef = useRef<HTMLButtonElement>(null);
-  const webhooksDropdownRef = useRef<HTMLDivElement>(null);
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
@@ -395,33 +389,6 @@ function App() {
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
   }, [expandedTool]);
 
-  // Close cron dropdown on outside click or Escape
-  useEffect(() => {
-    if (expandedTool !== 'cron') return;
-    const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (cronBtnRef.current?.contains(t) || cronDropdownRef.current?.contains(t)) return;
-      setExpandedTool(null);
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setExpandedTool(null); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k, true);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
-  }, [expandedTool]);
-
-  // Close webhooks dropdown on outside click or Escape
-  useEffect(() => {
-    if (expandedTool !== 'webhooks') return;
-    const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (webhooksBtnRef.current?.contains(t) || webhooksDropdownRef.current?.contains(t)) return;
-      setExpandedTool(null);
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setExpandedTool(null); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k, true);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
-  }, [expandedTool]);
 
   // App settings
   const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);
@@ -830,7 +797,7 @@ function App() {
   }, []);
 
   // Open a utility page (Activity/Journal/Agents/Dashboard/All Boards) as a pane in the main panel
-  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards') => {
+  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => {
     const id = utilityPanelId(type);
     if (isMobile) {
       setOpenPanels([id]);
@@ -1582,26 +1549,6 @@ function App() {
               )}
             </button>
             <button
-              onClick={() => setExpandedTool(expandedTool === 'cron' ? null : 'cron')}
-              className={`w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'cron' ? 'bg-app-hover text-app-text' : ''}`}
-              style={{ pointerEvents: 'auto' }}
-              title="Cron Jobs"
-              aria-label="Cron Jobs"
-              ref={cronBtnRef}
-            >
-              <Timer size={14} />
-            </button>
-            <button
-              onClick={() => setExpandedTool(expandedTool === 'webhooks' ? null : 'webhooks')}
-              className={`w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'webhooks' ? 'bg-app-hover text-app-text' : ''}`}
-              style={{ pointerEvents: 'auto' }}
-              title="Webhooks"
-              aria-label="Webhooks"
-              ref={webhooksBtnRef}
-            >
-              <Link2 size={14} />
-            </button>
-            <button
               onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
               className={`w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
               style={{ pointerEvents: 'auto' }}
@@ -1920,42 +1867,6 @@ function App() {
         >
           <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
             <RemoteAccessPanel enabled />
-          </Suspense>
-        </div>,
-        document.body
-      )}
-
-      {expandedTool === 'cron' && !showTopicsMenu && cronBtnRef.current && createPortal(
-        <div
-          ref={cronDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
-          style={{
-            position: 'fixed',
-            top: cronBtnRef.current.getBoundingClientRect().bottom + 4,
-            right: window.innerWidth - cronBtnRef.current.getBoundingClientRect().right,
-            zIndex: 9999,
-          }}
-        >
-          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
-            <CronJobsPanel enabled />
-          </Suspense>
-        </div>,
-        document.body
-      )}
-
-      {expandedTool === 'webhooks' && !showTopicsMenu && webhooksBtnRef.current && createPortal(
-        <div
-          ref={webhooksDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[340px]"
-          style={{
-            position: 'fixed',
-            top: webhooksBtnRef.current.getBoundingClientRect().bottom + 4,
-            right: window.innerWidth - webhooksBtnRef.current.getBoundingClientRect().right,
-            zIndex: 9999,
-          }}
-        >
-          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
-            <WebhooksPanel enabled />
           </Suspense>
         </div>,
         document.body

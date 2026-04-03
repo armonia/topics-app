@@ -48,7 +48,12 @@ async function globalTeardown() {
     const fs = await import('fs');
     if (fs.existsSync(reviewScript)) {
       console.log("[global-teardown] Running AI visual review...");
-      execSync(`bash ${reviewScript}`, { stdio: 'inherit', timeout: 120000 });
+      const pyScript = reviewScript.replace('ai-review-screenshots.sh', 'ai-review-screenshots.py');
+      if (fs.existsSync(pyScript)) {
+        execSync(`python3 ${pyScript}`, { stdio: 'inherit', timeout: 120000 });
+      } else {
+        execSync(`bash ${reviewScript}`, { stdio: 'inherit', timeout: 120000 });
+      }
     }
   } catch (e) {
     console.log(`[global-teardown] AI review skipped: ${e instanceof Error ? e.message : e}`);

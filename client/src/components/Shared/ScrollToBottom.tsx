@@ -4,15 +4,17 @@ interface ScrollToBottomProps {
   show: boolean;
   newCount: number;
   onClick: () => void;
+  bottomOffset?: number;
 }
 
-export function ScrollToBottom({ show, newCount, onClick }: ScrollToBottomProps) {
+export function ScrollToBottom({ show, newCount, onClick, bottomOffset = 0 }: ScrollToBottomProps) {
   if (!show) return null;
 
   return (
     <button
       onClick={onClick}
-      className="absolute bottom-3 right-3 z-10 w-8 h-8 bg-primary hover:bg-primary-hover text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-105"
+      className="absolute right-3 z-10 w-8 h-8 bg-primary hover:bg-primary-hover text-white rounded-full shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-105"
+      style={{ bottom: bottomOffset + 12 }}
       title="Scroll to bottom"
       aria-label="Scroll to bottom"
     >

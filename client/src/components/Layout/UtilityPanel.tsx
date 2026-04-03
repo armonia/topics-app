@@ -1,12 +1,13 @@
 import { lazy, Suspense } from 'react';
-import { X, Activity, Cpu, BarChart3, LayoutGrid, BookOpen } from 'lucide-react';
+import { X, Activity, Cpu, BarChart3, LayoutGrid, BookOpen, Timer } from 'lucide-react';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
+const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
 
-export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'journal';
+export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'journal' | 'cron';
 
 export const UTILITY_PREFIX = '__';
 
@@ -29,6 +30,7 @@ const CONFIG: Record<UtilityPanelType, { icon: typeof Activity; label: string; c
   dashboard:     { icon: BarChart3,  label: 'Statistics',   color: '#10b981' },
   'all-boards':  { icon: LayoutGrid, label: 'Board',       color: '#10b981' },
   journal:       { icon: BookOpen,   label: 'Journal',     color: '#f59e0b' },
+  cron:          { icon: Timer,      label: 'Cron Jobs',   color: '#6366f1' },
 };
 
 const Spinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
@@ -75,6 +77,7 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
           {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
           {type === 'dashboard' && <DashboardPane onMessage={onMessage} />}
           {type === 'all-boards' && <AllBoardsPane onMessage={onMessage} />}
+          {type === 'cron' && <CronJobsPanel />}
         </Suspense>
       </div>
     </div>

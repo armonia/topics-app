@@ -164,7 +164,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     // Set PANEL_ID for edge-split drops at the PanelGrid level.
     // Only plain chat panes can be split to solo grid items.
     // Project/terminal/browser/utility panes should NOT be split — they'd lose context.
-    const isTopLevel = !groupId || groupId === 'standalone';
+    // Top-level groups: "standalone", solo groups ("solo:xxx"), or no groupId.
+    const isTopLevel = !groupId || groupId === 'standalone' || groupId.startsWith('solo:');
     if (isTopLevel) {
       const pane = panes.find(p => p.id === paneId);
       const isChatOnly = pane?.type === 'chat' && pane?.topicId;
@@ -173,14 +174,30 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       }
     }
     e.dataTransfer.effectAllowed = 'move';
-    // Custom drag image: styled tab preview instead of browser default file icon
+    // Custom drag image: styled tab preview instead of browser default file icon.
+    // The element must be in the DOM and rendered at setDragImage time.
+    // We remove it after one frame (browser captures the image synchronously).
     const ghost = document.createElement('div');
     const pane = panes.find(p => p.id === paneId);
     ghost.textContent = pane?.title || paneId;
-    ghost.style.cssText = 'position:fixed;top:-9999px;left:-9999px;padding:4px 12px;border-radius:6px;font-size:12px;background:#333;color:#fff;white-space:nowrap;pointer-events:none;';
+    ghost.style.cssText = `
+      position:fixed;left:-200px;top:-200px;
+      padding:6px 14px;border-radius:8px;
+      font:500 13px/1 Inter,system-ui,sans-serif;
+      background:color-mix(in srgb, var(--primary) 90%, transparent);color:#fff;
+      white-space:nowrap;pointer-events:none;
+      box-shadow:0 4px 12px rgba(0,0,0,0.15);
+    `;
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
     dragGhostRef.current = ghost;
+    // Remove after browser captures the image (next frame)
+    requestAnimationFrame(() => {
+      if (dragGhostRef.current === ghost) {
+        ghost.remove();
+        dragGhostRef.current = null;
+      }
+    });
   }, [onReorderPanes, groupId, panes]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {

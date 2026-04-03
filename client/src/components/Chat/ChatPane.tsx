@@ -110,6 +110,19 @@ export function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
+  const [inputAreaHeight, setInputAreaHeight] = useState(0);
+
+  // Track input area height dynamically (adapts to multiline, file attachments, etc.)
+  useEffect(() => {
+    const el = inputAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setInputAreaHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const currentMessages = getSessionMessages(topic.sessionKey);
   const currentLoading = isSessionLoading(topic.sessionKey);
@@ -298,8 +311,7 @@ export function ChatPane({
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
   return (
-    <div className="flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
-      {/* Command result banner */}
+    <div className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
       {commandResult && (
         <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
@@ -309,10 +321,11 @@ export function ChatPane({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} />
-      <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-      <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} />
-
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} />
+      <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
+        <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
+        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} />
+      </div>
     </div>
   );
 }

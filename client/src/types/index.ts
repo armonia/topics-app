@@ -271,7 +271,7 @@ export interface ProjectWindowState {
   sidebarCollapsed: boolean;
 }
 
-export type SidebarTab = 'agents' | 'activity' | 'journal' | 'cron' | 'remote' | 'system' | 'browser' | 'terminal' | 'webhooks';
+export type SidebarTab = 'agents' | 'activity' | 'journal' | 'remote' | 'system' | 'browser' | 'terminal';
 
 export interface AppSettings {
   fontSize: number;       // 12-18

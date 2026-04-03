@@ -87,6 +87,9 @@ interface StandaloneChatGroupProps {
   onCloseMultiplePanels?: (panelIds: string[]) => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
+  // Grid item key — used as groupId in PaneTabBar for cross-group DnD detection.
+  // "standalone" for the main group, "solo:<topicId>" for split-out groups.
+  gridItemKey?: string;
   // Unsolo: merge a solo topic back into the main group
   onUnsolo?: (topicId: string) => void;
   // Accept a solo topic drop (main group only) — unsolos the dropped topic
@@ -111,6 +114,7 @@ export function StandaloneChatGroup({
   onSplitPane,
   onCloseMultiplePanels,
   persistOrder = true,
+  gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
@@ -785,7 +789,7 @@ export function StandaloneChatGroup({
       onClose={handleClosePane}
       onAddPane={handleAddPane}
       availableTypes={availableTypes}
-      groupId="standalone"
+      groupId={gridItemKey}
       onNewChat={onNewChat}
       onReorderPanes={handleReorderPanes}
       onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}

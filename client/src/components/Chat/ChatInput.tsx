@@ -64,7 +64,7 @@ function OverflowMenu({
         <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-lg shadow-xl z-50 py-1 min-w-[200px]">
+        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-xl shadow-xl z-50 py-1.5 min-w-[220px]">
           {/* Slash commands */}
           {SLASH_COMMANDS.map((cmd) => {
             const Icon = cmd.icon;
@@ -73,11 +73,11 @@ function OverflowMenu({
                 key={cmd.cmd}
                 type="button"
                 onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
-                className="w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover text-app-text"
+                className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
               >
-                <Icon size={14} className="text-app-text-muted flex-shrink-0" />
-                <span className="font-mono text-primary text-[11px]">{cmd.cmd}</span>
-                <span className="ml-auto text-[10px] text-app-text-muted">{cmd.description}</span>
+                <Icon size={14} className="text-app-text-muted" />
+                <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
+                <span className="text-[10px] text-app-text-muted text-right truncate">{cmd.description}</span>
               </button>
             );
           })}
@@ -100,21 +100,6 @@ function OverflowMenu({
               <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧C</span>
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              if (isRecording) stopRecording(); else startRecording();
-              setOpen(false);
-            }}
-            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
-              isRecording ? 'text-red-500' : 'text-app-text'
-            }`}
-            disabled={currentStreaming || uploading}
-          >
-            {isRecording ? <MicOff size={14} /> : <Mic size={14} />}
-            {isRecording ? 'Stop recording' : 'Record voice'}
-            <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧R</span>
-          </button>
           {sttSupported && !isCallActive && (
             <button
               type="button"
@@ -530,7 +515,7 @@ export function ChatInput({
       {/* Floating input card */}
       <form
         onSubmit={onSubmit}
-        className={`relative ${isMobile ? 'mx-2 mb-1.5' : 'mx-3 mb-2'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors overflow-hidden min-w-0 max-w-full`}
+        className={`relative ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
         style={{ maxWidth: '100%' }}
       >
         {isRecording ? (
@@ -667,18 +652,15 @@ export function ChatInput({
                 <button
                   type="button"
                   onClick={onTogglePlanMode}
-                  className={`h-8 flex items-center justify-center rounded-lg transition-all gap-1 ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
                     planMode
-                      ? 'text-indigo-500 bg-indigo-500/10 px-2'
-                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover w-8'
+                      ? 'text-indigo-500 bg-indigo-500/10'
+                      : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
                   }`}
                   title={planMode ? 'Plan Mode ON' : 'Plan Mode OFF'}
                   aria-label="Toggle plan mode"
                 >
                   <ClipboardList size={16} />
-                  {planMode && (
-                    <span className="text-[9px] font-semibold uppercase tracking-wider">Plan</span>
-                  )}
                 </button>
               </div>
 
@@ -746,7 +728,7 @@ export function ChatInput({
 
             {/* Popover menus (anchored to form) */}
             {showSlashMenu && filteredSlashCommands.length > 0 && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface dark:bg-app-panel border border-app-border-input rounded-lg shadow-xl z-50 py-1 overflow-hidden max-h-48 overflow-y-auto">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface dark:bg-app-panel border border-app-border-input rounded-xl shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto">
                 {filteredSlashCommands.map((cmd, idx) => (
                   <button
                     key={cmd.cmd}
@@ -757,14 +739,14 @@ export function ChatInput({
                       setSlashFilter('');
                       textareaRef.current?.focus();
                     }}
-                    className={`w-full px-3 py-1.5 text-left flex items-center gap-3 transition-colors ${
+                    className={`w-full px-3 py-1.5 text-left grid grid-cols-[auto_1fr] gap-x-3 items-baseline transition-colors ${
                       idx === slashMenuIndex
-                        ? 'bg-primary/15 text-app-text'
+                        ? 'bg-primary/10 text-app-text'
                         : 'text-app-text hover:bg-app-hover'
                     }`}
                   >
-                    <span className="text-[12px] font-mono text-primary">{cmd.cmd}</span>
-                    <span className="text-[11px] text-app-text-muted">{cmd.description}</span>
+                    <span className="text-[12px] font-mono text-primary whitespace-nowrap">{cmd.cmd}</span>
+                    <span className="text-[11px] text-app-text-muted truncate">{cmd.description}</span>
                   </button>
                 ))}
               </div>
