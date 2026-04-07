@@ -696,10 +696,19 @@ export function StandaloneChatGroup({
 
   // Determine if a pane type can be split to its own grid cell
   // Chat topics and project panes are splittable — not terminal/browser/utility/draft/session-viewer
-  const isSplittable = useCallback((id: string) =>
-    !isTerminalPaneId(id) && !isBrowserPaneId(id) &&
-    !isUtilityPanelId(id) && !isDraftPaneId(id) && !isSessionViewerPaneId(id),
-  []);
+  // Also blocked if: already a solo group, or splitting would leave this panel empty
+  const isSplittable = useCallback((id: string) => {
+    if (isTerminalPaneId(id) || isBrowserPaneId(id) ||
+        isUtilityPanelId(id) || isDraftPaneId(id) || isSessionViewerPaneId(id)) return false;
+    // Solo groups can't split further
+    if (gridItemKey.startsWith('solo:')) return false;
+    // Don't split the last splittable pane (would leave an empty panel)
+    const splittableCount = validatedOrderedIds.filter(pid =>
+      !isTerminalPaneId(pid) && !isBrowserPaneId(pid) &&
+      !isUtilityPanelId(pid) && !isDraftPaneId(pid) && !isSessionViewerPaneId(pid)
+    ).length;
+    return splittableCount >= 2;
+  }, [gridItemKey, validatedOrderedIds]);
 
   // Split Right: detach pane to a new grid column on the right
   const handleSplitRight = useCallback((paneId: string) => {
@@ -797,13 +806,12 @@ export function StandaloneChatGroup({
       onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
-      onSplitRight={onSplitPane ? handleSplitRight : undefined}
-      onSplitDown={onSplitPane ? handleSplitDown : undefined}
-      onDetach={onSplitPane ? handleDetach : undefined}
+      onSplitRight={onSplitPane && !gridItemKey.startsWith('solo:') && validatedOrderedIds.length >= 2 ? handleSplitRight : undefined}
+      onSplitDown={onSplitPane && !gridItemKey.startsWith('solo:') && validatedOrderedIds.length >= 2 ? handleSplitDown : undefined}
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
-      onDetach={handleUnsolo || handleDetach}
+      onDetach={handleUnsolo || (onSplitPane ? handleDetach : undefined)}
       streamingPaneIds={streamingPaneIds}
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}

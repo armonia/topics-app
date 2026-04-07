@@ -78,6 +78,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
 export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuContentRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
@@ -93,7 +94,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
   useEffect(() => {
     if (!showAddMenu) return;
-    const h = (e: Event) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowAddMenu(false); };
+    const h = (e: Event) => {
+      const target = e.target as Node;
+      if (menuContentRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setShowAddMenu(false);
+    };
     document.addEventListener('mousedown', h);
     document.addEventListener('touchstart', h, { passive: true });
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
@@ -120,7 +126,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       haptic('medium');
       longPressFiredRef.current = true;
       const menuWidth = 160;
-      const menuHeight = 160;
+      const menuHeight = 240;
       const adjX = Math.min(x, window.innerWidth - menuWidth - 8);
       const adjY = Math.min(y, window.innerHeight - menuHeight - 8);
       setCtxMenu({ paneId, x: adjX, y: adjY });
@@ -140,10 +146,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     e.stopPropagation();
     // Position menu with edge detection
     const menuWidth = 160;
-    const menuHeight = 160;
+    const menuHeight = 240;
     const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
     const y = Math.min(e.clientY, window.innerHeight - menuHeight - 8);
-    setCtxMenu({ paneId, x, y });
+    setCtxMenu({ paneId, x: Math.max(8, x), y: Math.max(8, y) });
   }, []);
 
   const dragGhostRef = useRef<HTMLDivElement | null>(null);
@@ -465,8 +471,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               if (!showAddMenu && buttonRef.current) {
                 const rect = buttonRef.current.getBoundingClientRect();
                 const menuWidth = 160;
+                const menuHeight = 200;
                 const left = Math.min(rect.left, window.innerWidth - menuWidth - 8);
-                setMenuPos({ top: rect.bottom + 4, left: Math.max(8, left) });
+                // Flip menu above button if it would overflow the viewport bottom
+                const fitsBelow = rect.bottom + 4 + menuHeight <= window.innerHeight - 8;
+                const top = fitsBelow
+                  ? rect.bottom + 4
+                  : Math.max(8, rect.top - menuHeight - 4);
+                setMenuPos({ top, left: Math.max(8, left) });
               }
               setShowAddMenu(!showAddMenu);
             }}
@@ -483,7 +495,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         <>
           {isMobile && <div className="fixed inset-0 z-[9998]" onClick={() => setShowAddMenu(false)} />}
           <div
-            ref={menuRef}
+            ref={menuContentRef}
             className={isMobile
               ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
               : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[140px]'}
