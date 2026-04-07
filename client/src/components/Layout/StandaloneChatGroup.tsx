@@ -67,6 +67,8 @@ interface StandaloneChatGroupProps {
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside the focused project
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
+  // Report all open pane IDs inside each project (for sidebar filtering)
+  onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Terminal sessions for label resolution (from server)
   terminalSessions?: TerminalSessionInfo[];
   // Create a new terminal (delegates to App)
@@ -105,7 +107,7 @@ export function StandaloneChatGroup({
   onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
-  onProjectActiveTopicChange,
+  onProjectActiveTopicChange, onProjectOpenPanesChange,
   terminalSessions = [], onCreateTerminal,
   onUtilityPaneChange,
   pendingBrowserPane, onPendingBrowserPaneConsumed,
@@ -891,6 +893,7 @@ export function StandaloneChatGroup({
               pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === activeProjectPath ? pendingProjectFocus.topicId : null}
               onPendingFocusConsumed={onPendingProjectFocusConsumed}
               onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(activeProjectPath, topicId) : undefined}
+              onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(activeProjectPath, paneIds) : undefined}
             />
           </div>
         ) : activeIsUtility ? (

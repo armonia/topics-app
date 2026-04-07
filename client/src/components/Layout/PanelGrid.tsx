@@ -67,6 +67,8 @@ interface PanelGridProps {
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside a project (keyed by projectPath)
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
+  // Report all open pane IDs inside each project (for sidebar filtering)
+  onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Terminal sessions for label resolution
   terminalSessions?: import('../../types').TerminalSessionInfo[];
   // Create a new terminal (delegates to App)
@@ -120,7 +122,7 @@ export function PanelGrid({
   onNewChat,
   pendingProjectFocus,
   onPendingProjectFocusConsumed,
-  onProjectActiveTopicChange,
+  onProjectActiveTopicChange, onProjectOpenPanesChange,
   terminalSessions,
   onCreateTerminal,
   pendingBrowserPane,
@@ -1027,6 +1029,7 @@ export function PanelGrid({
                       pendingProjectFocus={pendingProjectFocus}
                       onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
                       onProjectActiveTopicChange={onProjectActiveTopicChange}
+                      onProjectOpenPanesChange={onProjectOpenPanesChange}
                       terminalSessions={terminalSessions}
                       onCreateTerminal={onCreateTerminal}
                       onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}

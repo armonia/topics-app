@@ -49,10 +49,11 @@ interface BuildSidebarItemsOpts {
   unreadData: UnreadData;
   showArchived: boolean;
   openPanels?: string[];  // currently open pane IDs — used to filter what shows in sidebar
+  projectOpenPanes?: Record<string, string[]>;  // pane IDs open inside each project (from ProjectWindow)
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [] } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {} } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -105,20 +106,25 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   for (const pp of projectPaths) {
     const projectTopics = topicsByProject.get(pp) || [];
     const projectTerminals = terminalsByProject.get(pp) || [];
-    // Project appears only if its project pane is open as a tab
+    // Collect the set of pane IDs open inside this project's ProjectWindow
+    const internalPaneIds = new Set(projectOpenPanes[pp] || []);
+
+    // Project pane open as a top-level tab?
     const projectPaneId = `project:${encodeURIComponent(pp)}`;
     const hasProjectTab = openPanelSet.has(projectPaneId);
-    // Also check if any standalone chat panel references a topic in this project
-    const hasChildTab = projectTopics.some(t => openPanelSet.has(t.id));
-    const hasUnreadChild = projectTopics.some(t => (unreadData[t.id]?.unreadCount || 0) > 0);
-    if (!hasProjectTab && !hasChildTab && !hasUnreadChild) continue;
 
     const visibleTopics = showArchived ? projectTopics : projectTopics.filter(t => !t.archived);
 
-    // Build children — show all topics in the project (they're inside the accordion)
+    // Build children — only those with an open internal tab or unread
     const children: SidebarItem[] = [];
 
     for (const t of visibleTopics) {
+      // A chat shows if its pane is open inside the project, OR has unread
+      const chatPaneId = `chat:${t.id}`;
+      const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
+      const hasTopLevelTab = openPanelSet.has(t.id);
+      const hasUnread = (unreadData[t.id]?.unreadCount || 0) > 0;
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && !hasUnread) continue;
       children.push({
         id: t.id,
         type: 'chat',
@@ -133,8 +139,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     }
 
     for (const ts of projectTerminals) {
+      const termPaneId = `terminal:${ts.id}`;
+      const hasInternalTab = internalPaneIds.has(termPaneId);
+      const hasTopLevelTab = openPanelSet.has(termPaneId);
+      if (!hasInternalTab && !hasTopLevelTab) continue;
       children.push({
-        id: `terminal:${ts.id}`,
+        id: termPaneId,
         type: 'terminal',
         name: ts.name,
         icon: ts.type === 'claude-code' ? 'claude' : 'terminal',
@@ -145,6 +155,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         terminal: ts,
       });
     }
+
+    // Project shows if: has project tab, or has visible children
+    if (!hasProjectTab && children.length === 0) continue;
 
     children.sort((a, b) => b.lastActivity - a.lastActivity);
 

@@ -77,6 +77,8 @@ export interface TopicTreeProps {
   // Project accordion state (lifted to App to survive remounts)
   expandedProjects: string[];
   onToggleProject: React.Dispatch<React.SetStateAction<string[]>>;
+  // Open pane IDs inside each project (from ProjectWindow callback)
+  projectOpenPanes?: Record<string, string[]>;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
@@ -117,6 +119,7 @@ export function TopicTree({
   showArchived,
   expandedProjects: expandedProjectsProp,
   onToggleProject,
+  projectOpenPanes = {},
 }: TopicTreeProps) {
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[] } | null>(null);
@@ -168,7 +171,8 @@ export function TopicTree({
     unreadData,
     showArchived,
     openPanels,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels]);
+    projectOpenPanes,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes]);
 
   const filteredItems = useMemo(
     () => filterSidebarItems(allItems, searchQuery),

@@ -119,6 +119,8 @@ export interface ProjectWindowPaneProps {
   onPendingFocusConsumed?: () => void;
   // Report which topic is currently active in this project window
   onActiveTopicChange?: (topicId: string | null) => void;
+  // Report all open pane IDs inside this project (for sidebar filtering)
+  onOpenPanesChange?: (paneIds: string[]) => void;
 }
 
 export function ProjectWindowPane({
@@ -128,7 +130,7 @@ export function ProjectWindowPane({
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, onPendingFocusConsumed,
-  onActiveTopicChange,
+  onActiveTopicChange, onOpenPanesChange,
 }: ProjectWindowPaneProps) {
   // Compute topicIds from topics that belong to this project
   const topicIds = useMemo(() =>
@@ -291,7 +293,9 @@ export function ProjectWindowPane({
       openChatTopicIds,
       activeChatTopicId,
     });
-  }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath]);
+    // Report open panes to parent for sidebar filtering
+    onOpenPanesChange?.(panes.map(p => p.id));
+  }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath, onOpenPanesChange]);
 
   // Clean stale terminal panes when terminal sessions change (via WS broadcast)
   useEffect(() => {

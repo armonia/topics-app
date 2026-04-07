@@ -291,6 +291,14 @@ function App() {
   const handleProjectActiveTopicChange = useCallback((projectPath: string, topicId: string | null) => {
     setProjectActiveTopics(prev => prev[projectPath] === topicId ? prev : { ...prev, [projectPath]: topicId });
   }, []);
+  const [projectOpenPanes, setProjectOpenPanes] = useState<Record<string, string[]>>({});
+  const handleProjectOpenPanesChange = useCallback((projectPath: string, paneIds: string[]) => {
+    setProjectOpenPanes(prev => {
+      const existing = prev[projectPath];
+      if (existing && existing.length === paneIds.length && existing.every((id, i) => id === paneIds[i])) return prev;
+      return { ...prev, [projectPath]: paneIds };
+    });
+  }, []);
 
   // Cross-window drag state
   const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
@@ -1275,6 +1283,26 @@ function App() {
   const sidebar = useSidebarState(onWSMessage);
   const browserCtx = useBrowserContexts(true, onWSMessage);
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
+  // Auto-expand projects that have an open project tab
+  useEffect(() => {
+    const projectIds = openPanels
+      .filter(id => id.startsWith('project:'))
+      .map(id => id); // project pane IDs like "project:%2Ftmp%2Fpath"
+    // Also map to the buildSidebarItems id format: "project:/path"
+    const sidebarProjectIds = openPanels
+      .filter(id => id.startsWith('project:'))
+      .map(id => `project:${decodeURIComponent(id.slice('project:'.length))}`);
+    if (sidebarProjectIds.length > 0) {
+      setExpandedProjects(prev => {
+        const set = new Set(prev);
+        let changed = false;
+        for (const sid of sidebarProjectIds) {
+          if (!set.has(sid)) { set.add(sid); changed = true; }
+        }
+        return changed ? Array.from(set) : prev;
+      });
+    }
+  }, [openPanels]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; topic: Topic } | null>(null);
 
   const _getChildren = useCallback((parentId: string | null): Topic[] => {
@@ -1579,6 +1607,7 @@ function App() {
             showArchived={sidebar.showArchived}
             expandedProjects={expandedProjects}
             onToggleProject={setExpandedProjects}
+            projectOpenPanes={projectOpenPanes}
           />
           )}
           </ErrorBoundary>
@@ -1676,6 +1705,7 @@ function App() {
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
           onProjectActiveTopicChange={handleProjectActiveTopicChange}
+          onProjectOpenPanesChange={handleProjectOpenPanesChange}
           terminalSessions={terminalSessions}
           onCreateTerminal={handleQuickCreateTerminal}
           pendingBrowserPane={pendingBrowserPane}
