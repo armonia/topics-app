@@ -144,12 +144,13 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const visibleTopics = showArchived ? projectTopics : projectTopics.filter(t => !t.archived);
 
     // Build children:
-    // - If project tab is open: show all topics (the project is actively in use)
-    // - Otherwise: only topics with open internal tab or unread
+    // - If project tab is open → show ALL children (project is actively used)
+    // - If project shows only because a child has unread → show only that child
     const children: SidebarItem[] = [];
 
     for (const t of visibleTopics) {
       if (!hasProjectTab) {
+        // Project not open as tab — only show children with open tab or unread
         const chatPaneId = `chat:${t.id}`;
         const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
         const hasTopLevelTab = openPanelSet.has(t.id);
