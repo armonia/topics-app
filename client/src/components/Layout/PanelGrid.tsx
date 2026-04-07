@@ -56,7 +56,7 @@ interface PanelGridProps {
   panelInitialTab?: Record<string, import('../../types').PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
   // Pending pane request for project windows
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
   onNewChatInProject?: (projectPath: string) => void;

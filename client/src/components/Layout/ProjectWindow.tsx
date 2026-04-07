@@ -111,6 +111,7 @@ export interface ProjectWindowPaneProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
+  pendingTerminalType?: 'shell' | 'claude-code';
   onPendingPaneConsumed?: () => void;
   onNewChat?: () => void;
   // Navigate to a specific topic inside the project (from external focus)
@@ -125,7 +126,7 @@ export function ProjectWindowPane({
   onFocusPanel, onClosePanel: _onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  pendingPane, pendingTerminalSessionId, onPendingPaneConsumed, onNewChat,
+  pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, onPendingFocusConsumed,
   onActiveTopicChange,
 }: ProjectWindowPaneProps) {
@@ -838,15 +839,16 @@ export function ProjectWindowPane({
         return;
       }
       const targetGroupId = focusedGroupId || groups[0]?.id;
+      const subType = pendingPane === 'terminal' ? pendingTerminalType : undefined;
       if (targetGroupId) {
-        handleAddPaneToGroup(targetGroupId, pendingPane);
+        handleAddPaneToGroup(targetGroupId, pendingPane, subType);
       } else {
         // No groups exist yet — create one with the pending pane
-        handleAddPaneWhenEmpty(pendingPane);
+        handleAddPaneWhenEmpty(pendingPane, subType);
       }
       onPendingPaneConsumed?.();
     }
-  }, [pendingPane, pendingTerminalSessionId, groups, focusedGroupId, panes, handleAddPaneToGroup, handleAddPaneWhenEmpty, onPendingPaneConsumed]);
+  }, [pendingPane, pendingTerminalSessionId, pendingTerminalType, groups, focusedGroupId, panes, handleAddPaneToGroup, handleAddPaneWhenEmpty, onPendingPaneConsumed]);
 
   // Stable refs for effects and callbacks to avoid re-renders
   const panesRef = useRef(panes);

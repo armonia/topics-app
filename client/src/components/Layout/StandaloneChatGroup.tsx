@@ -58,7 +58,7 @@ interface StandaloneChatGroupProps {
   // Cross-panel-type: accept topic drops from project windows
   onAcceptProjectTopicDrop?: (topicId: string) => void;
   // Pending pane request for project tabs
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
   onNewChatInProject?: (projectPath: string) => void;
@@ -885,6 +885,7 @@ export function StandaloneChatGroup({
               onUpdateTopic={onUpdateTopic}
               pendingPane={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.type : undefined}
               pendingTerminalSessionId={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.terminalSessionId : undefined}
+              pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.terminalType : undefined}
               onPendingPaneConsumed={onPendingProjectPaneConsumed}
               onNewChat={onNewChatInProject ? () => onNewChatInProject(activeProjectPath) : undefined}
               pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === activeProjectPath ? pendingProjectFocus.topicId : null}
