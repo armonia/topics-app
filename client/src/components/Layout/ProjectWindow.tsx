@@ -46,7 +46,6 @@ interface PersistedState {
   rows?: GroupLayoutRow[];
   rowHeights?: number[];
   sidebarCollapsed: boolean;
-  closedTopicIds?: string[];       // legacy — no longer written
   openChatTopicIds?: string[];     // topic IDs that were open when last saved
   activeChatTopicId?: string;      // which chat tab was active when last saved
 }
@@ -297,28 +296,40 @@ export function ProjectWindowPane({
     onOpenPanesChange?.(panes.map(p => p.id));
   }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath, onOpenPanesChange]);
 
-  // Clean stale terminal panes when terminal sessions change (via WS broadcast)
+  // Sync terminal panes: remove stale, auto-add active terminals matching projectPath
   useEffect(() => {
-    // Validate on mount: fetch current sessions and remove stale terminal panes
-    fetch('/api/terminal/sessions').then(r => r.json()).then((sessions: { id: string }[]) => {
+    const syncTerminals = (sessions: { id: string; cwd: string; name: string; type: string }[]) => {
       const sessionIds = new Set(sessions.map(s => s.id));
+      // Terminals whose cwd is under this project
+      const projectSessions = sessions.filter(s => s.cwd === projectPath || s.cwd.startsWith(projectPath + '/'));
       setPanes(prev => {
-        const filtered = prev.filter(p => p.type !== 'terminal' || sessionIds.has(getTerminalSessionFromPaneId(p.id) || ''));
-        return filtered.length === prev.length ? prev : filtered;
+        // Remove stale terminal panes
+        let updated = prev.filter(p => p.type !== 'terminal' || sessionIds.has(getTerminalSessionFromPaneId(p.id) || ''));
+        // Auto-add active terminals that belong to this project but aren't already panes
+        const existingTermIds = new Set(updated.filter(p => p.type === 'terminal').map(p => getTerminalSessionFromPaneId(p.id)));
+        const toAdd: Pane[] = [];
+        for (const s of projectSessions) {
+          if (existingTermIds.has(s.id)) continue;
+          toAdd.push({
+            id: `terminal:${s.id}`,
+            type: 'terminal' as PaneType,
+            title: s.name || (s.type === 'claude-code' ? 'Claude Code' : 'Shell'),
+            preview: false,
+          });
+        }
+        if (toAdd.length > 0) updated = [...updated, ...toAdd];
+        return updated.length === prev.length && updated.every((p, i) => p === prev[i]) ? prev : updated;
       });
-    }).catch(() => {});
+    };
 
-    // Listen for session updates
+    fetch('/api/terminal/sessions').then(r => r.json()).then(syncTerminals).catch(() => {});
+
     return onWSMessage((msg: any) => {
       if (msg.type === 'terminal:sessions' && Array.isArray(msg.sessions)) {
-        const sessionIds = new Set((msg.sessions as { id: string }[]).map(s => s.id));
-        setPanes(prev => {
-          const filtered = prev.filter(p => p.type !== 'terminal' || sessionIds.has(getTerminalSessionFromPaneId(p.id) || ''));
-          return filtered.length === prev.length ? prev : filtered;
-        });
+        syncTerminals(msg.sessions);
       }
     });
-  }, [onWSMessage]);
+  }, [onWSMessage, projectPath]);
 
   // --- Sync chat panes with topicIds + title sync (consolidated) ---
   useEffect(() => {
@@ -336,14 +347,11 @@ export function ProjectWindowPane({
       if (!initialChatsSyncedRef.current) {
         initialChatsSyncedRef.current = true;
         const openSet = new Set(persisted.current?.openChatTopicIds || []);
-        const isLegacy = !persisted.current?.openChatTopicIds && persisted.current?.closedTopicIds;
-        const closedSet = new Set(persisted.current?.closedTopicIds || []);
         const chatPaneIds = new Set(updated.filter(p => p.type === 'chat').map(p => p.topicId));
         const newChatPanes: Pane[] = [];
         for (const tid of topicIds) {
           if (chatPaneIds.has(tid)) continue;
-          const shouldOpen = isLegacy ? !closedSet.has(tid) : openSet.has(tid);
-          if (shouldOpen) {
+          if (openSet.has(tid)) {
             const topic = topics[tid];
             newChatPanes.push({
               id: createPaneId('chat', tid),
