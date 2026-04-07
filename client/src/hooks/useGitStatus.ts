@@ -47,7 +47,11 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsConnectedRef = useRef(false);
 
+  const notGitRef = useRef(false);
+
   const loadStatus = useCallback(async () => {
+    // Don't re-fetch if we already know this isn't a git repo
+    if (notGitRef.current) return;
     try {
       setLoading(true);
       setError(null);
@@ -60,9 +64,12 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
       window.dispatchEvent(new CustomEvent('git-cache-updated'));
     } catch (err: any) {
       if (err?.notGit) {
+        notGitRef.current = true;
         setNotGit(true);
+        setError(null); // Not a real error — just not a git repo
+      } else {
+        setError(err.message || 'Git error');
       }
-      setError(err.message || 'Git error');
       // Stop polling on persistent errors (notGit, missing dir, etc.)
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     } finally {
