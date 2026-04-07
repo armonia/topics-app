@@ -56,6 +56,13 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
       setLoading(true);
       setError(null);
       const status = await gitApi.status(projectPath);
+      // Server returns { notGit: true } for non-git directories (200 OK, no error)
+      if ((status as any).notGit) {
+        notGitRef.current = true;
+        setNotGit(true);
+        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+        return;
+      }
       setNotGit(false);
       setGitStatus(status);
       // Update cache

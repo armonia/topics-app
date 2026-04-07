@@ -340,7 +340,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const checkProc = Bun.spawn(["git", "rev-parse", "--git-dir"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await checkProc.exited;
         if (checkProc.exitCode !== 0) {
-          return json({ error: "Not a git repository", notGit: true }, 400);
+          return json({ notGit: true, branch: "", files: [], ahead: 0, behind: 0, lastCommit: null });
         }
         // Start watching .git for changes (idempotent — only sets up once per path)
         watchGitDir(resolvedDir, ctx);
