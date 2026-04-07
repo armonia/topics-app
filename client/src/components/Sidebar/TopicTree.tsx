@@ -330,7 +330,7 @@ export function TopicTree({
           <button
             onClick={() => {
               toggleProject(item.id);
-              if (!expandedProjects.has(item.id) && onProjectClick) onProjectClick(pp);
+              if (onProjectClick) onProjectClick(pp);
             }}
             className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
               isProjectFocused ? 'text-primary dark:text-primary-dark' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
