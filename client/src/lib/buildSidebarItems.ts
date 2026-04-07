@@ -164,11 +164,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       });
     }
 
+    // Running terminals always show under their project (they're active resources)
     for (const ts of projectTerminals) {
       const termPaneId = `terminal:${ts.id}`;
-      const hasInternalTab = internalPaneIds.has(termPaneId);
-      const hasTopLevelTab = openPanelSet.has(termPaneId);
-      if (!hasInternalTab && !hasTopLevelTab) continue;
       children.push({
         id: termPaneId,
         type: 'terminal',
