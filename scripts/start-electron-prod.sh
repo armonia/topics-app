@@ -30,6 +30,11 @@ while ! curl -sfk https://localhost:3333 > /dev/null 2>&1; do
 done
 echo "[start-electron-prod] Server ready after ${ELAPSED}s"
 
+# --- Build TypeScript ---
+echo "[start-electron-prod] Building Electron TypeScript..."
+cd "$APP_DIR/electron-app" && npx tsc
+cd "$APP_DIR"
+
 # --- Launch Electron ---
 echo "[start-electron-prod] Starting Electron..."
 exec "$APP_DIR/electron-app/node_modules/.bin/electron" "$APP_DIR/electron-app"
