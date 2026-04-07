@@ -494,7 +494,10 @@ export function PanelGrid({
     // Note: gridRowHeights sync is handled by the effect on [gridRows.length].
     // The rendering fallback `gridRowHeights[rowIdx] ?? 1 / gridRows.length` covers
     // the first render cycle before the effect runs.
-  }, []);
+
+    // Focus the split-out panel so the source group falls back to its first remaining tab
+    onFocusPanel(topicId);
+  }, [onFocusPanel]);
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
   const handleUnsoloTopic = useCallback((topicId: string) => {
@@ -628,8 +631,10 @@ export function PanelGrid({
       centerSide = (x / rect.width) < 0.5 ? 'left' : 'right';
     }
 
-    // For PANE_TAB drags at center: let children handle (tab reorder, project drops)
-    if (isTabDrag && !isGridDrag && zone === 'center') {
+    // For PANE_TAB drags: let children handle center zone (tab reorder, project drops)
+    // and top zone (tab bar lives at top — don't intercept same-cell tab reorders).
+    // Only intercept left/right/bottom edges for grid-level splits.
+    if (isTabDrag && !isGridDrag && (zone === 'center' || zone === 'top')) {
       setGridDropTarget(null);
       gridDropTargetRef.current = null;
       return;
@@ -675,8 +680,9 @@ export function PanelGrid({
     // PANE_TAB drops: edge zones create split + move tab, center lets tab bar handle reorder.
     if (!effectiveKey && sourcePaneTab) {
       // Use actual zone at drop time, not the stale dragover zone
-      if (actualZone === 'center') return; // let tab bar handle reorder
-      if (!sourceTopicId) return; // no PANEL_ID means project-internal tab — skip
+      if (actualZone === 'center') return;
+      if (actualZone === 'top') return;
+      if (!sourceTopicId) return;
       // Update dropTarget zone to match actual position
       dropTarget.zone = actualZone;
     }
@@ -704,8 +710,8 @@ export function PanelGrid({
         // Make it solo
         const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
 
-        // Use a flag to track whether grid placement succeeded (checked via ref for sync)
-        let placed = false;
+        // Mark as solo first — if grid placement fails, the sync effect will clean up
+        setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
 
         setGridRows(prev => {
           // Enforce grid limits
@@ -715,7 +721,6 @@ export function PanelGrid({
           const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
           if (!targetKey) return prev;
 
-          placed = true;
           // ISSUE 8 FIX: Use immutable operations instead of splice()
           let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
 
@@ -755,11 +760,6 @@ export function PanelGrid({
 
           return rows;
         });
-
-        // Only mark as solo if grid placement succeeded
-        if (placed) {
-          setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
-        }
 
         setDraggingGridKey(null);
         setGridDropTarget(null);
