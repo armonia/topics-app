@@ -1845,6 +1845,10 @@ function App() {
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
+            onNewProject={isElectron ? async () => {
+              const path = await (window as any).electronAPI?.selectDirectory?.();
+              if (path) handleProjectClick(path);
+            } : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
             onToggleTheme={toggleTheme}

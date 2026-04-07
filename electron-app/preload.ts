@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAlwaysOnTop: () => ipcRenderer.invoke('app:get-always-on-top'),
   },
 
+  // Dialog
+  selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
+
   // Platform info
   platform: process.platform,
   isElectron: true,

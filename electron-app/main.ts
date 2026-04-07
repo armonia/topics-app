@@ -1096,6 +1096,17 @@ ipcMain.handle('app:get-always-on-top', () => {
   return { alwaysOnTop };
 });
 
+// --- Dialog ---
+ipcMain.handle('dialog:selectDirectory', async () => {
+  const { dialog } = await import('electron');
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Open Project Folder',
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
 // --- Detached Windows ---
 ipcMain.handle('window:detach', async (_event, topicId: string) => {
   const url = `${SERVER_URL}?topic=${topicId}`;
@@ -1362,8 +1373,14 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
-  (app as unknown as { isQuitting: boolean }).isQuitting = true;
+app.on('before-quit', (e) => {
+  // Only quit if explicitly requested via tray menu (which sets isQuitting=true first).
+  // Cmd+Q or menu Quit hides all windows instead, keeping tray alive.
+  if (!(app as unknown as { isQuitting: boolean }).isQuitting) {
+    e.preventDefault();
+    BrowserWindow.getAllWindows().forEach(w => { try { w.hide(); } catch (_e) { /* ignore */ } });
+    console.log('[Topics Electron] Cmd+Q intercepted — hiding windows, tray stays');
+  }
 });
 
 app.on('will-quit', () => {
