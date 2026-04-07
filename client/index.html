@@ -19,7 +19,10 @@
       // Apply theme + sidebar state BEFORE first paint to prevent FOUC/flicker
       (function() {
         var theme = 'system';
-        try { theme = localStorage.getItem('theme') || 'system'; } catch(e) {}
+        try {
+          var raw = localStorage.getItem('theme');
+          if (raw) { try { theme = JSON.parse(raw); } catch(e2) { theme = raw; } }
+        } catch(e) {}
         var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) document.documentElement.classList.add('dark');
 

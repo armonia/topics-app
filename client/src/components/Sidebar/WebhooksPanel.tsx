@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link2, Pencil, Trash2, Zap, Pause, RefreshCw, Copy, Check, Plus, X } from 'lucide-react';
+import { Pencil, Trash2, Zap, Pause, RefreshCw, Copy, Check, Plus, X } from 'lucide-react';
 
 interface Webhook {
   id: string;

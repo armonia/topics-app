@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { createPortal } from 'react-dom';
 import { Check, X, AlertTriangle, Info } from 'lucide-react';
 import { generateUUID } from '../../utils/uuid';
 

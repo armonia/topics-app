@@ -183,7 +183,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
       reader.readAsDataURL(blob);
     };
 
-    el.addEventListener('paste', handleImagePaste as EventListener, true);
+    el.addEventListener('paste', handleImagePaste as unknown as EventListener, true);
 
     const doFit = () => { try { fitAddon.fit(); } catch {} };
     setTimeout(doFit, 50);
@@ -271,7 +271,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
     return () => {
       intentionalClose = true;
       clearTimeout(retryTimer);
-      el.removeEventListener('paste', handleImagePaste as EventListener, true);
+      el.removeEventListener('paste', handleImagePaste as unknown as EventListener, true);
       termRef.current?.ws.close();
       term.dispose();
       termRef.current = null;
