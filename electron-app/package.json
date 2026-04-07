@@ -2,20 +2,24 @@
   "name": "topics-app",
   "version": "1.0.0",
   "description": "Topics App - Electron",
-  "main": "main.js",
+  "main": "dist/main.js",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --mac",
+    "build:ts": "tsc",
+    "start": "npm run build:ts && electron dist/main.js",
+    "build": "npm run build:ts && electron-builder --mac",
     "postinstall": "/usr/libexec/PlistBuddy -c \"Set :CFBundleName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null; /usr/libexec/PlistBuddy -c \"Set :CFBundleDisplayName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null || true",
-    "dev": "electronmon ."
+    "dev": "npm run build:ts && electronmon dist/main.js"
   },
   "dependencies": {
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/ws": "^8.18.1",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
-    "electronmon": "^2.0.4"
+    "electronmon": "^2.0.4",
+    "typescript": "^6.0.2"
   },
   "build": {
     "appId": "com.topics.app",
@@ -29,8 +33,10 @@
       ]
     },
     "files": [
-      "main.js",
-      "preload.js",
+      "dist/main.js",
+      "dist/main.js.map",
+      "dist/preload.js",
+      "dist/preload.js.map",
       "icon.icns",
       "tray-icon.png",
       "trayTemplate.png",

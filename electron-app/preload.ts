@@ -1,24 +1,20 @@
-const { contextBridge, ipcRenderer } = require('electron');
+import { contextBridge, ipcRenderer } from 'electron';
 
-// Expose APIs to the renderer process (Topics web app)
 contextBridge.exposeInMainWorld('electronAPI', {
   // Browser tab management
   browser: {
-    // Tab management
-    createTab: (url) => ipcRenderer.invoke('browser:createTab', url),
-    closeTab: (id) => ipcRenderer.invoke('browser:closeTab', id),
+    createTab: (url: string) => ipcRenderer.invoke('browser:createTab', url),
+    closeTab: (id: string) => ipcRenderer.invoke('browser:closeTab', id),
     listTabs: () => ipcRenderer.invoke('browser:listTabs'),
-    activateTab: (id) => ipcRenderer.invoke('browser:activateTab', id),
-    
-    // Panel visibility
+    activateTab: (id: string) => ipcRenderer.invoke('browser:activateTab', id),
+
     show: () => ipcRenderer.invoke('browser:show'),
     hide: () => ipcRenderer.invoke('browser:hide'),
     toggle: () => ipcRenderer.invoke('browser:toggle'),
     isVisible: () => ipcRenderer.invoke('browser:isVisible'),
-    setWidth: (width) => ipcRenderer.invoke('browser:setWidth', width),
-    
-    // Navigation (active tab)
-    navigate: (url) => ipcRenderer.invoke('browser:navigate', url),
+    setWidth: (width: number) => ipcRenderer.invoke('browser:setWidth', width),
+
+    navigate: (url: string) => ipcRenderer.invoke('browser:navigate', url),
     back: () => ipcRenderer.invoke('browser:back'),
     forward: () => ipcRenderer.invoke('browser:forward'),
     reload: () => ipcRenderer.invoke('browser:reload'),
@@ -26,38 +22,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTitle: () => ipcRenderer.invoke('browser:getTitle'),
     canGoBack: () => ipcRenderer.invoke('browser:canGoBack'),
     canGoForward: () => ipcRenderer.invoke('browser:canGoForward'),
-    
-    // Advanced
-    executeJs: (code) => ipcRenderer.invoke('browser:executeJs', code),
-    screenshot: (tabId) => ipcRenderer.invoke('browser:screenshot', tabId),
+
+    executeJs: (code: string) => ipcRenderer.invoke('browser:executeJs', code),
+    screenshot: (tabId?: string) => ipcRenderer.invoke('browser:screenshot', tabId),
   },
 
-  // Listen for browser events from main process
-  onBrowserEvent: (callback) => {
-    ipcRenderer.on('browser-event', (event, data) => callback(data));
+  onBrowserEvent: (callback: (data: unknown) => void) => {
+    ipcRenderer.on('browser-event', (_event, data) => callback(data));
   },
 
   removeBrowserEventListener: () => {
     ipcRenderer.removeAllListeners('browser-event');
   },
 
-  // Navigate to a specific topic (triggered from tray/notifications)
-  onNavigateToTopic: (callback) => {
-    ipcRenderer.on('navigate-to-topic', (event, topicId) => callback(topicId));
+  onNavigateToTopic: (callback: (topicId: string) => void) => {
+    ipcRenderer.on('navigate-to-topic', (_event, topicId) => callback(topicId));
   },
 
-  // Tell main process which topic is currently focused (for notification suppression)
-  reportFocusedTopic: (topicId) => {
+  reportFocusedTopic: (topicId: string) => {
     ipcRenderer.send('topic:focused', topicId);
   },
 
   // Window control
   window: {
     close: () => ipcRenderer.invoke('window:close'),
-    detach: (topicId) => ipcRenderer.invoke('window:detach', topicId),
+    detach: (topicId: string) => ipcRenderer.invoke('window:detach', topicId),
     listDetached: () => ipcRenderer.invoke('window:listDetached'),
-    focusDetached: (topicId) => ipcRenderer.invoke('window:focusDetached', topicId),
-    closeDetached: (topicId) => ipcRenderer.invoke('window:closeDetached', topicId),
+    focusDetached: (topicId: string) => ipcRenderer.invoke('window:focusDetached', topicId),
+    closeDetached: (topicId: string) => ipcRenderer.invoke('window:closeDetached', topicId),
     focusMain: () => ipcRenderer.invoke('window:focusMain'),
   },
 
@@ -65,6 +57,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     quit: () => ipcRenderer.invoke('app:quit'),
     relaunch: () => ipcRenderer.invoke('app:relaunch'),
+    toggleAlwaysOnTop: () => ipcRenderer.invoke('app:toggle-always-on-top'),
+    getAlwaysOnTop: () => ipcRenderer.invoke('app:get-always-on-top'),
   },
 
   // Platform info
@@ -72,7 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 });
 
-// Also expose for compatibility with existing Swift message handlers
+// Compatibility with existing Swift message handlers
 contextBridge.exposeInMainWorld('webkit', {
   messageHandlers: {
     closeWindow: {
