@@ -1,0 +1,5 @@
+name: sidebar-redesign
+status: implemented
+created: 2026-04-07
+specs:
+  - specs/sidebar/spec.md

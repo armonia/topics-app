@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Plus, Settings, Moon, Sun, File, Loader2 } from 'lucide-react';
+import { Search, Plus, Settings, Moon, Sun, File, FolderOpen, FolderPlus, Loader2, TerminalSquare } from 'lucide-react';
+import { ClaudeIcon } from './ClaudeIcon';
 import type { Topic, SearchResult } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { searchApi } from '../../lib/api';
@@ -9,7 +10,7 @@ export interface CommandAction {
   label: string;
   description?: string;
   icon: React.ReactNode;
-  category: 'topic' | 'action' | 'command' | 'file' | 'message';
+  category: 'project' | 'topic' | 'action' | 'command' | 'file' | 'message';
   shortcut?: string;
   action: () => void;
   /** Raw content for highlight rendering in message results */
@@ -29,9 +30,14 @@ interface CommandPaletteProps {
   onClose: () => void;
   topics: Record<string, Topic>;
   onOpenTopic: (id: string) => void;
+  onOpenProject?: (projectPath: string) => void;
   onNewTopic: () => void;
+  onNewProject?: () => void;
+  onNewClaude?: () => void;
+  onNewTerminal?: () => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
+  onOpenFileSearch?: () => void;
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
@@ -43,7 +49,11 @@ export function CommandPalette({
   onClose,
   topics,
   onOpenTopic,
+  onOpenProject,
   onNewTopic,
+  onNewProject,
+  onNewClaude,
+  onNewTerminal,
   onToggleTheme,
   onOpenSettings,
   themeMode,
@@ -109,38 +119,27 @@ export function CommandPalette({
     }
   }, [projectPath, isOpen]);
 
-  // Build actions list
+  // Build actions list — order: projects, topics, files, actions
   const actions = useMemo((): CommandAction[] => {
     const items: CommandAction[] = [];
 
-    // Quick actions
-    items.push({
-      id: 'new-topic',
-      label: 'New Chat',
-      description: 'Create a new topic',
-      icon: <Plus size={14} />,
-      category: 'action',
-      shortcut: isElectron ? '⌘N' : undefined,
-      action: () => { onNewTopic(); onClose(); },
-    });
-    items.push({
-      id: 'settings',
-      label: 'Settings',
-      description: 'Open app settings',
-      icon: <Settings size={14} />,
-      category: 'action',
-      shortcut: '⌘,',
-      action: () => { onOpenSettings(); onClose(); },
-    });
-    items.push({
-      id: 'toggle-theme',
-      label: themeMode === 'dark' ? 'Switch to Light Mode' : themeMode === 'light' ? 'Switch to Dark Mode' : 'Toggle Theme',
-      icon: themeMode === 'dark' ? <Sun size={14} /> : <Moon size={14} />,
-      category: 'action',
-      action: () => { onToggleTheme(); onClose(); },
-    });
+    // ── Projects ──────────────────────────────────────────────────────
+    const projectPaths = new Set<string>();
+    Object.values(topics).forEach(t => { if (t.projectPath) projectPaths.add(t.projectPath); });
+    Array.from(projectPaths)
+      .sort()
+      .forEach(pp => {
+        items.push({
+          id: `project-${pp}`,
+          label: pp.split('/').pop() || pp,
+          description: pp,
+          icon: <FolderOpen size={14} />,
+          category: 'project',
+          action: () => { onOpenProject?.(pp); onClose(); },
+        });
+      });
 
-    // Topics
+    // ── Topics ────────────────────────────────────────────────────────
     Object.values(topics)
       .filter(t => !t.archived)
       .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
@@ -155,6 +154,7 @@ export function CommandPalette({
         });
       });
 
+    // ── Files ─────────────────────────────────────────────────────────
     // Recent files (show when query is empty and projectPath exists)
     if (projectPath && !query.trim()) {
       try {
@@ -203,8 +203,35 @@ export function CommandPalette({
       });
     }
 
+    // ── Actions (last) ────────────────────────────────────────────────
+    items.push({
+      id: 'new-topic',
+      label: 'New Chat',
+      description: 'Create a new topic',
+      icon: <Plus size={14} />,
+      category: 'action',
+      shortcut: isElectron ? '⌘N' : undefined,
+      action: () => { onNewTopic(); onClose(); },
+    });
+    items.push({
+      id: 'settings',
+      label: 'Settings',
+      description: 'Open app settings',
+      icon: <Settings size={14} />,
+      category: 'action',
+      shortcut: '⌘,',
+      action: () => { onOpenSettings(); onClose(); },
+    });
+    items.push({
+      id: 'toggle-theme',
+      label: themeMode === 'dark' ? 'Switch to Light Mode' : themeMode === 'light' ? 'Switch to Dark Mode' : 'Toggle Theme',
+      icon: themeMode === 'dark' ? <Sun size={14} /> : <Moon size={14} />,
+      category: 'action',
+      action: () => { onToggleTheme(); onClose(); },
+    });
+
     return items;
-  }, [topics, themeMode, onNewTopic, onOpenSettings, onToggleTheme, onOpenTopic, onClose, projectPath, query, fileList, onOpenFile]);
+  }, [topics, themeMode, onNewTopic, onOpenSettings, onToggleTheme, onOpenTopic, onOpenProject, onClose, projectPath, query, fileList, onOpenFile]);
 
   // Filter actions (file items are already pre-filtered in the actions builder)
   const filtered = useMemo(() => {
@@ -271,12 +298,16 @@ export function CommandPalette({
   }, {} as Record<string, CommandAction[]>);
 
   const categoryLabels: Record<string, string> = {
-    action: 'Actions',
-    file: 'Files',
+    project: 'Projects',
     topic: 'Topics',
-    command: 'Commands',
+    file: 'Files',
     message: 'Messages',
+    action: 'Actions',
+    command: 'Commands',
   };
+
+  // Fixed category order
+  const categoryOrder = ['project', 'topic', 'file', 'message', 'action', 'command'];
 
   let globalIdx = 0;
 
@@ -310,7 +341,9 @@ export function CommandPalette({
             </div>
           ) : (
             <>
-              {Object.entries(groupedActions).map(([category, items]) => (
+              {categoryOrder.filter(cat => groupedActions[cat]?.length > 0).map(category => {
+                const items = groupedActions[category];
+                return (
                 <div key={category}>
                   <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
                     {categoryLabels[category] || category}
@@ -352,7 +385,8 @@ export function CommandPalette({
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
               {searchLoading && !groupedActions['message'] && (
                 <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
                   Messages <Loader2 size={10} className="animate-spin" />
@@ -362,8 +396,54 @@ export function CommandPalette({
           )}
         </div>
 
+        {/* Pinned quick actions — always visible */}
+        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap">
+          <button
+            onClick={() => { onNewTopic(); onClose(); }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
+          >
+            <Plus size={12} /> New Chat
+          </button>
+          {onNewClaude && (
+            <button
+              onClick={() => { onNewClaude(); onClose(); }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
+            >
+              <ClaudeIcon size={12} /> Claude
+            </button>
+          )}
+          {onNewTerminal && (
+            <button
+              onClick={() => { onNewTerminal(); onClose(); }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
+            >
+              <TerminalSquare size={12} /> Terminal
+            </button>
+          )}
+          {onNewProject && (
+            <button
+              onClick={() => { onNewProject(); onClose(); }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
+            >
+              <FolderPlus size={12} /> Project
+            </button>
+          )}
+          <button
+            onClick={() => { onOpenSettings(); onClose(); }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
+          >
+            <Settings size={12} /> Settings
+          </button>
+          <button
+            onClick={() => { onToggleTheme(); onClose(); }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
+          >
+            {themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />} Theme
+          </button>
+        </div>
+
         {/* Footer with hints */}
-        <div className="px-4 py-2 border-t border-app-border flex items-center gap-4 text-[10px] text-app-text-muted">
+        <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[10px] text-app-text-muted">
           <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> navigate</span>
           <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> select</span>
           <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> close</span>
