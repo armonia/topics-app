@@ -133,9 +133,10 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const projectTopics = topicsByProject.get(pp) || [];
     const projectTerminals = terminalsByProject.get(pp) || [];
     // Collect the set of pane IDs open inside this project's ProjectWindow
-    // Use callback data if available, otherwise read from persisted localStorage
-    const callbackPanes = projectOpenPanes[pp];
-    const internalPaneIds = new Set(callbackPanes ?? readProjectPaneIds(pp));
+    // Merge callback data (live) with persisted localStorage (for initial load)
+    const callbackPanes = projectOpenPanes[pp] || [];
+    const persistedPanes = readProjectPaneIds(pp);
+    const internalPaneIds = new Set([...callbackPanes, ...persistedPanes]);
 
     // Project pane open as a top-level tab?
     const projectPaneId = `project:${encodeURIComponent(pp)}`;
@@ -143,20 +144,16 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
     const visibleTopics = showArchived ? projectTopics : projectTopics.filter(t => !t.archived);
 
-    // Build children:
-    // - If project tab is open → show ALL children (project is actively used)
-    // - If project shows only because a child has unread → show only that child
+    // Build children — only those with an open internal tab or unread
     const children: SidebarItem[] = [];
 
     for (const t of visibleTopics) {
-      if (!hasProjectTab) {
-        // Project not open as tab — only show children with open tab or unread
-        const chatPaneId = `chat:${t.id}`;
-        const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
-        const hasTopLevelTab = openPanelSet.has(t.id);
-        const hasUnread = (unreadData[t.id]?.unreadCount || 0) > 0;
-        if (!t.archived && !hasInternalTab && !hasTopLevelTab && !hasUnread) continue;
-      }
+      // A chat shows if its pane is open inside the project, OR has unread
+      const chatPaneId = `chat:${t.id}`;
+      const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
+      const hasTopLevelTab = openPanelSet.has(t.id);
+      const hasUnread = (unreadData[t.id]?.unreadCount || 0) > 0;
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && !hasUnread) continue;
       children.push({
         id: t.id,
         type: 'chat',
