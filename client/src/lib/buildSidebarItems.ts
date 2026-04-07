@@ -105,13 +105,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   }
 
   // Group terminals by project (cwd match)
+  // Sort paths longest-first so /foo/bar matches before /foo
+  const sortedProjectPaths = [...projectPaths].sort((a, b) => b.length - a.length);
   const terminalsByProject = new Map<string, TerminalSessionInfo[]>();
   const standaloneTerminals: TerminalSessionInfo[] = [];
 
   for (const ts of terminalSessions) {
-    // Match terminal cwd to a project path
+    // Match terminal cwd to the most specific project path
     let matched = false;
-    for (const pp of projectPaths) {
+    for (const pp of sortedProjectPaths) {
       if (ts.cwd === pp || ts.cwd.startsWith(pp + '/')) {
         const arr = terminalsByProject.get(pp) || [];
         arr.push(ts);
