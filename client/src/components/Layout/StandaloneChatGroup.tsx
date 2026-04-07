@@ -693,9 +693,9 @@ export function StandaloneChatGroup({
   }, [onClosePanel]);
 
   // Determine if a pane type can be split to its own grid cell
-  // Only regular topic IDs (chat topics) are splittable — not project/terminal/browser/utility/draft/session-viewer
+  // Chat topics and project panes are splittable — not terminal/browser/utility/draft/session-viewer
   const isSplittable = useCallback((id: string) =>
-    !isProjectPaneId(id) && !isTerminalPaneId(id) && !isBrowserPaneId(id) &&
+    !isTerminalPaneId(id) && !isBrowserPaneId(id) &&
     !isUtilityPanelId(id) && !isDraftPaneId(id) && !isSessionViewerPaneId(id),
   []);
 

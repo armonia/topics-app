@@ -26,6 +26,7 @@ interface PaneTabBarProps {
   onNewChat?: () => void;
   onReorderPanes?: (newPaneIds: string[]) => void;
   onCrossGroupDrop?: (sourcePaneId: string, sourceGroupId: string, insertIdx: number) => void;
+  onEdgeSplitDrop?: (sourcePaneId: string, sourceGroupId: string, edge: 'left' | 'right') => void;
   className?: string;
   contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
@@ -74,13 +75,14 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
+  const [edgeSplitZone, setEdgeSplitZone] = useState<'left' | 'right' | null>(null);
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
 
   const { isTouch, isMobile } = useMobile();
@@ -162,15 +164,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_GROUP, groupId);
     }
     // Set PANEL_ID for edge-split drops at the PanelGrid level.
-    // Only plain chat panes can be split to solo grid items.
-    // Project/terminal/browser/utility panes should NOT be split — they'd lose context.
+    // Chat panes use topicId; project panes use paneId (project:path).
+    // Terminal/browser/utility panes don't set PANEL_ID — they can't be split to solo.
     // Top-level groups: "standalone", solo groups ("solo:xxx"), or no groupId.
     const isTopLevel = !groupId || groupId === 'standalone' || groupId.startsWith('solo:');
     if (isTopLevel) {
       const pane = panes.find(p => p.id === paneId);
-      const isChatOnly = pane?.type === 'chat' && pane?.topicId;
-      if (isChatOnly) {
+      if (pane?.type === 'chat' && pane?.topicId) {
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.topicId!);
+      } else if (pane?.type === 'project') {
+        e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.id);
       }
     }
     e.dataTransfer.effectAllowed = 'move';
@@ -244,6 +247,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const handleTabDragEnd = useCallback(() => {
     setDraggedPaneId(null);
     setDragOverIdx(null);
+    setEdgeSplitZone(null);
     if (dragGhostRef.current) {
       dragGhostRef.current.remove();
       dragGhostRef.current = null;
@@ -283,11 +287,53 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           e.preventDefault();
+          // Cross-group drag detection (draggedPaneId is only set for same-group drags)
+          const isCrossGroupDrag = !draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP);
+          if (onEdgeSplitDrop && isCrossGroupDrag) {
+            // If this group has a project pane, force split (no move-into project)
+            const hasProjectPane = panes.some(p => p.type === 'project');
+            if (hasProjectPane) {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              setEdgeSplitZone(x < rect.width / 2 ? 'left' : 'right');
+              setDragOverIdx(null);
+              return;
+            }
+            // Non-project groups: edge-only split (30px border zones)
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const edgeSize = 30;
+            if (x < edgeSize) {
+              setEdgeSplitZone('left');
+              setDragOverIdx(null);
+              return;
+            } else if (x > rect.width - edgeSize) {
+              setEdgeSplitZone('right');
+              setDragOverIdx(null);
+              return;
+            }
+          }
+          setEdgeSplitZone(null);
         }}
-        onDrop={handleTabDrop}
+        onDragLeave={() => setEdgeSplitZone(null)}
+        onDrop={(e) => {
+          if (edgeSplitZone && onEdgeSplitDrop) {
+            e.preventDefault();
+            const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+            const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+            if (sourcePaneId && sourceGroupId) {
+              onEdgeSplitDrop(sourcePaneId, sourceGroupId, edgeSplitZone);
+            }
+            setEdgeSplitZone(null);
+            setDraggedPaneId(null);
+            setDragOverIdx(null);
+            return;
+          }
+          handleTabDrop(e);
+        }}
       >
       {panes.map((pane, paneIdx) => {
-        const config = PANE_CONFIG[pane.type];
+        const config = PANE_CONFIG[pane.type] || PANE_CONFIG['chat'];
         const Icon = ICONS[config.icon];
         const isActive = activePaneId === pane.id;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
@@ -325,6 +371,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             )}
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
+            ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
+              <ClaudeIcon size={14} className="flex-shrink-0 text-[#D97757]" />
             ) : Icon ? (
               <Icon size={14} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
             ) : null}
@@ -388,6 +436,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         );
       })}
       </div>
+
+      {/* Edge split indicator overlay */}
+      {edgeSplitZone && (
+        <div
+          className="absolute pointer-events-none z-30"
+          style={{
+            top: 0,
+            bottom: 0,
+            left: edgeSplitZone === 'left' ? 0 : '50%',
+            right: edgeSplitZone === 'right' ? 0 : '50%',
+            background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
+            border: '2px dashed var(--primary)',
+            borderRadius: '4px',
+          }}
+        />
+      )}
 
       {/* Add pane button — floating at the right edge with fade mask */}
       {hasMenuItems && (

@@ -319,6 +319,10 @@ export function GroupLayout({
                             ? handleCrossGroupDrop(groupId)
                             : undefined
                           }
+                          onEdgeSplitDrop={onSplitGroup
+                            ? (sourcePaneId, sourceGroupId, edge) => onSplitGroup(sourceGroupId, sourcePaneId, groupId, edge)
+                            : undefined
+                          }
                           contextPercent={contextPercent}
                           onContextRingClick={onContextRingClick}
                           streamingPaneIds={streamingPaneIds}
