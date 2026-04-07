@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, Menu, Tray, nativeImage, shell, session, Notification } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, Menu, Tray, nativeImage, shell, session, Notification, globalShortcut } = require('electron');
 const path = require('path');
 const http = require('http');
 const https = require('https');
@@ -21,6 +21,41 @@ function serverRequest(urlPath, options = {}) {
 let mainWindow = null;
 let tray = null;
 let updateLayout = null;
+let alwaysOnTop = false;
+
+// Preferences file for persistent state
+const prefsPath = path.join(app.getPath('userData'), 'preferences.json');
+
+function loadPreferences() {
+  try {
+    if (fs.existsSync(prefsPath)) {
+      return JSON.parse(fs.readFileSync(prefsPath, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('[Topics Electron] Failed to load preferences:', e.message);
+  }
+  return {};
+}
+
+function savePreferences(prefs) {
+  try {
+    const existing = loadPreferences();
+    fs.writeFileSync(prefsPath, JSON.stringify({ ...existing, ...prefs }, null, 2));
+  } catch (e) {
+    console.error('[Topics Electron] Failed to save preferences:', e.message);
+  }
+}
+
+function toggleAlwaysOnTop(force) {
+  alwaysOnTop = force !== undefined ? force : !alwaysOnTop;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setAlwaysOnTop(alwaysOnTop, 'floating');
+  }
+  savePreferences({ alwaysOnTop });
+  rebuildTrayMenu();
+  // Update app menu checkmark
+  createAppMenu();
+}
 
 // Multi-window support: detached topic windows
 const detachedWindows = new Map(); // topicId -> BrowserWindow
@@ -521,6 +556,12 @@ function rebuildTrayMenu() {
 
   items.push({ type: 'separator' });
   items.push({
+    label: 'Always on Top',
+    type: 'checkbox',
+    checked: alwaysOnTop,
+    click: () => toggleAlwaysOnTop(),
+  });
+  items.push({
     label: 'Open at Login',
     type: 'checkbox',
     checked: app.getLoginItemSettings().openAtLogin,
@@ -805,6 +846,14 @@ function createAppMenu() {
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
+        { type: 'separator' },
+        {
+          label: 'Always on Top',
+          type: 'checkbox',
+          checked: alwaysOnTop,
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => toggleAlwaysOnTop(),
+        },
         ...(isMac ? [
           { type: 'separator' },
           { role: 'front' },
@@ -1026,6 +1075,15 @@ ipcMain.handle('app:relaunch', () => {
   app.exit(0);
 });
 
+ipcMain.handle('app:toggle-always-on-top', () => {
+  toggleAlwaysOnTop();
+  return { success: true, alwaysOnTop };
+});
+
+ipcMain.handle('app:get-always-on-top', () => {
+  return { alwaysOnTop };
+});
+
 // --- Detached Windows ---
 ipcMain.handle('window:detach', async (event, topicId) => {
   const url = `${SERVER_URL}?topic=${topicId}`;
@@ -1226,6 +1284,39 @@ function stopAssetWatcher() {
   }
 }
 
+// ============ Crash Recovery ============
+
+let crashCount = 0;
+let crashWindowStart = Date.now();
+
+function handleCrash(error, source) {
+  console.error(`[Topics Electron] ${source}:`, error);
+
+  // Crash-loop guard: max 3 restarts in 60 seconds
+  const now = Date.now();
+  if (now - crashWindowStart > 60000) {
+    crashCount = 0;
+    crashWindowStart = now;
+  }
+  crashCount++;
+
+  if (crashCount <= 3) {
+    console.log(`[Topics Electron] Restarting after crash (${crashCount}/3 in window)...`);
+    app.relaunch();
+    app.exit(1);
+  } else {
+    console.error('[Topics Electron] Too many crashes in 60s, not restarting');
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  handleCrash(error, 'Uncaught exception');
+});
+
+process.on('unhandledRejection', (reason) => {
+  handleCrash(reason, 'Unhandled rejection');
+});
+
 // ============ App Lifecycle ============
 
 app.whenReady().then(() => {
@@ -1235,6 +1326,10 @@ app.whenReady().then(() => {
     app.setName('Topics DEV');
   }
 
+  // Load persisted preferences
+  const prefs = loadPreferences();
+  alwaysOnTop = prefs.alwaysOnTop || false;
+
   createAppMenu();
   createWindow();
   createTray();
@@ -1242,6 +1337,16 @@ app.whenReady().then(() => {
   startNotificationCleanup();
   startCDPInfoServer();
   startAssetWatcher();
+
+  // Apply persisted always-on-top state
+  if (alwaysOnTop && mainWindow) {
+    mainWindow.setAlwaysOnTop(true, 'floating');
+  }
+
+  // Register global shortcut for always-on-top
+  globalShortcut.register('CommandOrControl+Shift+T', () => {
+    toggleAlwaysOnTop();
+  });
 
   // Enable auto-start at login on first launch
   const loginSettings = app.getLoginItemSettings();
@@ -1269,6 +1374,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
   stopWSBridge();
   stopNotificationCleanup();
   stopAssetWatcher();
