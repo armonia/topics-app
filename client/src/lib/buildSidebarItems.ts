@@ -39,6 +39,30 @@ function topicTimestamp(t: Topic): number {
   return ts ? new Date(ts).getTime() : 0;
 }
 
+/** Read persisted pane IDs from a project's localStorage layout */
+function readProjectPaneIds(projectPath: string): string[] {
+  try {
+    let hash = 0;
+    for (let i = 0; i < projectPath.length; i++) {
+      hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
+      hash = hash & hash;
+    }
+    const key = `topics-project-panes-${Math.abs(hash).toString(36)}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    // Pane IDs from nonChatPanes + chat topic IDs from openChatTopicIds
+    const ids: string[] = [];
+    if (Array.isArray(data.nonChatPanes)) {
+      for (const p of data.nonChatPanes) if (p.id) ids.push(p.id);
+    }
+    if (Array.isArray(data.openChatTopicIds)) {
+      for (const tid of data.openChatTopicIds) ids.push(`chat:${tid}`);
+    }
+    return ids;
+  } catch { return []; }
+}
+
 // ── Builder ────────────────────────────────────────────────────────────────────
 
 interface BuildSidebarItemsOpts {
@@ -107,7 +131,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const projectTopics = topicsByProject.get(pp) || [];
     const projectTerminals = terminalsByProject.get(pp) || [];
     // Collect the set of pane IDs open inside this project's ProjectWindow
-    const internalPaneIds = new Set(projectOpenPanes[pp] || []);
+    // Use callback data if available, otherwise read from persisted localStorage
+    const callbackPanes = projectOpenPanes[pp];
+    const internalPaneIds = new Set(callbackPanes ?? readProjectPaneIds(pp));
 
     // Project pane open as a top-level tab?
     const projectPaneId = `project:${encodeURIComponent(pp)}`;
