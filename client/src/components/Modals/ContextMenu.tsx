@@ -182,7 +182,7 @@ function MenuItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; la
     <button
       role="menuitem"
       onClick={onClick}
-      className={`w-full text-left px-4 py-2.5 text-[13px] flex items-center gap-2.5 hover:bg-app-hover transition-colors ${
+      className={`w-full text-left px-4 py-3.5 md:py-2.5 text-[15px] md:text-[13px] flex items-center gap-2.5 hover:bg-app-hover transition-colors ${
         danger ? 'text-red-600 hover:bg-red-600/10' : 'text-app-text'
       }`}
     >

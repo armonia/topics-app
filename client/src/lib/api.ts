@@ -337,6 +337,19 @@ export const filesApi = {
   async packageScripts(path: string): Promise<{ scripts: Record<string, string>; engines?: Record<string, string> }> {
     return request<{ scripts: Record<string, string>; engines?: Record<string, string> }>(`/files/package-scripts?path=${encodeURIComponent(path)}`);
   },
+
+  async uploadFiles(targetDir: string, files: File[], relativePaths?: string[]): Promise<{ ok: boolean; uploaded: string[] }> {
+    const formData = new FormData();
+    formData.append('targetDir', targetDir);
+    files.forEach(f => formData.append('files', f));
+    if (relativePaths) formData.append('relativePaths', JSON.stringify(relativePaths));
+    const response = await fetch(`${API_BASE}/files/upload`, { method: 'POST', body: formData });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(response.status, text || response.statusText);
+    }
+    return response.json();
+  },
 };
 
 // Git API

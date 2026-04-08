@@ -272,7 +272,7 @@ export function TopicTree({
       <div
         key={item.id}
         className={[
-          'group flex items-center h-8 cursor-pointer transition-colors duration-100 relative text-[12px] md:text-[13px]',
+          'group flex items-center h-11 md:h-8 cursor-pointer transition-colors duration-100 relative text-[14px] md:text-[13px] border-b border-app-border/40 md:border-b-0',
           isFocused && 'bg-primary/8 dark:bg-primary/15 text-[#10b981]',
           !isFocused && isOpen && 'bg-app-hover text-app-text',
           !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
@@ -317,7 +317,7 @@ export function TopicTree({
       <div key={item.id}>
         {/* Project header */}
         <div
-          className={`group/proj flex items-center h-8 transition-colors relative select-none ${
+          className={`group/proj flex items-center h-11 md:h-8 transition-colors relative select-none border-b border-app-border/40 md:border-b-0 ${
             isProjectFocused ? 'bg-primary/8 dark:bg-primary/15' : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
           }`}
           onContextMenu={(e) => {
@@ -397,17 +397,17 @@ export function TopicTree({
                     </button>
                     <DropdownPortal open={projectAddMenu === pp} anchorRef={addBtnRef} onClose={() => setProjectAddMenu(null)}>
                       {onNewTopicInProject && (
-                        <button onClick={() => { onNewTopicInProject(pp); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <button onClick={() => { onNewTopicInProject(pp); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
                           <MessageSquare size={14} /><span>New Chat</span>
                         </button>
                       )}
                       {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <button onClick={() => { onAddProjectPane(pp, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
                           <TerminalSquare size={14} /><span>Shell</span>
                         </button>
                       )}
                       {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'terminal', 'claude-code'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <button onClick={() => { onAddProjectPane(pp, 'terminal', 'claude-code'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
                           <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
                           <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
                             <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
@@ -416,12 +416,12 @@ export function TopicTree({
                         </button>
                       )}
                       {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'browser'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <button onClick={() => { onAddProjectPane(pp, 'browser'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
                           <Globe size={14} /><span>Browser</span>
                         </button>
                       )}
                       {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'git'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+                        <button onClick={() => { onAddProjectPane(pp, 'git'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
                           <GitBranch size={14} /><span>Git</span>
                         </button>
                       )}
@@ -497,7 +497,7 @@ export function TopicTree({
     return (
       <div key={type} className="flex-shrink-0 border-t border-app-border first:border-t-0">
         {/* Section header — collapsible, matches old sidebar design */}
-        <div className="group flex items-center h-8 hover:bg-app-hover transition-colors">
+        <div className="group flex items-center h-11 md:h-8 hover:bg-app-hover transition-colors">
           <button
             onClick={() => toggleSection(type)}
             aria-expanded={!isCollapsed}
@@ -542,7 +542,7 @@ export function TopicTree({
       <div className="flex-shrink-0">
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
-          className="group/ab flex items-center gap-2 w-full h-8 text-left text-[13px] text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
+          className="group/ab flex items-center gap-2 w-full h-11 md:h-8 text-left text-[14px] md:text-[13px] text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
           style={{ paddingLeft: 12 }}
           title="View all project boards"
         >
@@ -606,7 +606,7 @@ export function TopicTree({
                 }
                 setProjectContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
               <CheckCheck size={14} />
               <span>Mark all as read</span>
@@ -618,7 +618,7 @@ export function TopicTree({
                 onArchiveProject(projectContextMenu.projectPath, !projectContextMenu.allArchived);
                 setProjectContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
               {projectContextMenu.allArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
               <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>
@@ -648,7 +648,7 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
 
   return (
     <div
-      className={`group/terminal w-full flex items-center h-7 transition-colors ${
+      className={`group/terminal w-full flex items-center h-10 md:h-7 transition-colors border-b border-app-border/40 md:border-b-0 ${
         isActive ? 'bg-primary/10 text-primary' : 'text-app-text hover:bg-app-hover'
       }`}
       style={{ paddingLeft: 12 + depth * 16 }}
@@ -740,17 +740,17 @@ function TouchProjectMenu({ pp, allArchived, claudeSkipPermissions, setClaudeSki
       </button>
       <DropdownPortal open={open} anchorRef={overflowBtnRef} onClose={() => setOpen(false)}>
         {onNewTopicInProject && (
-          <button onClick={() => { onNewTopicInProject(pp); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={() => { onNewTopicInProject(pp); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <MessageSquare size={14} className="flex-shrink-0" /><span>New Chat</span>
           </button>
         )}
         {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'terminal'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={() => { onAddProjectPane(pp, 'terminal'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <TerminalSquare size={14} className="flex-shrink-0" /><span>Shell</span>
           </button>
         )}
         {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'terminal', 'claude-code'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={() => { onAddProjectPane(pp, 'terminal', 'claude-code'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <ClaudeIcon size={14} className="text-[#D97757] flex-shrink-0" /><span className="flex-1 text-left">Claude Code</span>
             <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
               <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
@@ -759,23 +759,23 @@ function TouchProjectMenu({ pp, allArchived, claudeSkipPermissions, setClaudeSki
           </button>
         )}
         {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'browser'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={() => { onAddProjectPane(pp, 'browser'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <Globe size={14} className="flex-shrink-0" /><span>Browser</span>
           </button>
         )}
         {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'git'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={() => { onAddProjectPane(pp, 'git'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <GitBranch size={14} className="flex-shrink-0" /><span>Git</span>
           </button>
         )}
         {(onOpenProjectBoard || onArchiveProject) && (onNewTopicInProject || onAddProjectPane) && <div className="h-px bg-app-border mx-2 my-1" />}
         {onOpenProjectBoard && (
-          <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(pp); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(pp); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             <LayoutGrid size={14} className="flex-shrink-0 text-emerald-500" /><span>Open Board</span>
           </button>
         )}
         {onArchiveProject && (
-          <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
             <span>{allArchived ? 'Restore Project' : 'Archive Project'}</span>
           </button>

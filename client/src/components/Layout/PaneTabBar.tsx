@@ -105,6 +105,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
   }, [showAddMenu]);
 
+  // Auto-scroll active tab into view when it changes
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!activePaneId || !scrollContainerRef.current) return;
+    const el = scrollContainerRef.current.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    }
+  }, [activePaneId]);
+
   // Close context menu on click/touch outside
   useEffect(() => {
     if (!ctxMenu) return;
@@ -288,6 +298,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     <div className={className ?? "flex-shrink-0 pt-1 pb-1 pl-1 pr-0 min-w-0 app-drag-region"} data-testid="panel-tab-bar" style={{ position: 'relative' }}>
       {/* Scrollable tab area */}
       <div
+        ref={scrollContainerRef}
         className="flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-thin"
         style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', padding: '1px 0 1px 1px', paddingLeft: hasLeftOverlay ? 30 : 1, paddingRight: hasMenuItems ? 30 : 0 }}
         onDragOver={(e) => {
@@ -352,6 +363,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         return (
           <div
             key={pane.id}
+            data-pane-id={pane.id}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md app-no-drag ${
               isActive
@@ -504,7 +516,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             {onNewChat && (
               <button
                 onClick={() => { onNewChat(); setShowAddMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <MessageSquare size={14} />
                 <span className="flex-1 text-left">New Chat</span>
@@ -517,14 +529,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                   <div key={type}>
                     <button
                       onClick={() => { onAddPane('terminal', 'shell'); setShowAddMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                     >
                       <TerminalSquare size={14} />
                       <span>Shell</span>
                     </button>
                     <button
                       onClick={() => { onAddPane('terminal', 'claude-code'); setShowAddMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                     >
                       <ClaudeIcon size={14} className="text-[#D97757]" />
                       <span className="flex-1 text-left">Claude Code</span>
@@ -542,7 +554,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 <button
                   key={type}
                   onClick={() => { onAddPane(type); setShowAddMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   {Icon && <Icon size={14} />}
                   <span>{config.label}</span>
@@ -563,7 +575,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         >
           <button
             onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
             <X size={14} />
             <span className="flex-1 text-left">Close</span>
@@ -580,7 +592,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 }
                 setCtxMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
               <X size={14} />
               <span>Close Others</span>
@@ -592,7 +604,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               {onSplitRight && (
                 <button
                   onClick={() => { onSplitRight(ctxMenu.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Columns2 size={14} />
                   <span>Split Right</span>
@@ -601,7 +613,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               {onSplitDown && (
                 <button
                   onClick={() => { onSplitDown(ctxMenu.paneId); setCtxMenu(null); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                 >
                   <Rows2 size={14} />
                   <span>Split Down</span>
@@ -614,7 +626,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               <div className="h-px bg-app-border my-1" />
               <button
                 onClick={() => { onDetach(ctxMenu.paneId); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <ExternalLink size={14} />
                 <span>Detach</span>
@@ -624,7 +636,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
           {onRename && (
             <button
               onClick={() => { onRename(ctxMenu.paneId); setCtxMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
             >
               <Edit3 size={14} />
               <span>Rename</span>
@@ -642,7 +654,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 {showSettings && (
                   <button
                     onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                   >
                     <Settings size={14} />
                     <span>Settings</span>
@@ -651,7 +663,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 {showPopOut && (
                   <button
                     onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
                   >
                     <ExternalLink size={14} />
                     <span>Pop Out</span>

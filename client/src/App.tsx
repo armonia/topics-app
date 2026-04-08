@@ -189,6 +189,45 @@ function App() {
   // Touch detection
   const { isTouch: _isTouch } = useMobile();
 
+  // Mobile keyboard: adjust app height when virtual keyboard opens
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const fullHeightRef = useRef(window.innerHeight);
+  useEffect(() => {
+    if (!isMobile || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    // Track the full height when no keyboard is open
+    const trackFullHeight = () => {
+      if (vv.height >= window.innerHeight * 0.85) {
+        fullHeightRef.current = window.innerHeight;
+      }
+    };
+    window.addEventListener('resize', trackFullHeight);
+
+    const onResize = () => {
+      const isKeyboardOpen = vv.height < fullHeightRef.current * 0.85;
+      if (isKeyboardOpen) {
+        setViewportHeight(vv.height);
+      } else {
+        setViewportHeight(null);
+        // Force reset scroll offset when keyboard closes — iOS/WebView
+        // leaves the page scrolled up after keyboard dismissal
+        requestAnimationFrame(() => {
+          window.scrollTo(0, 0);
+          document.documentElement.scrollTop = 0;
+          document.body.scrollTop = 0;
+        });
+      }
+    };
+    // Listen to both resize and scroll on visualViewport
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
+    return () => {
+      vv.removeEventListener('resize', onResize);
+      vv.removeEventListener('scroll', onResize);
+      window.removeEventListener('resize', trackFullHeight);
+    };
+  }, [isMobile]);
+
   // Electron detection
   const isElectron = !!(window as any).electronAPI?.isElectron;
   
@@ -322,7 +361,13 @@ function App() {
   }, [draftMeta]);
 
   // Terminal sessions state (fetched from server, updated via WS)
-  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>([]);
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>(() => {
+    try {
+      const cached = localStorage.getItem('terminal-sessions-cache');
+      if (cached) { const p = JSON.parse(cached); if (Array.isArray(p)) return p; }
+    } catch {}
+    return [];
+  });
   const terminalSessionsLoaded = useRef(false);
   // ISSUE 13 fix: track recently created terminal session IDs with timestamps
   // to avoid cleanup race when server WS broadcast hasn't caught up yet
@@ -331,6 +376,7 @@ function App() {
     fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
       terminalSessionsLoaded.current = true;
       setTerminalSessions(data);
+      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(data)); } catch {}
     }).catch(() => {});
   }, []);
 
@@ -442,6 +488,23 @@ function App() {
         setSidebarCollapsed(true);
       }
       touchStartX.current = null;
+    }
+  }, []);
+
+  // Mobile swipe-from-left-edge to open sidebar
+  const edgeTouchStartX = useRef<number | null>(null);
+  const handleEdgeTouchStart = useCallback((e: React.TouchEvent) => {
+    if (sidebarCollapsed && e.touches[0].clientX < 30) {
+      edgeTouchStartX.current = e.touches[0].clientX;
+    }
+  }, [sidebarCollapsed]);
+  const handleEdgeTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (edgeTouchStartX.current !== null) {
+      const delta = e.changedTouches[0].clientX - edgeTouchStartX.current;
+      if (delta > 60) {
+        setSidebarCollapsed(false);
+      }
+      edgeTouchStartX.current = null;
     }
   }, []);
 
@@ -715,6 +778,7 @@ function App() {
     return onWSMessage((msg) => {
       if (msg.type === 'terminal:sessions' && Array.isArray(msg.sessions)) {
         setTerminalSessions(msg.sessions as TerminalSessionInfo[]);
+        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(msg.sessions)); } catch {}
       }
     });
   }, [onWSMessage]);
@@ -761,11 +825,11 @@ function App() {
     if (isMobile) {
       setOpenPanels([id]);
       setSidebarCollapsed(true);
-    } else if (!openPanels.includes(id)) {
-      setOpenPanels(prev => [...prev, id]);
+    } else {
+      setOpenPanels(prev => prev.includes(id) ? prev : [...prev, id]);
     }
     setFocusedPanelId(id);
-  }, [openPanels, isMobile]);
+  }, [isMobile]);
 
   // Listen for WS messages to trigger notifications
   useEffect(() => {
@@ -1065,11 +1129,12 @@ function App() {
     if (isMobile) {
       setOpenPanels([paneId]);
       setSidebarCollapsed(true);
-    } else if (!openPanels.includes(paneId)) {
-      setOpenPanels(prev => [...prev, paneId]);
+    } else {
+      // Always use functional update to avoid stale closure with openPanels
+      setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
     }
     setFocusedPanelId(paneId);
-  }, [openPanels, isMobile]);
+  }, [isMobile]);
 
   const handleCloseProject = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
@@ -1282,13 +1347,15 @@ function App() {
   // searchQuery removed — sidebar search now opens command palette
   const sidebar = useSidebarState(onWSMessage);
   const browserCtx = useBrowserContexts(true, onWSMessage);
-  const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
+  const [expandedProjects, setExpandedProjects] = useState<string[]>(() => {
+    // Initialize from openPanels so accordions start expanded — no flash
+    const panels = loadSavedPanels();
+    return panels
+      .filter(id => id.startsWith('project:'))
+      .map(id => `project:${decodeURIComponent(id.slice('project:'.length))}`);
+  });
   // Auto-expand projects that have an open project tab
   useEffect(() => {
-    const projectIds = openPanels
-      .filter(id => id.startsWith('project:'))
-      .map(id => id); // project pane IDs like "project:%2Ftmp%2Fpath"
-    // Also map to the buildSidebarItems id format: "project:/path"
     const sidebarProjectIds = openPanels
       .filter(id => id.startsWith('project:'))
       .map(id => `project:${decodeURIComponent(id.slice('project:'.length))}`);
@@ -1423,11 +1490,14 @@ function App() {
     <ToastProvider>
     <div
       className="flex bg-app-bg overflow-hidden max-w-[100vw]"
+      onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
+      onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
       style={{
         fontSize: `${appSettings.fontSize}px`,
         position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-
+        top: 0, left: 0, right: 0,
+        bottom: viewportHeight != null ? undefined : 0,
+        height: viewportHeight != null ? `${viewportHeight}px` : undefined,
       }}
     >
       {/* Skip to main content link for keyboard users */}
@@ -1451,10 +1521,10 @@ function App() {
         role="navigation"
         aria-label="Topics sidebar"
         className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
-          isMobile ? 'fixed inset-y-0 left-0 z-50 w-[280px]' : ''
+          isMobile ? 'fixed inset-y-0 left-0 z-50 w-full' : ''
         }`}
-        style={{ 
-          width: isMobile ? (sidebarCollapsed ? 0 : '280px') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
+        style={{
+          width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
           paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined,
         }}
@@ -1462,16 +1532,16 @@ function App() {
 
         
         {/* Header - draggable for window move */}
-        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${'h-10'}`}>
+        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}>
           <div className="flex items-center gap-2">
             {/* Close button on mobile */}
             {isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(true)}
-                className="w-8 h-8 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag"
+                className="w-10 h-10 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag"
                 aria-label="Close sidebar"
               >
-                <X size={20} aria-hidden="true" />
+                <X size={22} aria-hidden="true" />
               </button>
             )}
             {/* Topics button - opens combined settings & tools menu */}
@@ -1491,7 +1561,7 @@ function App() {
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] text-[15px]`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'}`}>Topics</span>
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
@@ -1509,24 +1579,24 @@ function App() {
               </>
             )}
           </div>
-          <div className="flex items-center gap-1 relative z-50 app-no-drag" style={{ pointerEvents: 'auto' }}>
+          <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
             <button
               onClick={() => handleOpenAsPage('activity')}
-              className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer"
+              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer`}
               style={{ pointerEvents: 'auto' }}
               title="Activity"
               aria-label="Activity"
             >
-              <Activity size={14} />
+              <Activity size={isMobile ? 18 : 14} />
             </button>
             <button
               onClick={() => handleOpenAsPage('agents')}
-              className="w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative"
+              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative`}
               style={{ pointerEvents: 'auto' }}
               title="Agents"
               aria-label="Agents"
             >
-              <Cpu size={14} />
+              <Cpu size={isMobile ? 18 : 14} />
               {agentLiveCount > 0 && (
                 <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
                   {agentLiveCount}
@@ -1535,23 +1605,23 @@ function App() {
             </button>
             <button
               onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
-              className={`w-7 h-7 flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
+              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
               style={{ pointerEvents: 'auto' }}
               title="Remote Access"
               aria-label="Remote Access"
               ref={remoteAccessBtnRef}
             >
-              <Radio size={14} />
+              <Radio size={isMobile ? 18 : 14} />
             </button>
             <button
               ref={newMenuBtnRef}
               onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
-              className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0"
+              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`}
               style={{ pointerEvents: 'auto' }}
               title="New (⌘N)"
               aria-label="New"
             >
-              <Plus size={14} />
+              <Plus size={isMobile ? 18 : 14} />
             </button>
           </div>
         </div>
@@ -1728,17 +1798,17 @@ function App() {
             <button
               key={id}
               onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
             >
-              <Icon size={14} />
+              <Icon size={isMobile ? 18 : 14} />
               <span className="flex-1 text-left">{label}</span>
             </button>
           ))}
           <button
             onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
-            <SettingsIcon size={14} />
+            <SettingsIcon size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Settings</span>
           </button>
           <div className="h-1" />
@@ -1747,22 +1817,22 @@ function App() {
       )}
 
       <DropdownPortal open={showNewMenu} anchorRef={newMenuBtnRef} onClose={() => setShowNewMenu(false)}>
-        <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <MessageSquare size={14} /><span className="flex-1 text-left">New Chat</span>
+        <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <MessageSquare size={isMobile ? 18 : 14} /><span className="flex-1 text-left">New Chat</span>
           {isElectron && <kbd className="kbd text-app-text-muted">⌘N</kbd>}
         </button>
-        <button onClick={() => { handleQuickCreateTerminal('shell'); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <TerminalSquare size={14} /><span>Shell</span>
+        <button onClick={() => { handleQuickCreateTerminal('shell'); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <TerminalSquare size={isMobile ? 18 : 14} /><span>Shell</span>
         </button>
-        <button onClick={() => { handleQuickCreateTerminal('claude-code', claudeSkipPermissions); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
+        <button onClick={() => { handleQuickCreateTerminal('claude-code', claudeSkipPermissions); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <ClaudeIcon size={isMobile ? 18 : 14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
           <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
             <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
             <span>yolo</span>
           </label>
         </button>
-        <button onClick={() => { openBrowserPane(`new-${Date.now()}`); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <Globe size={14} /><span>Browser</span>
+        <button onClick={() => { openBrowserPane(`new-${Date.now()}`); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <Globe size={isMobile ? 18 : 14} /><span>Browser</span>
         </button>
       </DropdownPortal>
 

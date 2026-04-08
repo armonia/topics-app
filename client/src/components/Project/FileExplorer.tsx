@@ -359,6 +359,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const [expandedOverflow, setExpandedOverflow] = useState<Set<string>>(new Set());
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
+  const [rootDragOver, setRootDragOver] = useState(false);
   const { gitStatus: feGitStatus } = useGitStatus({ projectPath });
   const [gitFileMap, setGitFileMap] = useState<Map<string, string>>(new Map());
   const [gitDirSet, setGitDirSet] = useState<Set<string>>(new Set());
@@ -375,15 +376,21 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setContextMenuNode(null);
   }, []);
 
+  const initialLoadDone = useRef(false);
   const loadFiles = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!initialLoadDone.current) setLoading(true);
       setError(null);
       const result = await filesApi.list(projectPath, 3);
       setFiles(result);
-      const firstLevel = new Set<string>();
-      result.forEach(f => { if (f.type === 'dir') firstLevel.add(f.path); });
-      setExpandedDirs(firstLevel);
+      if (!initialLoadDone.current) {
+        // First load: expand top-level directories
+        const firstLevel = new Set<string>();
+        result.forEach(f => { if (f.type === 'dir') firstLevel.add(f.path); });
+        setExpandedDirs(firstLevel);
+        initialLoadDone.current = true;
+      }
+      // Subsequent loads: keep expandedDirs as-is
     } catch (err: any) {
       setError(err.message || 'Failed to load files');
     } finally {
@@ -660,6 +667,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
   const handleDragOver = useCallback((e: React.DragEvent, node: FileNode) => {
     e.preventDefault();
+    const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
+    if (isExternal) {
+      // Accept external drops on directories
+      if (node.type === 'dir') {
+        e.dataTransfer.dropEffect = 'copy';
+        setDragOverPath(node.path);
+        setRootDragOver(false);
+      }
+      return;
+    }
     if (node.type !== 'dir') return;
     // Prevent dropping into self or own children
     const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
@@ -673,9 +690,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
   const handleDragEnter = useCallback((e: React.DragEvent, node: FileNode) => {
     e.preventDefault();
+    const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
     if (node.type === 'dir') {
-      const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
-      if (!invalid) setDragOverPath(node.path);
+      if (isExternal) {
+        setDragOverPath(node.path);
+      } else {
+        const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
+        if (!invalid) setDragOverPath(node.path);
+      }
     }
   }, [isChildOf]);
 
@@ -686,13 +708,84 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setDragOverPath(null);
   }, []);
 
+  // Recursively read a dropped directory via webkitGetAsEntry
+  const readDirectoryEntries = useCallback(async (entry: FileSystemDirectoryEntry, basePath: string): Promise<{ file: File; relativePath: string }[]> => {
+    const results: { file: File; relativePath: string }[] = [];
+    const reader = entry.createReader();
+    const readBatch = (): Promise<FileSystemEntry[]> => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    let batch = await readBatch();
+    while (batch.length > 0) {
+      for (const child of batch) {
+        const childPath = basePath ? `${basePath}/${child.name}` : child.name;
+        if (child.isFile) {
+          const file = await new Promise<File>((resolve, reject) => (child as FileSystemFileEntry).file(resolve, reject));
+          results.push({ file, relativePath: childPath });
+        } else if (child.isDirectory) {
+          const nested = await readDirectoryEntries(child as FileSystemDirectoryEntry, childPath);
+          results.push(...nested);
+        }
+      }
+      batch = await readBatch();
+    }
+    return results;
+  }, []);
+
+  const uploadExternalFiles = useCallback(async (e: React.DragEvent, targetDir: string) => {
+    // Try webkitGetAsEntry for directory support
+    const items = e.dataTransfer.items;
+    const allFiles: File[] = [];
+    const allRelPaths: string[] = [];
+
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry?.isDirectory) {
+          const dirEntries = await readDirectoryEntries(entry as FileSystemDirectoryEntry, entry.name);
+          for (const { file, relativePath } of dirEntries) {
+            allFiles.push(file);
+            allRelPaths.push(relativePath);
+          }
+        } else if (entry?.isFile) {
+          const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+          allFiles.push(file);
+          allRelPaths.push(file.name);
+        }
+      }
+    }
+
+    // Fallback to dataTransfer.files if webkitGetAsEntry didn't work
+    if (allFiles.length === 0 && e.dataTransfer.files.length > 0) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        allFiles.push(e.dataTransfer.files[i]);
+        allRelPaths.push(e.dataTransfer.files[i].name);
+      }
+    }
+
+    if (allFiles.length === 0) return;
+
+    try {
+      await filesApi.uploadFiles(targetDir, allFiles, allRelPaths);
+      await loadFiles();
+    } catch (err: any) {
+      console.error('External file drop failed:', err);
+    }
+  }, [readDirectoryEntries, loadFiles]);
+
   const handleDrop = useCallback(async (e: React.DragEvent, node: FileNode) => {
     e.preventDefault();
     setDragOverPath(null);
     if (node.type !== 'dir') return;
+
+    // External file drop
+    const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
+    if (isExternal) {
+      await uploadExternalFiles(e, node.path);
+      return;
+    }
+
+    // Internal move
     const paths = draggedPathsRef.current;
     if (paths.length === 0) return;
-    // Prevent dropping into self or own children
     const invalid = paths.some(p => p === node.path || isChildOf(node.path, p));
     if (invalid) return;
 
@@ -706,7 +799,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     } catch (err: any) {
       console.error('Failed to move:', err);
     }
-  }, [isChildOf, loadFiles]);
+  }, [isChildOf, loadFiles, uploadExternalFiles]);
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     if (e.currentTarget instanceof HTMLElement) {
@@ -921,6 +1014,32 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     refresh: loadFiles,
   }), [projectPath, handleHoverNewFile, handleHoverNewFolder, handleCollapseAll, loadFiles]);
 
+  // Root drop zone handlers (drop on empty area → upload to project root)
+  // MUST be before early returns to respect Rules of Hooks
+  const handleRootDragOver = useCallback((e: React.DragEvent) => {
+    const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
+    if (!isExternal) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!dragOverPath) setRootDragOver(true);
+  }, [dragOverPath]);
+
+  const handleRootDragLeave = useCallback((e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (e.currentTarget instanceof HTMLElement && related && e.currentTarget.contains(related)) return;
+    setRootDragOver(false);
+  }, []);
+
+  const handleRootDrop = useCallback(async (e: React.DragEvent) => {
+    const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
+    if (!isExternal) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setRootDragOver(false);
+    setDragOverPath(null);
+    await uploadExternalFiles(e, projectPath);
+  }, [projectPath, uploadExternalFiles]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1082,11 +1201,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       <>
         <div
           ref={treeRef}
-          className="flex-1 overflow-y-auto"
+          className={`flex-1 overflow-y-auto${rootDragOver ? ' ring-2 ring-primary/40 bg-primary/5' : ''}`}
           role="tree"
           data-testid="file-tree"
           tabIndex={0}
           onKeyDown={handleKeyDown}
+          onDragOver={handleRootDragOver}
+          onDragLeave={handleRootDragLeave}
+          onDrop={handleRootDrop}
         >
           {newItemParent === projectPath && newItemType && (
             <InlineInput
@@ -1120,11 +1242,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         {/* File tree */}
         <div
           ref={treeRef}
-          className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}`}
+          className={`flex-shrink-0 overflow-y-auto border-b border-app-border ${selectedFile ? 'max-h-[200px]' : ''}${rootDragOver ? ' ring-2 ring-primary/40 bg-primary/5' : ''}`}
           role="tree"
           data-testid="file-tree"
           tabIndex={0}
           onKeyDown={handleKeyDown}
+          onDragOver={handleRootDragOver}
+          onDragLeave={handleRootDragLeave}
+          onDrop={handleRootDrop}
         >
           <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border sticky top-0 bg-surface z-10">
             <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">Explorer</span>

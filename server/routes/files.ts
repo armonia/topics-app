@@ -1124,6 +1124,65 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // --- File upload (external drop) ---
+    if (method === "POST" && pathname === "/api/files/upload") {
+      const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
+      try {
+        const formData = await req.formData();
+        const targetDir = formData.get("targetDir") as string;
+        if (!targetDir) return json({ error: "targetDir required" }, 400);
+        const resolvedDir = resolveProjectPath(targetDir);
+        if (!resolvedDir) return errorResponse(400, "Invalid target directory");
+        if (!existsSync(resolvedDir) || !statSync(resolvedDir).isDirectory()) {
+          return json({ error: "Target directory not found" }, 404);
+        }
+
+        const relativePathsRaw = formData.get("relativePaths") as string | null;
+        const relativePaths: string[] = relativePathsRaw ? JSON.parse(relativePathsRaw) : [];
+        const files = formData.getAll("files") as File[];
+        if (files.length === 0) return json({ error: "No files provided" }, 400);
+
+        const uploaded: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (file.size > MAX_FILE_SIZE) {
+            return json({ error: `File "${file.name}" exceeds 5GB limit` }, 413);
+          }
+
+          // Determine target path (with optional relative path for directory drops)
+          const relPath = relativePaths[i] || file.name;
+          let targetPath = join(resolvedDir, relPath);
+
+          // Ensure parent directory exists (for nested directory drops)
+          const parentDir = targetPath.substring(0, targetPath.lastIndexOf("/"));
+          if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true });
+
+          // Handle name conflicts: add (1), (2), etc.
+          if (existsSync(targetPath)) {
+            const lastSlash = targetPath.lastIndexOf("/");
+            const dir = targetPath.substring(0, lastSlash);
+            const fullName = targetPath.substring(lastSlash + 1);
+            const dotIdx = fullName.lastIndexOf(".");
+            const name = dotIdx > 0 ? fullName.substring(0, dotIdx) : fullName;
+            const ext = dotIdx > 0 ? fullName.substring(dotIdx) : "";
+            let counter = 1;
+            while (existsSync(targetPath)) {
+              targetPath = join(dir, `${name} (${counter})${ext}`);
+              counter++;
+            }
+          }
+
+          const buffer = await file.arrayBuffer();
+          await Bun.write(targetPath, buffer);
+          uploaded.push(targetPath);
+        }
+
+        return json({ ok: true, uploaded });
+      } catch (err: any) {
+        return json({ error: "Upload failed: " + err.message }, 500);
+      }
+    }
+
     return null;
   };
 }

@@ -128,7 +128,7 @@ export const TopicItem = memo(function TopicItem({
         }
       }}
       className={cn(
-        'group flex items-center gap-2 min-h-[32px] h-8 pr-1 cursor-pointer text-[12px] font-medium transition-colors duration-100 select-none relative md:text-[13px]',
+        'group flex items-center gap-2 min-h-[44px] h-11 md:min-h-[32px] md:h-8 pr-1 cursor-pointer text-[14px] md:text-[13px] font-medium transition-colors duration-100 select-none relative border-b border-app-border/40 md:border-b-0',
         // Focused (panel open and focused): accent bg + left border
         isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
         // Open but not focused

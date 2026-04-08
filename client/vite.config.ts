@@ -90,7 +90,7 @@ export default defineConfig({
     } : undefined,
     port: 3332,
     host: '0.0.0.0',
-    allowedHosts: ['macbook', 'localhost', '127.0.0.1'],
+    allowedHosts: true,
     proxy: {
       '/api': { target: 'https://localhost:3330', secure: false, changeOrigin: true },
       '/preview': { target: 'https://localhost:3330', secure: false, changeOrigin: true },

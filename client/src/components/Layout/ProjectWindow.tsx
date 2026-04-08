@@ -756,12 +756,26 @@ export function ProjectWindowPane({
           : g
       ));
     } else {
-      setPanes(prev => [...prev, newPane]);
-      setGroups(prev => prev.map(g =>
-        g.id === groupId
-          ? { ...g, paneIds: [...g.paneIds, newPane.id], activePaneId: newPane.id }
-          : g
-      ));
+      // Dedup: syncTerminals + orphan sync may have already placed this pane
+      setPanes(prev => prev.some(p => p.id === newPane.id) ? prev : [...prev, newPane]);
+      setGroups(prev => {
+        const result = prev.map(g => {
+          if (g.id === groupId) {
+            return {
+              ...g,
+              paneIds: g.paneIds.includes(newPane.id) ? g.paneIds : [...g.paneIds, newPane.id],
+              activePaneId: newPane.id,
+            };
+          }
+          // Remove from other groups if orphan sync placed it elsewhere
+          if (g.paneIds.includes(newPane.id)) {
+            const filtered = g.paneIds.filter(id => id !== newPane.id);
+            return { ...g, paneIds: filtered, activePaneId: g.activePaneId === newPane.id ? (filtered[0] || g.activePaneId) : g.activePaneId };
+          }
+          return g;
+        }).filter(g => g.paneIds.length > 0);
+        return result;
+      });
     }
     setFocusedGroupId(groupId);
   }, [panes, groups, projectPath, claudeSkipPermissions]);
@@ -808,12 +822,17 @@ export function ProjectWindowPane({
       paneIds: [newPane.id],
       activePaneId: newPane.id,
     };
-    setPanes(prev => [...prev, newPane]);
-    // Use updater form: if groups were concurrently populated (e.g. chat sync
-    // effects ran while the async terminal session was being created), append
-    // the new group instead of replacing — the rows sync effect will handle
-    // placing it into the layout automatically.
-    setGroups(prev => [...prev, newGroup]);
+    // Dedup: syncTerminals + orphan sync may have already placed this pane
+    setPanes(prev => prev.some(p => p.id === newPane.id) ? prev : [...prev, newPane]);
+    // Remove from any existing group (orphan sync may have placed it), then add new group
+    setGroups(prev => {
+      const cleaned = prev.map(g => {
+        if (!g.paneIds.includes(newPane.id)) return g;
+        const filtered = g.paneIds.filter(id => id !== newPane.id);
+        return { ...g, paneIds: filtered, activePaneId: g.activePaneId === newPane.id ? (filtered[0] || g.activePaneId) : g.activePaneId };
+      }).filter(g => g.paneIds.length > 0);
+      return [...cleaned, newGroup];
+    });
     setFocusedGroupId(newGroupId);
   }, [projectPath, claudeSkipPermissions]);
 
@@ -834,17 +853,23 @@ export function ProjectWindowPane({
             ));
           }
         } else {
-          // Add as a new terminal pane in the focused/first group
+          // Add as a new terminal pane in the focused/first group (dedup against syncTerminals race)
           const newPane: Pane = { id: paneId, type: 'terminal', title: 'Terminal', preview: false };
-          setPanes(prev => [...prev, newPane]);
+          setPanes(prev => prev.some(p => p.id === paneId) ? prev : [...prev, newPane]);
           const targetGroupId = focusedGroupId || groups[0]?.id;
           if (targetGroupId) {
             setFocusedGroupId(targetGroupId);
-            setGroups(prev => prev.map(g =>
-              g.id === targetGroupId
-                ? { ...g, paneIds: [...g.paneIds, paneId], activePaneId: paneId }
-                : g
-            ));
+            setGroups(prev => prev.map(g => {
+              if (g.id === targetGroupId) {
+                return { ...g, paneIds: g.paneIds.includes(paneId) ? g.paneIds : [...g.paneIds, paneId], activePaneId: paneId };
+              }
+              // Remove from other groups if orphan sync placed it
+              if (g.paneIds.includes(paneId)) {
+                const filtered = g.paneIds.filter(id => id !== paneId);
+                return { ...g, paneIds: filtered, activePaneId: g.activePaneId === paneId ? (filtered[0] || g.activePaneId) : g.activePaneId };
+              }
+              return g;
+            }).filter(g => g.paneIds.length > 0));
           }
         }
         onPendingPaneConsumed?.();

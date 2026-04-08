@@ -1,12 +1,91 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2 } from 'lucide-react';
+import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
+
+// ── Mobile Terminal Toolbar ─────────────────────────────────────────────────
+interface TerminalToolbarProps {
+  onKey: (data: string) => void;
+}
+
+const SPECIAL_KEYS = [
+  { label: 'Esc', data: '\x1b' },
+  { label: 'Tab', data: '\t' },
+  { label: '↑', data: '\x1b[A', icon: ChevronUp },
+  { label: '↓', data: '\x1b[B', icon: ChevronDown },
+  { label: '←', data: '\x1b[D', icon: ChevronLeft },
+  { label: '→', data: '\x1b[C', icon: ChevronRightIcon },
+  { label: '|', data: '|' },
+  { label: '~', data: '~' },
+  { label: '/', data: '/' },
+  { label: '-', data: '-' },
+] as const;
+
+const CTRL_COMBOS = [
+  { label: 'C', code: '\x03' },
+  { label: 'D', code: '\x04' },
+  { label: 'Z', code: '\x1a' },
+  { label: 'L', code: '\x0c' },
+  { label: 'A', code: '\x01' },
+  { label: 'E', code: '\x05' },
+  { label: 'R', code: '\x12' },
+  { label: 'U', code: '\x15' },
+] as const;
+
+const MobileTerminalToolbar = memo(function MobileTerminalToolbar({ onKey }: TerminalToolbarProps) {
+  const [ctrlMode, setCtrlMode] = useState(false);
+
+  const sendKey = useCallback((data: string) => {
+    onKey(data);
+    setCtrlMode(false);
+  }, [onKey]);
+
+  return (
+    <div className="flex-shrink-0 flex flex-col border-t border-app-border bg-app-hover dark:bg-app-panel md:hidden">
+      {/* Ctrl combos row — shown when Ctrl is active */}
+      {ctrlMode && (
+        <div className="flex items-center gap-1 px-1.5 py-1 border-b border-app-border/50 overflow-x-auto scrollbar-none">
+          {CTRL_COMBOS.map(({ label, code }) => (
+            <button
+              key={label}
+              onPointerDown={(e) => { e.preventDefault(); sendKey(code); }}
+              className="flex-shrink-0 h-9 min-w-[44px] px-2 flex items-center justify-center rounded-md bg-red-500/15 text-red-500 dark:text-red-400 text-[13px] font-mono font-medium active:bg-red-500/25 transition-colors"
+            >
+              ^{label}
+            </button>
+          ))}
+        </div>
+      )}
+      {/* Main keys row */}
+      <div className="flex items-center gap-1 px-1.5 py-1.5 overflow-x-auto scrollbar-none">
+        <button
+          onPointerDown={(e) => { e.preventDefault(); setCtrlMode(prev => !prev); }}
+          className={`flex-shrink-0 h-9 min-w-[48px] px-2 flex items-center justify-center rounded-md text-[13px] font-mono font-semibold transition-colors ${
+            ctrlMode
+              ? 'bg-primary text-white'
+              : 'bg-surface border border-app-border text-app-text active:bg-app-hover'
+          }`}
+        >
+          Ctrl
+        </button>
+        {SPECIAL_KEYS.map(({ label, data, icon: Icon }) => (
+          <button
+            key={label}
+            onPointerDown={(e) => { e.preventDefault(); sendKey(data); }}
+            className="flex-shrink-0 h-9 min-w-[40px] px-2 flex items-center justify-center rounded-md bg-surface border border-app-border text-app-text text-[13px] font-mono active:bg-app-hover transition-colors"
+          >
+            {Icon ? <Icon size={16} /> : label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+});
 
 interface TerminalTab {
   id: string;
@@ -436,6 +515,16 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
 
   const activeTab = tabs.find(t => t.id === activeTabId);
 
+  // Send key data to active terminal (for mobile toolbar)
+  const sendToTerminal = useCallback((data: string) => {
+    if (!activeTabId) return;
+    const entry = terminalsRef.current.get(activeTabId);
+    if (entry && entry.ws.readyState === WebSocket.OPEN) {
+      entry.ws.send(data);
+      entry.term.focus();
+    }
+  }, [activeTabId]);
+
   // Empty state — no terminals yet, show choice screen
   if (tabs.length === 0 && !error) {
     return (
@@ -593,7 +682,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
       )}
 
       {/* Terminal containers */}
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative" style={{ backgroundColor: isDark ? DARK_THEME.background : LIGHT_THEME.background }}>
         {tabs.map(tab => (
           <div
             key={tab.id}
@@ -640,6 +729,11 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
           </div>
         )}
       </div>
+
+      {/* Mobile special keys toolbar */}
+      {tabs.length > 0 && (
+        <MobileTerminalToolbar onKey={sendToTerminal} />
+      )}
     </div>
   );
 }

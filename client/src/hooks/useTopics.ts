@@ -13,9 +13,20 @@ function getInitialTopics(): Record<string, Topic> {
   return {};
 }
 
+function getInitialWorkspaceProjects(): string[] {
+  try {
+    const cached = localStorage.getItem('workspace-projects-cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
 export function useTopics() {
   const [topics, setTopics] = useState<Record<string, Topic>>(getInitialTopics);
-  const [workspaceProjects, setWorkspaceProjects] = useState<string[]>([]);
+  const [workspaceProjects, setWorkspaceProjects] = useState<string[]>(getInitialWorkspaceProjects);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +44,10 @@ export function useTopics() {
         clearTimeout(timer);
       }
       setTopics(data.topics);
-      if (data.workspaceProjects) setWorkspaceProjects(data.workspaceProjects);
+      if (data.workspaceProjects) {
+        setWorkspaceProjects(data.workspaceProjects);
+        try { localStorage.setItem('workspace-projects-cache', JSON.stringify(data.workspaceProjects)); } catch {}
+      }
       // Cache to localStorage
       try { localStorage.setItem('topics-cache', JSON.stringify(data.topics)); } catch {}
     } catch (err: any) {

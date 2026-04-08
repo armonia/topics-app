@@ -4,7 +4,7 @@
   "description": "Topics App - Electron",
   "main": "dist/main.js",
   "scripts": {
-    "build:ts": "tsc",
+    "build:ts": "tsc && node -e \"require('fs').readdirSync('.').filter(f=>f.endsWith('.png')).forEach(f=>{require('fs').copyFileSync(f,'dist/'+f);require('fs').chmodSync('dist/'+f,0o644)})\"",
     "start": "npm run build:ts && electron dist/main.js",
     "build": "npm run build:ts && electron-builder --mac",
     "postinstall": "/usr/libexec/PlistBuddy -c \"Set :CFBundleName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null; /usr/libexec/PlistBuddy -c \"Set :CFBundleDisplayName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null || true",

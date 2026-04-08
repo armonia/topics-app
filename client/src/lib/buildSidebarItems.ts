@@ -1,4 +1,5 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
+import { isProjectPaneId, getProjectPathFromPaneId } from './paneConfig';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -84,10 +85,16 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   // ── 1. Group topics by project ───────────────────────────────────────────
 
-  // Collect all known project paths
+  // Collect all known project paths (workspace + topics + open project panes)
   const projectPaths = new Set<string>(workspaceProjects);
   for (const t of Object.values(topics)) {
     if (t.projectPath) projectPaths.add(t.projectPath);
+  }
+  for (const id of openPanels) {
+    if (isProjectPaneId(id)) {
+      const pp = getProjectPathFromPaneId(id);
+      if (pp) projectPaths.add(pp);
+    }
   }
 
   // Group topics by project path
