@@ -1139,8 +1139,18 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
         const relativePathsRaw = formData.get("relativePaths") as string | null;
         const relativePaths: string[] = relativePathsRaw ? JSON.parse(relativePathsRaw) : [];
+        // Empty directory paths to create (no files inside)
+        const emptyDirsRaw = formData.get("emptyDirs") as string | null;
+        const emptyDirs: string[] = emptyDirsRaw ? JSON.parse(emptyDirsRaw) : [];
         const files = formData.getAll("files") as File[];
-        if (files.length === 0) return json({ error: "No files provided" }, 400);
+
+        if (files.length === 0 && emptyDirs.length === 0) return json({ error: "No files provided" }, 400);
+
+        // Create empty directories first
+        for (const dir of emptyDirs) {
+          const dirPath = join(resolvedDir, dir);
+          if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true });
+        }
 
         const uploaded: string[] = [];
         for (let i = 0; i < files.length; i++) {
@@ -1149,15 +1159,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             return json({ error: `File "${file.name}" exceeds 5GB limit` }, 413);
           }
 
-          // Determine target path (with optional relative path for directory drops)
           const relPath = relativePaths[i] || file.name;
           let targetPath = join(resolvedDir, relPath);
 
-          // Ensure parent directory exists (for nested directory drops)
+          // Ensure parent directory exists
           const parentDir = targetPath.substring(0, targetPath.lastIndexOf("/"));
           if (!existsSync(parentDir)) mkdirSync(parentDir, { recursive: true });
 
-          // Handle name conflicts: add (1), (2), etc.
+          // Handle name conflicts
           if (existsSync(targetPath)) {
             const lastSlash = targetPath.lastIndexOf("/");
             const dir = targetPath.substring(0, lastSlash);

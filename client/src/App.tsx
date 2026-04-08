@@ -412,6 +412,7 @@ function App() {
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
+  const [trafficLightsVisible, setTrafficLightsVisible] = useState(false);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
@@ -1532,7 +1533,23 @@ function App() {
 
         
         {/* Header - draggable for window move */}
-        <div className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}>
+        <div
+          className={`flex items-center justify-between border-b border-app-border flex-shrink-0 app-drag-region transition-[padding] duration-200 pr-2 ${isMobile ? 'h-12' : 'h-10'} ${
+            isElectron && trafficLightsVisible ? 'pl-[74px]' : 'pl-2'
+          }`}
+          onMouseEnter={() => {
+            if (isElectron) {
+              setTrafficLightsVisible(true);
+              (window as any).electronAPI?.window?.showTrafficLights();
+            }
+          }}
+          onMouseLeave={() => {
+            if (isElectron) {
+              setTrafficLightsVisible(false);
+              (window as any).electronAPI?.window?.hideTrafficLights();
+            }
+          }}
+        >
           <div className="flex items-center gap-2">
             {/* Close button on mobile */}
             {isMobile && (

@@ -448,6 +448,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     return result;
   }, [expandedDirs]);
 
+  // Scroll a tree node into view after operations (create, rename, etc.)
+  const scrollToPath = useCallback((path: string) => {
+    requestAnimationFrame(() => {
+      const el = treeRef.current?.querySelector(`[data-path="${CSS.escape(path)}"]`) as HTMLElement | null;
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, []);
+
   const handleSelectFile = useCallback((node: FileNode, e: React.MouseEvent) => {
     const isMeta = e.metaKey || e.ctrlKey;
     const isShift = e.shiftKey;
@@ -532,12 +540,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     try {
       await filesApi.create(fullPath, newItemType);
       await loadFiles();
+      setSelectedPaths(new Set([fullPath]));
+      scrollToPath(fullPath);
     } catch (err: any) {
       console.error('Failed to create item:', err);
     }
     setNewItemParent(null);
     setNewItemType(null);
-  }, [newItemParent, newItemType, loadFiles]);
+  }, [newItemParent, newItemType, loadFiles, scrollToPath]);
 
   const handleNewItemCancel = useCallback(() => {
     setNewItemParent(null);
@@ -556,11 +566,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     try {
       await filesApi.rename(oldPath, newPath);
       await loadFiles();
+      setSelectedPaths(new Set([newPath]));
+      scrollToPath(newPath);
     } catch (err: any) {
       console.error('Failed to rename:', err);
     }
     setRenamingPath(null);
-  }, [getParentDir, loadFiles]);
+  }, [getParentDir, loadFiles, scrollToPath]);
 
   const handleRenameCancel = useCallback(() => {
     setRenamingPath(null);

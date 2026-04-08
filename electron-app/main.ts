@@ -151,6 +151,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 12 },
     backgroundColor: '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
@@ -161,6 +162,9 @@ function createWindow(): void {
     },
     show: false,
   });
+
+  // Hide traffic lights by default — shown on hover via IPC
+  mainWindow.setWindowButtonVisibility(false);
 
   // Layout function for browser panel tabs
   updateLayout = () => {
@@ -250,6 +254,7 @@ function createDetachedWindow(topicId: string, url: string, features = ''): Brow
     minWidth: 500,
     minHeight: 400,
     titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 12 },
     backgroundColor: '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
@@ -258,6 +263,9 @@ function createDetachedWindow(topicId: string, url: string, features = ''): Brow
       contextIsolation: true,
     },
   });
+
+  // Hide traffic lights by default — shown on hover via IPC
+  detachedWin.setWindowButtonVisibility(false);
 
   detachedWindows.set(topicId, detachedWin);
   detachedWin.loadURL(url);
@@ -1154,6 +1162,22 @@ ipcMain.handle('window:focusMain', async () => {
     return { success: true };
   }
   return { success: false };
+});
+
+// ============ Traffic Light Visibility ============
+
+ipcMain.handle('window:showTrafficLights', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    win.setWindowButtonVisibility(true);
+  }
+});
+
+ipcMain.handle('window:hideTrafficLights', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    win.setWindowButtonVisibility(false);
+  }
 });
 
 // ============ CDP HTTP Server for OpenClaw ============

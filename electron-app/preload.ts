@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     focusDetached: (topicId: string) => ipcRenderer.invoke('window:focusDetached', topicId),
     closeDetached: (topicId: string) => ipcRenderer.invoke('window:closeDetached', topicId),
     focusMain: () => ipcRenderer.invoke('window:focusMain'),
+    showTrafficLights: () => ipcRenderer.invoke('window:showTrafficLights'),
+    hideTrafficLights: () => ipcRenderer.invoke('window:hideTrafficLights'),
   },
 
   // App control

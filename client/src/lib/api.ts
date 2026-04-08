@@ -338,11 +338,12 @@ export const filesApi = {
     return request<{ scripts: Record<string, string>; engines?: Record<string, string> }>(`/files/package-scripts?path=${encodeURIComponent(path)}`);
   },
 
-  async uploadFiles(targetDir: string, files: File[], relativePaths?: string[]): Promise<{ ok: boolean; uploaded: string[] }> {
+  async uploadFiles(targetDir: string, files: File[], relativePaths?: string[], emptyDirs?: string[]): Promise<{ ok: boolean; uploaded: string[] }> {
     const formData = new FormData();
     formData.append('targetDir', targetDir);
     files.forEach(f => formData.append('files', f));
     if (relativePaths) formData.append('relativePaths', JSON.stringify(relativePaths));
+    if (emptyDirs && emptyDirs.length > 0) formData.append('emptyDirs', JSON.stringify(emptyDirs));
     const response = await fetch(`${API_BASE}/files/upload`, { method: 'POST', body: formData });
     if (!response.ok) {
       const text = await response.text();
