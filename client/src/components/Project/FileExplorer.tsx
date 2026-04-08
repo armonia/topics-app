@@ -5,6 +5,7 @@ import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
+import { useToast } from '../Shared/Toast';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
@@ -48,6 +49,7 @@ interface TreeNodeProps {
   selectedPaths: Set<string>;
   cutPaths: Set<string>;
   dragOverPath: string | null;
+  isExternalDrag: boolean;
   onDragStart: (e: React.DragEvent, node: FileNode) => void;
   onDragOver: (e: React.DragEvent, node: FileNode) => void;
   onDragEnter: (e: React.DragEvent, node: FileNode) => void;
@@ -120,14 +122,15 @@ function getGitStatusLabel(status: string): string {
   return 'M';
 }
 
-function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
+function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, onToggleDir, onExpandOverflow, onSelectFile, focusedPath, onContextMenu, renamingPath, onRenameSubmit, onRenameCancel, newItemParent, newItemType, onNewItemSubmit, onNewItemCancel, gitFileMap, gitDirSet, selectedPaths, cutPaths, dragOverPath, isExternalDrag, onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop, onDragEnd, onNewFile, onNewFolder, onCollapseDir }: TreeNodeProps) {
   const isDir = node.type === 'dir';
   const isExpanded = expandedDirs.has(node.path);
   const isSelected = selectedPath === node.path;
   const isMultiSelected = selectedPaths.has(node.path);
   const isFocused = focusedPath === node.path;
   const isCut = cutPaths.has(node.path);
-  const isDragOver = isDir && dragOverPath === node.path;
+  // Internal drag: only dirs highlight. External drag: any node can highlight.
+  const isDragOver = dragOverPath === node.path && (isDir || isExternalDrag);
   const gitStatus = isDir ? undefined : gitFileMap.get(node.path);
   const dirHasChanges = isDir && gitDirSet.has(node.path);
   const isRenaming = renamingPath === node.path;
@@ -345,6 +348,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
 }
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(function FileExplorer({ projectPath, compact, onOpenFile, pendingFile, onPendingFileConsumed }, ref) {
+  const toast = useToast();
   const [files, setFiles] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -369,6 +373,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const lastClickedPathRef = useRef<string | null>(null);
   const draggedPathsRef = useRef<string[]>([]);
   const clipboardRef = useRef<{ paths: string[]; mode: 'copy' | 'cut' } | null>(null);
+  const externalDragRef = useRef(false);
+  const [isExternalDrag, setIsExternalDrag] = useState(false);
   const [cutPaths, setCutPaths] = useState<Set<string>>(new Set());
 
   const closeContextMenu = useCallback(() => {
@@ -681,16 +687,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     e.preventDefault();
     const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
     if (isExternal) {
-      // Accept external drops on directories
-      if (node.type === 'dir') {
-        e.dataTransfer.dropEffect = 'copy';
-        setDragOverPath(node.path);
-        setRootDragOver(false);
-      }
+      e.dataTransfer.dropEffect = 'copy';
+      if (!externalDragRef.current) { externalDragRef.current = true; setIsExternalDrag(true); }
+      setDragOverPath(node.path);
+      setRootDragOver(false);
       return;
     }
+    if (externalDragRef.current) { externalDragRef.current = false; setIsExternalDrag(false); }
     if (node.type !== 'dir') return;
-    // Prevent dropping into self or own children
     const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
     if (invalid) {
       e.dataTransfer.dropEffect = 'none';
@@ -703,17 +707,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const handleDragEnter = useCallback((e: React.DragEvent, node: FileNode) => {
     e.preventDefault();
     const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
-    if (node.type === 'dir') {
-      if (isExternal) {
-        setDragOverPath(node.path);
-      } else {
-        const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
-        if (!invalid) setDragOverPath(node.path);
-      }
+    if (isExternal) {
+      if (!externalDragRef.current) { externalDragRef.current = true; setIsExternalDrag(true); }
+      setDragOverPath(node.path);
+    } else if (node.type === 'dir') {
+      const invalid = draggedPathsRef.current.some(p => p === node.path || isChildOf(node.path, p));
+      if (!invalid) setDragOverPath(node.path);
     }
   }, [isChildOf]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // During external drag, don't clear on individual node leave — dragEnter/dragOver on the
+    // next node will update the path. Clearing here causes flash between sibling nodes.
+    if (externalDragRef.current) return;
     // Only clear if leaving the actual element (not entering a child)
     const related = e.relatedTarget as Node | null;
     if (e.currentTarget instanceof HTMLElement && related && e.currentTarget.contains(related)) return;
@@ -723,79 +729,128 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   // Recursively read a dropped directory via webkitGetAsEntry
   const readDirectoryEntries = useCallback(async (entry: FileSystemDirectoryEntry, basePath: string): Promise<{ file: File; relativePath: string }[]> => {
     const results: { file: File; relativePath: string }[] = [];
-    const reader = entry.createReader();
-    const readBatch = (): Promise<FileSystemEntry[]> => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
-    let batch = await readBatch();
-    while (batch.length > 0) {
-      for (const child of batch) {
-        const childPath = basePath ? `${basePath}/${child.name}` : child.name;
-        if (child.isFile) {
-          const file = await new Promise<File>((resolve, reject) => (child as FileSystemFileEntry).file(resolve, reject));
-          results.push({ file, relativePath: childPath });
-        } else if (child.isDirectory) {
-          const nested = await readDirectoryEntries(child as FileSystemDirectoryEntry, childPath);
-          results.push(...nested);
+    try {
+      const reader = entry.createReader();
+      const readBatch = (): Promise<FileSystemEntry[]> => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      let batch = await readBatch();
+      while (batch.length > 0) {
+        for (const child of batch) {
+          const childPath = basePath ? `${basePath}/${child.name}` : child.name;
+          try {
+            if (child.isFile) {
+              const file = await new Promise<File>((resolve, reject) => (child as FileSystemFileEntry).file(resolve, reject));
+              results.push({ file, relativePath: childPath });
+            } else if (child.isDirectory) {
+              const nested = await readDirectoryEntries(child as FileSystemDirectoryEntry, childPath);
+              results.push(...nested);
+            }
+          } catch (err) {
+            console.warn(`Failed to read entry ${childPath}:`, err);
+          }
         }
+        batch = await readBatch();
       }
-      batch = await readBatch();
+    } catch (err) {
+      console.warn(`Failed to read directory ${basePath}:`, err);
     }
     return results;
   }, []);
 
   const uploadExternalFiles = useCallback(async (e: React.DragEvent, targetDir: string) => {
-    // Try webkitGetAsEntry for directory support
     const items = e.dataTransfer.items;
     const allFiles: File[] = [];
     const allRelPaths: string[] = [];
+    const emptyDirs: string[] = []; // track empty directories to create
+    let droppedDirNames: string[] = [];
 
+    // Try webkitGetAsEntry for directory support
     if (items && items.length > 0) {
       for (let i = 0; i < items.length; i++) {
-        const entry = items[i].webkitGetAsEntry?.();
-        if (entry?.isDirectory) {
-          const dirEntries = await readDirectoryEntries(entry as FileSystemDirectoryEntry, entry.name);
-          for (const { file, relativePath } of dirEntries) {
+        try {
+          const entry = items[i].webkitGetAsEntry?.();
+          if (entry?.isDirectory) {
+            droppedDirNames.push(entry.name);
+            const dirEntries = await readDirectoryEntries(entry as FileSystemDirectoryEntry, entry.name);
+            if (dirEntries.length === 0) {
+              // Empty folder — still create it on the server
+              emptyDirs.push(entry.name);
+            } else {
+              for (const { file, relativePath } of dirEntries) {
+                allFiles.push(file);
+                allRelPaths.push(relativePath);
+              }
+            }
+          } else if (entry?.isFile) {
+            const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
             allFiles.push(file);
-            allRelPaths.push(relativePath);
+            allRelPaths.push(file.name);
+          } else {
+            // webkitGetAsEntry returned null — try as regular file
+            const file = items[i].getAsFile?.();
+            if (file && (file.size > 0 || file.type)) {
+              allFiles.push(file);
+              allRelPaths.push(file.name);
+            }
           }
-        } else if (entry?.isFile) {
-          const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
-          allFiles.push(file);
-          allRelPaths.push(file.name);
+        } catch (err) {
+          console.warn('Failed to read dropped item:', err);
         }
       }
     }
 
-    // Fallback to dataTransfer.files if webkitGetAsEntry didn't work
-    if (allFiles.length === 0 && e.dataTransfer.files.length > 0) {
+    // Fallback to dataTransfer.files if webkitGetAsEntry didn't produce results
+    if (allFiles.length === 0 && emptyDirs.length === 0 && e.dataTransfer.files.length > 0) {
+      let skippedFolders = 0;
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        allFiles.push(e.dataTransfer.files[i]);
-        allRelPaths.push(e.dataTransfer.files[i].name);
+        const f = e.dataTransfer.files[i];
+        if (f.size === 0 && !f.type) {
+          skippedFolders++;
+          continue;
+        }
+        allFiles.push(f);
+        allRelPaths.push(f.name);
+      }
+      if (skippedFolders > 0 && allFiles.length === 0) {
+        toast.warning('Folder drop not supported in this browser. Drag individual files instead.');
+        return;
       }
     }
 
-    if (allFiles.length === 0) return;
+    if (allFiles.length === 0 && emptyDirs.length === 0) {
+      toast.warning('No files detected in drop.');
+      return;
+    }
 
+    const label = droppedDirNames.length > 0
+      ? droppedDirNames.join(', ')
+      : allFiles.length === 1 ? allFiles[0].name : `${allFiles.length} files`;
+    toast.info(`Uploading ${label}...`);
     try {
-      await filesApi.uploadFiles(targetDir, allFiles, allRelPaths);
+      await filesApi.uploadFiles(targetDir, allFiles, allRelPaths, emptyDirs);
       await loadFiles();
+      toast.success(`Uploaded ${label}`);
     } catch (err: any) {
       console.error('External file drop failed:', err);
+      toast.error(`Upload failed: ${err.message || 'Unknown error'}`);
     }
-  }, [readDirectoryEntries, loadFiles]);
+  }, [readDirectoryEntries, loadFiles, toast]);
 
   const handleDrop = useCallback(async (e: React.DragEvent, node: FileNode) => {
     e.preventDefault();
     setDragOverPath(null);
-    if (node.type !== 'dir') return;
+    externalDragRef.current = false;
+    setIsExternalDrag(false);
 
-    // External file drop
+    // External file drop — accept on any node (use parent dir for files)
     const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
     if (isExternal) {
-      await uploadExternalFiles(e, node.path);
+      const targetDir = node.type === 'dir' ? node.path : node.path.substring(0, node.path.lastIndexOf('/'));
+      await uploadExternalFiles(e, targetDir);
       return;
     }
 
-    // Internal move
+    // Internal move — only onto directories
+    if (node.type !== 'dir') return;
     const paths = draggedPathsRef.current;
     if (paths.length === 0) return;
     const invalid = paths.some(p => p === node.path || isChildOf(node.path, p));
@@ -819,6 +874,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     }
     setDragOverPath(null);
     draggedPathsRef.current = [];
+    if (externalDragRef.current) { externalDragRef.current = false; setIsExternalDrag(false); }
   }, []);
 
   // Copy / Cut / Paste keyboard shortcuts
@@ -1033,13 +1089,18 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     if (!isExternal) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
-    if (!dragOverPath) setRootDragOver(true);
-  }, [dragOverPath]);
+    // Always show root highlight during external drag when not on a specific node
+    setRootDragOver(true);
+  }, []);
 
   const handleRootDragLeave = useCallback((e: React.DragEvent) => {
     const related = e.relatedTarget as Node | null;
     if (e.currentTarget instanceof HTMLElement && related && e.currentTarget.contains(related)) return;
+    // Left the tree container entirely — reset all drag state
     setRootDragOver(false);
+    setDragOverPath(null);
+    externalDragRef.current = false;
+    setIsExternalDrag(false);
   }, []);
 
   const handleRootDrop = useCallback(async (e: React.DragEvent) => {
@@ -1049,6 +1110,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     e.stopPropagation();
     setRootDragOver(false);
     setDragOverPath(null);
+    externalDragRef.current = false;
+    setIsExternalDrag(false);
     await uploadExternalFiles(e, projectPath);
   }, [projectPath, uploadExternalFiles]);
 
@@ -1197,6 +1260,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     selectedPaths,
     cutPaths,
     dragOverPath,
+    isExternalDrag,
     onDragStart: handleDragStart,
     onDragOver: handleDragOver,
     onDragEnter: handleDragEnter,
