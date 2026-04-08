@@ -163,6 +163,11 @@ function createWindow(): void {
     show: false,
   });
 
+  // Prevent file drops from navigating the main window to file:// URLs
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('file://')) event.preventDefault();
+  });
+
   // Hide traffic lights by default — shown on hover via IPC
   mainWindow.setWindowButtonVisibility(false);
 
