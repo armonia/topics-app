@@ -8,7 +8,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { createTerminalRouter, handleTerminalWebSocket } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
@@ -414,6 +414,7 @@ console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/brow
 // Graceful shutdown
 async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
+  disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();
   closeDatabase();
   process.exit(0);

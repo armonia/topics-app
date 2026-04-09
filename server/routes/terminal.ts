@@ -5,6 +5,9 @@ import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { tmpdir } from "os";
 import { writeFile } from "fs/promises";
+import { createHash } from "crypto";
+import net from "net";
+import fs from "fs";
 
 interface TerminalSession {
   id: string;
@@ -12,8 +15,6 @@ interface TerminalSession {
   createdAt: string;
   cwd: string;
   command: string;
-  outputBuffer: Uint8Array[];
-  outputBufferSize: number;
   cols: number;
   rows: number;
   topicId?: string;
@@ -22,57 +23,140 @@ interface TerminalSession {
   claudeSessionId?: string;
 }
 
-const MAX_BUFFER_SIZE = 100 * 1024;
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
 
-// PTY Bridge process (Node.js with node-pty)
-let bridge: any = null;
+// --- Bridge connection (Unix domain socket) ---
+let bridgeSocket: net.Socket | null = null;
 let bridgeReady = false;
-const pendingCallbacks = new Map<string, Function>();
+let bridgeConnecting = false;
+let bridgeReadyResolvers: (() => void)[] = [];
 
-function ensureBridge() {
-  if (bridge && !bridge.killed) return;
+// Pending buffer requests: sessionId -> callback
+const pendingBufferRequests = new Map<string, ((data: Uint8Array) => void)[]>();
 
-  const bridgePath = resolve(import.meta.dir, "../pty-bridge.mjs");
-  bridge = spawn("node", [bridgePath], {
-    stdio: ["pipe", "pipe", "inherit"],
+function getSocketPath(): string {
+  const projectDir = process.cwd();
+  const hash = createHash('md5').update(projectDir).digest('hex').slice(0, 8);
+  return `/tmp/topics-pty-bridge-${hash}.sock`;
+}
+
+const SOCKET_PATH = getSocketPath();
+
+async function ensureBridge(): Promise<void> {
+  if (bridgeReady && bridgeSocket && !bridgeSocket.destroyed) return;
+  if (bridgeConnecting) {
+    // Wait for the in-flight connection attempt
+    return new Promise<void>((resolve) => { bridgeReadyResolvers.push(resolve); });
+  }
+
+  bridgeConnecting = true;
+
+  try {
+    // Try connecting to existing bridge
+    const connected = await tryConnect();
+    if (connected) {
+      bridgeConnecting = false;
+      bridgeReadyResolvers.forEach(r => r());
+      bridgeReadyResolvers = [];
+      return;
+    }
+
+    // No bridge running — spawn one
+    const bridgePath = resolve(import.meta.dir, "../pty-bridge.mjs");
+    const child = spawn("node", [bridgePath, "--socket", SOCKET_PATH], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'inherit'],
+    });
+    child.unref();
+
+    // Wait for bridge to create socket (poll up to 3 seconds)
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 100));
+      if (fs.existsSync(SOCKET_PATH)) {
+        const ok = await tryConnect();
+        if (ok) break;
+      }
+    }
+
+    if (!bridgeReady) {
+      throw new Error("Failed to connect to PTY bridge after spawning");
+    }
+  } finally {
+    bridgeConnecting = false;
+    bridgeReadyResolvers.forEach(r => r());
+    bridgeReadyResolvers = [];
+  }
+}
+
+function tryConnect(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(SOCKET_PATH)) { resolve(false); return; }
+
+    const socket = net.connect(SOCKET_PATH, () => {
+      bridgeSocket = socket;
+      bridgeReady = true;
+      setupSocketReader(socket);
+      console.log("[Terminal] Connected to PTY bridge daemon");
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      resolve(false);
+    });
+
+    // Timeout after 1 second
+    setTimeout(() => {
+      if (!bridgeReady) {
+        socket.destroy();
+        resolve(false);
+      }
+    }, 1000);
   });
+}
 
-  const rl = createInterface({ input: bridge.stdout });
+function setupSocketReader(socket: net.Socket) {
+  const rl = createInterface({ input: socket });
   rl.on("line", (line: string) => {
     try {
-      const msg = JSON.parse(line);
-      handleBridgeMessage(msg);
+      handleBridgeMessage(JSON.parse(line));
     } catch {}
   });
 
-  bridge.on("exit", () => {
+  socket.on('close', () => {
     bridgeReady = false;
-    bridge = null;
+    bridgeSocket = null;
+    console.log("[Terminal] Bridge socket closed, will reconnect on next use");
+    // Auto-reconnect after a short delay
+    setTimeout(() => {
+      ensureBridge().catch(() => {});
+    }, 500);
+  });
+
+  socket.on('error', () => {
+    bridgeReady = false;
+    bridgeSocket = null;
   });
 }
 
 function sendToBridge(msg: any) {
-  ensureBridge();
-  bridge.stdin.write(JSON.stringify(msg) + "\n");
+  if (!bridgeSocket || bridgeSocket.destroyed) {
+    throw new Error("Bridge not connected");
+  }
+  bridgeSocket.write(JSON.stringify(msg) + "\n");
 }
 
 function handleBridgeMessage(msg: any) {
   switch (msg.type) {
-    case "ready":
-      bridgeReady = true;
-      break;
     case "created": {
-      const cb = pendingCallbacks.get(msg.id);
-      if (cb) { cb(msg); pendingCallbacks.delete(msg.id); }
+      // Session created in bridge — no special handling needed
       break;
     }
     case "data": {
       const session = sessions.get(msg.id);
       if (!session) break;
-      const bytes = new TextEncoder().encode(msg.data);
-      appendToBuffer(session, bytes);
+      // Forward to connected WebSocket clients (buffer is in bridge)
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
         for (const ws of sockets) {
@@ -91,42 +175,143 @@ function handleBridgeMessage(msg: any) {
         }
         sessionSockets.delete(msg.id);
       }
-      // Remove from DB
       if (exitedSession) {
         try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]); } catch {}
       }
       broadcastTerminalSessions();
       break;
     }
+    case "list": {
+      // Response to reconciliation request — handled by reconcileSessions
+      handleListResponse(msg.sessions || []);
+      break;
+    }
+    case "buffer": {
+      // Response to buffer request
+      const callbacks = pendingBufferRequests.get(msg.id);
+      if (callbacks) {
+        const data = msg.data ? Buffer.from(msg.data, 'base64') : new Uint8Array(0);
+        for (const cb of callbacks) cb(new Uint8Array(data));
+        pendingBufferRequests.delete(msg.id);
+      }
+      break;
+    }
   }
 }
 
-function appendToBuffer(session: TerminalSession, data: Uint8Array) {
-  session.outputBuffer.push(new Uint8Array(data));
-  session.outputBufferSize += data.byteLength;
-  while (session.outputBufferSize > MAX_BUFFER_SIZE && session.outputBuffer.length > 1) {
-    const removed = session.outputBuffer.shift()!;
-    session.outputBufferSize -= removed.byteLength;
+// --- Session reconciliation ---
+let reconcileResolver: ((sessions: { id: string; pid: number }[]) => void) | null = null;
+
+function handleListResponse(bridgeSessions: { id: string; pid: number }[]) {
+  if (reconcileResolver) {
+    reconcileResolver(bridgeSessions);
+    reconcileResolver = null;
   }
 }
 
-function getBufferedOutput(session: TerminalSession): Uint8Array {
-  if (session.outputBuffer.length === 0) return new Uint8Array(0);
-  const total = session.outputBufferSize;
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of session.outputBuffer) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
+async function reconcileSessions() {
+  // Get bridge's live sessions
+  const bridgeSessions = await new Promise<{ id: string; pid: number }[]>((resolve) => {
+    reconcileResolver = resolve;
+    sendToBridge({ type: "list" });
+    // Timeout after 2 seconds
+    setTimeout(() => {
+      if (reconcileResolver) {
+        reconcileResolver([]);
+        reconcileResolver = null;
+      }
+    }, 2000);
+  });
+
+  const bridgeIds = new Set(bridgeSessions.map(s => s.id));
+
+  // Get DB sessions
+  const db = getDatabase();
+  const dbRows = db.query("SELECT * FROM terminal_sessions").all() as any[];
+  const dbIds = new Set(dbRows.map((r: any) => r.id));
+
+  // Bridge has session + DB has it → restore in-memory entry
+  for (const row of dbRows) {
+    if (bridgeIds.has(row.id)) {
+      // Session is alive in bridge — just add to in-memory map
+      if (!sessions.has(row.id)) {
+        sessions.set(row.id, {
+          id: row.id,
+          name: row.name,
+          createdAt: row.created_at || new Date().toISOString(),
+          cwd: row.cwd,
+          command: row.command,
+          cols: row.cols || 120,
+          rows: row.rows || 30,
+          topicId: row.topic_id || undefined,
+          type: row.type || 'shell',
+          skipPermissions: row.skip_permissions !== 0,
+          claudeSessionId: row.claude_session_id || undefined,
+        });
+        sessionSockets.set(row.id, new Set());
+        console.log(`[Terminal] Reattached to surviving session ${row.id} (${row.type})`);
+      }
+    }
   }
-  return result;
+
+  // Bridge has session, DB doesn't → orphaned, kill it
+  for (const bs of bridgeSessions) {
+    if (!dbIds.has(bs.id)) {
+      console.log(`[Terminal] Killing orphaned bridge session ${bs.id}`);
+      sendToBridge({ type: "kill", id: bs.id });
+    }
+  }
+
+  // DB has session, bridge doesn't → recreate or remove
+  for (const row of dbRows) {
+    if (!bridgeIds.has(row.id)) {
+      if (row.type === 'claude-code' && row.claude_session_id) {
+        // Claude Code session — recreate with --resume
+        console.log(`[Terminal] Recreating claude-code session ${row.id} with --resume`);
+        try {
+          createSession(
+            row.id, row.name, row.cwd, undefined,
+            row.cols || 120, row.rows || 30,
+            row.topic_id || undefined, 'claude-code',
+            row.skip_permissions !== 0, row.claude_session_id,
+          );
+        } catch (err: any) {
+          console.warn(`[Terminal] Failed to recreate session ${row.id}: ${err.message}`);
+          try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch {}
+        }
+      } else {
+        // Shell session — can't resume, remove from DB
+        console.log(`[Terminal] Removing dead shell session ${row.id}`);
+        try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch {}
+      }
+    }
+  }
 }
 
+// --- Buffer request from bridge ---
+function requestBuffer(sessionId: string): Promise<Uint8Array> {
+  return new Promise((resolve) => {
+    if (!bridgeReady) { resolve(new Uint8Array(0)); return; }
+    const existing = pendingBufferRequests.get(sessionId) || [];
+    existing.push(resolve);
+    pendingBufferRequests.set(sessionId, existing);
+    sendToBridge({ type: "buffer", id: sessionId });
+    // Timeout after 1 second
+    setTimeout(() => {
+      const cbs = pendingBufferRequests.get(sessionId);
+      if (cbs) {
+        for (const cb of cbs) cb(new Uint8Array(0));
+        pendingBufferRequests.delete(sessionId);
+      }
+    }, 1000);
+  });
+}
+
+// --- Session management ---
 function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, claudeSessionId?: string): TerminalSession {
   let file: string;
   let args: string[];
 
-  // For claude-code sessions, generate or reuse a session ID for resume support
   let resolvedClaudeSessionId = claudeSessionId;
   if (sessionType === 'claude-code' && !resolvedClaudeSessionId) {
     resolvedClaudeSessionId = crypto.randomUUID();
@@ -136,10 +321,8 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
     file = 'claude';
     args = [];
     if (claudeSessionId) {
-      // Restoring — resume the previous conversation
       args.push('--resume', claudeSessionId);
     } else if (resolvedClaudeSessionId) {
-      // New session — assign a known session ID for future resume
       args.push('--session-id', resolvedClaudeSessionId);
     }
     if (skipPermissions) args.push('--dangerously-skip-permissions');
@@ -152,13 +335,9 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
     args = ["-l"];
   }
 
-  ensureBridge();
-
   let env: Record<string, string | null> | undefined;
   if (sessionType === 'claude-code') {
     const home = process.env.HOME || '';
-    // Augment PATH to include user's .local/bin (where claude CLI typically lives)
-    // and unset CLAUDECODE to allow nesting
     const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin'];
     const currentPath = process.env.PATH || '/usr/local/bin';
     const augmentedPath = [...extraPaths, currentPath].filter(Boolean).join(':');
@@ -173,8 +352,6 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
     createdAt: new Date().toISOString(),
     cwd,
     command: sessionType === 'claude-code' ? 'claude' : (command || file),
-    outputBuffer: [],
-    outputBufferSize: 0,
     cols,
     rows,
     topicId,
@@ -186,7 +363,6 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
   sessions.set(id, session);
   sessionSockets.set(id, new Set());
 
-  // Persist to DB
   try {
     getDatabase().run(
       `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at, claude_session_id)
@@ -196,36 +372,6 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
   } catch {}
 
   return session;
-}
-
-// Restore persisted sessions from DB on startup
-function restoreSessions() {
-  try {
-    const db = getDatabase();
-    const rows = db.query("SELECT * FROM terminal_sessions").all() as any[];
-    if (rows.length === 0) return;
-    console.log(`[Terminal] Restoring ${rows.length} terminal session(s)...`);
-    for (const row of rows) {
-      try {
-        createSession(
-          row.id,
-          row.name,
-          row.cwd,
-          row.type === 'claude-code' ? undefined : row.command,
-          row.cols || 120,
-          row.rows || 30,
-          row.topic_id || undefined,
-          row.type || 'shell',
-          row.skip_permissions !== 0,
-          row.claude_session_id || undefined,
-        );
-      } catch (err: any) {
-        console.warn(`[Terminal] Failed to restore session ${row.id}: ${err.message}`);
-        // Remove failed session from DB
-        try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch {}
-      }
-    }
-  } catch {}
 }
 
 // Broadcast current terminal sessions list via WS
@@ -244,9 +390,11 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
   _broadcastToAll = ctx.broadcastToAll;
 
-  // Start bridge and restore persisted sessions
-  ensureBridge();
-  restoreSessions();
+  // Connect to bridge and reconcile sessions (async, fire-and-forget)
+  ensureBridge()
+    .then(() => reconcileSessions())
+    .then(() => broadcastTerminalSessions())
+    .catch((err) => console.error("[Terminal] Bridge init failed:", err.message));
 
   return async function terminalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -275,9 +423,10 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       const rows = body.rows || 30;
       const topicId = body.topicId || undefined;
       const sessionType = body.type === 'claude-code' ? 'claude-code' : 'shell';
-      const skipPermissions = body.skipPermissions !== false; // default true
+      const skipPermissions = body.skipPermissions !== false;
 
       try {
+        await ensureBridge();
         const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
@@ -324,7 +473,6 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
         }
       }
       sessionSockets.delete(deleteMatch.id);
-      // Remove from DB
       try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [deleteMatch.id]); } catch {}
       broadcastTerminalSessions();
       return json({ ok: true });
@@ -336,19 +484,16 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       const { dataUrl, sessionId } = body;
       if (!dataUrl || !sessionId) return errorResponse(400, "Missing dataUrl or sessionId");
 
-      // Parse data URL
       const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
       if (!match) return errorResponse(400, "Invalid data URL");
       const mimeType = match[1];
       const ext = mimeType === "image/png" ? "png" : mimeType === "image/jpeg" ? "jpg" : "png";
       const buffer = Buffer.from(match[2], "base64");
 
-      // Save to temp file
       const filename = `claude-paste-${Date.now()}.${ext}`;
       const filePath = join(tmpdir(), filename);
       await writeFile(filePath, buffer);
 
-      // Copy image to macOS system clipboard via osascript
       if (process.platform === "darwin") {
         const appleClass = ext === "png" ? "PNGf" : "JPEG";
         const script = `set the clipboard to (read (POSIX file "${filePath}") as «class ${appleClass}»)`;
@@ -356,9 +501,7 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
           await new Promise<void>((resolve, reject) => {
             execFile("osascript", ["-e", script], (err) => err ? reject(err) : resolve());
           });
-        } catch (e) {
-          // Clipboard copy failed, but file is saved — continue
-        }
+        } catch (e) {}
       }
 
       return json({ ok: true, filePath });
@@ -378,10 +521,12 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
   const sockets = sessionSockets.get(sessionId);
   if (sockets) sockets.add(ws);
 
-  const buffered = getBufferedOutput(session);
-  if (buffered.byteLength > 0) {
-    try { ws.send(buffered); } catch {}
-  }
+  // Request output buffer from bridge (async)
+  requestBuffer(sessionId).then((buffered) => {
+    if (buffered.byteLength > 0) {
+      try { ws.send(buffered); } catch {}
+    }
+  });
 
   return {
     message(data: string | Buffer | ArrayBuffer) {
@@ -393,4 +538,13 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
       if (s) s.delete(ws);
     },
   };
+}
+
+// Exported for graceful shutdown — disconnects from bridge without killing it
+export function disconnectBridge() {
+  if (bridgeSocket && !bridgeSocket.destroyed) {
+    bridgeSocket.destroy();
+  }
+  bridgeSocket = null;
+  bridgeReady = false;
 }

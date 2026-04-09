@@ -1,53 +1,46 @@
-// PTY Bridge — runs with Node.js to use node-pty (which doesn't work with Bun)
-// Communicates with the main Bun server via IPC (stdin/stdout JSON messages)
+// PTY Bridge Daemon — runs with Node.js to use node-pty (which doesn't work with Bun)
+// Communicates with the main Bun server via Unix domain socket (JSON-line protocol)
+// Survives server restarts — PTY sessions persist across bun --watch reloads
 import * as pty from 'node-pty';
+import net from 'node:net';
+import fs from 'node:fs';
+import { createInterface } from 'node:readline';
+import { createHash } from 'node:crypto';
 
-const sessions = new Map();
+// --- Configuration ---
+const socketPath = process.argv.find((a, i) => process.argv[i - 1] === '--socket') || getDefaultSocketPath();
+const pidPath = socketPath.replace(/\.sock$/, '.pid');
+const MAX_BUFFER_SIZE = 100 * 1024; // 100KB ring buffer per session
 
-process.stdin.setEncoding('utf-8');
-let buffer = '';
+function getDefaultSocketPath() {
+  const hash = createHash('md5').update(process.cwd()).digest('hex').slice(0, 8);
+  return `/tmp/topics-pty-bridge-${hash}.sock`;
+}
 
-process.stdin.on('data', (chunk) => {
-  buffer += chunk;
-  let nl;
-  while ((nl = buffer.indexOf('\n')) !== -1) {
-    const line = buffer.slice(0, nl);
-    buffer = buffer.slice(nl + 1);
-    try {
-      handleMessage(JSON.parse(line));
-    } catch (e) {
-      send({ type: 'error', error: e.message });
-    }
-  }
-});
+// --- State ---
+const sessions = new Map();        // id -> { pty, buffer: { chunks: Buffer[], totalSize: number } }
+const clients = new Set();         // connected server sockets
 
-function send(msg) {
-  try {
-    process.stdout.write(JSON.stringify(msg) + '\n');
-  } catch (e) {
-    // Parent process closed the pipe — nothing we can do, exit gracefully
-    if (e.code === 'EPIPE' || e.code === 'ERR_STREAM_DESTROYED') {
-      process.exit(0);
-    }
-    throw e;
+// --- Socket Server ---
+function broadcast(msg) {
+  const line = JSON.stringify(msg) + '\n';
+  for (const client of clients) {
+    try { client.write(line); } catch {}
   }
 }
 
-// Prevent unhandled EPIPE from crashing the process
-process.stdout.on('error', (err) => {
-  if (err.code === 'EPIPE') process.exit(0);
-});
+function sendTo(client, msg) {
+  try { client.write(JSON.stringify(msg) + '\n'); } catch {}
+}
 
-function handleMessage(msg) {
+function handleMessage(msg, client) {
   switch (msg.type) {
     case 'create': {
       const { id, shell, args, cwd, cols, rows, env } = msg;
       const mergedEnv = { ...process.env, ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
-      // Remove keys explicitly set to null/undefined (used to unset inherited env vars like CLAUDECODE)
       for (const key of Object.keys(mergedEnv)) {
         if (mergedEnv[key] == null) delete mergedEnv[key];
       }
-      // Augment PATH with common user binary locations so tools like 'claude' are found
       const home = process.env.HOME || '';
       const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin'];
       const currentPath = mergedEnv.PATH || '/usr/local/bin';
@@ -59,34 +52,147 @@ function handleMessage(msg) {
         cwd: cwd || process.env.HOME,
         env: mergedEnv,
       });
-      sessions.set(id, p);
+      sessions.set(id, { pty: p, buffer: { chunks: [], totalSize: 0 } });
       p.onData((data) => {
-        send({ type: 'data', id, data });
+        // Append to output buffer
+        const session = sessions.get(id);
+        if (session) {
+          const buf = Buffer.from(data);
+          session.buffer.chunks.push(buf);
+          session.buffer.totalSize += buf.byteLength;
+          while (session.buffer.totalSize > MAX_BUFFER_SIZE && session.buffer.chunks.length > 1) {
+            const removed = session.buffer.chunks.shift();
+            session.buffer.totalSize -= removed.byteLength;
+          }
+        }
+        broadcast({ type: 'data', id, data });
       });
       p.onExit(({ exitCode }) => {
         sessions.delete(id);
-        send({ type: 'exit', id, exitCode });
+        broadcast({ type: 'exit', id, exitCode });
       });
-      send({ type: 'created', id, pid: p.pid });
+      broadcast({ type: 'created', id, pid: p.pid });
       break;
     }
     case 'write': {
-      const p = sessions.get(msg.id);
-      if (p) p.write(msg.data);
+      const s = sessions.get(msg.id);
+      if (s) s.pty.write(msg.data);
       break;
     }
     case 'resize': {
-      const p = sessions.get(msg.id);
-      if (p) p.resize(msg.cols, msg.rows);
+      const s = sessions.get(msg.id);
+      if (s) s.pty.resize(msg.cols, msg.rows);
       break;
     }
     case 'kill': {
-      const p = sessions.get(msg.id);
-      if (p) { p.kill(); sessions.delete(msg.id); }
-      send({ type: 'killed', id: msg.id });
+      const s = sessions.get(msg.id);
+      if (s) { s.pty.kill(); sessions.delete(msg.id); }
+      broadcast({ type: 'killed', id: msg.id });
+      break;
+    }
+    case 'list': {
+      const list = [];
+      for (const [id, s] of sessions) {
+        list.push({ id, pid: s.pty.pid });
+      }
+      sendTo(client, { type: 'list', sessions: list });
+      break;
+    }
+    case 'buffer': {
+      const s = sessions.get(msg.id);
+      if (s && s.buffer.totalSize > 0) {
+        const combined = Buffer.concat(s.buffer.chunks);
+        sendTo(client, { type: 'buffer', id: msg.id, data: combined.toString('base64') });
+      } else {
+        sendTo(client, { type: 'buffer', id: msg.id, data: '' });
+      }
+      break;
+    }
+    case 'ping': {
+      sendTo(client, { type: 'pong' });
       break;
     }
   }
 }
 
-send({ type: 'ready' });
+// --- Startup ---
+function checkExistingBridge() {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(socketPath)) { resolve(false); return; }
+    const testConn = net.connect(socketPath, () => {
+      testConn.end();
+      resolve(true); // Another bridge is already running
+    });
+    testConn.on('error', () => {
+      // Stale socket — remove it
+      try { fs.unlinkSync(socketPath); } catch {}
+      resolve(false);
+    });
+  });
+}
+
+async function start() {
+  const existing = await checkExistingBridge();
+  if (existing) {
+    console.error(`[PTY Bridge] Another bridge is already running on ${socketPath}`);
+    process.exit(1);
+  }
+
+  const server = net.createServer((socket) => {
+    clients.add(socket);
+    console.error(`[PTY Bridge] Client connected (${clients.size} total)`);
+
+    let lineBuffer = '';
+    socket.on('data', (chunk) => {
+      lineBuffer += chunk.toString();
+      let nl;
+      while ((nl = lineBuffer.indexOf('\n')) !== -1) {
+        const line = lineBuffer.slice(0, nl);
+        lineBuffer = lineBuffer.slice(nl + 1);
+        try {
+          handleMessage(JSON.parse(line), socket);
+        } catch (e) {
+          sendTo(socket, { type: 'error', error: e.message });
+        }
+      }
+    });
+
+    socket.on('close', () => {
+      clients.delete(socket);
+      console.error(`[PTY Bridge] Client disconnected (${clients.size} remaining)`);
+    });
+
+    socket.on('error', () => {
+      clients.delete(socket);
+    });
+  });
+
+  server.listen(socketPath, () => {
+    // Write PID file
+    fs.writeFileSync(pidPath, String(process.pid));
+    console.error(`[PTY Bridge] Daemon listening on ${socketPath} (PID ${process.pid})`);
+  });
+
+  server.on('error', (err) => {
+    console.error(`[PTY Bridge] Server error: ${err.message}`);
+    process.exit(1);
+  });
+
+  // Graceful shutdown
+  function shutdown(signal) {
+    console.error(`[PTY Bridge] Received ${signal}, shutting down...`);
+    for (const [id, s] of sessions) {
+      try { s.pty.kill(); } catch {}
+    }
+    sessions.clear();
+    server.close();
+    try { fs.unlinkSync(socketPath); } catch {}
+    try { fs.unlinkSync(pidPath); } catch {}
+    process.exit(0);
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+start();
