@@ -412,11 +412,21 @@ function App() {
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [showTopicsMenu, setShowTopicsMenu] = useState(false);
-  const [trafficLightsVisible, setTrafficLightsVisible] = useState(false);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  // Show/hide macOS traffic lights with Topics dropdown
+  useEffect(() => {
+    if (!isElectron) return;
+    const api = (window as any).electronAPI?.window;
+    if (showTopicsMenu) {
+      api?.showTrafficLights();
+    } else {
+      api?.hideTrafficLights();
+    }
+  }, [showTopicsMenu, isElectron]);
 
   // Close topics menu on outside click or Escape
   useEffect(() => {
@@ -1534,21 +1544,7 @@ function App() {
         
         {/* Header - draggable for window move */}
         <div
-          className={`flex items-center justify-between border-b border-app-border flex-shrink-0 app-drag-region transition-[padding] duration-200 pr-2 ${isMobile ? 'h-12' : 'h-10'} ${
-            isElectron && trafficLightsVisible ? 'pl-[74px]' : 'pl-2'
-          }`}
-          onMouseEnter={() => {
-            if (isElectron) {
-              setTrafficLightsVisible(true);
-              (window as any).electronAPI?.window?.showTrafficLights();
-            }
-          }}
-          onMouseLeave={() => {
-            if (isElectron) {
-              setTrafficLightsVisible(false);
-              (window as any).electronAPI?.window?.hideTrafficLights();
-            }
-          }}
+          className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
         >
           <div className="flex items-center gap-2">
             {/* Close button on mobile */}
@@ -1572,13 +1568,13 @@ function App() {
                   }
                   setShowTopicsMenu(!showTopicsMenu);
                 }}
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
+                className={`flex items-center ${isElectron ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                   showTopicsMenu ? 'bg-app-hover' : 'hover:bg-app-hover'
                 }`}
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'}`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isElectron && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
