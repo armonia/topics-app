@@ -29,7 +29,7 @@ import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { DropdownPortal } from './components/Shared/DropdownPortal';
 import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
-import { createPaneId, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId, getProjectPathFromPaneId } from './lib/paneConfig';
+import { createPaneId, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId, getProjectPathFromPaneId, isKnownPanePrefix, isUUIDLike } from './lib/paneConfig';
 import { generateUUID } from './utils/uuid';
 import { globalBoardApi } from './lib/api';
 
@@ -624,7 +624,7 @@ function App() {
   const prevTopicsForValidation = useRef(topics);
   // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
   useEffect(() => {
-    if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
+    if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached && serverSyncedRef.current) {
       // Guard: skip if neither openPanels nor topics changed since last validation
       // (prevents loops when this effect itself triggers setOpenPanels)
       const panelsChanged = openPanels !== prevOpenPanelsForValidation.current;
@@ -634,9 +634,12 @@ function App() {
 
       const projectPanesToAdd: string[] = [];
       const validPanels = openPanels.filter(id => {
-        if (isUtilityPanelId(id) || isProjectPaneId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isDraftPaneId(id)) return true;
+        // Structural tabs: always survive (identified by prefix)
+        if (isKnownPanePrefix(id)) return true;
         const topic = topics[id];
-        if (!topic || topic.archived) return false;
+        // Topic not found yet but looks like a UUID → preserve (may still be loading)
+        if (!topic) return isUUIDLike(id);
+        if (topic.archived) return false;
         // Topic linked to a project → remove from standalone, ensure project pane is open
         if (topic.projectPath) {
           const paneId = createPaneId('project', topic.projectPath);

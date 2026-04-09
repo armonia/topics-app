@@ -86,6 +86,18 @@ export function createDraftPaneId(): string {
   return `draft:${generateUUID()}`;
 }
 
+const KNOWN_PANE_PREFIXES = ['project:', 'browser:', 'terminal:', 'draft:', 'chat:', 'session-viewer:', 'process-log:', '__'];
+
+export function isKnownPanePrefix(id: string): boolean {
+  return KNOWN_PANE_PREFIXES.some(prefix => id.startsWith(prefix));
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUUIDLike(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 let _groupCounter = 0;
 export function createGroupId(): string {
   return `group:${Date.now()}-${++_groupCounter}`;
