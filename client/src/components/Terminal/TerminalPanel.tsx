@@ -13,7 +13,7 @@ interface TerminalToolbarProps {
   onKey: (data: string) => void;
 }
 
-const SPECIAL_KEYS = [
+const SPECIAL_KEYS: { label: string; data: string; icon?: React.ComponentType<{ size: number }> }[] = [
   { label: 'Esc', data: '\x1b' },
   { label: 'Tab', data: '\t' },
   { label: '↑', data: '\x1b[A', icon: ChevronUp },
@@ -24,7 +24,7 @@ const SPECIAL_KEYS = [
   { label: '~', data: '~' },
   { label: '/', data: '/' },
   { label: '-', data: '-' },
-] as const;
+];
 
 const CTRL_COMBOS = [
   { label: 'C', code: '\x03' },
