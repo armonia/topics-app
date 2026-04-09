@@ -84,6 +84,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
   const [edgeSplitZone, setEdgeSplitZone] = useState<'left' | 'right' | null>(null);
+  const [crossGroupDragActive, setCrossGroupDragActive] = useState(false);
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
 
   const { isTouch, isMobile } = useMobile();
@@ -226,7 +227,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const xRatio = (e.clientX - rect.left) / rect.width;
     setDragOverIdx(xRatio < 0.5 ? paneIdx : paneIdx + 1);
-  }, []);
+    // Clear stale edge split zone — cursor is over a tab, not an edge
+    setEdgeSplitZone(null);
+    // Detect cross-group drag for indicator rendering
+    if (!draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) {
+      setCrossGroupDragActive(true);
+    }
+  }, [draggedPaneId]);
 
   const handleTabDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -258,12 +265,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
     setDraggedPaneId(null);
     setDragOverIdx(null);
+    setCrossGroupDragActive(false);
   }, [panes, dragOverIdx, onReorderPanes, onCrossGroupDrop, groupId]);
 
   const handleTabDragEnd = useCallback(() => {
     setDraggedPaneId(null);
     setDragOverIdx(null);
     setEdgeSplitZone(null);
+    setCrossGroupDragActive(false);
     if (dragGhostRef.current) {
       dragGhostRef.current.remove();
       dragGhostRef.current = null;
@@ -306,6 +315,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
           e.preventDefault();
           // Cross-group drag detection (draggedPaneId is only set for same-group drags)
           const isCrossGroupDrag = !draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP);
+          if (isCrossGroupDrag) setCrossGroupDragActive(true);
           if (onEdgeSplitDrop && isCrossGroupDrag) {
             // If this group has a project pane, force split (no move-into project)
             const hasProjectPane = panes.some(p => p.type === 'project');
@@ -332,7 +342,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
           }
           setEdgeSplitZone(null);
         }}
-        onDragLeave={() => setEdgeSplitZone(null)}
+        onDragLeave={() => { setEdgeSplitZone(null); setCrossGroupDragActive(false); }}
         onDrop={(e) => {
           if (edgeSplitZone && onEdgeSplitDrop) {
             e.preventDefault();
@@ -344,6 +354,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             setEdgeSplitZone(null);
             setDraggedPaneId(null);
             setDragOverIdx(null);
+            setCrossGroupDragActive(false);
             return;
           }
           handleTabDrop(e);
@@ -355,8 +366,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         const isActive = activePaneId === pane.id;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
-        const showLeftIndicator = dragOverIdx === paneIdx && draggedPaneId && draggedPaneId !== pane.id;
-        const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && draggedPaneId && draggedPaneId !== pane.id;
+        const hasDragSource = draggedPaneId || crossGroupDragActive;
+        const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
+        const showLeftIndicator = dragOverIdx === paneIdx && hasDragSource && isNotSelf;
+        const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && hasDragSource && isNotSelf;
         const paneContextPercent = pane.type === 'chat' && contextPercent ? contextPercent[pane.id] : undefined;
         const isPaneStreaming = pane.type === 'chat' && streamingPaneIds?.has(pane.id);
 
