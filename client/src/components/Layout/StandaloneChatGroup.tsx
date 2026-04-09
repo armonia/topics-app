@@ -8,6 +8,7 @@ import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import { PANE_CONFIG, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isSessionViewerPaneId, getTerminalSessionFromPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, getBrowserContextFromPaneId, createPaneId, isDraftPaneId } from '../../lib/paneConfig';
 import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
@@ -494,6 +495,17 @@ export function StandaloneChatGroup({
       };
     }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels]);
 
+  // Build tab notification badge map from context
+  const { getBadgeCount, clearPane } = useTabNotifications();
+  const tabNotifications = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const pane of panes) {
+      const count = getBadgeCount(pane.id, pane.topicId, pane.id === activePaneId);
+      if (count > 0) map.set(pane.id, count);
+    }
+    return map;
+  }, [panes, getBadgeCount, activePaneId]);
+
   const handleReorderPanes = useCallback((newPaneIds: string[]) => {
     setOrderedIds(newPaneIds);
   }, []);
@@ -790,8 +802,8 @@ export function StandaloneChatGroup({
       panes={panes}
       activePaneId={activePaneId}
       onActivate={(paneId) => {
+        clearPane(paneId); // clear non-chat badge on tab activation
         if (isBrowserPaneId(paneId)) {
-          // Browser panes are managed locally, just update focus
           onFocusPanel(paneId);
         } else {
           onFocusPanel(paneId);
@@ -816,6 +828,7 @@ export function StandaloneChatGroup({
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}
       projectStatus={projectStatus}
+      tabNotifications={tabNotifications}
       hasLeftOverlay={!!onToggleSidebar}
     />
   );

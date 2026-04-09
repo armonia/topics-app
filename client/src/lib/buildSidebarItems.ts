@@ -75,10 +75,11 @@ interface BuildSidebarItemsOpts {
   showArchived: boolean;
   openPanels?: string[];  // currently open pane IDs — used to filter what shows in sidebar
   projectOpenPanes?: Record<string, string[]>;  // pane IDs open inside each project (from ProjectWindow)
+  lastNotifiedAt?: Map<string, number>;  // topicId → timestamp for notification sort ordering
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {} } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -278,6 +279,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const aHasUnread = a.unreadCount > 0 ? 1 : 0;
     const bHasUnread = b.unreadCount > 0 ? 1 : 0;
     if (aHasUnread !== bHasUnread) return bHasUnread - aHasUnread;
+    // Among unread: most recently notified first
+    if (aHasUnread && bHasUnread && lastNotifiedAt) {
+      const aNotif = lastNotifiedAt.get(a.id) || 0;
+      const bNotif = lastNotifiedAt.get(b.id) || 0;
+      if (aNotif !== bNotif) return bNotif - aNotif;
+    }
     // Then by activity
     return b.lastActivity - a.lastActivity;
   });

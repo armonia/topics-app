@@ -41,6 +41,8 @@ interface PaneTabBarProps {
   onStopStreaming?: (paneId: string) => void;
   onPinPane?: (paneId: string) => void;
   projectStatus?: Record<string, ProjectTabStatus>;
+  /** Notification badge counts per pane ID */
+  tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
   hasLeftOverlay?: boolean;
 }
@@ -75,7 +77,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, hasLeftOverlay }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuContentRef = useRef<HTMLDivElement>(null);
@@ -372,6 +374,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && hasDragSource && isNotSelf;
         const paneContextPercent = pane.type === 'chat' && contextPercent ? contextPercent[pane.id] : undefined;
         const isPaneStreaming = pane.type === 'chat' && streamingPaneIds?.has(pane.id);
+        const badgeCount = !isActive && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
           <div
@@ -446,6 +449,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 <div className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
                 <div className="w-[7px] h-[7px] bg-primary rounded-[1px] hidden group-hover/stop:block" />
               </button>
+            )}
+            {badgeCount > 0 && (
+              <span className="ml-0.5 px-1 min-w-[16px] h-4 text-[10px] font-semibold bg-primary text-white rounded-full flex items-center justify-center flex-shrink-0 leading-none">
+                {badgeCount > 99 ? '99+' : badgeCount}
+              </span>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}

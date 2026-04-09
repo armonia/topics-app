@@ -8,6 +8,7 @@ import { DEFAULT_TOPIC_ICON } from './lib/topicIcons';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
+import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
@@ -1498,6 +1499,7 @@ function App() {
   }, [isDetached, openPanels.length]);
 
   return (
+    <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <ToastProvider>
     <div
       className="flex bg-app-bg overflow-hidden max-w-[100vw]"
@@ -1979,6 +1981,7 @@ function App() {
 
     </div>
     </ToastProvider>
+    </TabNotificationProvider>
   );
 }
 

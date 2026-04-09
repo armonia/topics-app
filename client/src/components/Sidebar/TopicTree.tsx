@@ -8,6 +8,7 @@ import { topicsApi } from '@/lib/api';
 import { createPaneId } from '@/lib/paneConfig';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useProjectTabStatus } from '@/hooks/useProjectTabStatus';
+import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { useClaudeSkipPermissions } from '@/hooks/useClaudePrefs';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
@@ -163,6 +164,7 @@ export function TopicTree({
 
   // ── Build unified items ──────────────────────────────────────────────────
 
+  const { lastNotifiedAt } = useTabNotifications();
   const allItems = useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
@@ -172,7 +174,8 @@ export function TopicTree({
     showArchived,
     openPanels,
     projectOpenPanes,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes]);
+    lastNotifiedAt,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt]);
 
   const filteredItems = useMemo(
     () => filterSidebarItems(allItems, searchQuery),

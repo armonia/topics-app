@@ -3,6 +3,7 @@ import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '.
 import { PaneTabBar } from './PaneTabBar';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -43,6 +44,8 @@ export function GroupLayout({
   onSettings, onPopOut, onPinPane,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const { getBadgeCount, clearPane } = useTabNotifications();
 
   const paneMap = useMemo(() => {
     const m = new Map<string, Pane>();
@@ -285,6 +288,11 @@ export function GroupLayout({
                   .map(id => paneMap.get(id))
                   .filter((p): p is Pane => !!p);
                 const activePane = paneMap.get(group.activePaneId);
+                const groupNotifications = new Map<string, number>();
+                for (const p of groupPanes) {
+                  const c = getBadgeCount(p.id, p.topicId, p.id === group.activePaneId);
+                  if (c > 0) groupNotifications.set(p.id, c);
+                }
                 const isFocusedGroup = focusedGroupId === groupId;
                 const edgeDrop = edgeDropTarget?.groupId === groupId ? edgeDropTarget.edge : null;
 
@@ -301,7 +309,7 @@ export function GroupLayout({
                         <PaneTabBar
                           panes={groupPanes}
                           activePaneId={group.activePaneId}
-                          onActivate={(paneId) => onActivatePane(groupId, paneId)}
+                          onActivate={(paneId) => { clearPane(paneId); onActivatePane(groupId, paneId); }}
                           onClose={(paneId) => onClosePane(groupId, paneId)}
                           onAddPane={(type, subType) => onAddPaneToGroup(groupId, type, subType)}
                           availableTypes={availableTypesForGroup(group.type, groupId)}
@@ -330,6 +338,7 @@ export function GroupLayout({
                           onSettings={onSettings}
                           onPopOut={onPopOut}
                           onPinPane={onPinPane ? (paneId) => onPinPane(groupId, paneId) : undefined}
+                          tabNotifications={groupNotifications}
                         />
                       </div>
                       {/* Active pane content */}
