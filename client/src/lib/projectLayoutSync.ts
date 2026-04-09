@@ -16,6 +16,11 @@ function serverKey(projectPath: string): string {
   return `project-layout-${Math.abs(hash).toString(36)}`;
 }
 
+/** Save layout data to localStorage only (no server sync) */
+export function saveProjectLayoutLocalOnly(localKey: string, state: any): void {
+  try { localStorage.setItem(localKey, JSON.stringify(state)); } catch {}
+}
+
 /** Save project layout to both localStorage and server (debounced) */
 export function saveProjectLayout(localKey: string, projectPath: string, state: any): void {
   // Write localStorage immediately

@@ -8,7 +8,7 @@ import { topicsApi } from '../../lib/api';
 import { createPaneId, createGroupId, PANE_CONFIG, getTerminalSessionFromPaneId } from '../../lib/paneConfig';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
-import { saveProjectLayout, loadProjectLayout } from '../../lib/projectLayoutSync';
+import { saveProjectLayout, loadProjectLayout, saveProjectLayoutLocalOnly } from '../../lib/projectLayoutSync';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ToastOutlet } from '../Shared/Toast';
@@ -31,34 +31,67 @@ const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.m
 
 // --- Persistence helpers ---
 
-function storageKey(projectPath: string): string {
+function projectHash(projectPath: string): string {
   let hash = 0;
   for (let i = 0; i < projectPath.length; i++) {
     hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
     hash = hash & hash;
   }
-  return `topics-project-panes-${Math.abs(hash).toString(36)}`;
+  return Math.abs(hash).toString(36);
 }
 
-interface PersistedState {
+function storageKey(projectPath: string): string {
+  return `topics-project-panes-${projectHash(projectPath)}`;
+}
+
+/** localStorage-only key for layout data (splits, groups, sidebar) */
+function layoutStorageKey(projectPath: string): string {
+  return `topics-project-layout-${projectHash(projectPath)}`;
+}
+
+/** Server-synced: tab identity only */
+interface PersistedTabState {
   nonChatPanes: Pane[];
+  openChatTopicIds?: string[];
+  activeChatTopicId?: string;
+}
+
+/** Local-only: layout structure */
+interface PersistedLayoutState {
   groups?: PaneGroup[];
   rows?: GroupLayoutRow[];
   rowHeights?: number[];
-  sidebarCollapsed: boolean;
-  openChatTopicIds?: string[];     // topic IDs that were open when last saved
-  activeChatTopicId?: string;      // which chat tab was active when last saved
+  sidebarCollapsed?: boolean;
 }
+
+/** Combined state for loading */
+interface PersistedState extends PersistedTabState, PersistedLayoutState {}
 
 function loadPersistedState(
   projectPath: string,
-  onUpdate?: (fresh: PersistedState) => void
+  onUpdate?: (fresh: PersistedTabState) => void
 ): PersistedState | null {
-  return loadProjectLayout(storageKey(projectPath), projectPath, onUpdate) as PersistedState | null;
+  const tabState = loadProjectLayout(storageKey(projectPath), projectPath, onUpdate) as PersistedTabState | null;
+  // Merge layout from local-only storage
+  let layout: PersistedLayoutState | null = null;
+  try {
+    const raw = localStorage.getItem(layoutStorageKey(projectPath));
+    if (raw) layout = JSON.parse(raw);
+  } catch {}
+  // Fallback: old server data may contain layout fields (migration)
+  if (!layout && tabState && ('groups' in tabState || 'rows' in tabState)) {
+    layout = tabState as unknown as PersistedLayoutState;
+  }
+  if (!tabState) return layout ? { nonChatPanes: [], ...layout } : null;
+  return { ...tabState, ...layout };
 }
 
-function savePersistedState(projectPath: string, state: PersistedState) {
+function savePersistedTabState(projectPath: string, state: PersistedTabState) {
   saveProjectLayout(storageKey(projectPath), projectPath, state);
+}
+
+function savePersistedLayoutState(projectPath: string, state: PersistedLayoutState) {
+  saveProjectLayoutLocalOnly(layoutStorageKey(projectPath), state);
 }
 
 // Map PaneType → PaneGroupType
@@ -164,23 +197,19 @@ export function ProjectWindowPane({
     return persisted.current?.sidebarCollapsed ?? false;
   });
 
-  // Fetch fresh state from server — re-render if it differs from localStorage cache.
+  // Fetch fresh tab state from server — re-render if it differs from localStorage cache.
+  // Only syncs tab identity (which tabs are open), NOT layout (splits, groups, sidebar).
   // Skip if user has already edited the layout (their changes take priority).
   useEffect(() => {
     userEditedRef.current = false;
     loadPersistedState(projectPath, (fresh) => {
       if (userEditedRef.current) return; // User already edited — don't overwrite
       if (fresh.nonChatPanes) setPanes(fresh.nonChatPanes);
-      if (fresh.groups) setGroups(fresh.groups.filter((g: PaneGroup) => g.paneIds.length > 0));
-      if (fresh.rows) setRows(fresh.rows);
-      if (fresh.rowHeights) setRowHeights(fresh.rowHeights);
-      if (fresh.sidebarCollapsed !== undefined && window.innerWidth >= 768) {
-        setSidebarCollapsed(fresh.sidebarCollapsed);
-      }
+      // Layout fields (groups, rows, rowHeights, sidebarCollapsed) are NOT applied
+      // from server — they come from localStorage only via loadPersistedState merge.
       // Restore chat topics from server if they differ from what was loaded locally
       if (fresh.openChatTopicIds) {
         persisted.current = { ...persisted.current, ...fresh };
-        const freshChatIds = new Set(fresh.openChatTopicIds);
         setPanes(prev => {
           const existingChatIds = new Set(prev.filter(p => p.type === 'chat').map(p => p.topicId));
           const missing = fresh.openChatTopicIds!.filter((tid: string) => !existingChatIds.has(tid));
@@ -265,16 +294,12 @@ export function ProjectWindowPane({
     try { localStorage.setItem('topics-context-inspector-open', String(showContext)); } catch {}
   }, [showContext]);
 
-  // Persist non-chat panes, groups, rows, and open chat topic IDs.
+  // Persist tab identity to server (cross-device sync) and layout to localStorage only.
   // Mark userEditedRef after mount so server-fetch callback skips stale overwrites.
   useEffect(() => {
     if (mountedRef.current) userEditedRef.current = true;
     else mountedRef.current = true;
     const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
-    const nonChatGroups = groups.filter(g => g.type !== 'chat').map(g => ({
-      ...g,
-      paneIds: g.paneIds.filter(id => nonChatPanes.some(p => p.id === id)),
-    })).filter(g => g.paneIds.length > 0);
     const openChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);
@@ -283,15 +308,21 @@ export function ProjectWindowPane({
     const activeChatPane = chatGroup ? panes.find(p => p.id === chatGroup.activePaneId) : null;
     const activeChatTopicId = activeChatPane?.type === 'chat' ? activeChatPane.topicId : undefined;
 
-    savePersistedState(projectPath, {
+    // Server-synced: tab identity only (which tabs are open)
+    savePersistedTabState(projectPath, {
       nonChatPanes,
-      groups: nonChatGroups,
-      rows,
-      rowHeights,
-      sidebarCollapsed,
       openChatTopicIds,
       activeChatTopicId,
     });
+
+    // Local-only: layout structure (splits, groups, tab order, sidebar)
+    savePersistedLayoutState(projectPath, {
+      groups,
+      rows,
+      rowHeights,
+      sidebarCollapsed,
+    });
+
     // Report open panes to parent for sidebar filtering
     onOpenPanesChange?.(panes.map(p => p.id));
   }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath, onOpenPanesChange]);
