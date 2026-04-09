@@ -17,7 +17,7 @@ const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Ctrl+Z', data: '\x1a', wide: true },
 ];
 
-const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 
 const DARK_THEME = {
   background: '#1a1a1a',
@@ -259,6 +259,9 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
     });
 
     term.onResize(({ cols, rows }) => {
+      // Only send resize when this window has focus — prevents background windows
+      // from overriding the PTY size for the active window (e.g., browser vs Electron).
+      if (!document.hasFocus()) return;
       fetch(`/api/terminal/sessions/${sessionId}/resize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -291,6 +294,25 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // When window gains focus, re-fit and force-send dimensions to server.
+  // Another window may have resized the shared PTY while this one was in background.
+  // fit() alone won't help if this window's size hasn't changed (xterm skips onResize
+  // when cols/rows are unchanged), so we force-send the current size.
+  useEffect(() => {
+    const handleFocus = () => {
+      const ref = termRef.current;
+      if (!ref) return;
+      try { ref.fit.fit(); } catch {}
+      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
+      }).catch(() => {});
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [sessionId]);
 
   const handleCopyOutput = () => {
     const term = termRef.current?.term;
