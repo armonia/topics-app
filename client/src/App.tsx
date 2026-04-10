@@ -21,7 +21,6 @@ import { TopicTree } from './components/Sidebar/TopicTree';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
-import { ConnectionStatusBadge } from './components/Layout/ConnectionStatus';
 import { loadSettings, saveSettings } from './lib/settings';
 import { ToastProvider } from './components/Shared/Toast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
@@ -1583,18 +1582,14 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {wsStatus !== 'connected' ? (
+            {wsStatus !== 'connected' && (
               <span className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 animate-pulse">
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
                 {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
               </span>
-            ) : (
-              <>
-                <ConnectionStatusBadge status={wsStatus} />
-                {topicsLoading && (
-                  <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
-                )}
-              </>
+            )}
+            {wsStatus === 'connected' && topicsLoading && (
+              <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
             )}
           </div>
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
