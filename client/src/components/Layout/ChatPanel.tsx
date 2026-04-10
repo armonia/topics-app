@@ -104,8 +104,8 @@ export function ChatPanel({
           {onToggleSidebar && !headerLeft && <SidebarToggleButton onClick={onToggleSidebar} />}
           {headerLeft ? (
             <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               {headerLeft}
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
