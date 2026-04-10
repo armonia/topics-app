@@ -22,4 +22,7 @@ done
 cd "$APP_DIR/electron-app" && npx tsc 2>/dev/null || true
 cd "$APP_DIR"
 
-exec "$APP_DIR/electron-app/node_modules/.bin/electron" "$APP_DIR/electron-app"
+# Launch Electron binary directly (not via .bin/electron node wrapper)
+# The node wrapper spawns Electron as a child, and Chromium re-execs creating
+# an orphan process. Direct exec keeps launchd as the parent.
+exec "$APP_DIR/electron-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" "$APP_DIR/electron-app"
