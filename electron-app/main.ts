@@ -1392,6 +1392,18 @@ process.on('unhandledRejection', (reason) => {
 
 // ============ App Lifecycle ============
 
+// Prevent multiple instances — second instance exits immediately
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[Topics Electron] Another instance is running, quitting.');
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  // Don't steal focus — launchd KeepAlive can trigger this repeatedly
+  console.log('[Topics Electron] Second instance detected, ignoring.');
+});
+
 app.whenReady().then(() => {
   if (isDev && process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(path.join(__dirname, 'icon.png'));
