@@ -54,6 +54,7 @@ export interface Topic {
   projectPath?: string;
   sortOrder?: number;
   autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
+  provider?: string | null;
   disabledContextSources?: string[];
   assignedAgents?: { id: string; name: string; role: string }[];
 }

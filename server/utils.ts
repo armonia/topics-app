@@ -41,7 +41,7 @@ export function createAppContext(baseDir: string): AppContext {
   const PUBLIC_DIR = join(baseDir, "public");
   const UPLOADS_DIR = join(baseDir, "uploads");
   const CONTEXT_DIR = join(baseDir, "context-files");
-  const OPENCLAW_DIR = process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
+  const OPENCLAW_DIR = process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
   const SESSIONS_DIR = process.env.SESSIONS_DIR || `${OPENCLAW_DIR}/agents/main/sessions`;
   const MESSAGES_DIR = join(baseDir, "messages");
 
@@ -66,8 +66,8 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
 
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $archived, $created_at, $updated_at)
+      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $archived, $created_at, $updated_at)
     `),
     deleteTopic: db.prepare(`DELETE FROM topics WHERE id = ?`),
 
@@ -131,6 +131,7 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.project_path) topic.projectPath = row.project_path;
     if (row.sort_order !== undefined) topic.sortOrder = row.sort_order;
     if (row.autonomy_level && row.autonomy_level !== 'ask') topic.autonomyLevel = row.autonomy_level;
+    if (row.provider) topic.provider = row.provider;
 
     const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -165,6 +166,7 @@ export function createAppContext(baseDir: string): AppContext {
       $project_path: topic.projectPath || null,
       $sort_order: topic.sortOrder ?? 0,
       $autonomy_level: topic.autonomyLevel || 'ask',
+      $provider: topic.provider || null,
       $archived: topic.archived ? 1 : 0,
       $created_at: topic.createdAt,
       $updated_at: topic.updatedAt,

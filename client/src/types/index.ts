@@ -19,6 +19,7 @@ export interface Topic {
   sortOrder?: number;
   autonomyLevel?: AutonomyLevel;
   disabledContextSources?: string[];
+  provider?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
 }
 
@@ -80,6 +81,7 @@ export interface UpdateTopicRequest {
   pinnedMessages?: string[];
   projectPath?: string;
   autonomyLevel?: AutonomyLevel;
+  provider?: string | null;
   disabledContextSources?: string[];
 }
 

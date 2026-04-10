@@ -10,6 +10,13 @@ interface TopicSettingsModalProps {
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
 }
 
+interface ProviderInfo {
+  name: string;
+  connected: boolean;
+  capabilities: string[];
+  isDefault: boolean;
+}
+
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(topic.autonomyLevel || 'ask');
@@ -19,6 +26,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
   const [contextFilesList, setContextFilesList] = useState<string[]>(topic.contextFiles || []);
   const [newContextFile, setNewContextFile] = useState('');
+  const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -32,9 +41,19 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setSystemPrompt(topic.systemPrompt || '');
     setContextFilesList(topic.contextFiles || []);
     setNewContextFile('');
+    setProvider(topic.provider ?? null);
     setSaved(false);
     setIsDirty(false);
   }, [topic, isOpen]);
+
+  // Fetch available providers
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/providers')
+      .then(r => r.json())
+      .then(data => setProviders(data.providers || []))
+      .catch(() => setProviders([]));
+  }, [isOpen]);
 
   // Track dirty state
   useEffect(() => {
@@ -46,8 +65,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     const colorChanged = topicColor !== topic.color;
     const promptChanged = systemPrompt !== (topic.systemPrompt || '');
     const filesChanged = JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []);
-    setIsDirty(pathChanged || autonomyChanged || nameChanged || iconChanged || colorChanged || promptChanged || filesChanged);
-  }, [projectPath, autonomyLevel, topicName, topicIcon, topicColor, systemPrompt, contextFilesList, topic, isOpen]);
+    const providerChanged = provider !== (topic.provider ?? null);
+    setIsDirty(pathChanged || autonomyChanged || nameChanged || iconChanged || colorChanged || promptChanged || filesChanged || providerChanged);
+  }, [projectPath, autonomyLevel, topicName, topicIcon, topicColor, systemPrompt, contextFilesList, provider, topic, isOpen]);
 
   const handleClose = () => {
     if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) {
@@ -65,6 +85,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       autonomyLevel,
       systemPrompt,
       contextFiles: contextFilesList,
+      provider,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -319,6 +340,30 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Provider */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-2">
+              Provider
+            </label>
+            <p className="text-[11px] text-app-text-muted mb-2">
+              Which AI provider handles conversations in this topic.
+            </p>
+            <select
+              value={provider || ''}
+              onChange={e => setProvider(e.target.value || null)}
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+            >
+              <option value="">
+                Default{providers.find(p => p.isDefault) ? ` (${providers.find(p => p.isDefault)!.name})` : ''}
+              </option>
+              {providers.map(p => (
+                <option key={p.name} value={p.name}>
+                  {p.connected ? '\u25CF' : '\u25CB'} {p.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Note about Context Inspector */}

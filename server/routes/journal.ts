@@ -1,8 +1,9 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { JournalCollector } from "../journal-collector";
+import { getProvider } from "../providers";
 
 export function createJournalRouter(ctx: AppContext, collector: JournalCollector): RouteHandler {
-  const { GATEWAY_URL, GATEWAY_TOKEN, json, readJSON } = ctx;
+  const { json, readJSON } = ctx;
 
   return async function journalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -35,36 +36,23 @@ export function createJournalRouter(ctx: AppContext, collector: JournalCollector
       const eventSummary = events.map(e => `[${e.timestamp}] ${e.summary}`).join('\n');
 
       try {
-        const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-session-key": `journal:digest:${date}` },
-          body: JSON.stringify({
-            model: "openclaw",
-            stream: false,
-            messages: [
-              {
-                role: "system",
-                content: `You are a journal writer for an AI agent system. Write a concise daily narrative summary of the agent's activities. Use a professional but warm tone. Organize by themes or time periods. Keep it under 500 words. Format as markdown with headers and bullet points where appropriate.`
-              },
-              {
-                role: "user",
-                content: `Write a daily journal entry for ${date} based on these activity events:\n\n${eventSummary}`
-              }
-            ],
-          }),
-        });
+        const provider = getProvider();
+        const result = await provider.complete([
+          {
+            role: "system",
+            content: `You are a journal writer for an AI agent system. Write a concise daily narrative summary of the agent's activities. Use a professional but warm tone. Organize by themes or time periods. Keep it under 500 words. Format as markdown with headers and bullet points where appropriate.`
+          },
+          {
+            role: "user",
+            content: `Write a daily journal entry for ${date} based on these activity events:\n\n${eventSummary}`
+          }
+        ]);
 
-        if (!resp.ok) {
-          const errText = await resp.text();
-          return json({ error: "Failed to generate digest: " + errText }, 502);
-        }
+        const digestText = result.content;
+        if (!digestText) return json({ error: "No content generated" }, 500);
 
-        const result = await resp.json() as any;
-        const digest = result?.choices?.[0]?.message?.content || "";
-        if (!digest) return json({ error: "No content generated" }, 500);
-
-        collector.saveDigest(date, digest);
-        return json({ date, digest, generated: true });
+        collector.saveDigest(date, digestText);
+        return json({ date, digest: digestText, generated: true });
       } catch (err: any) {
         return json({ error: "Digest generation failed: " + err.message }, 500);
       }

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdir
 import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, ToolCall, Topic } from "../types";
-import { registerSessionHandler, unregisterSessionHandler, type ChatStreamHandler } from "../gateway-ws";
+import { getProvider, getDefaultProvider, type AIProvider, type StreamHandler } from "../providers";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
@@ -25,6 +25,20 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     switchActiveBranch, getSiblingMessages, loadActiveThread,
     activeStreams,
   } = ctx;
+
+  /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
+  function resolveProvider(topic?: Topic | null): AIProvider {
+    if (topic?.provider) {
+      try { return getProvider(topic.provider); } catch {}
+    }
+    return getDefaultProvider();
+  }
+
+  /** Look up the topic owning a sessionKey and resolve its provider. */
+  function providerForSessionKey(sessionKey: string): AIProvider {
+    const topic = Object.values(loadTopics().topics).find(t => t.sessionKey === sessionKey);
+    return resolveProvider(topic);
+  }
 
   // ── Sub-agent completion polling via JSONL transcript ──────────────────
   // Gateway executes tool calls (including sessions_spawn) internally and
@@ -149,6 +163,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // Send a follow-up message to the gateway session so the AI generates a response
     // that includes the sub-agent result. The gateway has the completion event in its
     // context already — we just need to trigger a new inference turn.
+    const topic = loadTopics().topics[watched.topicId];
+    const provider = resolveProvider(topic);
+    if (provider.name !== 'openclaw') {
+      // /api/inference/chat is OpenClaw-specific — deliver raw result for other providers
+      deliverRawResult(watched, result, task);
+      return;
+    }
     try {
       const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, {
         method: "POST",
@@ -502,6 +523,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     for (const t of Object.values(topicsData.topics)) {
       if (t.sessionKey === sessionKey) { matchedTopic = t; break; }
     }
+    const topicProvider = resolveProvider(matchedTopic);
 
     // Build the messages array from the active thread up to (and including) the new user message
     const activeThread = loadActiveThread(sessionKey);
@@ -563,12 +585,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const abortController = new AbortController();
       const timeoutId = setTimeout(() => abortController.abort(), 300000);
 
-      const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write", "x-openclaw-session-key": sessionKey },
-        body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
-        signal: abortController.signal,
-      });
+      let resp: Response;
+      if (topicProvider.streamHTTP) {
+        resp = await topicProvider.streamHTTP(finalMessages, { sessionKey, signal: abortController.signal });
+      } else {
+        // Fallback: use complete() and synthesize an SSE response
+        const result = await topicProvider.complete(finalMessages);
+        clearTimeout(timeoutId);
+        appendLocalMessage(sessionKey, "assistant", result.content);
+        if (matchedTopic) broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: result.content.slice(0, 100) });
+        const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(result.content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
+        return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
+      }
       clearTimeout(timeoutId);
 
       if (!resp.ok) {
@@ -772,6 +800,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         archived: false, systemPrompt: body.systemPrompt || "",
         contextFiles: [], pinnedMessages: [],
         sortOrder: Object.keys(data.topics).length,
+        provider: body.provider || null,
       };
       // Set projectPath if explicitly provided (e.g. creating from within a project)
       if (body.projectPath) {
@@ -826,6 +855,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           topic.autonomyLevel = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
         }
+        if (body.provider !== undefined) topic.provider = body.provider || null;
         if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
         topic.updatedAt = new Date().toISOString();
         saveTopics(data);
@@ -1182,7 +1212,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
                     if (session) {
                       try {
-                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/pause`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" } });
+                        const p = resolveProvider(matchedTopic);
+                        if (p.pauseSession) {
+                          await p.pauseSession(session.session_key);
+                        } else {
+                          throw new Error("Provider does not support pause");
+                        }
                         response = `Paused agent @${agentName}`;
                       } catch { response = `Failed to pause @${agentName} — no reachable session`; }
                     } else { response = `No active session found for @${agentName}`; }
@@ -1196,7 +1231,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     const session = db.prepare("SELECT session_key FROM agent_sessions WHERE agent_id = ? AND status = 'paused' ORDER BY started_at DESC LIMIT 1").get(agent.id) as any;
                     if (session) {
                       try {
-                        await fetch(`${GATEWAY_URL}/api/agents/sessions/${encodeURIComponent(session.session_key)}/resume`, { method: "POST", headers: { Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" } });
+                        const p = resolveProvider(matchedTopic);
+                        if (p.resumeSession) {
+                          await p.resumeSession(session.session_key);
+                        } else {
+                          throw new Error("Provider does not support resume");
+                        }
                         response = `Resumed agent @${agentName}`;
                       } catch { response = `Failed to resume @${agentName} — no reachable session`; }
                     } else { response = `No paused session found for @${agentName}`; }
@@ -1493,13 +1533,11 @@ Wait for the user to approve the plan before executing any changes.` };
         finalMessages.splice(planInsertIdx >= 0 ? planInsertIdx : finalMessages.length, 0, planInstruction);
       }
 
-      // ─── Gateway streaming ───
-      // Always use HTTP for topic chats: it sends finalMessages as a proper message array,
-      // which correctly delivers conversation history + system context to the model.
-      // The WS chat.send protocol only takes a single string — it relies on the gateway's
-      // own session history which can be out of sync (gateway restart, HTTP sessions, etc.).
-      const gatewayWS = ctx.gatewayWS;
-      const useWS = gatewayWS?.connected ?? false;
+      // ─── Resolve provider for this topic ───
+      const topicProvider = resolveProvider(matchedTopic);
+
+      // ─── Streaming ───
+      const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;
 
       console.log(`[Chat] useWS=${useWS}, sessionKey=${sessionKey}`);
       if (useWS) {
@@ -1546,7 +1584,7 @@ Wait for the user to approve the plan before executing any changes.` };
               else fullContent += "\n\n---\n*[Response timed out]*";
               updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
               endStream(sessionKey);
-              unregisterSessionHandler(sessionKey);
+              topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
@@ -1584,7 +1622,7 @@ Wait for the user to approve the plan before executing any changes.` };
 
             updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
-            unregisterSessionHandler(sessionKey);
+            topicProvider.unregisterStreamHandler?.(sessionKey);
 
             // Detect sub-agent launches
             if (matchedTopic && /sub.?agent|subagent|lanciato|spawned|sessions_spawn/i.test(fullContent)) {
@@ -1654,7 +1692,7 @@ Wait for the user to approve the plan before executing any changes.` };
           };
 
           // Register event handler for this session
-          const handler: ChatStreamHandler = {
+          const handler: StreamHandler = {
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
               // Gateway sends cumulative text in delta events
@@ -1811,15 +1849,15 @@ Wait for the user to approve the plan before executing any changes.` };
             }
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
-            registerSessionHandler(sessionKey, undefined, handler);
-            const result = await gatewayWS!.sendChat(sessionKey, userContent);
+            topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
+            const result = await topicProvider.sendChat(sessionKey, userContent, handler);
             // Update handler with the real runId now that we have it
-            registerSessionHandler(sessionKey, result.runId, handler);
+            topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
             console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
           } catch (err: any) {
             console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
             if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
-            unregisterSessionHandler(sessionKey);
+            topicProvider.unregisterStreamHandler?.(sessionKey);
             endStream(sessionKey);
             const errorMsg = `⚠️ Failed to send message: ${err.message}`;
             updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
@@ -1843,18 +1881,27 @@ Wait for the user to approve the plan before executing any changes.` };
 
       } else {
         // === Fallback: HTTP SSE (original approach — no tool visibility) ===
-        console.log(`[Stream] Using HTTP SSE fallback (WS ${gatewayWS ? 'disconnected' : 'not initialized'})`);
+        console.log(`[Stream] Using HTTP SSE fallback (provider ${topicProvider.connected ? 'connected but no WS' : 'disconnected'})`);
         try {
           const abortController = new AbortController();
           const timeoutId = setTimeout(() => abortController.abort(), 300000);
           const requestStartMs = Date.now();
 
-          const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write", "x-openclaw-session-key": sessionKey },
-            body: JSON.stringify({ model: "openclaw", stream: true, messages: finalMessages }),
-            signal: abortController.signal,
-          });
+          let resp: Response;
+          if (topicProvider.streamHTTP) {
+            resp = await topicProvider.streamHTTP(finalMessages, { sessionKey, signal: abortController.signal });
+          } else {
+            // Provider doesn't support streamHTTP — use complete() as fallback
+            const result = await topicProvider.complete(finalMessages);
+            clearTimeout(timeoutId);
+            const content = result.content;
+            appendLocalMessage(sessionKey, "assistant", content);
+            if (matchedTopic) {
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
+            }
+            const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
+            return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
+          }
           clearTimeout(timeoutId);
 
           if (!resp.ok) {
@@ -1923,7 +1970,7 @@ Wait for the user to approve the plan before executing any changes.` };
           // it may reconnect during the HTTP request. Tool events arrive via WS agent events.
           const httpRunId = `http:${crypto.randomUUID()}`;
           {
-            registerSessionHandler(sessionKey, httpRunId, {
+            topicProvider.registerStreamHandler?.(sessionKey, httpRunId, {
               onTextDelta() {},  // Handled by HTTP SSE processLine
               onThinkingDelta() {},
               onToolStart(toolCallId: string, name: string, args: Record<string, any>) {
@@ -1962,7 +2009,7 @@ Wait for the user to approve the plan before executing any changes.` };
               }
               updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
               endStream(sessionKey);
-              unregisterSessionHandler(sessionKey);
+              topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -2064,7 +2111,7 @@ Wait for the user to approve the plan before executing any changes.` };
               abortController.signal.removeEventListener("abort", onAbort);
               reader.releaseLock();
               await closeClient();
-              unregisterSessionHandler(sessionKey);
+              topicProvider.unregisterStreamHandler?.(sessionKey);
               if (isStreaming(sessionKey)) {
                 updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
                 endStream(sessionKey);
@@ -2096,16 +2143,18 @@ Wait for the user to approve the plan before executing any changes.` };
         try { stream.abortController.abort(); } catch {}
       }
 
-      // Also abort via WS if connected
-      const gwWS = ctx.gatewayWS;
-      if (gwWS?.connected) {
-        gwWS.abortChat(sessionKey).catch((err: any) => console.warn(`[Abort] WS abort failed:`, err));
-        unregisterSessionHandler(sessionKey);
-      }
-
+      // Resolve topic and provider for abort
       const topicsData = loadTopics();
+      let abortTopic: Topic | null = null;
       let topicId: string | undefined;
-      for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
+      for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { abortTopic = t; topicId = t.id; break; } }
+      const abortProvider = resolveProvider(abortTopic);
+
+      // Also abort via provider if connected
+      if (abortProvider.connected) {
+        abortProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
+        abortProvider.unregisterStreamHandler?.(sessionKey);
+      }
 
       if (body?.clearMessages) {
         // First-message cancel — wipe server-side messages entirely
@@ -2254,14 +2303,15 @@ Wait for the user to approve the plan before executing any changes.` };
           return json({ messages: result, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null });
         }
 
-        // Fallback: Gateway
+        // Fallback: Provider history
         try {
-          const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" },
-            body: JSON.stringify({ tool: "sessions_history", args: { sessionKey, limit: limit + offset, includeTools: false } }),
-          });
-          const data = await resp.json() as any;
+          const histProvider = providerForSessionKey(sessionKey);
+          let data: any;
+          if (histProvider.invokeTool) {
+            data = await histProvider.invokeTool("sessions_history", { sessionKey, limit: limit + offset, includeTools: false });
+          } else if (histProvider.getHistory) {
+            data = await histProvider.getHistory(sessionKey, limit + offset);
+          }
           const gatewayMessages = data?.result?.messages || data?.result?.details?.messages || [];
           if (gatewayMessages.length > 0) {
             for (const msg of gatewayMessages) {
@@ -2406,19 +2456,11 @@ Wait for the user to approve the plan before executing any changes.` };
         const conversationSummary = recentMsgs.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 150)}`).join('\n');
         (async () => {
           try {
-            const controller = new AbortController();
-            setTimeout(() => controller.abort(), 8000);
-            const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write", "x-openclaw-session-key": `auto-name:${topicId}:${Date.now()}` },
-              body: JSON.stringify({ model: "openclaw", stream: false, messages: [
-                { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
-              ] }),
-              signal: controller.signal,
-            });
-            if (!resp.ok) return;
-            const result = await resp.json() as any;
-            const content = result?.choices?.[0]?.message?.content || "";
+            const namingProvider = resolveProvider(topicsData.topics[topicId]);
+            const result = await namingProvider.complete([
+              { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
+            ]);
+            const content = result.content || "";
             const jsonMatch = content.match(/\{[^}]+\}/);
             if (!jsonMatch) { console.log("[AutoName] AI did not return JSON:", content.slice(0, 100)); return; }
             const parsed = JSON.parse(jsonMatch[0]);
@@ -2461,19 +2503,21 @@ Wait for the user to approve the plan before executing any changes.` };
               try { mkdirSync(backupDir, { recursive: true }); const timestamp = new Date().toISOString().replace(/[:.]/g, "-"); const backupFile = join(backupDir, `${sessionKey.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`); writeFileSync(backupFile, JSON.stringify(existingMsgs, null, 2)); console.log(`[clear] Backed up ${existingMsgs.length} messages to ${backupFile}`); } catch (err) { console.warn("[clear] Backup failed:", err); }
             }
             saveLocalMessages(sessionKey, []);
-            try { await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ tool: "sessions_send", args: { sessionKey, message: "/clear" } }) }); } catch (err) { console.warn("Failed to clear gateway session:", err); }
+            try { await providerForSessionKey(sessionKey).sendToSession?.(sessionKey, "/clear"); } catch (err) { console.warn("Failed to clear gateway session:", err); }
             broadcastToAll({ type: "clear", sessionKey });
             return json({ ok: true, command: "clear", message: "Conversation cleared" });
           }
           case "model": {
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
+            if (providerForSessionKey(sessionKey).name !== 'openclaw') return json({ error: "Model switching not supported by this provider" }, 400);
             const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
             if (!resp.ok) return json({ error: "Failed to set model" }, 500);
             return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
           }
           case "reasoning": {
             const level = args?.level || "on";
+            if (providerForSessionKey(sessionKey).name !== 'openclaw') return json({ error: "Reasoning toggle not supported by this provider" }, 400);
             const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
             if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
             const text = await resp.text();
@@ -2548,8 +2592,15 @@ Wait for the user to approve the plan before executing any changes.` };
       const topicId = url.searchParams.get("topicId");
       if (!topicId) return json({ error: "topicId parameter required" }, 400);
       try {
-        const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ tool: "sessions_list", args: { kinds: ["other"], activeMinutes: 30 } }) });
-        const result = await resp.json() as any;
+        const procProvider = resolveProvider(loadTopics().topics[topicId]);
+        let result: any;
+        if (procProvider.listSessions) {
+          result = await procProvider.listSessions({ kinds: ["other"], activeMinutes: 30 });
+        } else if (procProvider.invokeTool) {
+          result = await procProvider.invokeTool("sessions_list", { kinds: ["other"], activeMinutes: 30 });
+        } else {
+          return json([]);
+        }
         const sessions = result?.result?.sessions || [];
         const processes = sessions.filter((s: any) => s.sessionKey?.includes("subagent")).map((s: any) => ({ sessionKey: s.sessionKey, label: s.label || s.sessionKey.split(":").pop() || "Sub-agent", status: s.status === "active" ? "running" : "done", startedAt: s.createdAt || new Date().toISOString(), completedAt: s.status !== "active" ? (s.updatedAt || new Date().toISOString()) : undefined }));
         return json(processes);

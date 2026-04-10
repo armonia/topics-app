@@ -1,5 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts } from "./processes";
+import { getProvider } from "../providers";
 
 const SERVER_START_TIME = Date.now();
 
@@ -25,30 +26,36 @@ interface SessionsStatus {
 }
 
 export function createStatusRouter(ctx: AppContext): RouteHandler {
-  const { GATEWAY_URL, GATEWAY_TOKEN, json, wsClients, activeStreams, loadTopics } = ctx;
+  const { json, wsClients, activeStreams, loadTopics } = ctx;
 
   // Cached state
   let lastGatewayCheck: (GatewayHealthResult & { checkedAt: string }) | null = null;
   let lastCronStatus: CronJobsStatus | null = null;
   let lastSessionsStatus: SessionsStatus | null = null;
 
-  async function gatewayFetch(tool: string, args: object = {}): Promise<Response> {
-    return fetch(`${GATEWAY_URL}/tools/invoke`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
-      body: JSON.stringify({ tool, args }),
-      signal: AbortSignal.timeout(5000),
-    });
-  }
-
   async function checkGatewayHealth(): Promise<GatewayHealthResult> {
+    const provider = getProvider();
+
+    // For non-OpenClaw providers, just check the connected flag
+    if (provider.name !== "openclaw") {
+      return {
+        status: provider.connected ? "online" : "offline",
+        online: provider.connected,
+        latencyMs: 0,
+      };
+    }
+
+    // OpenClaw: do an HTTP health check via invokeTool or raw fetch
     const start = Date.now();
     try {
-      // Use a simple GET to check if the gateway is reachable
-      // (session_status via /tools/invoke returns 500 without a session context)
-      const resp = await fetch(`${GATEWAY_URL}/`, {
+      // Use GATEWAY_URL from env for the health ping (OpenClaw-specific)
+      const gatewayUrl = process.env.GATEWAY_URL;
+      if (!gatewayUrl) {
+        return { status: provider.connected ? "online" : "offline", online: provider.connected, latencyMs: 0 };
+      }
+      const resp = await fetch(`${gatewayUrl}/`, {
         method: "GET",
-        headers: GATEWAY_TOKEN ? { Authorization: `Bearer ${GATEWAY_TOKEN}` } : {},
+        headers: process.env.GATEWAY_TOKEN ? { Authorization: `Bearer ${process.env.GATEWAY_TOKEN}` } : {},
         signal: AbortSignal.timeout(5000),
       });
       const latencyMs = Date.now() - start;
@@ -65,10 +72,12 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   }
 
   async function fetchCronStatus(): Promise<CronJobsStatus> {
+    const provider = getProvider();
+    if (!provider.invokeTool) {
+      return { enabled: 0, disabled: 0, total: 0 };
+    }
     try {
-      const resp = await gatewayFetch("cron", { action: "list" });
-      if (!resp.ok) return { enabled: 0, disabled: 0, total: 0 };
-      const data = await resp.json();
+      const data = await provider.invokeTool("cron", { action: "list" });
       const jobs = data?.result?.jobs || data?.jobs || [];
       let enabled = 0, disabled = 0;
       let nextRun: string | undefined;
@@ -84,10 +93,12 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   }
 
   async function fetchSessionsStatus(): Promise<SessionsStatus> {
+    const provider = getProvider();
+    if (!provider.invokeTool) {
+      return { total: 0, byType: {} };
+    }
     try {
-      const resp = await gatewayFetch("sessions_list");
-      if (!resp.ok) return { total: 0, byType: {} };
-      const data = await resp.json();
+      const data = await provider.invokeTool("sessions_list", {});
       const sessions = data?.result?.sessions || data?.sessions || [];
       const byType: Record<string, number> = {};
       for (const s of sessions) {
@@ -122,8 +133,12 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
 
   return async function statusRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
-    // Restart OpenClaw gateway
+    // Restart OpenClaw gateway (only supported for openclaw provider)
     if (method === "POST" && pathname === "/api/openclaw/restart") {
+      const provider = getProvider();
+      if (provider.name !== "openclaw") {
+        return json({ ok: false, error: "Restart is only supported with the OpenClaw provider" }, 404);
+      }
       try {
         const proc = Bun.spawn(["openclaw", "gateway", "restart"], {
           stdout: "pipe",

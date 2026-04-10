@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check } from 'lucide-react';
 import type { AppSettings, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
@@ -170,6 +170,9 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           {/* Push Notifications */}
           <PushNotificationsToggle />
 
+          {/* AI Providers */}
+          <AIProvidersSection />
+
           {/* Keyboard Shortcuts Reference */}
           <div>
             <label className="text-[13px] font-medium text-app-text mb-2 block">Keyboard Shortcuts</label>
@@ -192,6 +195,166 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface Provider {
+  name: string;
+  connected: boolean;
+  capabilities: string[];
+  isDefault: boolean;
+}
+
+function AIProvidersSection() {
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [apiKey, setApiKey] = useState('');
+  const [configuring, setConfiguring] = useState(false);
+  const [showReconfigure, setShowReconfigure] = useState(false);
+
+  const fetchProviders = async () => {
+    try {
+      const res = await fetch('/api/providers');
+      const data = await res.json();
+      setProviders(data.providers ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProviders();
+  }, []);
+
+  const setDefault = async (name: string) => {
+    await fetch('/api/providers/default', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: name }),
+    });
+    await fetchProviders();
+  };
+
+  const configureClaude = async () => {
+    if (!apiKey.trim()) return;
+    setConfiguring(true);
+    try {
+      await fetch('/api/providers/claude/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: apiKey.trim() }),
+      });
+      setApiKey('');
+      setShowReconfigure(false);
+      await fetchProviders();
+    } finally {
+      setConfiguring(false);
+    }
+  };
+
+  const claudeProvider = providers.find((p) => p.name === 'claude');
+  const claudeConnected = claudeProvider?.connected ?? false;
+
+  if (loading) {
+    return (
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+          <Cpu size={14} />
+          AI Providers
+        </label>
+        <div className="text-[12px] text-app-text-muted">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+        <Cpu size={14} />
+        AI Providers
+      </label>
+
+      {/* Provider list */}
+      <div className="space-y-1.5 mb-3">
+        {providers.map((provider) => (
+          <button
+            key={provider.name}
+            onClick={() => setDefault(provider.name)}
+            className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+              provider.isDefault
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                provider.connected ? 'bg-green-500' : 'bg-gray-400'
+              }`}
+            />
+            <span className="font-semibold capitalize">{provider.name}</span>
+            {provider.isDefault && (
+              <span className="ml-auto text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                Default
+              </span>
+            )}
+          </button>
+        ))}
+        {providers.length === 0 && (
+          <div className="text-[12px] text-app-text-muted">No providers registered.</div>
+        )}
+      </div>
+
+      {/* Claude API Key configuration */}
+      <div className="bg-app-hover rounded-lg p-3 border border-app-border">
+        {claudeConnected && !showReconfigure ? (
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400 font-medium">
+                <Check size={13} />
+                Claude configured
+              </span>
+              <button
+                onClick={() => setShowReconfigure(true)}
+                className="text-[11px] text-app-text-muted hover:text-app-text-secondary transition-colors"
+              >
+                Reconfigure
+              </button>
+            </div>
+          ) : (
+            <div>
+              <label className="text-[12px] text-app-text-secondary mb-1.5 block">
+                Claude API Key
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-ant-..."
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[12px] bg-surface border border-app-border text-app-text placeholder:text-app-text-muted focus:outline-none focus:border-primary/50"
+                  onKeyDown={(e) => e.key === 'Enter' && configureClaude()}
+                />
+                <button
+                  onClick={configureClaude}
+                  disabled={configuring || !apiKey.trim()}
+                  className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {configuring ? '...' : 'Configure'}
+                </button>
+              </div>
+              {showReconfigure && (
+                <button
+                  onClick={() => setShowReconfigure(false)}
+                  className="text-[11px] text-app-text-muted hover:text-app-text-secondary mt-1.5 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+        </div>
     </div>
   );
 }

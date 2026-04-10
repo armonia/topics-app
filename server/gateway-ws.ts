@@ -500,6 +500,7 @@ export interface InitGatewayWSOptions {
   onEvent?: (event: GatewayEvent) => void;
   onConnect?: () => void;
   onDisconnect?: (reason: string) => void;
+  onAuthFailure?: () => string | null;
 }
 
 export function initGatewayWS(opts: InitGatewayWSOptions): GatewayWS {
@@ -520,6 +521,7 @@ export function initGatewayWS(opts: InitGatewayWSOptions): GatewayWS {
     onEvent: opts.onEvent,
     onConnect: opts.onConnect,
     onDisconnect: opts.onDisconnect,
+    onAuthFailure: opts.onAuthFailure,
   });
 
   instance.start();

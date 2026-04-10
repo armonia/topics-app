@@ -28,11 +28,13 @@ import { createApprovalsRouter } from "./server/routes/approvals";
 import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
-import { initGatewayWS, routeGatewayEvent } from "./server/gateway-ws";
+import { getGatewayWS } from "./server/gateway-ws";
+import { initProvider } from "./server/providers";
 import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState } from "./server/routes/ui-state";
+import { createProvidersRouter } from "./server/routes/providers";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
@@ -59,27 +61,39 @@ const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast
   loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
   isStreaming, activeStreams, getMimeType, logRequest, db } = ctx;
 
-// Init Gateway WebSocket connection (for chat with tool event visibility)
-const gatewayWS = initGatewayWS({
-  gatewayUrl: ctx.GATEWAY_URL,
-  token: ctx.GATEWAY_TOKEN,
-  onEvent: (event) => {
-    routeGatewayEvent(event);
-  },
-  onConnect: () => {
-    console.log("[Server] Gateway WS connected");
+// Init AI provider (wraps gateway for openclaw, or uses Anthropic SDK for standalone)
+const aiProvider = initProvider({
+  type: (process.env.AI_PROVIDER as any) || (process.env.GATEWAY_URL ? 'openclaw' : process.env.ANTHROPIC_API_KEY ? 'claude' : 'openclaw'),
+  ...(process.env.GATEWAY_URL ? {
+    gatewayUrl: ctx.GATEWAY_URL,
+    token: ctx.GATEWAY_TOKEN,
+    refreshToken: () => ctx.refreshGatewayToken(),
+  } : {
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    model: process.env.CLAUDE_MODEL,
+  }),
+} as any);
+
+// Wire provider events to broadcast system
+if (aiProvider.onConnect) {
+  aiProvider.onConnect(() => {
+    console.log("[Server] AI provider connected");
     ctx.broadcastToAll({ type: "gateway:status", connected: true });
-  },
-  onDisconnect: (reason) => {
-    console.log(`[Server] Gateway WS disconnected: ${reason}`);
+  });
+}
+if (aiProvider.onDisconnect) {
+  aiProvider.onDisconnect((reason) => {
+    console.log(`[Server] AI provider disconnected: ${reason}`);
     ctx.broadcastToAll({ type: "gateway:status", connected: false });
-  },
-  onAuthFailure: () => {
-    // Try to refresh token from openclaw.json
-    return ctx.refreshGatewayToken();
-  },
-});
-ctx.gatewayWS = gatewayWS;
+  });
+}
+
+// Keep ctx.gatewayWS for backward compatibility
+if (aiProvider.name === 'openclaw') {
+  ctx.gatewayWS = getGatewayWS() ?? undefined;
+}
+
+console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiProvider.capabilities].join(', ')})`);
 
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService();
@@ -101,7 +115,7 @@ const usageRouter = createUsageRouter(ctx);
 const agentsRouter = createAgentsRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const spacesRouter = createSpacesRouter(ctx);
-const openclawContextRouter = createOpenClawContextRouter(ctx);
+const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
 const boardsRouter = createBoardsRouter(ctx);
 const tagsRouter = createTagsRouter(ctx);
 const approvalsRouter = createApprovalsRouter(ctx);
@@ -112,6 +126,7 @@ const agentApiRouter = createAgentApiRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
+const providersRouter = createProvidersRouter(ctx);
 // Initialize VAPID keys on startup
 initVapid();
 // Start agent heartbeat checker
@@ -308,7 +323,7 @@ const server = Bun.serve<WSData>({
         || await checkpointsRouter(req, url, pathname, method)
         || await journalRouter(req, url, pathname, method)
         || await spacesRouter(req, url, pathname, method)
-        || await openclawContextRouter(req, url, pathname, method)
+        || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await boardsRouter(req, url, pathname, method)
         || await approvalsRouter(req, url, pathname, method)
         || await tagsRouter(req, url, pathname, method)
@@ -318,6 +333,7 @@ const server = Bun.serve<WSData>({
         || await processesRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
+        || await providersRouter(req, url, pathname, method)
 ;
 
       if (response) return response;
