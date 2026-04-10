@@ -847,8 +847,8 @@ export function StandaloneChatGroup({
           /* ---- Terminal pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
             <Suspense fallback={LazySpinner}>
               <SingleTerminalPane sessionId={getTerminalSessionFromPaneId(activePaneId!)!} />
@@ -858,8 +858,8 @@ export function StandaloneChatGroup({
           /* ---- Session viewer pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
             <Suspense fallback={LazySpinner}>
               <SessionViewerPane sessionKey={activeSessionKey} onNavigateToTopic={(topicId) => onFocusPanel(topicId)} />
@@ -869,8 +869,8 @@ export function StandaloneChatGroup({
           /* ---- Browser pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
             <Suspense fallback={LazySpinner}>
               <RemoteBrowserPanel
@@ -884,8 +884,8 @@ export function StandaloneChatGroup({
           /* ---- Project pane content ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
             <ProjectWindowPane
               key={activeProjectPath}
@@ -922,8 +922,8 @@ export function StandaloneChatGroup({
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             {/* Header with tab bar */}
             <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
             {/* Utility panel body */}
             <div className="flex-1 min-h-0 overflow-hidden">
@@ -990,8 +990,8 @@ export function StandaloneChatGroup({
           /* ---- Empty state with header ---- */
           <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
             <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
               <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
             <div className="flex-1" />
           </div>
