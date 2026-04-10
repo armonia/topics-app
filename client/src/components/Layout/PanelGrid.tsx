@@ -1019,7 +1019,7 @@ export function PanelGrid({
                       sendWS={sendWS}
                       onWSMessage={onWSMessage}
                       onUpdateTopic={onUpdateTopic}
-                      onToggleSidebar={onToggleSidebar}
+                      onToggleSidebar={rowIdx === 0 && colIdx === 0 ? onToggleSidebar : undefined}
                       panelInitialTab={panelInitialTab}
                       onPanelInitialTabConsumed={onPanelInitialTabConsumed}
                       onNewChat={onNewChat}
