@@ -163,9 +163,15 @@ function createWindow(): void {
     show: false,
   });
 
-  // Prevent file drops from navigating the main window to file:// URLs
+  // Intercept navigation: allow localhost, open external URLs in system browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('file://')) event.preventDefault();
+    if (url.startsWith('http://localhost') || url.startsWith(SERVER_URL)) return;
+    event.preventDefault();
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url).catch((err) => {
+        console.error('[Topics Electron] Failed to open external URL:', url, err);
+      });
+    }
   });
 
   // Hide traffic lights by default — shown on hover via IPC
@@ -222,7 +228,13 @@ function createWindow(): void {
     if (url.startsWith('http://localhost') || url.startsWith(SERVER_URL)) {
       return { action: 'allow' as const };
     }
-    shell.openExternal(url);
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url).catch((err) => {
+        console.error('[Topics Electron] Failed to open external URL:', url, err);
+      });
+    } else {
+      console.warn('[Topics Electron] Ignoring non-http URL:', url);
+    }
     return { action: 'deny' as const };
   });
 
@@ -280,6 +292,16 @@ function createDetachedWindow(topicId: string, url: string, features = ''): Brow
     console.log('[Topics Electron] Detached window closed for topic:', topicId);
   });
 
+  detachedWin.webContents.on('will-navigate', (event, navUrl) => {
+    if (navUrl.startsWith('http://localhost') || navUrl.startsWith(SERVER_URL)) return;
+    event.preventDefault();
+    if (navUrl.startsWith('https://') || navUrl.startsWith('http://')) {
+      shell.openExternal(navUrl).catch((err) => {
+        console.error('[Topics Electron] Failed to open external URL:', navUrl, err);
+      });
+    }
+  });
+
   detachedWin.webContents.setWindowOpenHandler(({ url: newUrl, frameName }) => {
     if (frameName && frameName.startsWith('topic-')) {
       const newTopicId = frameName.replace('topic-', '');
@@ -289,7 +311,13 @@ function createDetachedWindow(topicId: string, url: string, features = ''): Brow
     if (newUrl.startsWith('http://localhost') || newUrl.startsWith(SERVER_URL)) {
       return { action: 'allow' as const };
     }
-    shell.openExternal(newUrl);
+    if (newUrl.startsWith('https://') || newUrl.startsWith('http://')) {
+      shell.openExternal(newUrl).catch((err) => {
+        console.error('[Topics Electron] Failed to open external URL:', newUrl, err);
+      });
+    } else {
+      console.warn('[Topics Electron] Ignoring non-http URL:', newUrl);
+    }
     return { action: 'deny' as const };
   });
 
@@ -1107,6 +1135,13 @@ ipcMain.handle('app:toggle-always-on-top', () => {
 
 ipcMain.handle('app:get-always-on-top', () => {
   return { alwaysOnTop };
+});
+
+// --- Shell ---
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  if (url.startsWith('https://') || url.startsWith('http://')) {
+    await shell.openExternal(url);
+  }
 });
 
 // --- Dialog ---

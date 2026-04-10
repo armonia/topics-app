@@ -66,6 +66,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
+  // Open URL in system browser
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+
   // Platform info
   platform: process.platform,
   isElectron: true,

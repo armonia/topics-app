@@ -504,7 +504,19 @@ export const markdownComponents = {
     return <img src={normalizedSrc} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
   },
   a: ({ href, children }: any) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 underline">{children}</a>
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-500 hover:text-blue-600 underline"
+      onClick={(e) => {
+        const electron = (window as any).electronAPI;
+        if (electron?.openExternal && href) {
+          e.preventDefault();
+          electron.openExternal(href);
+        }
+      }}
+    >{children}</a>
   ),
   pre: ({ children }: any) => {
     if (children && typeof children === 'object' && 'props' in children) {
