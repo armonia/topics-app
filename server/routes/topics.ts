@@ -638,6 +638,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           endStream(sessionKey);
           if (matchedTopic) {
             broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+            updateUnreadCount(matchedTopic.id);
           }
           return;
         }
@@ -696,6 +697,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
             broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+            if (matchedTopic) updateUnreadCount(matchedTopic.id);
           }
         }
       };
@@ -1590,6 +1592,7 @@ Wait for the user to approve the plan before executing any changes.` };
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+                updateUnreadCount(matchedTopic.id);
               }
               writeSSE("[DONE]").then(() => closeClient());
             }, STREAM_TIMEOUT_MS);
@@ -1866,6 +1869,7 @@ Wait for the user to approve the plan before executing any changes.` };
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+              updateUnreadCount(matchedTopic.id);
             }
             await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
             await writeSSE("[DONE]");
@@ -1918,6 +1922,7 @@ Wait for the user to approve the plan before executing any changes.` };
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: errorMsg.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id });
+              updateUnreadCount(matchedTopic.id);
             }
             return new Response(
               `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(errorMsg)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`,
@@ -2015,6 +2020,7 @@ Wait for the user to approve the plan before executing any changes.` };
               if (matchedTopic) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+                updateUnreadCount(matchedTopic.id);
               }
               return;
             }
@@ -2118,6 +2124,7 @@ Wait for the user to approve the plan before executing any changes.` };
                 updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
                 endStream(sessionKey);
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+                if (matchedTopic) updateUnreadCount(matchedTopic.id);
               }
             }
           };
