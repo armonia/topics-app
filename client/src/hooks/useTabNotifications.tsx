@@ -66,23 +66,41 @@ export function TabNotificationProvider({
   openPanelsRef.current = openPanels;
   const focusedRef = useRef(focusedPanelId);
   focusedRef.current = focusedPanelId;
+  // Track previous session statuses to detect active→idle transitions (= session completed)
+  const prevSessionStatusRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     return onWSMessage((msg: WSMessage) => {
-      // Agent session completed/errored → badge on agents panes
+      // Agent session status changes → detect completion (active→idle) or error
       if (msg.type === 'agents:sessions' && Array.isArray((msg as any).sessions)) {
-        for (const session of (msg as any).sessions as Array<{ status: string; topicId?: string; updatedAt?: number }>) {
-          if (session.status === 'completed' || session.status === 'error') {
-            const age = Date.now() - (session.updatedAt || 0);
-            if (age < 60_000) {
-              for (const panelId of openPanelsRef.current) {
-                if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
-                  notifyPane(panelId);
-                }
-              }
-              if (session.topicId) {
-                touchTopic(session.topicId);
-              }
+        const sessions = (msg as any).sessions as Array<{ key: string; status: string; topicId?: string; updatedAt?: number }>;
+        const prevStatuses = prevSessionStatusRef.current;
+        let shouldNotifyAgents = false;
+
+        for (const session of sessions) {
+          const prevStatus = prevStatuses.get(session.key);
+          // Notify on: active→idle transition (session just completed), or error status
+          const justCompleted = prevStatus === 'active' && session.status === 'idle';
+          const isError = session.status === 'error' && prevStatus !== 'error';
+          if (justCompleted || isError) {
+            shouldNotifyAgents = true;
+            if (session.topicId) {
+              touchTopic(session.topicId);
+            }
+          }
+        }
+
+        // Update tracked statuses
+        const newStatuses = new Map<string, string>();
+        for (const session of sessions) {
+          newStatuses.set(session.key, session.status);
+        }
+        prevSessionStatusRef.current = newStatuses;
+
+        if (shouldNotifyAgents) {
+          for (const panelId of openPanelsRef.current) {
+            if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
+              notifyPane(panelId);
             }
           }
         }
@@ -93,6 +111,17 @@ export function TabNotificationProvider({
           if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
             notifyPane(panelId);
           }
+        }
+      }
+      // Stream ended (Claude finished responding) → badge on agents panes
+      if (msg.type === 'stream:end' && (msg as any).sessionKey) {
+        for (const panelId of openPanelsRef.current) {
+          if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
+            notifyPane(panelId);
+          }
+        }
+        if ((msg as any).topicId) {
+          touchTopic((msg as any).topicId as string);
         }
       }
       // Chat message unread → touch topic for sidebar sort
@@ -106,11 +135,11 @@ export function TabNotificationProvider({
     if (isActive) return 0;
     // Chat panes: use existing unreadData
     if (topicId) {
-      return unreadRef.current[topicId]?.unreadCount || 0;
+      return unreadData[topicId]?.unreadCount || 0;
     }
     // Non-chat panes: use extraCounts
     return extraCounts.get(paneId) || 0;
-  }, [extraCounts]);
+  }, [extraCounts, unreadData]);
 
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,

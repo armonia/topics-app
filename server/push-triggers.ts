@@ -30,19 +30,28 @@ export function maybeSendPush(message: Record<string, any>): void {
     return;
   }
 
-  // Agent session status changes (completed/error) from the session watcher
+  // Stream ended — Claude finished responding in a topic
+  if (type === "stream:end" && message.sessionKey) {
+    sendPushToAll({
+      title: "✅ Response complete",
+      body: `Claude finished responding`,
+      tag: `stream-end-${message.sessionKey}`,
+      url: "/",
+    });
+    return;
+  }
+
+  // Agent session status changes (error) from the session watcher
   if (type === "agents:sessions" && Array.isArray(message.sessions)) {
     for (const session of message.sessions) {
-      if (session.status === "completed" || session.status === "error") {
-        // Only notify if the session was recently active (check updatedAt within last 60s)
+      if (session.status === "error") {
         const updatedAt = session.updatedAt || 0;
         const age = Date.now() - updatedAt;
         if (age < 60_000) {
-          const statusEmoji = session.status === "completed" ? "✅" : "❌";
           sendPushToAll({
-            title: `${statusEmoji} Agent ${session.status}`,
-            body: `${session.displayName || session.key} ${session.status === "completed" ? "finished" : "failed"}`,
-            tag: `agent-${session.key}-${session.status}`,
+            title: `❌ Agent error`,
+            body: `${session.displayName || session.key} failed`,
+            tag: `agent-${session.key}-error`,
             url: "/",
           });
         }
