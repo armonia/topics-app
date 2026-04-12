@@ -31,6 +31,7 @@ import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPan
 import { createPaneId, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId, getProjectPathFromPaneId, isKnownPanePrefix, isUUIDLike } from './lib/paneConfig';
 import { generateUUID } from './utils/uuid';
 import { globalBoardApi } from './lib/api';
+import { undo as undoUndo, redo as undoRedo, pushUndo, isTextInputFocused } from './contexts/UndoContext';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -962,6 +963,17 @@ function App() {
     return unsub;
   }, [onWSMessage, focusedPanelId, topics, appendMediaToLastAssistant, clearSession, loadHistory, addMessageFromWS, getSessionMessages, applyTopicFromWS, openPanels]);
 
+  // Listen for open-project broadcast (from Claude Code or API)
+  useEffect(() => {
+    return onWSMessage((msg: any) => {
+      if (msg.type === 'open-project' && msg.projectPath) {
+        const projectPaneId = createPaneId('project', msg.projectPath);
+        setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+        setFocusedPanelId(projectPaneId);
+      }
+    });
+  }, [onWSMessage]);
+
   // Listen for cross-window drag messages
   useEffect(() => {
     const unsub = onWSMessage((msg) => {
@@ -1100,7 +1112,11 @@ function App() {
   }, [openPanel]);
 
   const handleClosePanel = useCallback((topicId: string) => {
+    // Capture panel index for undo
+    let panelIndex = 0;
+
     setOpenPanels(prev => {
+      panelIndex = prev.indexOf(topicId);
       const next = prev.filter(id => id !== topicId);
       if (focusedPanelIdRef.current === topicId) {
         setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
@@ -1115,6 +1131,23 @@ function App() {
         return next;
       });
     }
+
+    // Push undo action
+    pushUndo({
+      description: `Close panel`,
+      undo: () => {
+        setOpenPanels(prev => {
+          const next = [...prev];
+          const idx = Math.min(panelIndex, next.length);
+          next.splice(idx, 0, topicId);
+          return next;
+        });
+        setFocusedPanelId(topicId);
+      },
+      redo: () => {
+        handleClosePanel(topicId);
+      },
+    });
   }, []);
 
   // ISSUE 22 fix: batch-close multiple panels atomically in a single state update
@@ -1285,6 +1318,13 @@ function App() {
     setOpenPanels(prev => prev.filter(p => p !== paneId));
   }, []);
 
+  // Open a directory as a project tab
+  const handleOpenAsProject = useCallback((path: string) => {
+    const projectPaneId = createPaneId('project', path);
+    setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+    setFocusedPanelId(projectPaneId);
+  }, []);
+
   // Open an existing terminal session from the sidebar (reattach)
   const handleTerminalClick = useCallback((sessionId: string, _sessionName: string) => {
     // Check if this terminal belongs to a project (cwd matches a project path)
@@ -1401,6 +1441,19 @@ function App() {
     const handler = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
 
+      // Cmd+Z / Cmd+Shift+Z — UI undo/redo (skip when focus is in text input/terminal)
+      if (isMod && (e.key === 'z' || e.key === 'Z')) {
+        if (!isTextInputFocused(e.target)) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            undoRedo();
+          } else {
+            undoUndo();
+          }
+          return;
+        }
+      }
+
       if (isMod && e.key === 'k') {
         e.preventDefault();
         setShowSearch(prev => !prev);
@@ -1441,6 +1494,13 @@ function App() {
       if (isMod && e.key === 'b') {
         e.preventDefault();
         toggleSidebar();
+        return;
+      }
+
+      // Cmd+Shift+T — reopen last closed tab
+      if (isMod && e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('reopen-closed-tab'));
         return;
       }
 
@@ -1684,6 +1744,7 @@ function App() {
             onTerminalClick={handleTerminalClick}
             onNewTerminal={handleQuickCreateTerminal}
             onCloseTerminal={handleCloseTerminal}
+            onOpenAsProject={handleOpenAsProject}
             onOpenBrowser={(contextId) => openBrowserPane(contextId)}
             onCloseBrowser={browserCtx.closeContext}
             viewMode={sidebar.viewMode}

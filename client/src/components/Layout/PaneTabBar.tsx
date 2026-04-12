@@ -183,15 +183,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_GROUP, groupId);
     }
     // Set PANEL_ID for edge-split drops at the PanelGrid level.
-    // Chat panes use topicId; project panes use paneId (project:path).
-    // Terminal/browser/utility panes don't set PANEL_ID — they can't be split to solo.
+    // Chat panes use topicId; all other panes use paneId.
     // Top-level groups: "standalone", solo groups ("solo:xxx"), or no groupId.
     const isTopLevel = !groupId || groupId === 'standalone' || groupId.startsWith('solo:');
     if (isTopLevel) {
       const pane = panes.find(p => p.id === paneId);
       if (pane?.type === 'chat' && pane?.topicId) {
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.topicId!);
-      } else if (pane?.type === 'project') {
+      } else if (pane) {
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.id);
       }
     }
