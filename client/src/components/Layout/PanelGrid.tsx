@@ -607,7 +607,7 @@ export function PanelGrid({
     const isTabDrag = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB);
     if (!isGridDrag && !isTabDrag) return;
 
-    // Browser/terminal tabs don't carry PANEL_ID — can't be split to solo
+    // Reject tab drags that don't carry PANEL_ID (shouldn't happen, but guard)
     if (isTabDrag && !isGridDrag && !e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) {
       setGridDropTarget(null);
       gridDropTargetRef.current = null;
