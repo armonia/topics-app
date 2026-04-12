@@ -369,6 +369,14 @@ export function ProjectWindowPane({
     setPanes(prev => {
       let updated = prev;
 
+      // Guard: if topicIds is transiently empty but we already have chat panes,
+      // skip removal — an empty topicIds for a project with open chats is almost
+      // certainly a re-render transient (topics state temporarily cleared).
+      const existingChatPanes = prev.filter(p => p.type === 'chat');
+      if (currentSet.size === 0 && existingChatPanes.length > 0) {
+        return prev;
+      }
+
       // Remove chat panes whose topic no longer exists in the project
       if (prev.some(p => p.type === 'chat' && !(p.topicId && currentSet.has(p.topicId)))) {
         updated = prev.filter(p => p.type !== 'chat' || (p.topicId && currentSet.has(p.topicId)));
