@@ -40,17 +40,16 @@ export function useClosedTabs() {
   }, []);
 
   const popClosedTab = useCallback((): ClosedTabRecord | undefined => {
-    let popped: ClosedTabRecord | undefined;
+    const current = closedTabsRef.current;
+    if (current.length === 0) return undefined;
+    const first = current[0];
     setClosedTabs(prev => {
       if (prev.length === 0) return prev;
-      popped = prev[0];
       const next = prev.slice(1);
       saveToStorage(next);
       return next;
     });
-    // Return from ref since setState is async
-    const current = closedTabsRef.current;
-    return current.length > 0 ? current[0] : undefined;
+    return first;
   }, []);
 
   const removeClosedTab = useCallback((recordId: string) => {
