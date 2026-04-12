@@ -16,6 +16,8 @@ import { useMobile } from './hooks/useMobile';
 import { useStorageSync } from './hooks/useStorageSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
+import { useClosedTabs } from './hooks/useClosedTabs';
+import { reopenClosedTab, type ClosedTabRecord } from './lib/closedTabRecord';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
@@ -750,7 +752,24 @@ function App() {
   const { themeMode, toggleTheme, setTheme } = useTheme(onWSMessage);
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: true });
   const agentLiveCount = activeSessions.length + idleSessions.length;
+  const { closedTabs, removeClosedTab } = useClosedTabs();
 
+  const handleReopenClosedTab = useCallback(async (record: ClosedTabRecord) => {
+    try {
+      const pane = await reopenClosedTab(record);
+      if (record.level === 'project') {
+        // Dispatch to ProjectWindow
+        window.dispatchEvent(new CustomEvent('reopen-closed-tab', { detail: record }));
+      } else {
+        // App-level: re-add to openPanels
+        setOpenPanels(prev => [...prev, pane.id]);
+        setFocusedPanelId(pane.id);
+      }
+      removeClosedTab(record.id);
+    } catch (err) {
+      console.warn('Failed to reopen closed tab:', err);
+    }
+  }, [removeClosedTab]);
 
 
   // Board task counts per project (for sidebar badges)
@@ -2011,6 +2030,8 @@ function App() {
               setShowSearch(false);
             }}
             isElectron={isElectron}
+            closedTabs={closedTabs}
+            onReopenClosedTab={handleReopenClosedTab}
           />
         </Suspense>
       )}

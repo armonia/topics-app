@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Plus, Settings, Moon, Sun, File, FolderOpen, FolderPlus, Loader2, TerminalSquare } from 'lucide-react';
+import { Search, Plus, Settings, Moon, Sun, File, FolderOpen, FolderPlus, Loader2, TerminalSquare, RotateCcw } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
 import type { Topic, SearchResult } from '../../types';
+import type { ClosedTabRecord } from '../../lib/closedTabRecord';
 import { TopicIcon } from '@/lib/topicIcons';
 import { searchApi } from '../../lib/api';
+import { PANE_CONFIG } from '../../lib/paneConfig';
 
 export interface CommandAction {
   id: string;
   label: string;
   description?: string;
   icon: React.ReactNode;
-  category: 'project' | 'topic' | 'action' | 'command' | 'file' | 'message';
+  category: 'project' | 'topic' | 'action' | 'command' | 'file' | 'message' | 'recent-closed';
   shortcut?: string;
   action: () => void;
   /** Raw content for highlight rendering in message results */
@@ -42,6 +44,8 @@ interface CommandPaletteProps {
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
   isElectron?: boolean;
+  closedTabs?: ClosedTabRecord[];
+  onReopenClosedTab?: (record: ClosedTabRecord) => void;
 }
 
 export function CommandPalette({
@@ -60,6 +64,8 @@ export function CommandPalette({
   projectPath,
   onOpenFile,
   isElectron,
+  closedTabs,
+  onReopenClosedTab,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -203,6 +209,29 @@ export function CommandPalette({
       });
     }
 
+    // ── Recently Closed ────────────────────────────────────────────────
+    if (closedTabs && closedTabs.length > 0 && onReopenClosedTab) {
+      closedTabs.slice(0, 10).forEach((record, i) => {
+        const paneType = record.pane.type;
+        const config = PANE_CONFIG[paneType];
+        const timeAgo = formatTimeAgo(record.closedAt);
+        const icon = record.terminal?.sessionType === 'claude-code'
+          ? <ClaudeIcon size={14} />
+          : paneType === 'terminal'
+            ? <TerminalSquare size={14} />
+            : <RotateCcw size={14} />;
+        items.push({
+          id: `closed-${record.id}`,
+          label: record.pane.title || config?.label || paneType,
+          description: `${timeAgo}${record.projectPath ? ' · ' + record.projectPath.split('/').pop() : ''}`,
+          icon,
+          category: 'recent-closed',
+          shortcut: i === 0 ? '⌘⇧T' : undefined,
+          action: () => { onReopenClosedTab(record); onClose(); },
+        });
+      });
+    }
+
     // ── Actions (last) ────────────────────────────────────────────────
     items.push({
       id: 'new-topic',
@@ -302,12 +331,13 @@ export function CommandPalette({
     topic: 'Topics',
     file: 'Files',
     message: 'Messages',
+    'recent-closed': 'Recently Closed',
     action: 'Actions',
     command: 'Commands',
   };
 
   // Fixed category order
-  const categoryOrder = ['project', 'topic', 'file', 'message', 'action', 'command'];
+  const categoryOrder = ['project', 'topic', 'file', 'message', 'recent-closed', 'action', 'command'];
 
   let globalIdx = 0;
 
@@ -451,6 +481,17 @@ export function CommandPalette({
       </div>
     </div>
   );
+}
+
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 function highlightQuery(text: string, query: string): React.ReactNode {
