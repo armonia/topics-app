@@ -707,17 +707,15 @@ export function StandaloneChatGroup({
   }, [onClosePanel]);
 
   // Determine if a pane type can be split to its own grid cell
-  // Chat topics and project panes are splittable — not terminal/browser/utility/draft/session-viewer
+  // Utility panels (activity, etc.) and drafts can't be split; everything else can.
   // Also blocked if: already a solo group, or splitting would leave this panel empty
   const isSplittable = useCallback((id: string) => {
-    if (isTerminalPaneId(id) || isBrowserPaneId(id) ||
-        isUtilityPanelId(id) || isDraftPaneId(id) || isSessionViewerPaneId(id)) return false;
+    if (isUtilityPanelId(id) || isDraftPaneId(id)) return false;
     // Solo groups can't split further
     if (gridItemKey.startsWith('solo:')) return false;
     // Don't split the last splittable pane (would leave an empty panel)
     const splittableCount = validatedOrderedIds.filter(pid =>
-      !isTerminalPaneId(pid) && !isBrowserPaneId(pid) &&
-      !isUtilityPanelId(pid) && !isDraftPaneId(pid) && !isSessionViewerPaneId(pid)
+      !isUtilityPanelId(pid) && !isDraftPaneId(pid)
     ).length;
     return splittableCount >= 2;
   }, [gridItemKey, validatedOrderedIds]);
