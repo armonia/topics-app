@@ -280,9 +280,10 @@ async function reconcileSessions() {
           try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch {}
         }
       } else {
-        // Shell session — can't resume, remove from DB
-        console.log(`[Terminal] Removing dead shell session ${row.id}`);
-        try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [row.id]); } catch {}
+        // Shell session — mark dormant instead of deleting.
+        // Client can revive it (creates new PTY in same cwd) or it gets cleaned up after 1h.
+        console.log(`[Terminal] Marking shell session ${row.id} as dormant`);
+        try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); } catch {}
       }
     }
   }
@@ -399,6 +400,12 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
   return async function terminalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
     if (method === "GET" && pathname === "/api/terminal/sessions") {
+      // Lazy cleanup: delete dormant sessions older than 1 hour
+      try {
+        const db = getDatabase();
+        db.run("DELETE FROM terminal_sessions WHERE status = 'dormant' AND datetime(created_at) < datetime('now', '-1 hour')");
+      } catch {}
+
       const filterTopicId = url.searchParams.get('topicId');
       let values = Array.from(sessions.values());
       if (filterTopicId) {
@@ -477,6 +484,54 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       broadcastTerminalSessions();
       return json({ ok: true });
     }
+
+    // --- Dormant sessions: list and revive ---
+
+    if (method === "GET" && pathname === "/api/terminal/sessions/dormant") {
+      const db = getDatabase();
+      const cwd = url.searchParams.get('cwd');
+      const rows = cwd
+        ? db.query("SELECT * FROM terminal_sessions WHERE status = 'dormant' AND cwd = ?").all(cwd) as any[]
+        : db.query("SELECT * FROM terminal_sessions WHERE status = 'dormant'").all() as any[];
+      const list = rows.map((r: any) => ({
+        id: r.id, name: r.name, cwd: r.cwd, command: r.command,
+        type: r.type, createdAt: r.created_at,
+        claudeSessionId: r.claude_session_id || null,
+        skipPermissions: r.skip_permissions !== 0,
+      }));
+      return json(list);
+    }
+
+    const reviveMatch = matchRoute(pathname, "/api/terminal/sessions/:id/revive");
+    if (method === "POST" && reviveMatch) {
+      const db = getDatabase();
+      const row = db.query("SELECT * FROM terminal_sessions WHERE id = ? AND status = 'dormant'").get(reviveMatch.id) as any;
+      if (!row) return errorResponse(404, "Dormant session not found");
+      try {
+        await ensureBridge();
+        const session = createSession(
+          row.id, row.name, row.cwd, undefined,
+          row.cols || 120, row.rows || 30,
+          row.topic_id || undefined,
+          row.type || 'shell',
+          row.skip_permissions !== 0,
+          row.claude_session_id || undefined,
+        );
+        // Mark as active
+        try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch {}
+        broadcastTerminalSessions();
+        return json({
+          id: session.id, name: session.name, cwd: session.cwd,
+          command: session.command, type: session.type,
+          claudeSessionId: session.claudeSessionId || null,
+        });
+      } catch (err: any) {
+        return errorResponse(500, `Failed to revive session: ${err.message}`);
+      }
+    }
+
+    // Cleanup: delete dormant sessions older than 1 hour (lazy, on each GET sessions call)
+    // (This runs in the GET /api/terminal/sessions handler above, no separate endpoint needed)
 
     // Paste image: save to temp file and copy to macOS system clipboard
     if (method === "POST" && pathname === "/api/terminal/paste-image") {

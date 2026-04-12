@@ -9,6 +9,9 @@ import { createPaneId, createGroupId, PANE_CONFIG, getTerminalSessionFromPaneId 
 import { DND_TYPES } from '../../lib/dndTypes';
 import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
 import { saveProjectLayout, loadProjectLayout, saveProjectLayoutLocalOnly } from '../../lib/projectLayoutSync';
+import { captureClosedTab, reopenClosedTab } from '../../lib/closedTabRecord';
+import { useClosedTabs } from '../../hooks/useClosedTabs';
+import { pushUndo } from '../../contexts/UndoContext';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ToastOutlet } from '../Shared/Toast';
@@ -183,6 +186,9 @@ export function ProjectWindowPane({
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
   useEffect(() => { const h = () => setIsNarrow(window.innerWidth < 1024); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
+  // --- Recently closed tabs ---
+  const { closedTabs, pushClosedTab, popClosedTab, removeClosedTab } = useClosedTabs();
+
   // --- Core state ---
   const [panes, setPanes] = useState<Pane[]>(() => persisted.current?.nonChatPanes || []);
   const [groups, setGroups] = useState<PaneGroup[]>(() =>
@@ -346,6 +352,7 @@ export function ProjectWindowPane({
             type: 'terminal' as PaneType,
             title: s.name || (s.type === 'claude-code' ? 'Claude Code' : 'Shell'),
             preview: false,
+            terminalType: s.type === 'claude-code' ? 'claude-code' : 'shell',
           });
         }
         if (toAdd.length > 0) updated = [...updated, ...toAdd];
@@ -354,6 +361,19 @@ export function ProjectWindowPane({
     };
 
     fetch('/api/terminal/sessions').then(r => r.json()).then(syncTerminals).catch(() => {});
+
+    // Revive dormant terminal sessions that have matching panes in nonChatPanes
+    fetch(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(projectPath)}`)
+      .then(r => r.json())
+      .then(async (dormant: { id: string; name: string; cwd: string; type: string }[]) => {
+        for (const d of dormant) {
+          try {
+            const res = await fetch(`/api/terminal/sessions/${d.id}/revive`, { method: 'POST' });
+            if (res.ok) console.log(`[ProjectWindow] Revived dormant session ${d.id} (${d.type})`);
+          } catch {}
+        }
+      })
+      .catch(() => {});
 
     return onWSMessage((msg: any) => {
       if (msg.type === 'terminal:sessions' && Array.isArray(msg.sessions)) {
@@ -686,6 +706,13 @@ export function ProjectWindowPane({
     }
   }, [pendingFocusTopicId, panes, groups, onPendingFocusConsumed, reopenTopic]);
 
+  // Listen for Cmd+Shift+T to reopen last closed tab
+  useEffect(() => {
+    const handler = () => { handleReopenLastClosed(); };
+    window.addEventListener('reopen-closed-tab', handler);
+    return () => window.removeEventListener('reopen-closed-tab', handler);
+  }, [handleReopenLastClosed]);
+
   // If no focused group, set first one
   useEffect(() => {
     const focusedExists = focusedGroupId && groups.some(g => g.id === focusedGroupId);
@@ -711,13 +738,54 @@ export function ProjectWindowPane({
 
   const handleClosePane = useCallback((groupId: string, paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
+    const group = groups.find(g => g.id === groupId);
+    const groupIndex = group ? group.paneIds.indexOf(paneId) : 0;
 
-    // Kill terminal session on the server when closing
-    if (pane?.type === 'terminal') {
-      const sessionId = getTerminalSessionFromPaneId(paneId);
-      if (sessionId) {
-        fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+    // Capture closed tab record before removing (for undo / recently closed)
+    if (pane) {
+      const record = captureClosedTab(pane, groupId, groupIndex, 'project', {
+        projectPath,
+        terminal: pane.type === 'terminal' ? {
+          sessionType: pane.terminalType || 'shell',
+          cwd: projectPath,
+          name: pane.title || 'Terminal',
+          skipPermissions: true, // default; could be refined
+        } : undefined,
+      });
+
+      // For terminals, defer the server DELETE by 60s so undo can cancel it
+      if (pane.type === 'terminal') {
+        const sessionId = getTerminalSessionFromPaneId(paneId);
+        if (sessionId) {
+          record._cleanupTimer = setTimeout(() => {
+            fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+          }, 60_000);
+        }
       }
+
+      pushClosedTab(record);
+
+      // Push undo action for Cmd+Z
+      const capturedRecord = record;
+      pushUndo({
+        description: `Close ${pane.title || pane.type}`,
+        undo: async () => {
+          const restored = await reopenClosedTab(capturedRecord);
+          setPanes(prev => [...prev, restored]);
+          setGroups(prev => {
+            const target = prev.find(g => g.id === capturedRecord.groupId) || prev[0];
+            if (!target) return prev;
+            const idx = Math.min(capturedRecord.groupIndex, target.paneIds.length);
+            const newIds = [...target.paneIds];
+            newIds.splice(idx, 0, restored.id);
+            return prev.map(g => g.id === target.id ? { ...g, paneIds: newIds, activePaneId: restored.id } : g);
+          });
+          removeClosedTab(capturedRecord.id);
+        },
+        redo: () => {
+          handleClosePane(capturedRecord.groupId, capturedRecord.pane.id);
+        },
+      });
     }
 
     // Remove the pane from local state
@@ -734,7 +802,30 @@ export function ProjectWindowPane({
         return { ...g, paneIds: remaining, activePaneId: newActive };
       }).filter(g => g.paneIds.length > 0);
     });
-  }, [panes]);
+  }, [panes, groups, projectPath, pushClosedTab]);
+
+  /** Reopen the most recently closed tab in this project window. */
+  const handleReopenLastClosed = useCallback(async () => {
+    const record = popClosedTab();
+    if (!record) return;
+    try {
+      const pane = await reopenClosedTab(record);
+      setPanes(prev => [...prev, pane]);
+      // Re-insert into the original group if it still exists, or the first available group
+      setGroups(prev => {
+        const targetGroup = prev.find(g => g.id === record.groupId) || prev[0];
+        if (!targetGroup) return prev;
+        const insertIdx = Math.min(record.groupIndex, targetGroup.paneIds.length);
+        const newPaneIds = [...targetGroup.paneIds];
+        newPaneIds.splice(insertIdx, 0, pane.id);
+        return prev.map(g =>
+          g.id === targetGroup.id ? { ...g, paneIds: newPaneIds, activePaneId: pane.id } : g
+        );
+      });
+    } catch (err) {
+      console.warn('[ProjectWindow] Failed to reopen closed tab:', err);
+    }
+  }, [popClosedTab]);
 
   const handleAddPaneToGroup = useCallback(async (groupId: string, type: PaneType, subType?: string) => {
     const config = PANE_CONFIG[type];
