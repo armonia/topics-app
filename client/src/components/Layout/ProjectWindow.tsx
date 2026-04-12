@@ -89,7 +89,18 @@ function loadPersistedState(
   return { ...tabState, ...layout };
 }
 
+// Track which projects have completed their initial chat sync.
+// Until sync completes, persistence is suppressed to prevent empty overwrites.
+const _chatSyncComplete = new Set<string>();
+function markChatSyncComplete(projectPath: string) { _chatSyncComplete.add(projectPath); }
+
 function savePersistedTabState(projectPath: string, state: PersistedTabState) {
+  // Guard: suppress ALL persistence until the initial chat sync has completed.
+  // This prevents the mount→render→persist race that overwrites saved chat IDs
+  // with empty arrays before the sync effect has run.
+  if (!_chatSyncComplete.has(projectPath)) {
+    return; // Don't persist anything yet — wait for chat sync
+  }
   saveProjectLayout(storageKey(projectPath), projectPath, state);
 }
 
@@ -231,6 +242,7 @@ export function ProjectWindowPane({
         });
         // Mark initial chat sync as done so the later effect doesn't double-add
         initialChatsSyncedRef.current = true;
+        markChatSyncComplete(projectPath);
       }
     });
   }, [projectPath]);
@@ -306,15 +318,9 @@ export function ProjectWindowPane({
     if (mountedRef.current) userEditedRef.current = true;
     else mountedRef.current = true;
     const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
-    const currentChatTopicIds = panes
+    const openChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);
-    // Guard: don't overwrite persisted chat IDs with empty if chats haven't synced yet.
-    // On mount, panes starts with nonChatPanes only — chat panes are added later by
-    // the sync effect. Without this guard, we'd persist [] and lose the saved chats.
-    const openChatTopicIds = currentChatTopicIds.length === 0 && !initialChatsSyncedRef.current
-      ? (persisted.current?.openChatTopicIds || [])
-      : currentChatTopicIds;
     // Find the active chat topic ID from the focused chat group
     const chatGroup = groups.find(g => g.type === 'chat');
     const activeChatPane = chatGroup ? panes.find(p => p.id === chatGroup.activePaneId) : null;
@@ -411,6 +417,7 @@ export function ProjectWindowPane({
       // On first sync only: restore chats that were open last session
       if (!initialChatsSyncedRef.current) {
         initialChatsSyncedRef.current = true;
+        markChatSyncComplete(projectPath);
         const openSet = new Set(persisted.current?.openChatTopicIds || []);
         const chatPaneIds = new Set(updated.filter(p => p.type === 'chat').map(p => p.topicId));
         const newChatPanes: Pane[] = [];
