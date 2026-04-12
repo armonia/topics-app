@@ -300,9 +300,15 @@ export function ProjectWindowPane({
     if (mountedRef.current) userEditedRef.current = true;
     else mountedRef.current = true;
     const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
-    const openChatTopicIds = panes
+    const currentChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);
+    // Guard: don't overwrite persisted chat IDs with empty if chats haven't synced yet.
+    // On mount, panes starts with nonChatPanes only — chat panes are added later by
+    // the sync effect. Without this guard, we'd persist [] and lose the saved chats.
+    const openChatTopicIds = currentChatTopicIds.length === 0 && !initialChatsSyncedRef.current
+      ? (persisted.current?.openChatTopicIds || [])
+      : currentChatTopicIds;
     // Find the active chat topic ID from the focused chat group
     const chatGroup = groups.find(g => g.type === 'chat');
     const activeChatPane = chatGroup ? panes.find(p => p.id === chatGroup.activePaneId) : null;
