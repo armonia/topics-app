@@ -1,6 +1,6 @@
 import {
   app, BrowserWindow, BrowserView, ipcMain, Menu, Tray,
-  nativeImage, shell, session, Notification, globalShortcut,
+  nativeImage, shell, session, Notification,
   type NativeImage, type MenuItemConstructorOptions, type MenuItem,
 } from 'electron';
 import path from 'path';
@@ -1425,10 +1425,6 @@ app.whenReady().then(() => {
     mainWindow.setAlwaysOnTop(true, 'floating');
   }
 
-  globalShortcut.register('CommandOrControl+Shift+T', () => {
-    toggleAlwaysOnTop();
-  });
-
   const loginSettings = app.getLoginItemSettings();
   if (!loginSettings.openAtLogin && !loginSettings.wasOpenedAtLogin) {
     app.setLoginItemSettings({ openAtLogin: true });
@@ -1460,7 +1456,6 @@ app.on('before-quit', (e) => {
 });
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
   stopWSBridge();
   stopNotificationCleanup();
   stopAssetWatcher();
