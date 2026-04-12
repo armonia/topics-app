@@ -706,13 +706,6 @@ export function ProjectWindowPane({
     }
   }, [pendingFocusTopicId, panes, groups, onPendingFocusConsumed, reopenTopic]);
 
-  // Listen for Cmd+Shift+T to reopen last closed tab
-  useEffect(() => {
-    const handler = () => { handleReopenLastClosed(); };
-    window.addEventListener('reopen-closed-tab', handler);
-    return () => window.removeEventListener('reopen-closed-tab', handler);
-  }, [handleReopenLastClosed]);
-
   // If no focused group, set first one
   useEffect(() => {
     const focusedExists = focusedGroupId && groups.some(g => g.id === focusedGroupId);
@@ -826,6 +819,13 @@ export function ProjectWindowPane({
       console.warn('[ProjectWindow] Failed to reopen closed tab:', err);
     }
   }, [popClosedTab]);
+
+  // Listen for Cmd+Shift+T to reopen last closed tab
+  useEffect(() => {
+    const handler = () => { handleReopenLastClosed(); };
+    window.addEventListener('reopen-closed-tab', handler);
+    return () => window.removeEventListener('reopen-closed-tab', handler);
+  }, [handleReopenLastClosed]);
 
   const handleAddPaneToGroup = useCallback(async (groupId: string, type: PaneType, subType?: string) => {
     const config = PANE_CONFIG[type];
