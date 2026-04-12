@@ -1,33 +1,14 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { GitBranch, Download, ZoomIn, ZoomOut, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
+import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { filesApi, gitApi } from '../../lib/api';
 import { markdownComponents } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
+import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
-
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
-const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'ogv']);
-const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'opus', 'wma']);
-const PDF_EXTS = new Set(['pdf']);
-
-function getFileExt(filename: string): string {
-  return (filename.split('.').pop() || '').toLowerCase();
-}
-
-type MediaType = 'image' | 'video' | 'audio' | 'pdf' | 'text';
-
-function getMediaType(filename: string): MediaType {
-  const ext = getFileExt(filename);
-  if (IMAGE_EXTS.has(ext)) return 'image';
-  if (VIDEO_EXTS.has(ext)) return 'video';
-  if (AUDIO_EXTS.has(ext)) return 'audio';
-  if (PDF_EXTS.has(ext)) return 'pdf';
-  return 'text';
-}
 
 interface FilePaneProps {
   filePath: string;
@@ -58,6 +39,8 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   const mediaType = getMediaType(filename);
   const isMedia = mediaType !== 'text';
   const isMd = /\.(md|mdx|markdown)$/i.test(filename);
+  const isHtml = isHtmlFile(filename);
+  const [htmlPreview, setHtmlPreview] = useState(true);
 
   const toggleWrap = useCallback(() => {
     setWordWrap(prev => {
@@ -68,6 +51,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   }, []);
 
   const togglePreview = useCallback(() => setMdPreview(prev => !prev), []);
+  const toggleHtmlPreview = useCallback(() => setHtmlPreview(prev => !prev), []);
 
   // Dark mode observer
   useEffect(() => {
@@ -78,9 +62,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
     return () => obs.disconnect();
   }, []);
 
-  // Load file content (skip for media files)
+  // Load file content (skip for media files and HTML preview — both render via iframe)
   useEffect(() => {
-    if (isMedia) {
+    if (isMedia || (isHtml && htmlPreview)) {
       setLoading(false);
       return;
     }
@@ -88,6 +72,24 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
     let cancelled = false;
     setLoading(true);
     setError(null);
+
+    // HTML source view: fetch via /preview/ (no 100KB limit, unlike /api/files/content)
+    if (isHtml) {
+      fetch(`/preview${filePath}`)
+        .then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))
+        .then(text => {
+          if (cancelled) return;
+          setContent(text);
+          setOriginalContent(text);
+          setLoading(false);
+        })
+        .catch((err: any) => {
+          if (cancelled) return;
+          setError(err.message || 'Failed to load file');
+          setLoading(false);
+        });
+      return () => { cancelled = true; };
+    }
 
     if (diff && diffProjectPath) {
       const gitRelPath = filePath.replace(diffProjectPath + '/', '');
@@ -118,7 +120,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
       });
     }
     return () => { cancelled = true; };
-  }, [filePath, diff, diffProjectPath, isMedia]);
+  }, [filePath, diff, diffProjectPath, isMedia, isHtml, htmlPreview]);
 
   const pinnedRef = useRef(false);
   const handleChange = useCallback((newContent: string) => {
@@ -169,9 +171,10 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
       {/* Breadcrumb path bar */}
       <BreadcrumbNav filePath={filePath} projectPath={projectPath} openFile={handleBreadcrumbOpen} actions={
         <>
-          {!isMedia && !mdPreview && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
-          {!isMedia && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
+          {!isMedia && !mdPreview && !(isHtml && htmlPreview) && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+          {!isMedia && !(isHtml && htmlPreview) && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
           {isMd && <PreviewBtn previewing={mdPreview} onClick={togglePreview} />}
+          {isHtml && <PreviewBtn previewing={htmlPreview} onClick={toggleHtmlPreview} label="HTML" />}
           <CopyPathBtn filePath={filePath} projectPath={projectPath} />
         </>
       } />
@@ -204,6 +207,8 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
               {content}
             </ReactMarkdown>
           </div>
+        ) : htmlPreview && isHtml ? (
+          <HtmlPreview filePath={filePath} filename={filename} />
         ) : (
           <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
             <CodeEditor
@@ -248,101 +253,11 @@ function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) 
   );
 }
 
-function PreviewBtn({ previewing, onClick }: { previewing: boolean; onClick: () => void }) {
+function PreviewBtn({ previewing, onClick, label = 'Markdown' }: { previewing: boolean; onClick: () => void; label?: string }) {
   return (
-    <button onClick={onClick} title={previewing ? 'Show Editor' : 'Preview Markdown'} className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
+    <button onClick={onClick} title={previewing ? 'Show Source' : `Preview ${label}`} className={`p-0.5 rounded hover:bg-app-hover transition-colors ${previewing ? 'text-primary' : 'text-app-text-muted'}`}>
       {previewing ? <Code size={13} /> : <Eye size={13} />}
     </button>
   );
 }
 
-// ── Media Viewer ──
-
-function MediaViewer({ filePath, mediaType, filename }: { filePath: string; mediaType: MediaType; filename: string }) {
-  // Use /preview/ endpoint which serves any absolute path with correct MIME type
-  const mediaUrl = `/preview${filePath}`;
-  const [zoom, setZoom] = useState(1);
-  const [imageError, setImageError] = useState(false);
-
-  const resetZoom = () => setZoom(1);
-
-  if (mediaType === 'image') {
-    return (
-      <div className="flex flex-col h-full">
-        {/* Toolbar */}
-        <div className="flex items-center gap-1 px-2 py-1 border-b border-app-border bg-elevated flex-shrink-0">
-          <button onClick={() => setZoom(z => Math.max(0.1, z - 0.25))} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Zoom out">
-            <ZoomOut size={14} />
-          </button>
-          <button onClick={resetZoom} className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-app-hover text-[10px] text-app-text-muted tabular-nums min-w-[40px]" title="Reset zoom">
-            {Math.round(zoom * 100)}%
-          </button>
-          <button onClick={() => setZoom(z => Math.min(5, z + 0.25))} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Zoom in">
-            <ZoomIn size={14} />
-          </button>
-          <div className="flex-1" />
-          <a href={mediaUrl} download={filename} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Download">
-            <Download size={14} />
-          </a>
-        </div>
-        {/* Image */}
-        <div className="flex-1 overflow-auto flex items-center justify-center bg-[repeating-conic-gradient(#80808015_0%_25%,transparent_0%_50%)] bg-[length:16px_16px]">
-          {imageError ? (
-            <p className="text-[13px] text-app-text-muted">Unable to load image</p>
-          ) : (
-            <img
-              src={mediaUrl}
-              alt={filename}
-              style={{ transform: `scale(${zoom})`, transformOrigin: 'center', maxWidth: zoom <= 1 ? '100%' : 'none', maxHeight: zoom <= 1 ? '100%' : 'none' }}
-              className="object-contain transition-transform duration-100"
-              onError={() => setImageError(true)}
-              draggable={false}
-            />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (mediaType === 'video') {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-black h-full">
-        <video
-          src={mediaUrl}
-          controls
-          className="max-w-full max-h-full"
-          preload="metadata"
-        >
-          Your browser does not support video playback.
-        </video>
-      </div>
-    );
-  }
-
-  if (mediaType === 'audio') {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 h-full">
-        <div className="text-[48px] opacity-30">&#9835;</div>
-        <span className="text-[13px] text-app-text-muted">{filename}</span>
-        <audio src={mediaUrl} controls preload="metadata" className="w-[320px] max-w-full" />
-        <a href={mediaUrl} download={filename} className="text-[12px] text-primary hover:underline flex items-center gap-1">
-          <Download size={12} /> Download
-        </a>
-      </div>
-    );
-  }
-
-  if (mediaType === 'pdf') {
-    return (
-      <div className="flex-1 h-full">
-        <iframe
-          src={mediaUrl}
-          title={filename}
-          className="w-full h-full border-0"
-        />
-      </div>
-    );
-  }
-
-  return null;
-}

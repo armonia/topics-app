@@ -6,6 +6,7 @@ import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { markdownComponents } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
+import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -30,6 +31,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saved' | 'error'>>({});
   const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('editor-word-wrap') === '1');
   const [mdPreviewTabs, setMdPreviewTabs] = useState<Record<string, boolean>>({});
+  const [htmlPreviewTabs, setHtmlPreviewTabs] = useState<Record<string, boolean>>({});
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const fetchAbortRef = useRef<AbortController | null>(null);
 
@@ -56,6 +58,12 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       localStorage.setItem(key, JSON.stringify(filtered.slice(0, 20)));
     } catch {}
 
+    // Binary/media files (pdf, image, video, audio) are rendered via /preview/ iframe;
+    // we must NOT fetch their bytes through /api/files/content (which has a 100KB text limit).
+    // HTML is also rendered in an iframe by default, so we can skip the fetch too.
+    const mediaType = getMediaType(name);
+    const skipFetch = mediaType !== 'text' || isHtmlFile(name);
+
     let shouldFetch = false;
 
     setTabs(prev => {
@@ -69,12 +77,12 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
         return prev;
       }
 
-      // New tab needed — mark for content fetch
-      shouldFetch = true;
+      // New tab needed — fetch only if it's a text file we can edit
+      shouldFetch = !skipFetch;
 
       // If there's an existing preview tab, replace it
       const previewIndex = prev.findIndex(t => t.preview);
-      const newTab: TabInfo = { path, name, content: '', originalContent: '', loading: true, preview, lineNumber };
+      const newTab: TabInfo = { path, name, content: '', originalContent: '', loading: !skipFetch, preview, lineNumber };
 
       if (previewIndex >= 0 && preview) {
         // Replace the existing preview tab
@@ -154,9 +162,33 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
     setMdPreviewTabs(prev => ({ ...prev, [tab.path]: !prev[tab.path] }));
   }, [tabs, activeIndex]);
 
+  const toggleHtmlPreview = useCallback(() => {
+    const tab = tabs[activeIndex];
+    if (!tab) return;
+    // If user switches to source view for HTML, lazy-fetch content (first time only).
+    // Use /preview/ endpoint (no 100KB limit) since HTML files can easily be larger.
+    const goingToSource = htmlPreviewTabs[tab.path] !== false; // default true, so toggling goes to source
+    setHtmlPreviewTabs(prev => ({ ...prev, [tab.path]: !(prev[tab.path] ?? true) }));
+    if (goingToSource && !tab.content && !tab.loading) {
+      setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, loading: true } : t));
+      fetch(`/preview${tab.path}`)
+        .then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))
+        .then(content => {
+          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content, originalContent: content, loading: false } : t));
+        })
+        .catch((err: any) => {
+          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content: `Error: ${err.message}`, originalContent: '', loading: false } : t));
+        });
+    }
+  }, [tabs, activeIndex, htmlPreviewTabs]);
+
   const activeTab = tabs[activeIndex];
   const activeIsMd = activeTab ? /\.(md|mdx|markdown)$/i.test(activeTab.name) : false;
   const activeMdPreview = activeTab ? !!mdPreviewTabs[activeTab.path] : false;
+  const activeMediaType = activeTab ? getMediaType(activeTab.name) : 'text';
+  const activeIsMedia = activeMediaType !== 'text';
+  const activeIsHtml = activeTab ? isHtmlFile(activeTab.name) : false;
+  const activeHtmlPreview = activeTab ? (htmlPreviewTabs[activeTab.path] ?? true) : false;
 
   if (tabs.length === 0) {
     return (
@@ -209,9 +241,10 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       {activeTab && (
         <BreadcrumbNav filePath={activeTab.path} projectPath={projectPath} openFile={openFile} actions={
           <>
-            {!activeMdPreview && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
-            <WrapBtn active={wordWrap} onClick={toggleWrap} />
+            {!activeIsMedia && !activeMdPreview && !(activeIsHtml && activeHtmlPreview) && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+            {!activeIsMedia && !(activeIsHtml && activeHtmlPreview) && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
             {activeIsMd && <PreviewBtn previewing={activeMdPreview} onClick={togglePreview} />}
+            {activeIsHtml && <PreviewBtn previewing={activeHtmlPreview} onClick={toggleHtmlPreview} label="HTML" />}
             <CopyPathBtn filePath={activeTab.path} projectPath={projectPath} />
           </>
         } />
@@ -223,6 +256,10 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
           <div className="flex items-center justify-center h-full">
             <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" />
           </div>
+        ) : activeTab && activeIsHtml && activeHtmlPreview ? (
+          <HtmlPreview filePath={activeTab.path} filename={activeTab.name} />
+        ) : activeTab && activeIsMedia ? (
+          <MediaViewer filePath={activeTab.path} mediaType={activeMediaType} filename={activeTab.name} />
         ) : activeTab && activeMdPreview && activeIsMd ? (
           <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -274,9 +311,9 @@ function WrapBtn({ active, onClick }: { active: boolean; onClick: () => void }) 
   );
 }
 
-function PreviewBtn({ previewing, onClick }: { previewing: boolean; onClick: () => void }) {
+function PreviewBtn({ previewing, onClick, label = 'Markdown' }: { previewing: boolean; onClick: () => void; label?: string }) {
   return (
-    <button onClick={onClick} title={previewing ? 'Show Editor' : 'Preview Markdown'} className="p-0.5 rounded hover:bg-app-hover transition-colors text-app-text-muted">
+    <button onClick={onClick} title={previewing ? 'Show Source' : `Preview ${label}`} className={`p-0.5 rounded hover:bg-app-hover transition-colors ${previewing ? 'text-primary' : 'text-app-text-muted'}`}>
       {previewing ? <Code size={13} /> : <Eye size={13} />}
     </button>
   );
