@@ -70,6 +70,7 @@ export interface TopicTreeProps {
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
   onNewTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
   onCloseTerminal?: (sessionId: string) => void;
+  onOpenAsProject?: (path: string) => void;
   onOpenBrowser?: (contextId: string) => void;
   onCloseBrowser?: (contextId: string) => void;
   // New sidebar state
@@ -114,6 +115,7 @@ export function TopicTree({
   onTerminalClick,
   onNewTerminal: _onNewTerminal,
   onCloseTerminal,
+  onOpenAsProject,
   onOpenBrowser,
   onCloseBrowser,
   viewMode,
@@ -259,6 +261,7 @@ export function TopicTree({
         depth={depth}
         onTerminalClick={onTerminalClick}
         onCloseTerminal={onCloseTerminal}
+        onOpenAsProject={onOpenAsProject}
       />
     );
   };
@@ -643,9 +646,10 @@ interface TerminalSidebarItemProps {
   projectName?: string;
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
   onCloseTerminal?: (sessionId: string) => void;
+  onOpenAsProject?: (path: string) => void;
 }
 
-function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
 
@@ -677,6 +681,16 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
         )}
       </button>
 
+      {onOpenAsProject && !projectName && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenAsProject(s.cwd); }}
+          className="hidden group-hover/terminal:flex flex-shrink-0 items-center justify-center w-6 h-6 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all mr-0.5"
+          title="Open as project"
+        >
+          <FolderOpen size={11} className="text-app-text-tertiary hover:text-primary" />
+        </button>
+      )}
+
       {onCloseTerminal && (
         <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 relative mr-1">
           {isTouch ? (
@@ -690,6 +704,15 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
                 <MoreHorizontal size={12} />
               </button>
               <DropdownPortal open={overflowOpen} anchorRef={overflowRef} onClose={() => setOverflowOpen(false)}>
+                {onOpenAsProject && !projectName && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onOpenAsProject(s.cwd); setOverflowOpen(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    <FolderOpen size={14} className="flex-shrink-0" />
+                    <span>Open as project</span>
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); onCloseTerminal(s.id); setOverflowOpen(false); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-500 hover:bg-red-500/10 transition-colors"

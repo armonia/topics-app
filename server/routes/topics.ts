@@ -2674,6 +2674,25 @@ Wait for the user to approve the plan before executing any changes.` };
       }
     }
 
+    // --- Open project (broadcast to UI) ---
+    if (method === "POST" && pathname === "/api/open-project") {
+      try {
+        const body = await req.json();
+        const rawPath = body?.path;
+        if (!rawPath || typeof rawPath !== "string") {
+          return json({ error: "path is required" }, 400);
+        }
+        const projectPath = resolve(rawPath);
+        if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+          return json({ error: "Directory does not exist" }, 404);
+        }
+        broadcastToAll({ type: "open-project", projectPath });
+        return json({ ok: true, projectPath });
+      } catch (e: any) {
+        return errorResponse(e);
+      }
+    }
+
     return null;
   };
 }
