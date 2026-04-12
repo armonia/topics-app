@@ -995,6 +995,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!topic) return json({ error: "Topic not found" }, 404);
         const stored = appendLocalMessage(topic.sessionKey, "assistant", body.content);
         broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: body.content, timestamp: stored.timestamp } });
+        broadcastToAll({ type: "message:new", topicId: params.id, sessionKey: topic.sessionKey, role: "assistant", preview: body.content.slice(0, 100) });
+        updateUnreadCount(params.id);
         return json({ ok: true, message: stored });
       }
     }
