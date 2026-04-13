@@ -14,7 +14,7 @@
 
 export * from "./types";
 
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig } from "./types";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -36,6 +36,10 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case "claude": {
       const { ClaudeProvider } = require("./claude");
       return new ClaudeProvider(config);
+    }
+    case "claude-code": {
+      const { ClaudeCodeProvider } = require("./claude-code");
+      return new ClaudeCodeProvider(config);
     }
     default:
       throw new Error(`Unknown provider type: ${(config as any).type}`);
@@ -158,6 +162,24 @@ export function initProviders(): AIProvider[] {
       started.push(p);
     } catch (err: any) {
       console.warn(`[Providers] Failed to init claude: ${err.message}`);
+    }
+  }
+
+  // Claude Code — init if CLAUDE_CODE_ENABLED is set
+  if (process.env.CLAUDE_CODE_ENABLED === "true") {
+    try {
+      const config: ClaudeCodeProviderConfig = {
+        type: "claude-code",
+        model: process.env.CLAUDE_CODE_MODEL || undefined,
+        permissionMode: process.env.CLAUDE_CODE_PERMISSION_MODE || undefined,
+        defaultWorkspace: process.env.CLAUDE_CODE_WORKSPACE || undefined,
+      };
+      const p = createProvider(config);
+      p.start();
+      _providers.set(p.name, p);
+      started.push(p);
+    } catch (err: any) {
+      console.warn(`[Providers] Failed to init claude-code: ${err.message}`);
     }
   }
 

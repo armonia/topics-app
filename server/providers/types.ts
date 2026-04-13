@@ -208,4 +208,11 @@ export interface ClaudeProviderConfig {
   maxTokens?: number;   // defaults to 8192
 }
 
-export type ProviderConfig = OpenClawProviderConfig | ClaudeProviderConfig;
+export interface ClaudeCodeProviderConfig {
+  type: "claude-code";
+  model?: string;           // defaults to "claude-sonnet-4-6"
+  permissionMode?: string;  // defaults to "bypassPermissions"
+  defaultWorkspace?: string; // defaults to HOME
+}
+
+export type ProviderConfig = OpenClawProviderConfig | ClaudeProviderConfig | ClaudeCodeProviderConfig;
