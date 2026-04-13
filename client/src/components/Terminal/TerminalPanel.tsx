@@ -228,7 +228,14 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon((_event, uri) => {
+      const electron = (window as any).electronAPI;
+      if (electron?.openExternal) {
+        electron.openExternal(uri);
+      } else {
+        window.open(uri, '_blank');
+      }
+    }));
     term.open(el);
 
     const doFit = () => { try { fitAddon.fit(); } catch {} };

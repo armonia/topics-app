@@ -125,7 +125,14 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon((_event, uri) => {
+      const electron = (window as any).electronAPI;
+      if (electron?.openExternal) {
+        electron.openExternal(uri);
+      } else {
+        window.open(uri, '_blank');
+      }
+    }));
     term.open(el);
 
     // Cmd+C (mac) or Ctrl+Shift+C: copy selection without sending SIGINT
