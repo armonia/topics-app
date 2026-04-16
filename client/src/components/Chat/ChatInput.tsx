@@ -26,7 +26,7 @@ const SLASH_COMMANDS = [
 function OverflowMenu({
   isCallActive, isRecording, isListening, isSpeaking, autoTTS,
   voiceCallSupported, sttSupported, currentStreaming, uploading,
-  toggleCall, startRecording, stopRecording, toggleListening, stopSpeaking, setAutoTTS,
+  toggleCall, startRecording: _startRecording, stopRecording: _stopRecording, toggleListening, stopSpeaking, setAutoTTS,
   onSlashCommand,
 }: {
   isCallActive: boolean; isRecording: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;

@@ -302,9 +302,13 @@ test.describe("Preview Tab Behavior", () => {
         break;
       }
     }
-    // Preview tab should have italic styling (if the feature is active for sidebar clicks)
-    // Note: not all sidebar interactions produce preview tabs — this verifies the mechanism exists
-    expect(foundPreview || count >= 1).toBeTruthy();
+    // Preview tab must have italic styling — the whole point of TAB-SYNC-03.
+    // Review-round-12 B4: previous `foundPreview || count >= 1` was a
+    // tautology that passed whenever any tab existed, regardless of styling.
+    expect(
+      foundPreview,
+      `expected a preview tab with <span class="italic"> for topic ${topicA!.name} (found ${count} tabs total)`,
+    ).toBe(true);
   });
 
   test("TAB-SYNC-03: preview tab is replaced by next single-click", async ({
@@ -374,8 +378,12 @@ test.describe("Stale Session Recovery", () => {
     // Load app normally first so localStorage is initialized for this origin
     await goToApp(page);
 
-    // Seed the server with a unique "fresh" panel ID via the API
-    const freshId = `fresh-${Date.now()}`;
+    // Seed the server with a unique "fresh" panel ID via the API.
+    // Must use a real prefix the App.tsx validator recognizes — bare strings
+    // get dropped. `terminal:` panes get cleaned up when the session isn't
+    // alive on the server (App.tsx:820-840). Use `project:` which has no
+    // session-existence check and is preserved through validation.
+    const freshId = `project:%2Ftmp%2Fstale-test-${Date.now()}`;
     await page.evaluate(
       async (id: string) => {
         await fetch("/api/ui-state/panels", {

@@ -3,12 +3,15 @@ import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
 import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { useVoiceRecording } from './useVoiceRecording';
+import { usePaneStore } from '../../state/pane/store';
+import { createPaneId } from '../../state/pane/adapters';
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
@@ -113,6 +116,46 @@ export function ChatPane({
   const inputAreaRef = useRef<HTMLDivElement>(null);
   const [inputAreaHeight, setInputAreaHeight] = useState(0);
 
+  // PANE-03 scroll-restore wiring (review I1). The pane id mirrors the
+  // convention used by createPaneId('chat', topic.id) = `chat:${topic.id}`;
+  // we read the undo-captured scrollOffset at mount (and on topic switch),
+  // then persist scroll updates via the device-local setter that bypasses
+  // lastSeq (no sync write per scroll tick).
+  const paneId = createPaneId('chat', topic.id);
+  // Seeds synchronously at mount AND on paneId change; subscribes if the pane
+  // entity hasn't hydrated yet (round-7 audit fix). The previous version only
+  // seeded via useState initializer, so on topic switch within the same
+  // component instance (StandaloneChatGroup re-renders ChatPane without
+  // remount), initialScrollOffset stayed populated with the FIRST topic's
+  // value. The stale read short-circuited the subscribe effect and silently
+  // broke scroll-restore for the new topic. Now we re-read from the store at
+  // the top of the effect whenever paneId changes, then only subscribe if the
+  // new pane entity hasn't arrived yet.
+  const [initialScrollOffset, setInitialScrollOffset] = useState<number | undefined>(
+    () => usePaneStore.getState().panes[paneId]?.scrollOffset,
+  );
+  useEffect(() => {
+    // On paneId change: re-seed synchronously from the store. If the new pane
+    // entity is already present, we use its value and skip the subscription.
+    const current = usePaneStore.getState().panes[paneId]?.scrollOffset;
+    setInitialScrollOffset(current);
+    if (current !== undefined) return;
+    const unsub = usePaneStore.subscribe(
+      (s) => s.panes[paneId]?.scrollOffset,
+      (offset) => {
+        if (offset !== undefined) {
+          setInitialScrollOffset(offset);
+          unsub();
+        }
+      },
+    );
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paneId]);
+  const handleScrollOffsetChange = useCallback((top: number) => {
+    usePaneStore.getState().setPaneScrollOffset(paneId, top);
+  }, [paneId]);
+
   // Track input area height dynamically (adapts to multiline, file attachments, etc.)
   useEffect(() => {
     const el = inputAreaRef.current;
@@ -137,7 +180,7 @@ export function ChatPane({
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
   useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus(), 50); }, [isFocused]);
   // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
-  useEffect(() => { if (isFocused && topic.id) { topicsApi.markRead(topic.id).catch(() => {}); sendWS({ type: 'focus', topicId: topic.id }); } }, [isFocused, topic.id, sendWS]);
+  useEffect(() => { if (isFocused && topic.id) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, topic.id, sendWS]);
 
   // After first assistant response, call server auto-name for project path detection
   // Skip for draft topics (not yet persisted on server)
@@ -321,7 +364,7 @@ export function ChatPane({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
         <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} />

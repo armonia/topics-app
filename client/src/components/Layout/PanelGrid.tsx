@@ -3,14 +3,33 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow } 
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { usePanelGridPersistence } from './usePanelGridPersistence';
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
-const STORAGE_KEY = 'topics-panel-grid-layout';
-
 const MAX_COLS_PER_ROW = 4;
 const MAX_ROWS = 4;
+
+const DROP_EDGE_PX = 30;
+type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center';
+
+/**
+ * Compute the drop zone under the cursor at the exact moment of drop.
+ * dragover events can lag a frame behind the cursor on fast edge-to-edge
+ * drags, so consumers recompute from the live event rather than trusting
+ * whatever the last dragover recorded.
+ */
+function computeDropZone(e: React.DragEvent, cell: HTMLElement): DropZone {
+  const rect = cell.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  if (x < DROP_EDGE_PX) return 'left';
+  if (x > rect.width - DROP_EDGE_PX) return 'right';
+  if (y < DROP_EDGE_PX) return 'top';
+  if (y > rect.height - DROP_EDGE_PX) return 'bottom';
+  return 'center';
+}
 
 /* ------------------------------------------------------------------ */
 /*  Layout model                                                       */
@@ -76,6 +95,10 @@ interface PanelGridProps {
   // Pending browser pane request (from sidebar) — contextId or null
   pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;
+  // Auto-solo a newly created top-level pane so it lands in its own grid cell
+  // instead of joining the standalone group with existing panels.
+  pendingSoloPanelId?: string | null;
+  onPendingSoloPanelIdConsumed?: () => void;
   // Report open browser context IDs for sidebar highlighting
   onOpenBrowserContextIds?: (ids: string[]) => void;
   // Draft chat support
@@ -127,6 +150,8 @@ export function PanelGrid({
   onCreateTerminal,
   pendingBrowserPane,
   onPendingBrowserPaneConsumed,
+  pendingSoloPanelId,
+  onPendingSoloPanelIdConsumed,
   onOpenBrowserContextIds,
   promoteDraft,
   draftMeta,
@@ -142,17 +167,17 @@ export function PanelGrid({
   }, []);
 
   /* ---- All panels are treated flat (no project grouping) ---- */
-  /* Solo topic IDs = panels placed independently in the grid */
-  const [soloTopicIdsRaw, setSoloTopicIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.soloTopicIds)) return parsed.soloTopicIds;
-      }
-    } catch {}
-    return [];
-  });
+  /* Device-local layout persistence (rows, row heights, solo IDs) — see
+   * usePanelGridPersistence.ts. Review I2: factored out to keep this file
+   * focused on layout math / DnD. */
+  const {
+    gridRows,
+    setGridRows,
+    gridRowHeights,
+    setGridRowHeights,
+    soloTopicIdsRaw,
+    setSoloTopicIds,
+  } = usePanelGridPersistence();
 
   // ISSUE 6 FIX: Derive effective soloTopicIds synchronously filtered against openPanels.
   // This avoids the transient render where naturalGridItems includes a solo item
@@ -200,28 +225,7 @@ export function PanelGrid({
     return m;
   }, [naturalGridItems]);
 
-  /* ---- Grid rows state (row-based layout, persisted) ---- */
-  const [gridRows, setGridRows] = useState<PanelGridRow[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.gridRows)) return parsed.gridRows;
-      }
-    } catch {}
-    return [];
-  });
-
-  const [gridRowHeights, setGridRowHeights] = useState<number[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.gridRowHeights)) return parsed.gridRowHeights;
-      }
-    } catch {}
-    return [];
-  });
+  /* ---- Grid rows state (initial values come from usePanelGridPersistence above) ---- */
 
   // Sync gridRows when naturalGridItems change (add/remove items)
   useEffect(() => {
@@ -316,50 +320,11 @@ export function PanelGrid({
     });
   }, [gridRows.length]);
 
-  // --- Server fetch on mount: apply fresh grid layout if it differs from localStorage ---
-  const gridUserEditedRef = useRef(false);
-  const gridMountedRef = useRef(false);
-  useEffect(() => {
-    gridUserEditedRef.current = false;
-    const cachedRaw = localStorage.getItem(STORAGE_KEY);
-    fetch('/api/ui-state/grid-layout')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data || gridUserEditedRef.current) return;
-        const freshRaw = JSON.stringify(data);
-        if (freshRaw === cachedRaw) return; // Same data — no update needed
-        // Server data differs from cache — apply it
-        if (Array.isArray(data.soloTopicIds)) setSoloTopicIds(data.soloTopicIds);
-        if (Array.isArray(data.gridRows)) setGridRows(data.gridRows);
-        if (Array.isArray(data.gridRowHeights)) setGridRowHeights(data.gridRowHeights);
-        try { localStorage.setItem(STORAGE_KEY, freshRaw); } catch {}
-      })
-      .catch(() => {});
-  }, []);
-
-  // Persist layout to localStorage + server (debounced)
-  // ISSUE 11 FIX: Always persist, even when gridRows is empty.
-  // Previously, stale layout persisted when all panels were closed because
-  // the save was gated on gridRows.length > 0. On load, empty gridRows
-  // naturally starts fresh (the sync effect creates rows from naturalGridItems).
-  const gridSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    // Mark user-edited after mount so server fetch callback skips stale overwrites
-    if (gridMountedRef.current) gridUserEditedRef.current = true;
-    else gridMountedRef.current = true;
-    const data = { gridRows, gridRowHeights, soloTopicIds };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    // Debounced server sync (2s to avoid spam during resize)
-    if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current);
-    gridSaveTimerRef.current = setTimeout(() => {
-      fetch('/api/ui-state/grid-layout', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }).catch(() => {});
-    }, 2000);
-    return () => { if (gridSaveTimerRef.current) clearTimeout(gridSaveTimerRef.current); };
-  }, [gridRows, gridRowHeights, soloTopicIds]);
+  // Phase 30 PANE-01: direct server fetches for grid layout have been removed.
+  // Server persistence of pane layout flows through state/pane/middleware/syncServer.ts
+  // (which writes the reducer snapshot under key `pane-store-v2`). Device-local
+  // row/column persistence (so grid-edits survive reload within a single device)
+  // is owned by usePanelGridPersistence.ts above.
 
   /* ---- Split pane handler: see handleSplitPane below (with grid limit checks) ---- */
 
@@ -503,6 +468,24 @@ export function PanelGrid({
   const handleUnsoloTopic = useCallback((topicId: string) => {
     setSoloTopicIds(prev => prev.filter(id => id !== topicId));
   }, []);
+
+  /* ---- Auto-solo: a newly created utility pane (terminal/browser) created via
+         quick-create should land in its own grid cell rather than join the
+         standalone group with existing panels. The parent (App) signals which
+         pane to solo via pendingSoloPanelId. We only apply it when there are
+         already other panels open — solo'ing a single pane is a no-op visually
+         but pollutes the soloTopicIds list. ---- */
+  useEffect(() => {
+    if (!pendingSoloPanelId) return;
+    const id = pendingSoloPanelId;
+    // Only auto-solo if there are other panels already open AND this pane is
+    // not already solo. A pane that's the only one open doesn't need solo.
+    const otherOpen = openPanels.filter(p => p !== id).length > 0;
+    if (otherOpen) {
+      setSoloTopicIds(prev => prev.includes(id) ? prev : [...prev, id]);
+    }
+    onPendingSoloPanelIdConsumed?.();
+  }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed]);
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -660,18 +643,9 @@ export function PanelGrid({
     if (!dropTarget) return;
 
     // Re-verify drop zone from actual mouse position at drop time.
-    // The dragover ref may be stale if the mouse moved between last dragover and drop.
-    const cell = (e.currentTarget as HTMLElement);
-    const rect = cell.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const edgeSize = 30;
-    let actualZone: 'left' | 'right' | 'top' | 'bottom' | 'center';
-    if (x < edgeSize) actualZone = 'left';
-    else if (x > rect.width - edgeSize) actualZone = 'right';
-    else if (y < edgeSize) actualZone = 'top';
-    else if (y > rect.height - edgeSize) actualZone = 'bottom';
-    else actualZone = 'center';
+    // The dragover ref may be stale if the mouse moved between last dragover
+    // and drop (fast edge-to-edge drags can drop a frame of dragover events).
+    const actualZone = computeDropZone(e, e.currentTarget as HTMLElement);
 
     let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
@@ -685,6 +659,18 @@ export function PanelGrid({
       if (!sourceTopicId) return;
       // Update dropTarget zone to match actual position
       dropTarget.zone = actualZone;
+    } else if (effectiveKey) {
+      // GRID_ITEM drops suffer the same dragover-lag risk: fast edge-to-edge
+      // drags can leave dropTarget.zone one frame behind the cursor. Sync
+      // both zone and centerSide from the actual pointer position so the
+      // reorder/split below acts on where the mouse actually is at drop.
+      dropTarget.zone = actualZone;
+      if (actualZone === 'center') {
+        const cell = e.currentTarget as HTMLElement;
+        const rect = cell.getBoundingClientRect();
+        dropTarget.centerSide =
+          e.clientX - rect.left < rect.width / 2 ? 'left' : 'right';
+      }
     }
 
     e.preventDefault();
@@ -984,6 +970,22 @@ export function PanelGrid({
               const zone = isTarget ? gridDropTarget!.zone : null;
               const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
 
+              const splitOverlayStyle: React.CSSProperties | null = (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom')
+                ? {
+                    position: 'absolute',
+                    pointerEvents: 'none',
+                    zIndex: 40,
+                    background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
+                    border: '2px dashed var(--primary)',
+                    borderRadius: '4px',
+                    transition: 'all 150ms ease',
+                    top: zone === 'bottom' ? '50%' : 0,
+                    bottom: zone === 'top' ? '50%' : 0,
+                    left: zone === 'right' ? '50%' : 0,
+                    right: zone === 'left' ? '50%' : 0,
+                  }
+                : null;
+
               return (
                 <Fragment key={key}>
                   <div
@@ -998,6 +1000,12 @@ export function PanelGrid({
                     onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
                     onDropCapture={handleGridItemDropCapture}
                   >
+                    {splitOverlayStyle && (
+                      <div
+                        data-grid-split-overlay={zone}
+                        style={splitOverlayStyle}
+                      />
+                    )}
                     {/* Unified standalone group (handles chat, utility, and project tabs) */}
                     <StandaloneChatGroup
                       topicIds={item.panelIds}

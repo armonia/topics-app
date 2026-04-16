@@ -92,13 +92,14 @@ test.describe("Topic Management", () => {
   });
 
   // TOPIC-03: search/filter topics by name
-  test("TOPIC-03: search filters topics by name in sidebar", async ({
+  test("TOPIC-03: command palette search filters topics by name", async ({
     topicPage,
+    page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
     await topicPage.goto();
 
-    // Verify test topics are visible first
+    // Verify test topics are visible in sidebar first
     await expect(
       topicPage.findTopic(new RegExp(`E2E-Alpha-${TS}`))
     ).toBeVisible({ timeout: 10000 });
@@ -106,28 +107,29 @@ test.describe("Topic Management", () => {
       topicPage.findTopic(new RegExp(`E2E-Beta-${TS}`))
     ).toBeVisible({ timeout: 5000 });
 
+    // Open command palette (sidebar search redirects here since c9d168e refactor)
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
+    const paletteInput = page.getByPlaceholder(/Search topics/);
+    await expect(paletteInput).toBeVisible({ timeout: 5000 });
+
+    // Scope to the palette's result list (role=listbox / option, with the input's
+    // aria-controls pointing at it) so assertions don't leak into the sidebar.
+    // Structure per CommandPalette.tsx: overlay contains the search input +
+    // an options container; palette items live under a div with fixed positioning.
+    const palette = page.locator('[data-testid="command-palette"]');
+
     // Search for Alpha
-    await topicPage.searchInput.fill("E2E-Alpha");
+    await paletteInput.fill(`E2E-Alpha-${TS}`);
+    // Alpha must appear inside the palette container
+    await expect(palette.getByText(new RegExp(`E2E-Alpha-${TS}`)).first()).toBeVisible({ timeout: 5000 });
+    // Beta and Gamma must NOT appear inside the palette container
+    await expect(palette.getByText(new RegExp(`E2E-Beta-${TS}`))).toHaveCount(0);
+    await expect(palette.getByText(new RegExp(`E2E-Gamma-${TS}`))).toHaveCount(0);
 
-    // Alpha should be visible, Beta and Gamma should be hidden
-    await expect(
-      topicPage.findTopic(new RegExp(`E2E-Alpha-${TS}`))
-    ).toBeVisible({ timeout: 5000 });
-    await expect(
-      topicPage.findTopic(new RegExp(`E2E-Beta-${TS}`))
-    ).toBeHidden({ timeout: 5000 });
-    await expect(
-      topicPage.findTopic(new RegExp(`E2E-Gamma-${TS}`))
-    ).toBeHidden({ timeout: 5000 });
-
-    // Clear search and verify all visible again
-    await topicPage.searchInput.fill("");
-    await expect(
-      topicPage.findTopic(new RegExp(`E2E-Alpha-${TS}`))
-    ).toBeVisible({ timeout: 5000 });
-    await expect(
-      topicPage.findTopic(new RegExp(`E2E-Beta-${TS}`))
-    ).toBeVisible({ timeout: 5000 });
+    // Clear query and close palette
+    await paletteInput.fill("");
+    await expect(paletteInput).toHaveValue("");
+    await page.keyboard.press("Escape");
   });
 
   // TOPIC-04: archive topic via context menu

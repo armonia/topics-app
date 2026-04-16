@@ -134,6 +134,7 @@ export function SidebarStatusBar() {
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
+          data-testid="connection-status"
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
           className={`flex items-center gap-1.5 text-[10px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
           title="System Status"

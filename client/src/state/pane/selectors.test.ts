@@ -1,0 +1,99 @@
+import { describe, test, expect } from "bun:test";
+import { selectSyncableSnapshot } from "./selectors";
+import type { PaneState, Pane, ProjectLayout, ClosedPaneRecord } from "./types";
+
+const blankState = (): PaneState => ({
+  panes: {},
+  groups: {},
+  projects: {},
+  closedStack: [],
+  focusedPaneId: null,
+  groupOrder: [],
+  lastSeq: 0,
+});
+
+describe("selectSyncableSnapshot (PANE-02)", () => {
+  test("strips scrollOffset from project nested panes", () => {
+    const state = blankState();
+    const pane: Pane = {
+      id: "chat:t1",
+      type: "chat",
+      title: "Hello",
+      topicId: "t1",
+      scrollOffset: 250,
+    };
+    state.projects["proj-a"] = {
+      projectPath: "/tmp/proj-a",
+      groups: [],
+      panes: { "chat:t1": pane },
+      groupOrder: [],
+      tabOrder: ["chat:t1"],
+      focusedPaneId: "chat:t1",
+      lastOpenedAt: Date.now(),
+    };
+
+    const snapshot = selectSyncableSnapshot(state);
+
+    expect(snapshot.projects["proj-a"].panes["chat:t1"].scrollOffset).toBeUndefined();
+    // Other fields must survive
+    expect(snapshot.projects["proj-a"].panes["chat:t1"].id).toBe("chat:t1");
+    expect(snapshot.projects["proj-a"].panes["chat:t1"].type).toBe("chat");
+    expect(snapshot.projects["proj-a"].panes["chat:t1"].topicId).toBe("t1");
+  });
+
+  test("strips BOTH outer and nested scrollOffset from closedStack records", () => {
+    // Post-fix (device-local invariant): `ClosedPaneRecord.scrollOffset` is
+    // also device-local — CLOSE_PANE no longer writes it, and the outbound
+    // snapshot must not leak it either. CLOSE_PANE may have been dispatched
+    // on a pre-fix client and left the value on an in-memory record; the
+    // selector must strip it defensively.
+    const state = blankState();
+    const record: ClosedPaneRecord = {
+      id: "chat:t2",
+      closedAt: 1000,
+      pane: { id: "chat:t2", type: "chat", title: "Bye", scrollOffset: 100 },
+      groupId: "g1",
+      groupIndex: 0,
+      level: "app",
+      focusedAtClose: false,
+      tabOrderSnapshot: [],
+      scrollOffset: 42, // outer — legacy value; must be stripped on outbound
+      seq: 1,
+    };
+    state.closedStack = [record];
+
+    const snapshot = selectSyncableSnapshot(state);
+
+    // Nested pane.scrollOffset stripped
+    expect(snapshot.closedStack[0].pane.scrollOffset).toBeUndefined();
+    // Outer ClosedPaneRecord.scrollOffset also stripped
+    expect(snapshot.closedStack[0].scrollOffset).toBeUndefined();
+    // Other fields survive
+    expect(snapshot.closedStack[0].id).toBe("chat:t2");
+    expect(snapshot.closedStack[0].seq).toBe(1);
+  });
+
+  test("excludes focusedPaneId from snapshot", () => {
+    const state = blankState();
+    state.focusedPaneId = "chat:t1";
+
+    const snapshot = selectSyncableSnapshot(state);
+
+    expect((snapshot as Record<string, unknown>).focusedPaneId).toBeUndefined();
+  });
+
+  test("strips scrollOffset from top-level panes", () => {
+    const state = blankState();
+    state.panes["file:a"] = {
+      id: "file:a",
+      type: "file",
+      title: "File A",
+      scrollOffset: 300,
+    };
+
+    const snapshot = selectSyncableSnapshot(state);
+
+    expect(snapshot.panes["file:a"].scrollOffset).toBeUndefined();
+    expect(snapshot.panes["file:a"].id).toBe("file:a");
+  });
+});

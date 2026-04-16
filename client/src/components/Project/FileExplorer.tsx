@@ -318,6 +318,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
                     selectedPaths={selectedPaths}
                     cutPaths={cutPaths}
                     dragOverPath={dragOverPath}
+                    isExternalDrag={isExternalDrag}
                     onDragStart={onDragStart}
                     onDragOver={onDragOver}
                     onDragEnter={onDragEnter}

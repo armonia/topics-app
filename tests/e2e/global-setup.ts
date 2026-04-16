@@ -131,11 +131,21 @@ async function globalSetup() {
       }
     }
 
-    // Reset UI state to prevent stale panels/layout from breaking tests
+    // Reset UI state to prevent stale panels/layout from breaking tests.
+    // Includes both legacy keys AND the Phase 30 pane-store-v2 reducer snapshot
+    // so the unified-timeline sidebar starts clean.
     const uiResets: Record<string, any> = {
       panels: { openPanels: [] },
       "grid-layout": { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       "panel-order": { order: [], pinned: [] },
+      "pane-store-v2": {
+        panes: {},
+        groups: { "group:default": { id: "group:default", paneIds: [], splitRatio: 1, splitAxis: "horizontal" } },
+        projects: {},
+        groupOrder: ["group:default"],
+        closedStack: [],
+        lastSeq: 0,
+      },
     };
     for (const [key, value] of Object.entries(uiResets)) {
       await fetch(`${BASE}/api/ui-state/${key}`, {

@@ -4,6 +4,7 @@ import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
+import { sendFocusTopic } from '../../lib/focusMessaging';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
@@ -79,7 +80,7 @@ export function ChatPanel({
 
   const currentMessages = getSessionMessages(topic.sessionKey);
 
-  useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendWS({ type: 'focus', topicId: topic.id }); } }, [isFocused, isDraft, topic.id, sendWS]);
+  useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, isDraft, topic.id, sendWS]);
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
   const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);

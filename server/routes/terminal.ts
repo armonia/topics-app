@@ -26,6 +26,34 @@ interface TerminalSession {
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
 
+// Idempotency cache for POST /api/terminal/sessions retries.
+// Client sends X-Idempotency-Key on reopen (paneId:closedAt) so a transient
+// 5xx on the HEAD probe doesn't spawn duplicate pty sessions when the client
+// retries the POST. 60 s TTL — long enough to cover any realistic retry.
+const IDEMPOTENCY_TTL_MS = 60_000;
+const idempotencyCache = new Map<string, { sessionId: string; expiresAt: number }>();
+
+function idempotencyLookup(key: string): string | null {
+  const entry = idempotencyCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    idempotencyCache.delete(key);
+    return null;
+  }
+  return entry.sessionId;
+}
+
+function idempotencyRemember(key: string, sessionId: string): void {
+  idempotencyCache.set(key, { sessionId, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
+  // Opportunistic sweep — keeps the map bounded without a dedicated timer.
+  if (idempotencyCache.size > 128) {
+    const now = Date.now();
+    for (const [k, v] of idempotencyCache) {
+      if (v.expiresAt < now) idempotencyCache.delete(k);
+    }
+  }
+}
+
 // --- Bridge connection (Unix domain socket) ---
 let bridgeSocket: net.Socket | null = null;
 let bridgeReady = false;
@@ -431,6 +459,29 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
     }
 
     if (method === "POST" && (pathname === "/api/terminal/sessions" || pathname === "/api/terminal/create")) {
+      // Honor X-Idempotency-Key so the client can safely retry this POST after
+      // a transient failure without spawning a duplicate pty. See the matching
+      // logic in client/src/state/pane/adapters/closedTabRecord.ts.
+      const idemKey = req.headers.get("x-idempotency-key");
+      if (idemKey) {
+        const existingId = idempotencyLookup(idemKey);
+        if (existingId) {
+          const existing = sessions.get(existingId);
+          if (existing) {
+            return json({
+              id: existing.id,
+              name: existing.name,
+              cwd: existing.cwd,
+              command: existing.command,
+              createdAt: existing.createdAt,
+              topicId: existing.topicId,
+              type: existing.type,
+              claudeSessionId: existing.claudeSessionId || null,
+            });
+          }
+        }
+      }
+
       const body = await readJSON(req).catch(() => ({}));
       const cwd = body.cwd || process.env.HOME || "/";
       const id = crypto.randomUUID();
@@ -445,6 +496,7 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       try {
         await ensureBridge();
         const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
+        if (idemKey) idempotencyRemember(idemKey, id);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
       } catch (err: any) {

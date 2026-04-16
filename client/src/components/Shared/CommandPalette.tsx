@@ -2,10 +2,10 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, Plus, Settings, Moon, Sun, File, FolderOpen, FolderPlus, Loader2, TerminalSquare, RotateCcw } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
 import type { Topic, SearchResult } from '../../types';
-import type { ClosedTabRecord } from '../../lib/closedTabRecord';
+import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { TopicIcon } from '@/lib/topicIcons';
 import { searchApi } from '../../lib/api';
-import { PANE_CONFIG } from '../../lib/paneConfig';
+import { PANE_CONFIG } from '../../state/pane/adapters';
 
 export interface CommandAction {
   id: string;

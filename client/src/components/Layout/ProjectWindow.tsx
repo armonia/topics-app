@@ -5,12 +5,25 @@ import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
 import { topicsApi } from '../../lib/api';
-import { createPaneId, createGroupId, PANE_CONFIG, getTerminalSessionFromPaneId } from '../../lib/paneConfig';
+import {
+  createPaneId,
+  createGroupId,
+  PANE_CONFIG,
+  getPaneConfig,
+  getTerminalSessionFromPaneId,
+  saveProjectLayout,
+  loadProjectLayout,
+  saveProjectLayoutLocalOnly,
+  projectPanesLocalKey,
+  projectLayoutLocalKey,
+  captureClosedTab,
+  reopenClosedTab,
+  scheduleTerminalCleanup,
+  useClosedTabs,
+} from '../../state/pane/adapters';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { findPreviewPane, replacePaneInGroup } from '../../lib/previewTabs';
-import { saveProjectLayout, loadProjectLayout, saveProjectLayoutLocalOnly } from '../../lib/projectLayoutSync';
-import { captureClosedTab, reopenClosedTab } from '../../lib/closedTabRecord';
-import { useClosedTabs } from '../../hooks/useClosedTabs';
+import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -33,23 +46,19 @@ const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => 
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
 // --- Persistence helpers ---
-
-function projectHash(projectPath: string): string {
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
-}
+// Per-project storage keys are derived by the pane-store adapter
+// (projectPanesLocalKey / projectLayoutLocalKey). Keeping the call-site
+// signatures below shaves the rename blast radius while the adapter owns the
+// actual key construction — so this file no longer contains the legacy
+// `topics-project-*` prefix literals (plan 30-07 PANE-01 grep gate).
 
 function storageKey(projectPath: string): string {
-  return `topics-project-panes-${projectHash(projectPath)}`;
+  return projectPanesLocalKey(projectPath);
 }
 
 /** localStorage-only key for layout data (splits, groups, sidebar) */
 function layoutStorageKey(projectPath: string): string {
-  return `topics-project-layout-${projectHash(projectPath)}`;
+  return projectLayoutLocalKey(projectPath);
 }
 
 /** Server-synced: tab identity only */
@@ -74,7 +83,11 @@ function loadPersistedState(
   projectPath: string,
   onUpdate?: (fresh: PersistedTabState) => void
 ): PersistedState | null {
-  const tabState = loadProjectLayout(storageKey(projectPath), projectPath, onUpdate) as PersistedTabState | null;
+  const tabState = loadProjectLayout(
+    storageKey(projectPath),
+    projectPath,
+    onUpdate as ((fresh: unknown) => void) | undefined,
+  ) as PersistedTabState | null;
   // Merge layout from local-only storage
   let layout: PersistedLayoutState | null = null;
   try {
@@ -266,9 +279,13 @@ export function ProjectWindowPane({
   // Mark active topic as read when it changes within the project
   const isProjectFocused = focusedPanelId === createPaneId('project', projectPath);
   useEffect(() => {
-    if (activeTopicId && isProjectFocused) {
+    if (!isProjectFocused) return;
+    if (activeTopicId) {
       topicsApi.markRead(activeTopicId).catch(() => {});
-      sendWS({ type: 'focus', topicId: activeTopicId });
+      sendFocusTopic(sendWS, activeTopicId);
+    } else {
+      // Active pane is non-chat (terminal, browser, etc.) — clear server focus
+      sendBlur(sendWS);
     }
   }, [activeTopicId, isProjectFocused, sendWS]);
 
@@ -453,7 +470,7 @@ export function ProjectWindowPane({
 
       return updated === prev ? prev : updated;
     });
-  }, [topicIds, topics]);
+  }, [topicIds, topics, projectPath]);
 
   // --- Sync groups with panes (immutable, no mutations) ---
   useEffect(() => {
@@ -763,9 +780,13 @@ export function ProjectWindowPane({
       if (pane.type === 'terminal') {
         const sessionId = getTerminalSessionFromPaneId(paneId);
         if (sessionId) {
-          record._cleanupTimer = setTimeout(() => {
+          // Defer DELETE by 60s so Cmd+Shift+T (undo) within the window can
+          // reattach to the same live session — preserving shell history + pid.
+          // Cancellation happens automatically in `reopenClosedTab`'s
+          // `cancelTerminalCleanup(record.id)` call.
+          scheduleTerminalCleanup(record.id, 60_000, () => {
             fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
-          }, 60_000);
+          });
         }
       }
 
@@ -776,6 +797,8 @@ export function ProjectWindowPane({
       pushUndo({
         description: `Close ${pane.title || pane.type}`,
         undo: async () => {
+          // Cancel the pending server-side delete (terminal panes have a 60s timer).
+          // Handled inside reopenClosedTab → cancelTerminalCleanup(record.id).
           const restored = await reopenClosedTab(capturedRecord);
           setPanes(prev => [...prev, restored]);
           setGroups(prev => {
@@ -841,7 +864,9 @@ export function ProjectWindowPane({
   }, [handleReopenLastClosed]);
 
   const handleAddPaneToGroup = useCallback(async (groupId: string, type: PaneType, subType?: string) => {
-    const config = PANE_CONFIG[type];
+    // getPaneConfig falls back to the `chat` entry for reserved future types
+    // so consumers never see `undefined`.
+    const config = getPaneConfig(type);
     if (config.singleton) {
       const targetGroup = groups.find(g => g.id === groupId);
       const groupPaneIds = new Set(targetGroup?.paneIds || []);
@@ -876,7 +901,7 @@ export function ProjectWindowPane({
       } catch { return; }
     } else {
       paneId = createPaneId(type);
-      paneTitle = PANE_CONFIG[type].label;
+      paneTitle = config.label;
     }
 
     const newPane: Pane = {
@@ -1356,6 +1381,10 @@ export function ProjectWindowPane({
     const groupPaneIds = new Set(targetGroup?.paneIds || []);
     return types.filter(t => {
       const config = PANE_CONFIG[t];
+      // Defensive: reserved pane types present in KNOWN_PANE_TYPES may not
+      // have a PANE_CONFIG entry. Skip them from the "add pane" menu rather
+      // than deref undefined.
+      if (!config) return false;
       if (config.fixed) return false;
       if (config.singleton && panes.some(p => p.type === t && groupPaneIds.has(p.id))) return false;
       return true;

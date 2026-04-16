@@ -221,23 +221,12 @@ export interface TerminalSessionInfo {
   type: 'shell' | 'claude-code';
 }
 
-// Pane types for ProjectWindow layout
-export type PaneType = 'chat' | 'file' | 'files' | 'browser' | 'git' | 'terminal' | 'activity' | 'journal' | 'agents' | 'board' | 'board-memory' | 'dashboard' | 'all-boards' | 'project' | 'process-log' | 'session-viewer';
-
-export interface Pane {
-  id: string;            // e.g. "chat:topicId123", "browser:1707840000", "file:1707840000"
-  type: PaneType;
-  topicId?: string;      // only for type='chat'
-  filePath?: string;     // only for type='file'
-  title?: string;
-  diff?: boolean;        // true when pane shows a git diff view
-  diffProjectPath?: string; // project path for resolving git show
-  preview?: boolean;     // true = transient tab (replaced on next open, italic text)
-  color?: string;        // accent color for the tab (used by project tabs)
-  processId?: string;    // only for type='process-log'
-  sessionKey?: string;   // only for type='session-viewer'
-  terminalType?: 'shell' | 'claude-code'; // only for type='terminal'
-}
+// ── Pane types — single source of truth lives in state/pane/types.ts ─────────
+// The pane-store reducer owns the canonical `Pane` + `PaneType` shapes. This
+// file re-exports them so existing `import { Pane } from '@/types'` call sites
+// continue to compile without churn during the cutover. New code should import
+// directly from '@/state/pane/types'.
+export type { Pane, PaneType } from '../state/pane/types';
 
 export interface PaneLayoutRow {
   panes: string[];       // Pane IDs
@@ -262,15 +251,6 @@ export interface GroupLayoutRow {
 export interface PanelGridRow {
   itemKeys: string[];     // GridItem.key values in this row
   widths: number[];       // fractions summing to 1 per row
-}
-
-export interface ProjectWindowState {
-  projectPath: string;
-  panes: Pane[];
-  rows: PaneLayoutRow[];
-  rowHeights: number[];
-  activePaneId: string | null;
-  sidebarCollapsed: boolean;
 }
 
 export type SidebarTab = 'agents' | 'activity' | 'journal' | 'remote' | 'system' | 'browser' | 'terminal';

@@ -25,4 +25,4 @@ export const test = mergeTests(
   commandPaletteTest
 );
 
-export { expect } from "@playwright/test";
+export { expect, devices } from "@playwright/test";

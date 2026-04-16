@@ -9,6 +9,89 @@ import { calculateCost } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
 
+/**
+ * Remove a topic id from every ui_state record's `openChatTopicIds` array,
+ * across all clients. Called when a topic is archived or deleted to prevent
+ * phantom ids from lingering in per-project persisted tab state.
+ *
+ * The read-modify-write is wrapped in a transaction so concurrent writes from
+ * clients (debounced ui_state PUTs) can't interleave and lose the purge.
+ * Broadcasts are collected and emitted AFTER the transaction commits so
+ * clients never see a mutation that was subsequently rolled back.
+ */
+function purgeTopicFromUiState(
+  db: import("bun:sqlite").Database,
+  broadcastToAll: (msg: any) => void,
+  topicId: string,
+): { ok: true } | { ok: false; error: string } {
+  // Phase 30 PANE-02 invariant: every ui_state write must allocate a fresh
+  // server_seq so cross-device LWW treats this purge as newer than any
+  // pre-purge snapshot. Without this bump, a later client PUT carrying an
+  // older seq could silently win and re-introduce the purged topic.
+  //
+  // Race-fix (round-6 audit): mirrors the BEGIN IMMEDIATE pattern used in
+  // server/routes/ui-state.ts (single-key PUT L74-90, bulk PUT L107-126). The
+  // previous implementation used db.transaction() (DEFERRED) plus three
+  // redundant `SELECT MAX(server_seq)` subqueries per row (INSERT VALUES,
+  // ON CONFLICT SET, and a separate readback), so a concurrent PUT could
+  // snapshot the same MAX and collide on seq. Now: acquire RESERVED lock at
+  // BEGIN via .immediate(), read MAX once, allocate N distinct seqs with a
+  // counter, and bind nextSeq as a parameter (no more subqueries). The allocated
+  // seq is returned from the txn, eliminating the separate readback SELECT.
+  let broadcasts: { key: string; value: any; server_seq: number }[] = [];
+  try {
+    broadcasts = db.transaction(() => {
+      const out: { key: string; value: any; server_seq: number }[] = [];
+      const rows = db.query("SELECT key, value FROM ui_state").all() as { key: string; value: string }[];
+      const { maxSeq } = db.query(
+        "SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state",
+      ).get() as { maxSeq: number };
+      let i = 0;
+      for (const row of rows) {
+        let parsed: any;
+        try { parsed = JSON.parse(row.value); } catch { continue; }
+        if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.openChatTopicIds)) continue;
+        if (!parsed.openChatTopicIds.includes(topicId)) continue;
+        parsed.openChatTopicIds = parsed.openChatTopicIds.filter((id: string) => id !== topicId);
+        if (parsed.activeChatTopicId === topicId) delete parsed.activeChatTopicId;
+        const next = JSON.stringify(parsed);
+        const nextSeq = maxSeq + (++i);
+        db.run(
+          `INSERT INTO ui_state (key, value, payload_version, server_seq, updated_at)
+           VALUES (?, ?, 2, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             payload_version = 2,
+             server_seq = excluded.server_seq,
+             updated_at = datetime('now')`,
+          row.key, next, nextSeq,
+        );
+        out.push({ key: row.key, value: parsed, server_seq: nextSeq });
+      }
+      return out;
+    }).immediate();
+  } catch (err) {
+    // Bug #12 (round-7 hardening): do NOT swallow. A silent failure here leaves
+    // the ui_state record stale so the archived topic id "resurrects" on the
+    // next reload — the ghost-topic bug. Log structured + propagate so the
+    // caller can surface it to the client (500) instead of returning 200 OK
+    // while the server state is incoherent.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[topics] purgeTopicFromUiState failed for topicId=${topicId}:`, { error: message, stack: err instanceof Error ? err.stack : undefined });
+    return { ok: false, error: message };
+  }
+  for (const b of broadcasts) {
+    broadcastToAll({
+      type: "ui-state:updated",
+      key: b.key,
+      value: b.value,
+      payload_version: 2,
+      server_seq: b.server_seq,
+    });
+  }
+  return { ok: true };
+}
+
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR, OPENCLAW_DIR,
@@ -254,7 +337,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         saveUnread(unread);
         broadcastToAll({ type: "unread:updated", topicId, unreadCount: unread[topicId].unreadCount });
       }
-    } catch {}
+    } catch (err) {
+      console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
+    }
   }
 
   function watchSessionForSubagents(topicId: string, sessionKey: string) {
@@ -881,6 +966,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
           saveUnread(unread);
           broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });
+          // Purge this topic id from every client's persisted openChatTopicIds
+          // so reloads don't fail validation on a phantom id.
+          // Bug #12: if the purge fails we return 500 — topic is archived but
+          // ui_state is stale, so client-side reload will see a phantom id.
+          const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, params.id);
+          if (!purgeResult.ok) {
+            return json({ error: "topic archived but ui_state purge failed", details: purgeResult.error, topic }, 500);
+          }
         }
         return json(topic);
       }
@@ -910,11 +1003,27 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (updatedTopics.length === 0) return json({ error: "no topics found for projectPath" }, 404);
       saveTopics(data);
       if (archived) saveUnread(unread);
+      const purgeFailures: { topicId: string; error: string }[] = [];
       for (const topic of updatedTopics) {
         broadcastToAll({ type: "topic:archived", topic });
         if (archived) {
           broadcastToAll({ type: "unread:updated", topicId: topic.id, unreadCount: 0 });
+          const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, topic.id);
+          if (!purgeResult.ok) {
+            purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
+          }
         }
+      }
+      // Bug #12: surface any purge failure in the response body (partial-fail
+      // semantics — topics are archived but some ui_state records may be stale).
+      if (purgeFailures.length > 0) {
+        return json({
+          ok: false,
+          count: updatedTopics.length,
+          topics: updatedTopics,
+          error: "some ui_state purges failed — stale topic ids may resurrect on client reload",
+          purgeFailures,
+        }, 500);
       }
       return json({ ok: true, count: updatedTopics.length, topics: updatedTopics });
     }
@@ -1637,13 +1746,7 @@ Wait for the user to approve the plan before executing any changes.` };
             if (matchedTopic) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-              if (!isTopicFocused(matchedTopic.id)) {
-                const unread = loadUnread();
-                if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-                unread[matchedTopic.id].unreadCount += 1;
-                saveUnread(unread);
-                broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
-              }
+              updateUnreadCount(matchedTopic.id);
             }
 
             // Topic switch handling
@@ -1948,13 +2051,7 @@ Wait for the user to approve the plan before executing any changes.` };
             if (content) appendLocalMessage(sessionKey, "assistant", content);
             if (matchedTopic) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
-              if (!isTopicFocused(matchedTopic.id)) {
-                const unread = loadUnread();
-                if (!unread[matchedTopic.id]) unread[matchedTopic.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-                unread[matchedTopic.id].unreadCount += 1;
-                saveUnread(unread);
-                broadcastToAll({ type: "unread:updated", topicId: matchedTopic.id, unreadCount: unread[matchedTopic.id].unreadCount });
-              }
+              updateUnreadCount(matchedTopic.id);
             }
             if (matchedTopic && !matchedTopic.projectPath) setTimeout(() => autoBindProject(matchedTopic!), 100);
             const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
@@ -2174,6 +2271,9 @@ Wait for the user to approve the plan before executing any changes.` };
       }
 
       endStream(sessionKey);
+      // user_abort: user explicitly clicked stop — they are present in the tab,
+      // so we intentionally do NOT increment unread count. This is a design
+      // choice, not an omission.
       broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort" });
 
       return json({ ok: true, cleared: !!body?.clearMessages });

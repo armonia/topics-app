@@ -6,6 +6,7 @@ import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { loadSettings } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageBubble } from './MessageBubble';
+import { clampScrollOffset } from '../../state/pane/adapters';
 
 interface MessageListProps {
   isMobile: boolean;
@@ -34,6 +35,18 @@ interface MessageListProps {
   onMessage?: (handler: (msg: any) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
+  /**
+   * PANE-03 scroll restore (review I1). When set to a finite positive value
+   * at mount, the scroller's scrollTop is restored to it (clamped to content
+   * height) AFTER Virtuoso's default bottom-anchor. Used by ChatPane's undo
+   * path — leave undefined for normal opens.
+   */
+  initialScrollOffset?: number;
+  /**
+   * Fired (throttled) when the user scrolls. Lets the parent persist the
+   * current position on the pane so a later close+undo can restore it.
+   */
+  onScrollOffsetChange?: (scrollTop: number) => void;
 }
 
 export function MessageList({
@@ -63,6 +76,8 @@ export function MessageList({
   onMessage,
   onRetry,
   inputAreaHeight = 0,
+  initialScrollOffset,
+  onScrollOffsetChange,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
@@ -186,6 +201,77 @@ export function MessageList({
     prevMsgCountRef.current = currentMessages.length;
   }, [currentMessages.length, isScrolledUp]);
 
+  // PANE-03 scroll-restore (review I1). Apply the undo-captured offset once
+  // per topic mount, AFTER Virtuoso's default bottom-anchor settles. We run
+  // the effect keyed on topic.id (the Virtuoso remounts via `key={topic.id}`),
+  // wait two frames so the initial layout+bottom-scroll lands, then set the
+  // scroll position clamped to scrollHeight. If initialScrollOffset is
+  // undefined/0/negative we do nothing — normal opens keep their bottom-
+  // anchored behavior.
+  const restoredForTopicRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (restoredForTopicRef.current === topic.id) return;
+    if (typeof initialScrollOffset !== 'number' || initialScrollOffset <= 0) return;
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
+        const el = scrollerElRef.current;
+        if (!el) return;
+        const target = clampScrollOffset(initialScrollOffset, el.scrollHeight, el.clientHeight);
+        // Skip micro-noise — only apply if meaningfully different from the
+        // default anchor; also guards against accidentally scrolling away
+        // from the bottom if the restored offset rounds to max.
+        if (target > 0 && Math.abs(el.scrollTop - target) > 2) {
+          el.scrollTop = target;
+          // Match the "scrolled up" state so autoscroll heuristics know we
+          // are intentionally not at the bottom. 50 px matches the
+          // Virtuoso `atBottomThreshold` prop below.
+          if (el.scrollHeight - target - el.clientHeight > 50) {
+            isScrolledUpRef.current = true;
+            setIsScrolledUp(true);
+          }
+        }
+        restoredForTopicRef.current = topic.id;
+      });
+      return () => cancelAnimationFrame(raf2);
+    });
+    return () => cancelAnimationFrame(raf1);
+    // Intentionally not depending on initialScrollOffset — we only want the
+    // value as captured at mount (undo time). Subsequent prop churn is ignored.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic.id]);
+
+  // Throttled scroll tracker — keeps pane.scrollOffset fresh on the store so
+  // a future CLOSE_PANE captures the real position (review I1 PANE-03 wiring).
+  const trackThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!onScrollOffsetChange) return;
+    const el = scrollerElRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (trackThrottleRef.current) return;
+      trackThrottleRef.current = setTimeout(() => {
+        trackThrottleRef.current = null;
+        const cur = scrollerElRef.current;
+        if (cur) onScrollOffsetChange(cur.scrollTop);
+      }, 250);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (trackThrottleRef.current) {
+        clearTimeout(trackThrottleRef.current);
+        trackThrottleRef.current = null;
+        // Review #3: flush the pending scroll position on cleanup so a
+        // quick scroll-then-close (or topic switch) still captures the
+        // final offset — otherwise CLOSE_PANE reads a value up to 250 ms
+        // stale. Reading `el.scrollTop` from the closure is safe because
+        // the element is still live until React completes the unmount.
+        onScrollOffsetChange(el.scrollTop);
+      }
+    };
+    // Re-bind when the scroller element changes (topic swap remounts Virtuoso).
+  }, [topic.id, onScrollOffsetChange]);
+
   const scrollToBottom = useCallback(() => {
     activateScrollGuard();
     isScrolledUpRef.current = false;
@@ -200,8 +286,13 @@ export function MessageList({
     setShowNewBanner(false);
   }, [activateScrollGuard]);
 
+  // data-testid on the outer wrapper ensures the selector is always queryable
+  // regardless of loading/empty/Virtuoso state (pane-undo.spec.ts relies on
+  // [data-testid='chat-scroll-container']). The Virtuoso internal scroller is
+  // targeted via scrollerElRef without a separate testid.
   return (
     <div
+      data-testid="chat-scroll-container"
       ref={chatContainerRef}
       role="log"
       aria-live="polite"
@@ -283,7 +374,9 @@ export function MessageList({
           data-testid="chat-message-list"
           key={topic.id}
           ref={virtuosoRef}
-          scrollerRef={(ref) => { scrollerElRef.current = ref as HTMLElement | null; }}
+          scrollerRef={(ref) => {
+            scrollerElRef.current = ref as HTMLElement | null;
+          }}
           data={filteredMessages}
           initialTopMostItemIndex={filteredMessages.length - 1}
           followOutput={_currentStreaming ? false : 'smooth'}

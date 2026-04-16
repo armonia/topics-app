@@ -2,8 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare, Columns2, Rows2 } from 'lucide-react';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
-import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
-import { PANE_CONFIG } from '../../lib/paneConfig';
+import { getPaneConfig, type ProjectTabStatus } from '../../state/pane/adapters';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -244,17 +243,31 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     const isCrossGroup = sourceGroupId && groupId && sourceGroupId !== groupId;
 
+    let didDrop = false;
     if (isCrossGroup && onCrossGroupDrop) {
       // Cross-group drop: move pane from source group to this group at insertIdx
       onCrossGroupDrop(sourcePaneId, sourceGroupId, dragOverIdx);
+      didDrop = true;
     } else if (onReorderPanes) {
       // Same-group reorder
       const currentIds = panes.map(p => p.id);
       const sourceIdx = currentIds.indexOf(sourcePaneId);
-      if (sourceIdx === -1) return;
+      if (sourceIdx === -1) {
+        setDraggedPaneId(null);
+        setDragOverIdx(null);
+        setEdgeSplitZone(null);
+        setCrossGroupDragActive(false);
+        return;
+      }
 
       // No-op: tab dropped at its own position or immediately after itself
-      if (sourceIdx === dragOverIdx || sourceIdx + 1 === dragOverIdx) return;
+      if (sourceIdx === dragOverIdx || sourceIdx + 1 === dragOverIdx) {
+        setDraggedPaneId(null);
+        setDragOverIdx(null);
+        setEdgeSplitZone(null);
+        setCrossGroupDragActive(false);
+        return;
+      }
 
       const newIds = currentIds.filter(id => id !== sourcePaneId);
       let insertIdx = dragOverIdx;
@@ -262,12 +275,27 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       newIds.splice(Math.max(0, insertIdx), 0, sourcePaneId);
 
       onReorderPanes(newIds);
+      didDrop = true;
+    }
+
+    // After a successful drop, activate the dropped pane so focus matches
+    // the visual position. Two guards:
+    //   1. Skip when the dropped pane is already active in THIS group — calling
+    //      onActivate would re-fire FOCUS_PANE and steal focus away from a
+    //      different group that currently owns the cursor (review B1).
+    //   2. Cross-group drops always activate, since the pane just moved here.
+    if (didDrop && onActivate) {
+      const isCrossGroupDrop = !!(isCrossGroup && onCrossGroupDrop);
+      if (isCrossGroupDrop || sourcePaneId !== activePaneId) {
+        onActivate(sourcePaneId);
+      }
     }
 
     setDraggedPaneId(null);
     setDragOverIdx(null);
+    setEdgeSplitZone(null);
     setCrossGroupDragActive(false);
-  }, [panes, dragOverIdx, onReorderPanes, onCrossGroupDrop, groupId]);
+  }, [panes, dragOverIdx, onReorderPanes, onCrossGroupDrop, groupId, onActivate, activePaneId]);
 
   const handleTabDragEnd = useCallback(() => {
     setDraggedPaneId(null);
@@ -305,7 +333,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
-    <div className={className ?? "flex-shrink-0 pt-1 pb-1 pl-1 pr-0 min-w-0 app-drag-region"} data-testid="panel-tab-bar" style={{ position: 'relative' }}>
+    <div className={className ?? "flex-shrink-0 pt-1 pb-1 pl-1 pr-0 min-w-0 app-drag-region"} data-testid="panel-tab-bar" data-group-id={groupId ?? ''} style={{ position: 'relative' }}>
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
@@ -362,7 +390,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         }}
       >
       {panes.map((pane, paneIdx) => {
-        const config = PANE_CONFIG[pane.type] || PANE_CONFIG['chat'];
+        const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
         const isActive = activePaneId === pane.id;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
@@ -379,6 +407,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
           <div
             key={pane.id}
             data-pane-id={pane.id}
+            data-active={isActive ? 'true' : 'false'}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md app-no-drag ${
               isActive
@@ -568,7 +597,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                   </div>
                 );
               }
-              const config = PANE_CONFIG[type];
+              const config = getPaneConfig(type);
               const Icon = ICONS[config.icon];
               return (
                 <button

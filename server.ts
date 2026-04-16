@@ -33,7 +33,7 @@ import { initProvider } from "./server/providers";
 import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
-import { createUiStateRouter, loadAllUiState } from "./server/routes/ui-state";
+import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
@@ -60,6 +60,16 @@ const ctx = createAppContext(import.meta.dir);
 const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
   loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
   isStreaming, activeStreams, getMimeType, logRequest, db } = ctx;
+
+// Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
+// (migration 012). Without this, every GET/PUT would silently degrade. Fail loud.
+try {
+  assertUiStateMigrationApplied(db);
+  console.log("[Startup] ui_state migration 012 applied — payload_version + server_seq columns present");
+} catch (err: any) {
+  console.error(`[Startup] ${err?.message ?? err}`);
+  process.exit(1);
+}
 
 // Init AI provider (wraps gateway for openclaw, or uses Anthropic SDK for standalone)
 const aiProvider = initProvider({
@@ -358,7 +368,7 @@ const server = Bun.serve<WSData>({
       console.log(`[WS] Client connected: ${ws.data.id} (total: ${wsClients.size})`);
       ws.send(JSON.stringify({ type: "connected", clientId: ws.data.id }));
       ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
-      ws.send(JSON.stringify({ type: "ui-state:init", data: loadAllUiState(db) }));
+      { const __ui = loadAllUiState(db); ws.send(JSON.stringify({ type: "ui-state:init", data: __ui.data, meta: __ui.meta })); }
 
       // Send catch-up for any active streams so new clients can join mid-stream
       const topicsData = loadTopics();
@@ -394,7 +404,12 @@ const server = Bun.serve<WSData>({
     close(ws) {
       const handler = ws.data._termHandler;
       if (handler) { handler.close(); return; }
-      wsClients.delete(ws); console.log(`[WS] Client disconnected: ${ws.data.id} (total: ${wsClients.size})`);
+      // Remove from client set FIRST so concurrent isTopicFocused() iterations
+      // don't see this ws at all. Clear focusedTopicId after as defense-in-depth
+      // in case any ref to this ws object lingers elsewhere.
+      wsClients.delete(ws);
+      ws.data.focusedTopicId = null;
+      console.log(`[WS] Client disconnected: ${ws.data.id} (total: ${wsClients.size})`);
     },
   },
 });

@@ -5,9 +5,8 @@ import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSqu
 // import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import { createPaneId } from '@/lib/paneConfig';
+import { createPaneId, useProjectTabStatus } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
-import { useProjectTabStatus } from '@/hooks/useProjectTabStatus';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { useClaudeSkipPermissions } from '@/hooks/useClaudePrefs';

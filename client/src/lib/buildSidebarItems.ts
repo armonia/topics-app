@@ -1,5 +1,6 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
-import { isProjectPaneId, getProjectPathFromPaneId } from './paneConfig';
+import { isProjectPaneId, getProjectPathFromPaneId } from '../state/pane/adapters';
+import { usePaneStore } from '../state/pane/store';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -40,28 +41,32 @@ function topicTimestamp(t: Topic): number {
   return ts ? new Date(ts).getTime() : 0;
 }
 
-/** Read persisted pane IDs from a project's localStorage layout */
+/**
+ * Read persisted pane IDs for a project from the pane-store reducer.
+ *
+ * The reducer's `projects[projectPath]` is the authoritative source — populated
+ * by PROJECT_LAYOUT_SNAPSHOT (from ProjectWindow) and by
+ * HYDRATE_FROM_SNAPSHOT (from WS / GET fallback). Reading directly from the
+ * store replaces the previous localStorage read (`topics-project-panes-<hash>`),
+ * which bypassed the Phase-30 single-source-of-truth contract.
+ *
+ * `buildSidebarItems` runs inside a React render via TopicTree's useMemo, so
+ * calling `usePaneStore.getState()` is safe: it returns a synchronous snapshot.
+ * The memo dependency list at the call site does NOT include store state, so
+ * sidebar updates driven purely by the store still require the caller to pass
+ * `projectOpenPanes` explicitly — this function only fills the initial-render
+ * gap before the first callback-driven `projectOpenPanes` update arrives.
+ */
 function readProjectPaneIds(projectPath: string): string[] {
-  try {
-    let hash = 0;
-    for (let i = 0; i < projectPath.length; i++) {
-      hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
-      hash = hash & hash;
-    }
-    const key = `topics-project-panes-${Math.abs(hash).toString(36)}`;
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const data = JSON.parse(raw);
-    // Pane IDs from nonChatPanes + chat topic IDs from openChatTopicIds
-    const ids: string[] = [];
-    if (Array.isArray(data.nonChatPanes)) {
-      for (const p of data.nonChatPanes) if (p.id) ids.push(p.id);
-    }
-    if (Array.isArray(data.openChatTopicIds)) {
-      for (const tid of data.openChatTopicIds) ids.push(`chat:${tid}`);
-    }
-    return ids;
-  } catch { return []; }
+  const layout = usePaneStore.getState().projects[projectPath];
+  if (!layout) return [];
+  // `tabOrder` is the visible tab order (pane IDs in the order they appear);
+  // fall back to flattening group paneIds if tabOrder is empty (e.g. fresh
+  // project created before tabOrder was populated).
+  if (Array.isArray(layout.tabOrder) && layout.tabOrder.length > 0) {
+    return layout.tabOrder.slice();
+  }
+  return layout.groups.flatMap((g) => g.paneIds);
 }
 
 // ── Builder ────────────────────────────────────────────────────────────────────

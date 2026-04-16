@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
+import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -53,6 +54,10 @@ export function useWebSocket(): UseWebSocketReturn {
       setLastConnectedAt(Date.now());
       reconnectAttemptRef.current = 0;
       clearOfflineTimer();
+      // Notify lifecycle subscribers (e.g. pane-store syncWS resets its
+      // monotonic seq gate on reconnect — without this the first
+      // `ui-state:init` of a post-restart connection is silently dropped).
+      dispatchLifecycle('open');
 
       // Start ping interval
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -66,6 +71,12 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onmessage = (event) => {
       try {
         const data: WSMessage = JSON.parse(event.data);
+
+        // Fan out to the module-level frame bus FIRST — the pane-store
+        // bootstrap subscribes here (review I4: keeps a single WS per tab
+        // instead of bootstrap.ts opening its own). Before this hook,
+        // `unread:init` triggers the setState below; both need to run.
+        dispatchFrame(data);
 
         // Handle unread init
         if (data.type === 'unread:init') {
@@ -93,6 +104,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
     ws.onclose = () => {
       setStatus('reconnecting');
+      dispatchLifecycle('close');
       if (pingIntervalRef.current) {
         clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = null;

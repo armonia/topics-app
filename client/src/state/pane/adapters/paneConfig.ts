@@ -1,15 +1,26 @@
-import type { PaneType } from '../types';
-import { generateUUID } from '../utils/uuid';
+/**
+ * Pane-config helpers: pure id construction, type inference, and the
+ * PANE_CONFIG map used by every UI consumer that renders a pane tab or
+ * pane-type picker. All symbols here are pure — no side effects, no
+ * reducer mutation. State mutation goes through usePaneStore dispatch.
+ */
+import type { PaneType } from '../../../types';
+import { generateUUID } from '../../../utils/uuid';
 
 export interface PaneConfig {
-  icon: string;      // Lucide icon name
+  icon: string;
   label: string;
-  color: string;     // Accent color
-  singleton?: boolean; // Only one instance allowed per project
-  fixed?: boolean;     // Cannot be added/removed via + menu (structural pane)
+  color: string;
+  singleton?: boolean;
+  fixed?: boolean;
 }
 
-export const PANE_CONFIG: Record<PaneType, PaneConfig> = {
+// Keyed by the authoritative `PaneType` union (state/pane/types.ts), a
+// superset of the types that ship with a visual configuration — reserved
+// future types (`agent`, `session`, `context`, `editor`, `webhooks`, `cron`,
+// `remote-access`, `system-status`, `processes`) have no entry. Use
+// `getPaneConfig(type)` below for a safe lookup with a `chat` fallback.
+export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   chat:          { icon: 'MessageSquare', label: 'Chat',         color: '#0066ff' },
   file:          { icon: 'FileCode',      label: 'File',         color: '#f59e0b' },
   files:         { icon: 'FolderTree',    label: 'Files',        color: '#f59e0b', singleton: true },
@@ -28,13 +39,25 @@ export const PANE_CONFIG: Record<PaneType, PaneConfig> = {
   'session-viewer': { icon: 'Eye',          label: 'Session',       color: '#8b5cf6' },
 };
 
+/**
+ * Safe lookup for PANE_CONFIG — returns the chat config as a fallback for
+ * reserved types that don't have their own entry. Prefer this over
+ * `PANE_CONFIG[type]!` at call sites that can't bail out cleanly.
+ */
+export function getPaneConfig(type: PaneType): PaneConfig {
+  return PANE_CONFIG[type] ?? PANE_CONFIG.chat!;
+}
+
 export function createPaneId(type: PaneType, key?: string): string {
   if (type === 'chat' && key) return `chat:${key}`;
   if (type === 'project' && key) return `project:${encodeURIComponent(key)}`;
   if (type === 'browser' && key) return `browser:${key}`;
   if (type === 'terminal' && key) return `terminal:${key}`;
   if (type === 'session-viewer' && key) return `session-viewer:${key}`;
-  return `${type}:${crypto.randomUUID()}`;
+  // Use the polyfilled helper so non-secure contexts (HTTP dev servers,
+  // older webviews) still get a valid UUID — raw crypto.randomUUID is
+  // unavailable there and would throw.
+  return `${type}:${generateUUID()}`;
 }
 
 export function parsePaneId(id: string): { type: PaneType; key: string } {
@@ -86,10 +109,19 @@ export function createDraftPaneId(): string {
   return `draft:${generateUUID()}`;
 }
 
-const KNOWN_PANE_PREFIXES = ['project:', 'browser:', 'terminal:', 'draft:', 'chat:', 'session-viewer:', 'process-log:', '__'];
+const KNOWN_PANE_PREFIXES = [
+  'project:',
+  'browser:',
+  'terminal:',
+  'draft:',
+  'chat:',
+  'session-viewer:',
+  'process-log:',
+  '__',
+];
 
 export function isKnownPanePrefix(id: string): boolean {
-  return KNOWN_PANE_PREFIXES.some(prefix => id.startsWith(prefix));
+  return KNOWN_PANE_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -99,6 +131,7 @@ export function isUUIDLike(id: string): boolean {
 }
 
 let _groupCounter = 0;
+
 export function createGroupId(): string {
   return `group:${Date.now()}-${++_groupCounter}`;
 }

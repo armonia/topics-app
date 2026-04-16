@@ -26,7 +26,8 @@ export function saveSettings(settings: AppSettings) {
   // Debounced server sync (1s for resize-heavy changes)
   if (settingsSaveTimer) clearTimeout(settingsSaveTimer);
   settingsSaveTimer = setTimeout(() => {
-    fetch('/api/ui-state/settings', {
+    // PANE-01-ALLOWED: non-pane ui-state key (app settings: fontSize, density, sidebar width/collapsed). Not one of the 6 legacy pane keys.
+    fetch('/api/ui-state/settings', { // PANE-01-ALLOWED
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
@@ -37,7 +38,8 @@ export function saveSettings(settings: AppSettings) {
 /** Load settings from server (call once at app init, merges with localStorage) */
 export async function loadSettingsFromServer(): Promise<AppSettings | null> {
   try {
-    const res = await fetch('/api/ui-state/settings');
+    // PANE-01-ALLOWED: non-pane ui-state key (app settings). Read-only GET for initial hydration.
+    const res = await fetch('/api/ui-state/settings'); // PANE-01-ALLOWED
     if (!res.ok) return null;
     const serverSettings = await res.json();
     if (!serverSettings) return null;

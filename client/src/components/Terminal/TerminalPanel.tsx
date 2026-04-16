@@ -184,6 +184,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   const connectedIdsRef = useRef(new Set<string>());
   const closingIdsRef = useRef(new Set<string>());
   const fitTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const reconnectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
 
@@ -248,7 +249,6 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
 
     let retryCount = 0;
     const MAX_RETRIES = 15;
-    let retryTimer: ReturnType<typeof setTimeout>;
 
     function connectWs() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -291,7 +291,15 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
           if (retryCount < MAX_RETRIES) {
             retryCount++;
             const delay = Math.min(500 * retryCount, 3000);
-            retryTimer = setTimeout(connectWs, delay);
+            // Track timer so unmount can clear it — otherwise connectWs fires
+            // post-unmount and (while guarded) generates noisy console work.
+            const prev = reconnectTimersRef.current.get(id);
+            if (prev) clearTimeout(prev);
+            const handle = setTimeout(() => {
+              reconnectTimersRef.current.delete(id);
+              connectWs();
+            }, delay);
+            reconnectTimersRef.current.set(id, handle);
           } else {
             term.write('\r\n\x1b[90m[Disconnected - click refresh to reconnect]\x1b[0m\r\n');
             setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
@@ -532,9 +540,12 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
 
   // Cleanup on unmount — only close WS, don't kill sessions
   useEffect(() => {
+    const reconnectTimers = reconnectTimersRef.current;
     return () => {
       for (const t of fitTimersRef.current) clearTimeout(t);
       fitTimersRef.current = [];
+      for (const t of reconnectTimers.values()) clearTimeout(t);
+      reconnectTimers.clear();
       for (const [id, entry] of terminalsRef.current) {
         closingIdsRef.current.add(id);
         entry.ws.close();

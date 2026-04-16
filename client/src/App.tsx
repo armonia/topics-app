@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, Cpu, Activity, BarChart3, Radio, Globe, Timer } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
@@ -16,8 +16,21 @@ import { useMobile } from './hooks/useMobile';
 import { useStorageSync } from './hooks/useStorageSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs } from './hooks/useClosedTabs';
-import { reopenClosedTab, type ClosedTabRecord } from './lib/closedTabRecord';
+import {
+  useClosedTabs,
+  reopenClosedTab,
+  type ClosedTabRecord,
+  createPaneId,
+  isProjectPaneId,
+  isBrowserPaneId,
+  isDraftPaneId,
+  createDraftPaneId,
+  getProjectPathFromPaneId,
+  isKnownPanePrefix,
+  isUUIDLike,
+} from './state/pane/adapters';
+import { usePaneStore } from './state/pane/store';
+
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
@@ -29,8 +42,7 @@ import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { DropdownPortal } from './components/Shared/DropdownPortal';
-import { utilityPanelId, isUtilityPanelId } from './components/Layout/UtilityPanel';
-import { createPaneId, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isDraftPaneId, createDraftPaneId, getBrowserContextFromPaneId, getProjectPathFromPaneId, isKnownPanePrefix, isUUIDLike } from './lib/paneConfig';
+import { utilityPanelId } from './components/Layout/UtilityPanel';
 import { generateUUID } from './utils/uuid';
 import { globalBoardApi } from './lib/api';
 import { undo as undoUndo, redo as undoRedo, pushUndo, isTextInputFocused } from './contexts/UndoContext';
@@ -59,20 +71,23 @@ const getWindowId = () => {
   return id;
 };
 
-// Persist open panels to localStorage (main window only)
-const OPEN_PANELS_KEY = 'topics-open-panels';
-const FOCUSED_PANEL_KEY = 'topics-focused-panel';
+// Phase 30 PANE-01: persistence for open panels is owned by the pane-store
+// middleware (state/pane/middleware/{persistLocal,syncServer,syncWS,syncCrossTab}).
+// Components now read the canonical state from usePaneStore and dispatch
+// actions to mutate it. The helpers below are thin store readers — writes
+// happen inside the component via dispatch.
 const loadSavedPanels = (): string[] => {
   try {
-    // Try localStorage first, fall back to sessionStorage (Safari PWA reliability)
-    const saved = localStorage.getItem(OPEN_PANELS_KEY) || sessionStorage.getItem(OPEN_PANELS_KEY);
-    const panels: string[] = saved ? JSON.parse(saved) : [];
-    // Keep drafts that have valid metadata and are < 24h old
+    const s = usePaneStore.getState();
+    const defaultGroup = s.groups['group:default'];
+    const order = defaultGroup?.paneIds ?? [];
+    // Drop stale draft ids older than 24h — draft metadata still lives in
+    // localStorage ('draft-meta') and is not part of the pane-store snapshot.
     const draftMetaRaw = localStorage.getItem('draft-meta');
     const savedDraftMeta = draftMetaRaw ? JSON.parse(draftMetaRaw) : {};
     const now = Date.now();
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    return panels.filter(id => {
+    return order.filter(id => {
       if (!id.startsWith('draft:')) return true;
       const meta = savedDraftMeta[id];
       if (!meta?.createdAt) return false;
@@ -85,48 +100,10 @@ const loadSavedPanels = (): string[] => {
 
 const loadSavedFocused = (): string | null => {
   try {
-    return localStorage.getItem(FOCUSED_PANEL_KEY) || sessionStorage.getItem(FOCUSED_PANEL_KEY);
+    return usePaneStore.getState().focusedPaneId;
   } catch {
     return null;
   }
-};
-
-let panelsSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-const savePanelsState = (panels: string[], focused: string | null) => {
-  try {
-    const panelsJson = JSON.stringify(panels);
-    localStorage.setItem(OPEN_PANELS_KEY, panelsJson);
-    sessionStorage.setItem(OPEN_PANELS_KEY, panelsJson);
-    if (focused) {
-      localStorage.setItem(FOCUSED_PANEL_KEY, focused);
-      sessionStorage.setItem(FOCUSED_PANEL_KEY, focused);
-    } else {
-      localStorage.removeItem(FOCUSED_PANEL_KEY);
-      sessionStorage.removeItem(FOCUSED_PANEL_KEY);
-    }
-    // ISSUE 21 fix: write a coordination timestamp so other persistence layers
-    // can detect partial saves on reload
-    localStorage.setItem('topics-panels-save-ts', String(Date.now()));
-    // If panels are empty, also clear grid-layout to prevent inconsistency
-    if (panels.length === 0) {
-      localStorage.removeItem('topics-grid-layout');
-      localStorage.removeItem('topics-project-layout');
-    }
-  } catch {
-    // Ignore storage errors
-  }
-
-  // Debounced server sync (2s) — only sync openPanels, NOT focusedPanelId
-  // focusedPanelId is per-device state and must not be broadcast to other clients
-  if (panelsSaveTimer) clearTimeout(panelsSaveTimer);
-  panelsSaveTimer = setTimeout(() => {
-    fetch('/api/ui-state/panels', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ openPanels: panels }),
-    }).catch(() => {});
-  }, 2000);
 };
 
 export function _SafeAreaFill() {
@@ -172,9 +149,22 @@ export function _SafeAreaDebug() {
 }
 
 function App() {
+  // DEV-only overlay — lazy-loaded via dynamic import() so the module stays
+  // out of the production graph entirely (PANE-05 strip contract). The static
+  // import was fragile: Vite minification could flatten the path string and
+  // the strip-assert script would false-green.
+  const [DevOverlay, setDevOverlay] = useState<ComponentType | null>(null);
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      import('./state/pane/devOverlay').then((m) => {
+        setDevOverlay(() => m.MutationLogOverlay);
+      });
+    }
+  }, []);
+
   // Unique ID for this window (for cross-window drag coordination)
   const windowId = getWindowId();
-  
+
   // Mobile detection
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
@@ -252,76 +242,70 @@ function App() {
   // ISSUE 3 fix: move ref assignment from render to useEffect
   useEffect(() => { focusedPanelIdRef.current = focusedPanelId; }, [focusedPanelId]);
 
-  // Persist panels state to localStorage (main window only)
+  // Phase 30 PANE-01: panel persistence is owned by the pane-store middleware.
+  // Here we only bridge between the reducer (canonical source of truth) and
+  // the local React state: store updates push into React state, and React
+  // state changes dispatch REORDER_PANES / FOCUS_PANE to the store. No direct
+  // localStorage, no direct server fetches, no WS listener — the middleware
+  // layer (persistLocal, syncServer, syncWS, syncCrossTab) handles all of it.
+
+  // Subscribe to the store's default group for openPanels and focusedPaneId
+  // and mirror them into local React state so the rest of App.tsx's render
+  // logic (which reads openPanels / focusedPanelId) stays unchanged.
+  const storeSyncInternalRef = useRef(false);
   useEffect(() => {
     if (isDetached) return;
-    // Skip save if the change came from server/WS (avoid echo loop)
-    if (panelsFromServerRef.current) {
-      panelsFromServerRef.current = false;
-      return;
-    }
-    // Don't push stale local panels to server before initial sync completes
-    if (!serverSyncedRef.current) return;
-    savePanelsState(openPanels, focusedPanelId);
-  }, [openPanels, focusedPanelId, isDetached]);
-
-  // Cross-tab sync for panels via storage events
-  // ISSUE 9 fix: only sync openPanels across tabs, NOT focusedPanelId (focus is per-tab intent)
-  useStorageSync(OPEN_PANELS_KEY, useCallback((panels: string[]) => {
-    if (!isDetached && Array.isArray(panels)) setOpenPanels(panels);
-  }, [isDetached]));
-
-  // Server fetch on mount: always apply server's openPanels as canonical source
-  const panelsServerFetchedRef = useRef(false);
-  const panelsFromServerRef = useRef(false); // guard to skip saving echo from server/WS
-  const serverSyncedRef = useRef(false); // true once initial server state is received (prevents stale overwrites)
-  useEffect(() => {
-    if (isDetached || panelsServerFetchedRef.current) return;
-    panelsServerFetchedRef.current = true;
-    fetch('/api/ui-state/panels')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data || !Array.isArray(data.openPanels)) {
-          serverSyncedRef.current = true;
-          return;
-        }
-        // Always apply server's openPanels (canonical cross-device state)
-        // focusedPanelId stays per-device (from localStorage only)
-        panelsFromServerRef.current = true;
-        try { localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(data.openPanels)); } catch {}
-        setOpenPanels(data.openPanels);
-        // ISSUE 21 fix: if openPanels is empty, clear stale grid-layout to prevent
-        // inconsistent state where grid references panels that don't exist
-        if (data.openPanels.length === 0) {
-          try { localStorage.removeItem('topics-grid-layout'); } catch {}
-          try { localStorage.removeItem('topics-project-layout'); } catch {}
-        }
-        // If current focus is stale (not in synced panels), auto-focus first panel
-        setFocusedPanelId(prev => {
-          if (prev && data.openPanels.includes(prev)) return prev;
-          return data.openPanels[0] || null;
-        });
-        serverSyncedRef.current = true;
-      })
-      .catch(() => { serverSyncedRef.current = true; });
+    const applyFromStore = () => {
+      const s = usePaneStore.getState();
+      const storeOrder = s.groups['group:default']?.paneIds ?? [];
+      const storeFocus = s.focusedPaneId;
+      storeSyncInternalRef.current = true;
+      setOpenPanels(prev => {
+        if (prev.length === storeOrder.length && prev.every((id, i) => id === storeOrder[i])) return prev;
+        return storeOrder;
+      });
+      setFocusedPanelId(prev => {
+        if (prev === storeFocus) return prev;
+        if (storeFocus && storeOrder.includes(storeFocus)) return storeFocus;
+        if (prev && storeOrder.includes(prev)) return prev;
+        return storeOrder[0] ?? storeFocus ?? null;
+      });
+      // Next microtask: clear the internal flag so subsequent user-driven
+      // changes dispatch back into the store.
+      queueMicrotask(() => { storeSyncInternalRef.current = false; });
+    };
+    // Apply once on mount to catch any updates that landed before subscribe.
+    applyFromStore();
+    const unsub = usePaneStore.subscribe(
+      (s) => s.lastSeq,
+      () => applyFromStore(),
+    );
+    return () => unsub();
   }, [isDetached]);
 
-  // Save state on visibility change (Safari PWA doesn't always fire beforeunload)
+  // Push React state changes back to the store when the user initiated them.
   useEffect(() => {
     if (isDetached) return;
-    const saveOnHide = () => {
-      if (document.visibilityState === 'hidden') {
-        savePanelsState(openPanels, focusedPanelId);
-      }
-    };
-    const saveOnPageHide = () => savePanelsState(openPanels, focusedPanelId);
-    document.addEventListener('visibilitychange', saveOnHide);
-    window.addEventListener('pagehide', saveOnPageHide);
-    return () => {
-      document.removeEventListener('visibilitychange', saveOnHide);
-      window.removeEventListener('pagehide', saveOnPageHide);
-    };
-  }, [openPanels, focusedPanelId, isDetached]);
+    if (storeSyncInternalRef.current) return;
+    const s = usePaneStore.getState();
+    const storeOrder = s.groups['group:default']?.paneIds ?? [];
+    const changed = storeOrder.length !== openPanels.length || !storeOrder.every((id, i) => id === openPanels[i]);
+    if (changed) {
+      s.dispatch({
+        type: 'REORDER_PANES',
+        payload: { groupId: 'group:default', paneIds: openPanels },
+      });
+    }
+  }, [openPanels, isDetached]);
+
+  useEffect(() => {
+    if (isDetached) return;
+    if (storeSyncInternalRef.current) return;
+    const s = usePaneStore.getState();
+    if (s.focusedPaneId !== focusedPanelId) {
+      s.dispatch({ type: 'FOCUS_PANE', payload: { id: focusedPanelId } });
+    }
+  }, [focusedPanelId, isDetached]);
 
   // Track topic switches initiated by this client (so topic:switch:complete only affects own switches)
   const ownTopicSwitchesRef = useRef<Set<string>>(new Set());
@@ -626,7 +610,7 @@ function App() {
   const prevTopicsForValidation = useRef(topics);
   // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
   useEffect(() => {
-    if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached && serverSyncedRef.current) {
+    if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
       // Guard: skip if neither openPanels nor topics changed since last validation
       // (prevents loops when this effect itself triggers setOpenPanels)
       const panelsChanged = openPanels !== prevOpenPanelsForValidation.current;
@@ -705,34 +689,12 @@ function App() {
     return onWSMessage(chatStreamHandler);
   }, [onWSMessage, chatStreamHandler]);
 
-  // Cross-device panels sync via WS (ui-state:updated / ui-state:init with "panels" key)
-  // Only sync openPanels — focusedPanelId is per-device and must not be overwritten by other clients
-  useEffect(() => {
-    if (isDetached) return;
-    return onWSMessage((msg: any) => {
-      let data: { openPanels?: string[] } | null = null;
-      if (msg.type === 'ui-state:updated' && msg.key === 'panels') {
-        data = msg.value;
-      } else if (msg.type === 'ui-state:init' && msg.data?.panels) {
-        data = msg.data.panels;
-      }
-      if (!data || !Array.isArray(data.openPanels)) return;
-      panelsFromServerRef.current = true;
-      serverSyncedRef.current = true;
-      try { localStorage.setItem(OPEN_PANELS_KEY, JSON.stringify(data.openPanels)); } catch {}
-      setOpenPanels(data.openPanels);
-      // ISSUE 21 fix: clear stale grid-layout when openPanels becomes empty via WS
-      if (data.openPanels.length === 0) {
-        try { localStorage.removeItem('topics-grid-layout'); } catch {}
-        try { localStorage.removeItem('topics-project-layout'); } catch {}
-      }
-      // If current focus is not in the new panel list, auto-focus the first panel
-      setFocusedPanelId(prev => {
-        if (prev && data!.openPanels!.includes(prev)) return prev; // keep current focus
-        return data!.openPanels![0] || null;
-      });
-    });
-  }, [onWSMessage, isDetached]);
+  // Phase 30 PANE-01: cross-device panels sync is owned by state/pane/middleware/syncWS.ts.
+  // The middleware subscribes to the pane-store reducer's lastSeq and applies
+  // `ui-state:init` / `ui-state:updated` frames with the Option-A envelope
+  // (frame.data['pane-store-v2'] + frame.meta['pane-store-v2'].server_seq) with
+  // an LWW guard. The store-subscription effect above mirrors those updates
+  // back into React state, so there is no need for a WS listener here.
 
   // Drain outbound message queue and reload open panel histories when WS reconnects
   const prevWsStatus = useRef(wsStatus);
@@ -842,14 +804,24 @@ function App() {
   // Browser pane management
   const [pendingBrowserPane, setPendingBrowserPane] = useState<string | null>(null);
   const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(null), []);
+
+  // Auto-solo signal: when a new top-level utility pane (terminal/browser) is
+  // created via quick-create, signal PanelGrid to give it its own grid cell.
+  // Without this, the new pane joins the standalone group with existing panels
+  // and the user perceives it as "merged" with their other tabs.
+  const [pendingSoloPanelId, setPendingSoloPanelId] = useState<string | null>(null);
+  const handlePendingSoloConsumed = useCallback(() => setPendingSoloPanelId(null), []);
   const openBrowserPane = useCallback((contextId: string) => {
     setPendingBrowserPane(contextId);
+    // Same rationale as quick-create terminal: a new browser pane should land
+    // in its own grid cell instead of being merged into the standalone group
+    // with chats/projects. PanelGrid only solo's if other panels already exist.
+    setPendingSoloPanelId(`browser:${contextId}`);
     if (isMobile) {
       setSidebarCollapsed(true);
     }
   }, [isMobile]);
   const [, setOpenBrowserContextIds] = useState<string[]>([]);
-  const _focusedBrowserContextId = focusedPanelId ? getBrowserContextFromPaneId(focusedPanelId) : null;
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
 
@@ -1130,7 +1102,11 @@ function App() {
     openPanel(topicId, 'permanent');
   }, [openPanel]);
 
-  const handleClosePanel = useCallback((topicId: string) => {
+  // Ref-backed impl keeps handleClosePanel identity stable forever while the
+  // body can freely close over props/state/refs — the `redo` closure below
+  // calls through the ref, so it never captures a stale copy of the logic.
+  const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
+  handleClosePanelRef.current = (topicId: string) => {
     // Capture panel index for undo
     let panelIndex = 0;
 
@@ -1164,31 +1140,14 @@ function App() {
         setFocusedPanelId(topicId);
       },
       redo: () => {
-        handleClosePanel(topicId);
+        handleClosePanelRef.current(topicId);
       },
     });
-  }, []);
-
-  // ISSUE 22 fix: batch-close multiple panels atomically in a single state update
-  const _handleCloseMultiplePanels = useCallback((panelIds: string[]) => {
-    const toCloseSet = new Set(panelIds);
-    setOpenPanels(prev => {
-      const next = prev.filter(id => !toCloseSet.has(id));
-      if (focusedPanelIdRef.current && toCloseSet.has(focusedPanelIdRef.current)) {
-        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
-      }
-      return next;
-    });
-    // Clean up draft metadata for any drafts being closed
-    const draftsToClose = panelIds.filter(isDraftPaneId);
-    if (draftsToClose.length > 0) {
-      setDraftMeta(prev => {
-        const next = { ...prev };
-        for (const id of draftsToClose) delete next[id];
-        return next;
-      });
-    }
-  }, []);
+  };
+  const handleClosePanel = useCallback(
+    (topicId: string) => handleClosePanelRef.current(topicId),
+    [],
+  );
 
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
@@ -1325,6 +1284,9 @@ function App() {
       setTerminalSessions(prev => prev.some(s => s.id === data.id) ? prev : [...prev, { id: data.id, name: data.name || name, createdAt: data.createdAt, cwd: data.cwd, command: data.command, clients: 0, topicId: data.topicId, type: data.type }]);
       setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
       setFocusedPanelId(paneId);
+      // Auto-solo so the new terminal lands in its own grid cell instead of
+      // being merged into the standalone group with other panels.
+      setPendingSoloPanelId(paneId);
       if (isMobile) setSidebarCollapsed(true);
     } catch {}
   }, [isMobile]);
@@ -1444,16 +1406,6 @@ function App() {
     }
   }, [openPanels]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; topic: Topic } | null>(null);
-
-  const _getChildren = useCallback((parentId: string | null): Topic[] => {
-    // Don't filter archived here - let the caller decide (renderLevel handles it)
-    return Object.values(topics).filter(t => t.parentId === parentId);
-  }, [topics]);
-
-  const _getArchivedTopics = useCallback((): Topic[] => {
-    return Object.values(topics).filter(t => t.archived);
-  }, [topics]);
-
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1873,6 +1825,8 @@ function App() {
           onCreateTerminal={handleQuickCreateTerminal}
           pendingBrowserPane={pendingBrowserPane}
           onPendingBrowserPaneConsumed={handlePendingBrowserPaneConsumed}
+          pendingSoloPanelId={pendingSoloPanelId}
+          onPendingSoloPanelIdConsumed={handlePendingSoloConsumed}
           onOpenBrowserContextIds={setOpenBrowserContextIds}
           promoteDraft={promoteDraft}
           draftMeta={draftMeta}
@@ -2059,6 +2013,7 @@ function App() {
         </Suspense>
       )}
 
+      {import.meta.env.DEV && DevOverlay && <DevOverlay />}
     </div>
     </ToastProvider>
     </TabNotificationProvider>

@@ -1,0 +1,123 @@
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
+import { immer } from 'zustand/middleware/immer';
+import { paneReducer } from './reducers';
+import type { PaneState, PaneAction } from './types';
+
+// Monotonic per-dispatch sequence. Kept as a *lower bound*: after HYDRATE_FROM_SNAPSHOT
+// applies a higher server_seq to state.lastSeq, the next dispatch clamps `_seq`
+// to at least that value before incrementing — so outbound syncServer PUTs
+// always carry a seq greater than anything the store has seen (I1 in the PR
+// review: without this, post-hydrate dispatches would emit seq=1 against a
+// server at seq=N>>1, and the server would reject them as stale).
+let _seq = 0;
+
+/**
+ * Actions whose payload carries an authoritative `lastSeq` the reducer writes
+ * directly onto state (no dispatcher bump needed). Incrementing `lastSeq` after
+ * these would push it one past the server-allocated seq, and the subsequent
+ * WS broadcast carrying that same server_seq would be dropped by the LWW gate
+ * (`clean.lastSeq <= state.lastSeq`) — silently losing cross-tab HYDRATE
+ * sync. See the HYDRATE_FROM_SNAPSHOT case in reducers/panes.ts.
+ */
+function isServerAuthoritativeAction(action: PaneAction): boolean {
+  return action.type === 'HYDRATE_FROM_SNAPSHOT';
+}
+
+// Dev-only: dedupe the "no pane entity for id" warning by paneId. A throttled
+// scroll handler firing at 250 ms during a racy mount would otherwise spam the
+// console on every tick until OPEN_PANE dispatches. The whole block is tree-
+// shaken from production by `import.meta.env.DEV`.
+const warnedMissingPaneIds = new Set<string>();
+
+const initialState: PaneState = {
+  panes: {},
+  groups: {},
+  projects: {},
+  closedStack: [],
+  focusedPaneId: null,
+  groupOrder: [],
+  lastSeq: 0,
+};
+
+export interface PaneStore extends PaneState {
+  dispatch: (action: PaneAction) => void;
+  /**
+   * Device-local scroll-offset setter. Bypasses the action/reducer pipeline
+   * on purpose: `pane.scrollOffset` is per-device (never syncs; stripped from
+   * the outbound snapshot by `selectSyncableSnapshot`) so we DON'T want it to
+   * bump `lastSeq` and trigger persistLocal / syncServer writes on every
+   * scroll tick. PANE-03 scroll-restore uses this for its hot-path tracker.
+   */
+  setPaneScrollOffset: (paneId: string, offset: number) => void;
+}
+
+export const usePaneStore = create<PaneStore>()(
+  subscribeWithSelector(
+    immer((set) => ({
+      ...initialState,
+      dispatch: (action: PaneAction) => {
+        set((draft) => {
+          paneReducer(draft as PaneState, action);
+          // Clamp `_seq` to the current draft.lastSeq before bumping — the
+          // reducer may have just applied HYDRATE_FROM_SNAPSHOT with a server-
+          // originated seq that is higher than our local counter.
+          //
+          // Naming: `lastSeq` (client-side) and `server_seq` (DB column / HTTP
+          // response) are SEPARATE counters that converge post-hydrate.
+          // `lastSeq` is the monotonically-increasing local dispatch counter;
+          // `server_seq` is the server-allocated LWW key. HYDRATE clamps the
+          // local counter to max(lastSeq, server_seq) so post-hydrate PUTs
+          // always carry a seq the server considers fresh. The naming is
+          // intentionally different to signal the domain boundary.
+          if (draft.lastSeq > _seq) _seq = draft.lastSeq;
+          // Server-originated actions carry an authoritative `lastSeq` in
+          // their payload (reducer writes it onto draft.lastSeq). Bumping
+          // here would push lastSeq to clean.lastSeq + 1, so the very next
+          // WS broadcast carrying that same server_seq would be dropped by
+          // the LWW gate (`clean.lastSeq <= state.lastSeq` fails at equal).
+          // We keep `_seq` clamped (above) so outbound PUTs still carry a
+          // seq the server considers fresh; we just don't increment when
+          // the reducer already installed a server-authoritative value.
+          if (isServerAuthoritativeAction(action)) return;
+          draft.lastSeq = ++_seq;
+        });
+        // DEV-only mutation log. Vite tree-shakes this block when import.meta.env.DEV is false.
+        if (import.meta.env.DEV) {
+          // Dynamic import keeps the module out of the production graph.
+          import('./middleware/mutationLog').then(({ recordAction }) => {
+            recordAction({ seq: _seq, ts: performance.now(), action });
+          });
+        }
+      },
+      setPaneScrollOffset: (paneId: string, offset: number) => {
+        if (!Number.isFinite(offset) || offset < 0) return;
+        set((draft) => {
+          const pane = draft.panes[paneId];
+          if (pane) {
+            pane.scrollOffset = offset;
+          } else if (import.meta.env.DEV) {
+            // Review #2: surface the silent no-op. If a chat renders for a
+            // topic whose pane entity isn't in the reducer (legacy flow or
+            // a racy mount), scroll tracking falls on the floor — log it
+            // in dev so we catch drift early. Production tree-shakes this.
+            // Dedupe by paneId so a 250 ms-throttled scroll handler doesn't
+            // spam the console on every tick until OPEN_PANE dispatches.
+            if (!warnedMissingPaneIds.has(paneId)) {
+              warnedMissingPaneIds.add(paneId);
+              // eslint-disable-next-line no-console
+              console.warn(
+                `[paneStore] setPaneScrollOffset: no pane entity for id="${paneId}" — scroll tracking is a no-op until OPEN_PANE dispatches. (This warning fires once per unique id.)`,
+              );
+            }
+          }
+          // NOTE: no `draft.lastSeq = ++_seq` — see setPaneScrollOffset
+          // docstring. Persistence and sync intentionally do NOT fire here.
+        });
+      },
+    })),
+  ),
+);
+
+// Convenience helper to access state outside React (e.g., module-level subscribers):
+export const getPaneState = () => usePaneStore.getState();

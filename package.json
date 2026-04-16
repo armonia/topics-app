@@ -21,7 +21,9 @@
     "dev:client": "cd client && bun run dev",
     "dev:electron": "DEV_URL=http://localhost:5173 npm --prefix electron-app run dev",
     "prod:electron": "bash scripts/start-electron-prod.sh",
+    "build:client": "cd client && bun run build",
     "build:electron": "cd electron-app && npm run build",
+    "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "test": "npx playwright test",
     "test:ui": "npx playwright test --ui",
     "test:report": "npx playwright show-report test-results/html-report"

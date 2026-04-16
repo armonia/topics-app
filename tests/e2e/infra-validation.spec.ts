@@ -15,6 +15,26 @@ import {
 import { goToApp } from "./helpers";
 import * as fs from "fs";
 import * as path from "path";
+import { execFileSync } from "child_process";
+
+function grepOutsidePaneState(pattern: string): string[] {
+  let out = "";
+  try {
+    out = execFileSync(
+      "grep",
+      ["-r", "-n", pattern, "client/src", "--include=*.ts", "--include=*.tsx"],
+      { encoding: "utf8" }
+    );
+  } catch (e: any) {
+    // grep exits 1 on zero matches — treat as empty
+    out = e.stdout?.toString() ?? "";
+  }
+  return out
+    .split("\n")
+    .filter(Boolean)
+    .filter((l) => !l.startsWith("client/src/state/pane/"))
+    .filter((l) => !l.includes("PANE-01-ALLOWED"));
+}
 
 test.describe("INFRA-01: dnd-helper functions are importable", () => {
   test("dndDrag and dndReorder are callable functions", async () => {
@@ -149,5 +169,65 @@ test.describe("INFRA-07: structural data-testids are present in source", () => {
       "utf-8"
     );
     expect(cmdPaletteSrc).toContain('data-testid="command-palette"');
+  });
+});
+
+test.describe("PANE-01: no legacy pane-state access outside state/pane/", () => {
+  test("PANE-01: no hits for 'topics-open-panels' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("topics-open-panels")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-focused-panel' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("topics-focused-panel")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-panel-order' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("topics-panel-order")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-closed-tabs' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("topics-closed-tabs")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-grid-layout' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("topics-grid-layout")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-project-layout' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("topics-project-layout")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'project-layout-' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("project-layout-")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-project-panes-' outside client/src/state/pane/", () => {
+    // Legacy per-project localStorage key — the only writer is the
+    // projectLayoutSync adapter; every other consumer must read the pane-store
+    // reducer's `projects[projectPath]` instead.
+    expect(grepOutsidePaneState("topics-project-panes-")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'topics-panel-grid-layout' outside client/src/state/pane/ (allowed in Layout/)", () => {
+    // `topics-panel-grid-layout` is the panel-grid layout (sidebar/main/details
+    // split ratios) — orthogonal to pane state but lives under components/Layout.
+    // This gate documents the carve-out: hits outside state/pane/ AND outside
+    // components/Layout/ are regressions.
+    const hits = grepOutsidePaneState("topics-panel-grid-layout").filter(
+      (l) => !l.startsWith("client/src/components/Layout/"),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'closedTabRecord' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("closedTabRecord")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for 'projectLayoutSync' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("projectLayoutSync")).toEqual([]);
+  });
+
+  test("PANE-01: no hits for '/api/ui-state' outside client/src/state/pane/", () => {
+    expect(grepOutsidePaneState("/api/ui-state")).toEqual([]);
   });
 });

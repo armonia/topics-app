@@ -11,7 +11,7 @@ interface UseServerStateOptions {
 }
 
 /**
- * Hook for state backed by server /api/ui-state/:key.
+ * Hook for state backed by server /api/ui-state/:key. // PANE-01-ALLOWED: generic hook — callers supply non-pane keys only (pane-store-v2 uses dedicated middleware, not this hook).
  * - Fast paint from localStorage
  * - Fetches from server on mount
  * - Listens for WS ui-state:init / ui-state:updated
@@ -46,13 +46,18 @@ export function useServerState<T>(
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Fetch from server on mount
+  // PANE-01-ALLOWED: generic non-pane ui-state key. The server
+  // GET /api/ui-state/:key endpoint returns { value, payload_version, server_seq } // PANE-01-ALLOWED
+  // as of migration 012; unwrap .value for the legacy consumer shape.
   useEffect(() => {
-    fetch(`/api/ui-state/${encodeURIComponent(key)}`)
+    fetch(`/api/ui-state/${encodeURIComponent(key)}`) // PANE-01-ALLOWED: generic non-pane key supplied by caller
       .then(r => r.ok ? r.json() : null)
-      .then(serverValue => {
+      .then(envelope => {
+        // PANE-01-ALLOWED: unwrap v2 envelope { value, payload_version, server_seq }
+        const serverValue = envelope && typeof envelope === 'object' && 'value' in envelope ? (envelope as any).value : envelope;
         if (!mountedRef.current || serverValue === null || serverValue === undefined) return;
         isFromServerRef.current = true;
-        setValueRaw(serverValue);
+        setValueRaw(serverValue as T);
         if (localStorageKey) {
           try { localStorage.setItem(localStorageKey, JSON.stringify(serverValue)); } catch {}
         }
@@ -110,7 +115,8 @@ export function useServerState<T>(
     // Debounce server PUT
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      fetch(`/api/ui-state/${encodeURIComponent(key)}`, {
+      // PANE-01-ALLOWED: generic non-pane key (supplied by caller). Pane state uses dedicated middleware, not this hook.
+      fetch(`/api/ui-state/${encodeURIComponent(key)}`, { // PANE-01-ALLOWED
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(value),

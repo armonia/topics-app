@@ -69,10 +69,15 @@ export function useSidebarState(onMessage?: (handler: (msg: any) => void) => () 
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Fetch from server on mount
+  // PANE-01-ALLOWED: non-pane ui-state key (sidebar-state: viewMode, expandedNodes, showArchived). Not one of the 6 legacy pane keys.
+  // GET /api/ui-state/:key endpoint returns { value, payload_version, server_seq } // PANE-01-ALLOWED
+  // as of migration 012; unwrap .value for the legacy consumer shape.
   useEffect(() => {
-    fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`)
+    fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED: sidebar-state key, not pane state
       .then(r => r.ok ? r.json() : null)
-      .then(serverValue => {
+      .then(envelope => {
+        // PANE-01-ALLOWED: unwrap v2 envelope { value, payload_version, server_seq }
+        const serverValue = envelope && typeof envelope === 'object' && 'value' in envelope ? (envelope as any).value : envelope;
         if (!mountedRef.current || serverValue === null || serverValue === undefined) return;
         const merged = { ...DEFAULT_STATE, ...serverValue };
         // Migrate server state too
@@ -135,7 +140,8 @@ export function useSidebarState(onMessage?: (handler: (msg: any) => void) => () 
     // Debounce server PUT
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`, {
+      // PANE-01-ALLOWED: non-pane ui-state key (sidebar-state). Debounced PUT for view mode / expanded nodes.
+      fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`, { // PANE-01-ALLOWED
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),

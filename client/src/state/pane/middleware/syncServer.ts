@@ -1,0 +1,303 @@
+/**
+ * Debounced PUT /api/ui-state/pane-store-v2 with retry + inflight coalescing.
+ *
+ * Offline-first: actions always commit locally first; this middleware
+ * propagates the syncable snapshot (device-local fields excluded) to the
+ * server with exponential backoff on failure. A failed write never rolls
+ * back client state — the user's edits are preserved.
+ *
+ * Inflight coalescing (PR-review #13): each in-flight PUT for a given key is
+ * tracked with an `AbortController` + `snapshotSeq`. Before firing a new PUT
+ * for the same key we abort the prior one — this prevents a stale retry from
+ * committing after a fresher write succeeded. The server is LWW so it would
+ * accept the stale write, but client-side the self-echo ledger (and any
+ * observers) can see out-of-order seqs. `AbortError` is deliberately silent
+ * (it's the coalesce path, not a failure).
+ */
+import { usePaneStore, type PaneStore } from '../store';
+import { selectSyncableSnapshot } from '../selectors';
+import { rememberLocalAck } from './selfEcho';
+import { getTabId } from './syncCrossTab';
+
+const REMOTE_KEY = 'pane-store-v2';
+const DEBOUNCE_MS = 500;
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 200;
+
+let timer: ReturnType<typeof setTimeout> | null = null;
+let started = false;
+
+interface InflightEntry {
+  controller: AbortController;
+  snapshotSeq: number;
+}
+
+// Keyed on the remote key (e.g. "pane-store-v2"). One entry per key — a new
+// PUT for the same key aborts the prior inflight. See module header.
+const inflight = new Map<string, InflightEntry>();
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+/**
+ * Fire a PUT for `key` with inflight-abort semantics. If an older PUT for the
+ * same key is in flight it is aborted first. The retry chain uses the same
+ * AbortController so a newer PUT arriving mid-backoff cancels the chain.
+ */
+async function pushSnapshot(
+  key: string,
+  snapshot: unknown,
+  snapshotSeq: number,
+): Promise<void> {
+  const prior = inflight.get(key);
+  if (prior) prior.controller.abort();
+
+  const controller = new AbortController();
+  const entry: InflightEntry = { controller, snapshotSeq };
+  inflight.set(key, entry);
+
+  try {
+    await putWithRetry(key, snapshot, controller.signal, 0);
+  } finally {
+    // Only clear the slot if we're still the registered owner — a newer PUT
+    // may have replaced us (prior.controller.abort() on its entry) and we
+    // must not wipe its bookkeeping.
+    if (inflight.get(key) === entry) inflight.delete(key);
+  }
+}
+
+async function putWithRetry(
+  key: string,
+  snapshot: unknown,
+  signal: AbortSignal,
+  attempt: number,
+): Promise<void> {
+  try {
+    // Finding #10: tag the PUT with this tab's id so the server can echo it
+    // back on the broadcast as `sourceClientId`. syncWS.ts uses that as a
+    // defence-in-depth filter on top of `isSelfEcho(server_seq)` — catches
+    // the case where the ack is lost (crash mid-PUT, reconnect) while the
+    // broadcast still lands.
+    const res = await fetch(`/api/ui-state/${key}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Client-Id': getTabId(),
+      },
+      body: JSON.stringify(snapshot),
+      signal,
+    });
+    if (res.ok) {
+      try {
+        const body = (await res.json()) as { server_seq?: number } | null;
+        if (body && typeof body.server_seq === 'number') rememberLocalAck(body.server_seq);
+      } catch {
+        /* response may be empty / non-JSON; non-fatal */
+      }
+      return;
+    }
+    if (attempt < MAX_RETRIES) {
+      await backoffDelay(attempt, signal);
+      if (signal.aborted) return;
+      return putWithRetry(key, snapshot, signal, attempt + 1);
+    }
+  } catch (err) {
+    // AbortError is the coalesce path — a newer PUT took over. Silent.
+    if (isAbortError(err) || signal.aborted) return;
+    if (attempt < MAX_RETRIES) {
+      try {
+        await backoffDelay(attempt, signal);
+      } catch {
+        return;
+      }
+      if (signal.aborted) return;
+      return putWithRetry(key, snapshot, signal, attempt + 1);
+    }
+  }
+}
+
+/**
+ * Sleep for `BASE_BACKOFF_MS * 2^attempt` ms with ±20% jitter, resolving
+ * early (no throw) if `signal` is aborted — so a newer PUT can short-circuit
+ * the retry chain of a stale one.
+ */
+function backoffDelay(attempt: number, signal: AbortSignal): Promise<void> {
+  const backoff = BASE_BACKOFF_MS * Math.pow(2, attempt);
+  const jittered = backoff * (0.8 + Math.random() * 0.4);
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, jittered);
+    const onAbort = () => {
+      clearTimeout(t);
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Fire a PUT immediately via `fetch({ keepalive: true })`. Unlike sendBeacon,
+ * keepalive fetch survives the page teardown race AND exposes the Response, so
+ * we can parse `server_seq` and call `rememberLocalAck` — critical on the
+ * `visibilitychange === 'hidden'` path where the tab may resume and receive
+ * the WS broadcast of our own write (self-echo contract).
+ *
+ * Note: keepalive teardown-flush bypasses the inflight Map — the tab is
+ * going away (or about to), so stale-vs-fresh coalescing doesn't matter;
+ * we want the write to land, full stop.
+ */
+function flushNowKeepalive(): void {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  const snap = selectSyncableSnapshot(usePaneStore.getState());
+  void (async () => {
+    try {
+      // Finding #10: X-Client-Id on the keepalive teardown path too.
+      const res = await fetch(`/api/ui-state/${REMOTE_KEY}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': getTabId(),
+        },
+        body: JSON.stringify(snap),
+        keepalive: true,
+      });
+      if (res.ok) {
+        try {
+          const body = (await res.json()) as { server_seq?: number } | null;
+          if (body && typeof body.server_seq === 'number') rememberLocalAck(body.server_seq);
+        } catch { /* non-JSON response; non-fatal */ }
+      }
+    } catch {
+      // keepalive fetch failed (e.g. page tearing down too fast) — best effort.
+    }
+  })();
+}
+
+/**
+ * Fire-and-forget flush via `navigator.sendBeacon`. Used on `pagehide` where
+ * the page is terminating — the Response will never be read, so we cannot
+ * call `rememberLocalAck`. This is acceptable: after pagehide the tab won't
+ * resume to process WS frames, so the self-echo contract doesn't matter.
+ */
+function flushNowBeacon(): void {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  const snap = selectSyncableSnapshot(usePaneStore.getState());
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    try {
+      const blob = new Blob([JSON.stringify(snap)], { type: 'application/json' });
+      // Finding #10: sendBeacon can't set custom headers — use the `?cid=`
+      // query param instead. Server reads header first, falls back to query.
+      const beaconUrl = `/api/ui-state/${REMOTE_KEY}?cid=${encodeURIComponent(getTabId())}`;
+      if (navigator.sendBeacon(beaconUrl, blob)) return;
+    } catch { /* fall through to fetch */ }
+  }
+  // Beacon unavailable or failed — last resort; response won't be read but
+  // the write may still land if the browser hasn't torn down the process yet.
+  const seq = usePaneStore.getState().lastSeq;
+  void pushSnapshot(REMOTE_KEY, snap, seq);
+}
+
+export function initServerSync(): void {
+  if (started) return;
+  started = true;
+
+  usePaneStore.subscribe(
+    (s: PaneStore) => s.lastSeq,
+    () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        // selectSyncableSnapshot excludes focusedPaneId and pane.scrollOffset —
+        // device-local fields never cross the network per CONTEXT.md.
+        const state = usePaneStore.getState();
+        const snap = selectSyncableSnapshot(state);
+        void pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
+      }, DEBOUNCE_MS);
+    },
+  );
+
+  // Review-round-13: abort any inflight PUT on WS close. Rationale: when the
+  // socket drops, the connection that would deliver our PUT's ack is gone,
+  // and a retry-on-reconnect PUT would race against the fresh `ui-state:init`
+  // broadcast the server sends on WS reopen (our self-echo filter resets on
+  // 'open', so a post-reset ack could be misread as a remote frame). Simpler:
+  // abandon the in-flight write; the next `lastSeq` tick will re-push with
+  // the current state once the WS is back.
+  if (typeof window !== 'undefined') {
+    // Lazily import to avoid a circular dep at module init.
+    import('../../../lib/wsFrameBus').then(({ subscribeLifecycle }) => {
+      subscribeLifecycle((event) => {
+        if (event !== 'close') return;
+        for (const entry of inflight.values()) entry.controller.abort();
+        inflight.clear();
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      });
+    });
+  }
+
+  if (typeof window !== 'undefined') {
+    // pagehide → beacon (page is terminating; response can't be read anyway).
+    // visibilitychange hidden → keepalive fetch (tab may resume and receive the
+    // WS echo of this write, so we MUST parse server_seq for the self-echo
+    // contract — without it, HYDRATE re-applies and clobbers interim edits).
+    //
+    // Review-round-12 C1 (double-flush dedupe): On a real tab close,
+    // `visibilitychange(hidden)` fires first, then `pagehide`. Both ran a
+    // full flush — two PUTs for the same seq. The server LWW collapsed them,
+    // but it doubled load and muddied telemetry. We now track the seq we
+    // last flushed on this teardown cycle and skip the beacon if the
+    // keepalive already covered it. `lastSeq` rearms the guard whenever new
+    // state is produced, so a *genuine* resume-then-hide cycle still flushes.
+    let lastFlushedSeqOnHide = -1;
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'hidden') return;
+      const seq = usePaneStore.getState().lastSeq;
+      if (seq === lastFlushedSeqOnHide) return;
+      lastFlushedSeqOnHide = seq;
+      flushNowKeepalive();
+    });
+    window.addEventListener('pagehide', () => {
+      const seq = usePaneStore.getState().lastSeq;
+      if (seq === lastFlushedSeqOnHide) return; // keepalive already covered it
+      lastFlushedSeqOnHide = seq;
+      flushNowBeacon();
+    });
+  }
+}
+
+export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
+
+// ─── test-only exports ────────────────────────────────────────────────────
+/** Test/diagnostic — returns the inflight entries keyed by remote key. */
+export function __getInflightKeys(): string[] {
+  return [...inflight.keys()];
+}
+/** Test-only — resets the inflight Map. */
+export function __resetInflightForTests(): void {
+  for (const entry of inflight.values()) entry.controller.abort();
+  inflight.clear();
+}
+/** Test-only — directly invoke the inflight-aware PUT (bypasses debounce). */
+export function __pushSnapshotForTests(
+  key: string,
+  snapshot: unknown,
+  snapshotSeq: number,
+): Promise<void> {
+  return pushSnapshot(key, snapshot, snapshotSeq);
+}

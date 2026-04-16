@@ -6,13 +6,25 @@ import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
-import { PANE_CONFIG, isProjectPaneId, isBrowserPaneId, isTerminalPaneId, isSessionViewerPaneId, getTerminalSessionFromPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, getBrowserContextFromPaneId, createPaneId, isDraftPaneId } from '../../lib/paneConfig';
-import { useProjectTabStatus } from '../../hooks/useProjectTabStatus';
+import {
+  PANE_CONFIG,
+  isProjectPaneId,
+  isBrowserPaneId,
+  isTerminalPaneId,
+  isSessionViewerPaneId,
+  getTerminalSessionFromPaneId,
+  getProjectPathFromPaneId,
+  getSessionKeyFromViewerPaneId,
+  getBrowserContextFromPaneId,
+  createPaneId,
+  isDraftPaneId,
+  useProjectTabStatus,
+  type ProjectTabStatus,
+  loadPanelOrder,
+} from '../../state/pane/adapters';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
-import type { ProjectTabStatus } from '../../hooks/useProjectTabStatus';
 import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
-import { loadPanelOrder, usePanelOrderPersistence } from '../../hooks/usePanelOrder';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
 
@@ -145,28 +157,12 @@ export function StandaloneChatGroup({
   const topicIdsRef = useRef(topicIds);
   // ISSUE 3 fix: move ref assignment to useEffect instead of during render
   useEffect(() => { topicIdsRef.current = topicIds; });
-  // Persist tab order and pinned state (only for main group, not solo groups)
-  const pinnedArray = useMemo(() => Array.from(pinnedIds), [pinnedIds]);
-  usePanelOrderPersistence(
-    persistOrder ? orderedIds : [],
-    persistOrder ? pinnedArray : [],
-    useCallback((state) => {
-      if (state.order?.length > 0) {
-        setOrderedIds(prev => {
-          // Filter incoming order by our actual topicIds to prevent cross-group contamination
-          const validSet = new Set(topicIdsRef.current);
-          const filtered = state.order.filter(id => validSet.has(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id));
-          // Keep local-only panes not in the external state
-          const localOnly = prev.filter(id => (isBrowserPaneId(id) || isSessionViewerPaneId(id)) && !state.order.includes(id));
-          return [...filtered, ...localOnly];
-        });
-      }
-      if (state.pinned?.length > 0) {
-        setPinnedIds(new Set(state.pinned));
-      }
-    }, []),
-    persistOrder ? onWSMessage : undefined,
-  );
+  // Persistence of tab order + pinned state is handled by the pane-store
+  // middleware (persistLocal + syncServer + syncWS + syncCrossTab). This
+  // component keeps local `useState<orderedIds>` that is sync'd from the
+  // `topicIds` prop via App.tsx's store bridge; the previous
+  // `usePanelOrderPersistence` shim was an explicit no-op left over from the
+  // Phase-30 cutover and has been removed.
 
   // ISSUE 2 guard: orderedIds must NEVER contain an ID not in openPanels (topicIds)
   // This runs synchronously via useMemo so it's atomic with the render cycle

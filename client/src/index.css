@@ -64,7 +64,17 @@
   --blockquote-text: #6b7280;
   --kbd-text: #6b7280;
   --disabled-bg: #cccccc;
-  
+
+  /* Phase 30 devOverlay tokens (aliases — no visual change) */
+  --color-surface-raised: var(--bg-elevated);
+  --color-border-subtle: var(--border-subtle);
+  --color-text-primary: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-accent-success: #10b981;
+  --color-accent-warning: #f59e0b;
+  --font-ui: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -147,6 +157,10 @@
   --blockquote-text: #9ca3af;
   --kbd-text: #9ca3af;
   --disabled-bg: #444444;
+
+  /* Phase 30 devOverlay accent tokens (dark mode) */
+  --color-accent-success: #34d399;
+  --color-accent-warning: #fbbf24;
 }
 
 /* Global focus styles for keyboard navigation */
