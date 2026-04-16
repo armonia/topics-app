@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, Play } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -91,6 +91,7 @@ interface TerminalTab {
   id: string;
   label: string;
   stale?: boolean;
+  ended?: boolean;
   type: 'shell' | 'claude-code';
 }
 
@@ -260,7 +261,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
 
       ws.onopen = () => {
         retryCount = 0;
-        setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: false } : t));
+        setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: false, ended: false } : t));
         fetch(`/api/terminal/sessions/${id}/resize`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -284,6 +285,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
           setTabs(prev => prev.map(t => t.id === id ? { ...t, stale: true } : t));
         } else if (event.code === 1000) {
           term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
+          setTabs(prev => prev.map(t => t.id === id && t.type === 'claude-code' ? { ...t, ended: true } : t));
         } else {
           // Unexpected disconnect — auto-reconnect
           if (retryCount < MAX_RETRIES) {
@@ -394,6 +396,28 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
       return next;
     });
   }, [activeTabId]);
+
+  const resumeTerminal = useCallback(async (id: string) => {
+    closingIdsRef.current.add(id);
+    const entry = terminalsRef.current.get(id);
+    if (entry) {
+      try { entry.ws.close(); } catch {}
+      try { entry.term.dispose(); } catch {}
+      terminalsRef.current.delete(id);
+    }
+    connectedIdsRef.current.delete(id);
+
+    try {
+      const res = await fetch(`/api/terminal/sessions/${id}/revive`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Revive failed: ${res.status}`);
+      closingIdsRef.current.delete(id);
+      setTabs(prev => prev.map(t => t.id === id ? { ...t, ended: false, stale: false } : t));
+      setTimeout(() => mountTerminal(id), 0);
+    } catch (err) {
+      console.error('Failed to resume terminal:', err);
+      closingIdsRef.current.delete(id);
+    }
+  }, [mountTerminal]);
 
   const replaceStaleTerminal = useCallback(async (oldId: string) => {
     closingIdsRef.current.add(oldId);
@@ -579,11 +603,11 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
                   activeTabId === tab.id
                     ? 'bg-surface text-app-text'
                     : 'text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover'
-                } ${tab.stale ? 'opacity-60' : ''}`}
+                } ${tab.stale || tab.ended ? 'opacity-60' : ''}`}
                 onClick={() => setActiveTabId(tab.id)}
               >
                 {tab.type === 'claude-code' ? (
-                  <ClaudeIcon size={12} className={`${tab.stale ? 'text-yellow-500' : 'text-[#D97757]'}`} />
+                  <ClaudeIcon size={12} className={`${tab.stale ? 'text-yellow-500' : tab.ended ? 'text-sky-500' : 'text-[#D97757]'}`} />
                 ) : (
                   <TerminalSquare size={12} className={tab.stale ? 'text-yellow-500' : ''} />
                 )}
@@ -595,6 +619,15 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
                     title="Session expired - click to restart"
                   >
                     <RefreshCw size={10} />
+                  </button>
+                )}
+                {tab.ended && !tab.stale && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); resumeTerminal(tab.id); }}
+                    className="ml-0.5 w-4 h-4 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-sky-500 hover:text-sky-400"
+                    title="Claude session ended - click to resume"
+                  >
+                    <Play size={10} />
                   </button>
                 )}
                 <button
@@ -731,6 +764,20 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
               >
                 <RefreshCw size={12} />
                 Start New Session
+              </button>
+            </div>
+          </div>
+        )}
+        {activeTab?.ended && !activeTab.stale && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
+            <div className="text-center">
+              <p className="text-app-text-muted text-[12px] mb-3">Claude session ended</p>
+              <button
+                onClick={() => resumeTerminal(activeTab.id)}
+                className="px-4 py-2 bg-app-hover text-app-text text-[12px] rounded-md flex items-center gap-2 mx-auto transition-colors"
+              >
+                <Play size={12} className="text-sky-500" />
+                Resume Claude
               </button>
             </div>
           </div>

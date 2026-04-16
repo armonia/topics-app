@@ -176,7 +176,17 @@ function handleBridgeMessage(msg: any) {
         sessionSockets.delete(msg.id);
       }
       if (exitedSession) {
-        try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]); } catch {}
+        // Preserve claude-code sessions with a claudeSessionId so the user can
+        // click "Resume" and relaunch claude with --resume <sessionId>. Dormant
+        // rows are garbage-collected after 1h by the existing cleanup logic.
+        const canResume = exitedSession.type === 'claude-code' && !!exitedSession.claudeSessionId;
+        try {
+          if (canResume) {
+            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [msg.id]);
+          } else {
+            getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]);
+          }
+        } catch {}
       }
       broadcastTerminalSessions();
       break;
@@ -470,17 +480,23 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
     const deleteMatch = matchRoute(pathname, "/api/terminal/sessions/:id") || matchRoute(pathname, "/api/terminal/:id");
     if (method === "DELETE" && deleteMatch) {
       const session = sessions.get(deleteMatch.id);
-      if (!session) return errorResponse(404, "Terminal session not found");
-      sendToBridge({ type: "kill", id: deleteMatch.id });
-      sessions.delete(deleteMatch.id);
-      const sockets = sessionSockets.get(deleteMatch.id);
-      if (sockets) {
-        for (const ws of sockets) {
-          try { ws.close(1000, "Session killed"); } catch {}
+      // Always try to clean up the DB row — the session may be dormant (PTY exited
+      // but row kept alive for Resume), in which case `session` is not in memory.
+      const db = getDatabase();
+      const dbRow = db.query("SELECT id FROM terminal_sessions WHERE id = ?").get(deleteMatch.id) as any;
+      if (!session && !dbRow) return errorResponse(404, "Terminal session not found");
+      if (session) {
+        sendToBridge({ type: "kill", id: deleteMatch.id });
+        sessions.delete(deleteMatch.id);
+        const sockets = sessionSockets.get(deleteMatch.id);
+        if (sockets) {
+          for (const ws of sockets) {
+            try { ws.close(1000, "Session killed"); } catch {}
+          }
         }
+        sessionSockets.delete(deleteMatch.id);
       }
-      sessionSockets.delete(deleteMatch.id);
-      try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [deleteMatch.id]); } catch {}
+      try { db.run("DELETE FROM terminal_sessions WHERE id = ?", [deleteMatch.id]); } catch {}
       broadcastTerminalSessions();
       return json({ ok: true });
     }
