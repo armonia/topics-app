@@ -132,19 +132,27 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
 
-  const handleLongPressStart = useCallback((paneId: string, x: number, y: number) => {
+  // Anchor menu to the tab's bottom-left edge with viewport-aware flipping.
+  const positionMenuForTab = useCallback((tabEl: HTMLElement) => {
+    const menuWidth = 160;
+    const menuHeight = 240;
+    const rect = tabEl.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
+    const fitsBelow = rect.bottom + 4 + menuHeight <= window.innerHeight - 8;
+    const top = fitsBelow ? rect.bottom + 4 : Math.max(8, rect.top - menuHeight - 4);
+    return { x: left, y: top };
+  }, []);
+
+  const handleLongPressStart = useCallback((paneId: string, tabEl: HTMLElement) => {
     longPressFiredRef.current = false;
     longPressTimerRef.current = setTimeout(() => {
       haptic('medium');
       longPressFiredRef.current = true;
-      const menuWidth = 160;
-      const menuHeight = 240;
-      const adjX = Math.min(x, window.innerWidth - menuWidth - 8);
-      const adjY = Math.min(y, window.innerHeight - menuHeight - 8);
-      setCtxMenu({ paneId, x: adjX, y: adjY });
+      const { x, y } = positionMenuForTab(tabEl);
+      setCtxMenu({ paneId, x, y });
       longPressTimerRef.current = null;
     }, 500);
-  }, []);
+  }, [positionMenuForTab]);
 
   const handleLongPressCancel = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -156,13 +164,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const handleContextMenu = useCallback((paneId: string) => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Position menu with edge detection
-    const menuWidth = 160;
-    const menuHeight = 240;
-    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 8);
-    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 8);
-    setCtxMenu({ paneId, x: Math.max(8, x), y: Math.max(8, y) });
-  }, []);
+    const { x, y } = positionMenuForTab(e.currentTarget as HTMLElement);
+    setCtxMenu({ paneId, x, y });
+  }, [positionMenuForTab]);
 
   const dragGhostRef = useRef<HTMLDivElement | null>(null);
   // Cleanup ghost element if component unmounts during drag
@@ -417,7 +421,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
-            onTouchStart={(e) => handleLongPressStart(pane.id, e.touches[0].clientX, e.touches[0].clientY)}
+            onTouchStart={(e) => handleLongPressStart(pane.id, e.currentTarget)}
             onTouchEnd={handleLongPressCancel}
             onTouchMove={handleLongPressCancel}
             draggable={!isTouch && !!onReorderPanes}
@@ -615,8 +619,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         document.body
       )}
 
-      {/* Right-click context menu */}
-      {ctxMenu && (
+      {/* Right-click context menu — portaled so position:fixed escapes transformed ancestors */}
+      {ctxMenu && createPortal(
         <div
           ref={ctxMenuRef}
           className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
@@ -721,7 +725,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               </>
             );
           })()}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
