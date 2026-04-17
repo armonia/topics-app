@@ -1,5 +1,5 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
-import React, { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -12,6 +12,16 @@ import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../li
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { isPlanResponse, PlanView } from './Chat/PlanView';
 import { AgentSpawnCard } from './Chat/AgentSpawnCard';
+
+/**
+ * Directory of the markdown file currently being previewed. Used by
+ * `markdownComponents.img` to resolve relative image srcs (e.g. `./foo.png`,
+ * `images/bar.png`, `../sibling/baz.png`) into absolute filesystem paths that
+ * the /api/media endpoint can serve. Null in chat-message contexts where
+ * markdown has no on-disk "home" — in that case relative srcs fall through
+ * to the existing plain-<img> fallback (preserving current behavior).
+ */
+export const MarkdownBaseDirContext = createContext<string | null>(null);
 
 /**
  * Close any open/incomplete markdown tokens so ReactMarkdown doesn't flicker
@@ -491,12 +501,30 @@ export const markdownComponents = {
     <li {...rest}>{highlightMentionsInChildren(children)}</li>
   ),
   img: ({ src, alt }: any) => {
+    const baseDir = useContext(MarkdownBaseDirContext);
     if (!src) return null;
+
+    // Pass-through for data/blob/http(s) — no rewriting, no MediaImage.
+    if (/^(data|blob|https?):/i.test(src)) {
+      return <img src={src} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
+    }
+
     // Normalize upload paths (handle both /uploads/x.png and topics-app/uploads/x.png)
     let normalizedSrc = src;
     if (src.includes('uploads/') && !src.startsWith('/') && !src.startsWith('http')) {
       normalizedSrc = '/uploads/' + src.split('uploads/').pop();
     }
+
+    // Resolve relative srcs against the active markdown file's directory (MD preview).
+    // `baseDir` is null in chat-message contexts, preserving today's behavior there.
+    if (baseDir && !normalizedSrc.startsWith('/')) {
+      try {
+        normalizedSrc = new URL(normalizedSrc, 'file://' + baseDir + '/').pathname;
+      } catch {
+        // Leave normalizedSrc unchanged on malformed URL input.
+      }
+    }
+
     // Serve /uploads/ paths directly (screenshots, attachments hosted by Topics server)
     if (normalizedSrc.startsWith('/uploads/')) return <MediaImage path={normalizedSrc} />;
     const isMediaPath = normalizedSrc.startsWith('/Users/') || normalizedSrc.startsWith('/tmp/');

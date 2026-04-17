@@ -3,7 +3,7 @@ import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { filesApi, gitApi } from '../../lib/api';
-import { markdownComponents } from '../MessageContent';
+import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 
@@ -36,6 +36,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
   const filename = filePath.split('/').pop() || filePath;
+  const mdBaseDir = filePath.substring(0, filePath.lastIndexOf('/'));
   const mediaType = getMediaType(filename);
   const isMedia = mediaType !== 'text';
   const isMd = /\.(md|mdx|markdown)$/i.test(filename);
@@ -202,11 +203,13 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
             />
           </Suspense>
         ) : mdPreview && isMd ? (
-          <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {content}
-            </ReactMarkdown>
-          </div>
+          <MarkdownBaseDirContext.Provider value={mdBaseDir}>
+            <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {content}
+              </ReactMarkdown>
+            </div>
+          </MarkdownBaseDirContext.Provider>
         ) : htmlPreview && isHtml ? (
           <HtmlPreview filePath={filePath} filename={filename} />
         ) : (
