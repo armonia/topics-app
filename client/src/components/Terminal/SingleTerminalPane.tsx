@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check } from 'lucide-react';
+import { attachTerminalTouchScroll } from './touchScroll';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -192,6 +193,8 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
 
     el.addEventListener('paste', handleImagePaste as unknown as EventListener, true);
 
+    const detachTouchScroll = attachTerminalTouchScroll(el, term);
+
     const doFit = () => { try { fitAddon.fit(); } catch {} };
     setTimeout(doFit, 50);
     setTimeout(doFit, 200);
@@ -281,6 +284,7 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
     return () => {
       intentionalClose = true;
       clearTimeout(retryTimer);
+      detachTouchScroll();
       el.removeEventListener('paste', handleImagePaste as unknown as EventListener, true);
       termRef.current?.ws.close();
       term.dispose();

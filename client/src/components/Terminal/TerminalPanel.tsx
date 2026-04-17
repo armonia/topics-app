@@ -7,6 +7,7 @@ import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2, ChevronUp, ChevronDo
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
+import { attachTerminalTouchScroll } from './touchScroll';
 
 // ── Mobile Terminal Toolbar ─────────────────────────────────────────────────
 interface TerminalToolbarProps {
@@ -175,7 +176,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const [isCreating, setIsCreating] = useState(false);
   const isDarkRef = useRef(isDark);
-  const terminalsRef = useRef<Map<string, { term: Terminal; fit: FitAddon; ws: WebSocket }>>(new Map());
+  const terminalsRef = useRef<Map<string, { term: Terminal; fit: FitAddon; ws: WebSocket; detachTouchScroll?: () => void }>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const sessionPickerRef = useRef<HTMLDivElement>(null);
@@ -239,6 +240,8 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
       }
     }));
     term.open(el);
+
+    const detachTouchScroll = attachTerminalTouchScroll(el, term);
 
     const doFit = () => { try { fitAddon.fit(); } catch {} };
     const t1 = setTimeout(doFit, 50);
@@ -327,7 +330,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
       }).catch(() => {});
     });
 
-    terminalsRef.current.set(id, { term, fit: fitAddon, ws });
+    terminalsRef.current.set(id, { term, fit: fitAddon, ws, detachTouchScroll });
     return true;
   }, []);
 
@@ -390,6 +393,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
     closingIdsRef.current.add(id);
     const entry = terminalsRef.current.get(id);
     if (entry) {
+      entry.detachTouchScroll?.();
       entry.ws.close();
       entry.term.dispose();
       terminalsRef.current.delete(id);
@@ -409,6 +413,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
     closingIdsRef.current.add(id);
     const entry = terminalsRef.current.get(id);
     if (entry) {
+      try { entry.detachTouchScroll?.(); } catch {}
       try { entry.ws.close(); } catch {}
       try { entry.term.dispose(); } catch {}
       terminalsRef.current.delete(id);
@@ -433,6 +438,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
     const type = oldTab?.type || 'shell';
     const entry = terminalsRef.current.get(oldId);
     if (entry) {
+      entry.detachTouchScroll?.();
       entry.ws.close();
       entry.term.dispose();
       terminalsRef.current.delete(oldId);
@@ -548,6 +554,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
       reconnectTimers.clear();
       for (const [id, entry] of terminalsRef.current) {
         closingIdsRef.current.add(id);
+        entry.detachTouchScroll?.();
         entry.ws.close();
         entry.term.dispose();
       }
