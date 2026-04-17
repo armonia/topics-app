@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { filesApi, gitApi } from '../../lib/api';
 import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
@@ -205,7 +206,11 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
         ) : mdPreview && isMd ? (
           <MarkdownBaseDirContext.Provider value={mdBaseDir}>
             <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={markdownComponents}
+              >
                 {content}
               </ReactMarkdown>
             </div>
