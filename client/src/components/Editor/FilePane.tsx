@@ -205,7 +205,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
           </Suspense>
         ) : mdPreview && isMd ? (
           <MarkdownBaseDirContext.Provider value={mdBaseDir}>
-            <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none">
+            <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw]}

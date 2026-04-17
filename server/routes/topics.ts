@@ -2478,8 +2478,11 @@ Wait for the user to approve the plan before executing any changes.` };
     if (method === "GET" && pathname === "/api/media") {
       const filePath = url.searchParams.get("path");
       if (!filePath) return json({ error: "path parameter required" }, 400);
-      const resolved = resolve(filePath);
-      if (!ctx.isPathAllowed(resolved)) return json({ error: "forbidden: path not in allowed directories" }, 403);
+      // Prefer the media allowlist for cacheable project media; fall back to
+      // resolveProjectPath so sibling images of any openable MD file load.
+      // Symmetric with /api/files/content which also uses resolveProjectPath.
+      let resolved = ctx.isPathAllowed(resolve(filePath)) ? resolve(filePath) : ctx.resolveProjectPath(filePath);
+      if (!resolved) return json({ error: "forbidden: invalid path" }, 403);
       if (!existsSync(resolved)) return new Response("Not Found", { status: 404 });
       const file = Bun.file(resolved);
       const contentType = ctx.getMimeType(resolved);
