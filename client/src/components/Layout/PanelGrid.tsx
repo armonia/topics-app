@@ -192,10 +192,6 @@ export function PanelGrid({
   const [standaloneHasUtility, setStandaloneHasUtility] = useState(false);
   const handleStandaloneUtilityChange = useCallback((has: boolean) => setStandaloneHasUtility(has), []);
 
-  // Pending split placement: when a pane is split, we track where the new solo key should go
-  // so the sync effect places it correctly instead of dumping into the first row
-  const pendingSplitRef = useRef<{ key: string; direction: 'right' | 'down'; nearKey: string } | null>(null);
-
   /* ---- Build natural grid items (flat) ---- */
   const naturalGridItems = useMemo<GridItem[]>(() => {
     const items: GridItem[] = [];
@@ -256,52 +252,15 @@ export function PanelGrid({
       const existing = new Set(rows.flatMap(r => r.itemKeys));
       const newKeys = naturalGridItems.map(i => i.key).filter(k => !existing.has(k));
 
-      // 4. Add new keys — check pendingSplitRef for directed placement
+      // 4. Add new keys: when there are no rows yet they all share the first
+      // (and only) row; otherwise they fold into the existing first row. Split
+      // placement is owned by `handleSplitPane` which writes the new row/col
+      // synchronously into `gridRows`, so by the time this effect runs the
+      // split key is already accounted for in step 1's "kept" check.
       if (newKeys.length > 0) {
-        const pending = pendingSplitRef.current;
-
         if (rows.length === 0) {
           rows = [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
-          pendingSplitRef.current = null;
-        } else if (pending && newKeys.includes(pending.key)) {
-          // Place the pending split key according to its direction
-          const remainingKeys = newKeys.filter(k => k !== pending.key);
-
-          // Find which row contains the nearKey
-          let nearRowIdx = -1, nearColIdx = -1;
-          for (let r = 0; r < rows.length; r++) {
-            const c = rows[r].itemKeys.indexOf(pending.nearKey);
-            if (c >= 0) { nearRowIdx = r; nearColIdx = c; break; }
-          }
-
-          if (nearRowIdx >= 0) {
-            if (pending.direction === 'right') {
-              // Insert as new column to the right in the same row
-              const row = rows[nearRowIdx];
-              row.itemKeys.splice(nearColIdx + 1, 0, pending.key);
-              row.widths = row.itemKeys.map(() => 1 / row.itemKeys.length);
-            } else {
-              // Create a new row below
-              const newRow: PanelGridRow = { itemKeys: [pending.key], widths: [1] };
-              rows.splice(nearRowIdx + 1, 0, newRow);
-            }
-          } else {
-            // Fallback: add to first row
-            const first = rows[0];
-            first.itemKeys.push(pending.key);
-            first.widths = first.itemKeys.map(() => 1 / first.itemKeys.length);
-          }
-
-          // Add any remaining new keys to first row
-          if (remainingKeys.length > 0) {
-            const first = rows[0];
-            const allKeys = [...first.itemKeys, ...remainingKeys];
-            rows[0] = { itemKeys: allKeys, widths: allKeys.map(() => 1 / allKeys.length) };
-          }
-
-          pendingSplitRef.current = null;
         } else {
-          // Default: add new keys to first row
           const first = rows[0];
           const allKeys = [...first.itemKeys, ...newKeys];
           rows = [{ itemKeys: allKeys, widths: allKeys.map(() => 1 / allKeys.length) }, ...rows.slice(1)];
