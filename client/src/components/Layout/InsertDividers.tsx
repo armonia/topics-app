@@ -1,0 +1,184 @@
+import { useCallback, useState } from 'react';
+import { DND_TYPES } from '../../lib/dndTypes';
+
+/**
+ * Drag-aware divider that sits between two grid cells.
+ *
+ * Idle state: a 1px hairline rendered identically to the previous static
+ * divider (same hover-to-primary tint), so the existing "drag handle to
+ * resize" UX is unchanged. The 6px hit-box (via the inner ±3px overlay) is
+ * preserved for the resize cursor.
+ *
+ * Drag-active state (a tab or grid item is being dragged anywhere in the
+ * grid): the divider widens its drop target to ±15px and renders a thicker
+ * primary-tinted indicator on hover, so the user gets clear feedback that
+ * dropping HERE inserts the dragged tab BETWEEN the two adjacent cells.
+ *
+ * The actual insert math lives in PanelGrid via `onInsertBetween` — this
+ * component is a thin event router.
+ */
+
+interface ColumnInsertDividerProps {
+  rowIdx: number;
+  colIdx: number;
+  widths: number[];
+  isDragActive: boolean;
+  onResizeStart: (e: React.MouseEvent) => void;
+  /**
+   * Called when a tab/grid-item is dropped on the divider. The handler
+   * receives the (rowIdx, colIdx) of the LEFT cell — the insert point is
+   * `colIdx + 1`.
+   */
+  onInsertBetween: (rowIdx: number, colIdx: number, e: React.DragEvent) => void;
+}
+
+export function ColumnInsertDivider({
+  rowIdx,
+  colIdx,
+  widths: _widths,
+  isDragActive,
+  onResizeStart,
+  onInsertBetween,
+}: ColumnInsertDividerProps) {
+  const [hoverDuringDrag, setHoverDuringDrag] = useState(false);
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!isDragActive) return;
+      const types = e.dataTransfer.types;
+      if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      e.preventDefault();
+      // stop the surrounding cell's dragover from re-claiming the drop target
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setHoverDuringDrag(true);
+    },
+    [isDragActive],
+  );
+
+  const handleDragLeave = useCallback(() => setHoverDuringDrag(false), []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      setHoverDuringDrag(false);
+      if (!isDragActive) return;
+      const types = e.dataTransfer.types;
+      if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onInsertBetween(rowIdx, colIdx, e);
+    },
+    [isDragActive, onInsertBetween, rowIdx, colIdx],
+  );
+
+  return (
+    <div
+      className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+      data-panel-divider-row={rowIdx}
+      data-panel-divider-col={colIdx}
+      onMouseDown={onResizeStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Resize hit-box: 6px wide centered on the 1px line */}
+      <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
+      {/* Drop hit-box: only renders during a drag, 30px wide centered */}
+      {isDragActive && (
+        <div
+          data-insert-divider-col={colIdx}
+          className="absolute inset-y-0 -left-[15px] -right-[15px] z-20"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        />
+      )}
+      {/* Visible drop indicator centered on the divider */}
+      {hoverDuringDrag && (
+        <div
+          aria-hidden
+          className="absolute inset-y-0 -left-[2px] -right-[2px] bg-primary rounded-sm pointer-events-none"
+          style={{ boxShadow: '0 0 0 1px var(--primary)' }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface RowInsertDividerProps {
+  rowIdx: number;
+  isDragActive: boolean;
+  onResizeStart: (e: React.MouseEvent) => void;
+  /**
+   * Called when a tab/grid-item is dropped on the divider. The handler
+   * receives the rowIdx of the row ABOVE the divider — the insert point
+   * is `rowIdx + 1`.
+   */
+  onInsertBetween: (rowIdx: number, e: React.DragEvent) => void;
+}
+
+export function RowInsertDivider({
+  rowIdx,
+  isDragActive,
+  onResizeStart,
+  onInsertBetween,
+}: RowInsertDividerProps) {
+  const [hoverDuringDrag, setHoverDuringDrag] = useState(false);
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!isDragActive) return;
+      const types = e.dataTransfer.types;
+      if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setHoverDuringDrag(true);
+    },
+    [isDragActive],
+  );
+
+  const handleDragLeave = useCallback(() => setHoverDuringDrag(false), []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      setHoverDuringDrag(false);
+      if (!isDragActive) return;
+      const types = e.dataTransfer.types;
+      if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onInsertBetween(rowIdx, e);
+    },
+    [isDragActive, onInsertBetween, rowIdx],
+  );
+
+  return (
+    <div
+      className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+      data-panel-row-divider={rowIdx}
+      onMouseDown={onResizeStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
+      {isDragActive && (
+        <div
+          data-insert-divider-row={rowIdx}
+          className="absolute inset-x-0 -top-[15px] -bottom-[15px] z-20"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        />
+      )}
+      {hoverDuringDrag && (
+        <div
+          aria-hidden
+          className="absolute inset-x-0 -top-[2px] -bottom-[2px] bg-primary rounded-sm pointer-events-none"
+          style={{ boxShadow: '0 0 0 1px var(--primary)' }}
+        />
+      )}
+    </div>
+  );
+}

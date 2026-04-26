@@ -5,6 +5,7 @@ import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
+import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
@@ -488,6 +489,17 @@ export function PanelGrid({
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [emptyDragOver, setEmptyDragOver] = useState(false);
+  /**
+   * True while a tab or grid-item drag is in progress anywhere within the
+   * grid — used by InsertDividers to widen their drop hit-zone (1px → 30px)
+   * and render the visible drop indicator. PanelGrid receives `dragstart`
+   * via React bubbling from any descendant tab-bar or grid cell. We don't
+   * inspect `dataTransfer.types` here (would force preventing fast paths);
+   * the divider's own dragover already filters on type before accepting.
+   */
+  const [isAnyDragActive, setIsAnyDragActive] = useState(false);
+  const handleAnyDragStart = useCallback(() => setIsAnyDragActive(true), []);
+  const handleAnyDragEnd = useCallback(() => setIsAnyDragActive(false), []);
 
   const handleDragStart = useCallback((topicId: string) => (e: React.DragEvent) => {
     setDraggingId(topicId);
@@ -635,15 +647,28 @@ export function PanelGrid({
     gridDropTargetRef.current = null;
   }, []);
 
-  const handleGridItemDropCapture = useCallback((e: React.DragEvent) => {
+  const handleGridItemDropCapture = useCallback((
+    e: React.DragEvent,
+    /**
+     * Optional explicit drop spec from a non-cell drop surface (e.g. an
+     * insert-between divider). When provided, we trust the caller's
+     * (rowIdx, colIdx, zone) rather than recomputing from the pointer
+     * relative to `e.currentTarget` (which would be the divider, not the
+     * target cell). The drag payload (PANE_TAB / GRID_ITEM) on the event
+     * is still read normally.
+     */
+    explicitTarget?: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right' },
+  ) => {
     // Read from ref for synchronous access (state may lag behind after dragover)
-    const dropTarget = gridDropTargetRef.current;
+    const dropTarget = explicitTarget ?? gridDropTargetRef.current;
     if (!dropTarget) return;
 
-    // Re-verify drop zone from actual mouse position at drop time.
-    // The dragover ref may be stale if the mouse moved between last dragover
-    // and drop (fast edge-to-edge drags can drop a frame of dragover events).
-    const actualZone = computeDropZone(e, e.currentTarget as HTMLElement);
+    // Re-verify drop zone from actual mouse position at drop time — but only
+    // for cell drops. Divider drops pass `explicitTarget`; recomputing from
+    // the divider element would always yield a useless 'center'/'left' value.
+    const actualZone = explicitTarget
+      ? explicitTarget.zone
+      : computeDropZone(e, e.currentTarget as HTMLElement);
 
     let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
@@ -661,9 +686,10 @@ export function PanelGrid({
       // GRID_ITEM drops suffer the same dragover-lag risk: fast edge-to-edge
       // drags can leave dropTarget.zone one frame behind the cursor. Sync
       // both zone and centerSide from the actual pointer position so the
-      // reorder/split below acts on where the mouse actually is at drop.
+      // reorder/split below acts on where the mouse actually is at drop —
+      // unless the caller explicitly told us where to land (divider drops).
       dropTarget.zone = actualZone;
-      if (actualZone === 'center') {
+      if (!explicitTarget && actualZone === 'center') {
         const cell = e.currentTarget as HTMLElement;
         const rect = cell.getBoundingClientRect();
         dropTarget.centerSide =
@@ -849,6 +875,38 @@ export function PanelGrid({
     gridDropTargetRef.current = null;
   }, [itemMap]);
 
+  /* ---- Insert-between handlers (column / row dividers) ----
+   *
+   * Both delegate the actual reshape into `setGridRows` to the same logic the
+   * cell-edge drop uses (lines ~700-845). Repeating that block inline would
+   * accumulate two parallel implementations; instead we synthesize a drop
+   * target that the existing handler already understands:
+   *
+   *   - column divider between cells N and N+1 → target cell N, zone='right'
+   *   - row divider between rows N and N+1     → target cell at row N
+   *                                              col 0, zone='bottom'
+   *
+   * The drag's data payload (PANE_TAB / GRID_ITEM) is intact on the event so
+   * the existing path picks it up unchanged.
+   */
+
+  const handleInsertBetweenColumns = useCallback(
+    (rowIdx: number, colIdx: number, e: React.DragEvent) => {
+      handleGridItemDropCapture(e, { rowIdx, colIdx, zone: 'right' });
+    },
+    [handleGridItemDropCapture],
+  );
+
+  const handleInsertBetweenRows = useCallback(
+    (rowIdx: number, e: React.DragEvent) => {
+      // Use col 0 of the row above the divider as the anchor; the existing
+      // handler reads `targetKey` from `gridRows[rowIdx].itemKeys[colIdx]`
+      // to position the new row, then `zone='bottom'` inserts BELOW it.
+      handleGridItemDropCapture(e, { rowIdx, colIdx: 0, zone: 'bottom' });
+    },
+    [handleGridItemDropCapture],
+  );
+
   /* ---- External drop zone (cross-window drag) ---- */
   const [showExternalDropZone, setShowExternalDropZone] = useState(false);
   const externalDropTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -931,7 +989,8 @@ export function PanelGrid({
     <div
       ref={containerRef}
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
-      onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); }}
+      onDragStartCapture={handleAnyDragStart}
+      onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); handleAnyDragEnd(); }}
     >
       {/* External drop zone overlay (cross-window drag from another window) */}
       {showExternalDropZone && externalDragTopicId && onExternalDrop && (
@@ -1070,14 +1129,14 @@ export function PanelGrid({
 
                   {/* Column divider (between items in a row) — hidden on mobile */}
                   {colIdx < row.itemKeys.length - 1 && !isMobile && (
-                    <div
-                      className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
-                      data-panel-divider-row={rowIdx}
-                      data-panel-divider-col={colIdx}
-                      onMouseDown={startHorizontalResize(rowIdx, colIdx, row.widths)}
-                    >
-                      <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
-                    </div>
+                    <ColumnInsertDivider
+                      rowIdx={rowIdx}
+                      colIdx={colIdx}
+                      widths={row.widths}
+                      isDragActive={isAnyDragActive}
+                      onResizeStart={startHorizontalResize(rowIdx, colIdx, row.widths)}
+                      onInsertBetween={handleInsertBetweenColumns}
+                    />
                   )}
                 </Fragment>
               );
@@ -1086,13 +1145,12 @@ export function PanelGrid({
 
           {/* Row divider (between rows) — hidden on mobile */}
           {rowIdx < gridRows.length - 1 && !isMobile && (
-            <div
-              className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
-              data-panel-row-divider={rowIdx}
-              onMouseDown={startVerticalResize(rowIdx, gridRowHeights)}
-            >
-              <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
-            </div>
+            <RowInsertDivider
+              rowIdx={rowIdx}
+              isDragActive={isAnyDragActive}
+              onResizeStart={startVerticalResize(rowIdx, gridRowHeights)}
+              onInsertBetween={handleInsertBetweenRows}
+            />
           )}
         </Fragment>
       ))}
