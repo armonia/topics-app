@@ -79,25 +79,86 @@ interface PersistedLayoutState {
 /** Combined state for loading */
 interface PersistedState extends PersistedTabState, PersistedLayoutState {}
 
+/** Drop the project's own wrapper pane from a flat list — it must never be
+ * embedded as one of its own children (would resurface on reload as a
+ * phantom unkillable tab). Centralized so all three sites that need this
+ * filter (load, useState seed, persist effect) stay in sync. */
+function stripWrapperPaneId<T extends { id: string }>(
+  panes: T[],
+  projectPath: string,
+): T[] {
+  const wrapperId = createPaneId('project', projectPath);
+  return panes.filter(p => p.id !== wrapperId);
+}
+
+/** Subscribe to async hydration of `projects[path]` from the pane reducer
+ * (WS init, cross-device sync). Wraps `loadProjectLayout`'s callback param
+ * with shape-detection so callers always receive a `PersistedTabState`,
+ * never the foreign top-level reducer shape. Replaces the earlier pattern
+ * that called `loadProjectLayout` for its side-effect and discarded the
+ * return value with `void _unused`. */
+function subscribeToProjectLayout(
+  projectPath: string,
+  onUpdate: (fresh: PersistedTabState) => void,
+): void {
+  loadProjectLayout(
+    storageKey(projectPath),
+    projectPath,
+    (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const r = raw as Record<string, unknown>;
+      if (Array.isArray(r.nonChatPanes)) {
+        onUpdate(raw as PersistedTabState);
+      } else if (r.panes && typeof r.panes === 'object' && !Array.isArray(r.panes)) {
+        const all = Object.values(r.panes as Record<string, Pane>);
+        onUpdate({
+          nonChatPanes: stripWrapperPaneId(
+            all.filter(p => p.type !== 'chat' && !p.preview),
+            projectPath,
+          ),
+          openChatTopicIds: all
+            .filter(p => p.type === 'chat' && !!p.topicId)
+            .map(p => p.topicId!),
+        });
+      }
+    },
+  );
+}
+
 function loadPersistedState(
   projectPath: string,
   onUpdate?: (fresh: PersistedTabState) => void
 ): PersistedState | null {
-  const tabState = loadProjectLayout(
-    storageKey(projectPath),
-    projectPath,
-    onUpdate as ((fresh: unknown) => void) | undefined,
-  ) as PersistedTabState | null;
-  // Merge layout from local-only storage
+  // Read tab state directly from this project's localStorage key. We used to
+  // go through `loadProjectLayout`, which preferred the pane-store reducer's
+  // `projects[path]` snapshot — but that snapshot is captured from the
+  // *top-level* pane-store state and uses a completely different shape
+  // (`{panes: Record<id, Pane>, groups: Group[], groupOrder, …}` vs our
+  // `{nonChatPanes, openChatTopicIds, activeChatTopicId}`). The blind cast
+  // produced `nonChatPanes=undefined`, ProjectWindow mounted with `panes=[]`,
+  // the orphan-sync effect then stripped every paneId out of the saved
+  // groups, and the migration effect rebuilt a single default group —
+  // collapsing every persisted split on every reload. Worse, the snapshot
+  // included the project's *own wrapper pane* (`project:<path>`), which
+  // would resurface as a phantom tab inside the project that wouldn't close.
+  // The localStorage tab key is the canonical source of truth for this
+  // window's child panes; the server fetch via `onUpdate` still races
+  // against it and overrides if newer.
+  let tabState: PersistedTabState | null = null;
+  try {
+    const raw = localStorage.getItem(storageKey(projectPath));
+    if (raw) tabState = JSON.parse(raw) as PersistedTabState;
+  } catch {}
+  // Best-effort: if the reducer hydrates `projects[path]` later (WS init,
+  // cross-device sync), forward the data converted into our shape so the
+  // chat-sync effect keeps re-filling missing tabs across devices.
+  if (onUpdate) subscribeToProjectLayout(projectPath, onUpdate);
+
   let layout: PersistedLayoutState | null = null;
   try {
-    const raw = localStorage.getItem(layoutStorageKey(projectPath));
-    if (raw) layout = JSON.parse(raw);
+    const lraw = localStorage.getItem(layoutStorageKey(projectPath));
+    if (lraw) layout = JSON.parse(lraw);
   } catch {}
-  // Fallback: old server data may contain layout fields (migration)
-  if (!layout && tabState && ('groups' in tabState || 'rows' in tabState)) {
-    layout = tabState as unknown as PersistedLayoutState;
-  }
   if (!tabState) return layout ? { nonChatPanes: [], ...layout } : null;
   return { ...tabState, ...layout };
 }
@@ -206,6 +267,11 @@ export function ProjectWindowPane({
   const initialChatsSyncedRef = useRef(false);
   const persisted = useRef(loadPersistedState(projectPath));
 
+  // The pane id this ProjectWindow renders under at the parent layout level.
+  // Computed once per projectPath; used wherever we need to compare against
+  // the wrapper (focus checks, "open me at top level", strip-from-children).
+  const wrapperPaneId = useMemo(() => createPaneId('project', projectPath), [projectPath]);
+
   // Responsive: overlay context inspector when window is narrow
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
   useEffect(() => { const h = () => setIsNarrow(window.innerWidth < 1024); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -214,10 +280,42 @@ export function ProjectWindowPane({
   const { pushClosedTab, popClosedTab, removeClosedTab } = useClosedTabs();
 
   // --- Core state ---
-  const [panes, setPanes] = useState<Pane[]>(() => persisted.current?.nonChatPanes || []);
-  const [groups, setGroups] = useState<PaneGroup[]>(() =>
-    (persisted.current?.groups || []).filter(g => g.paneIds.length > 0)
-  );
+  // Seed panes with BOTH non-chat panes AND chat-pane stubs derived from
+  // `openChatTopicIds`. The orphan-sync effect below filters group.paneIds
+  // against `panes`, so any chat pane id referenced in the saved layout but
+  // missing here would be silently stripped — collapsing the persisted split
+  // into a single default group on every reload (the symptom users reported
+  // as "split layout doesn't survive reload" inside project windows). The
+  // server-fetch callback in `loadPersistedState` later re-fills any stubs
+  // with fresh data without disturbing group structure.
+  const [panes, setPanes] = useState<Pane[]>(() => {
+    const seed: Pane[] = stripWrapperPaneId(
+      persisted.current?.nonChatPanes || [],
+      projectPath,
+    );
+    const seenIds = new Set(seed.map(p => p.id));
+    for (const topicId of persisted.current?.openChatTopicIds || []) {
+      const id = createPaneId('chat', topicId);
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      seed.push({
+        id,
+        type: 'chat',
+        topicId,
+        title: topics[topicId]?.name || 'Chat',
+        preview: false,
+      });
+    }
+    return seed;
+  });
+  const [groups, setGroups] = useState<PaneGroup[]>(() => {
+    return (persisted.current?.groups || [])
+      .map(g => ({
+        ...g,
+        paneIds: g.paneIds.filter(id => id !== wrapperPaneId),
+      }))
+      .filter(g => g.paneIds.length > 0);
+  });
   const pendingPreviewCloseRef = useRef<string | null>(null);
   const [rows, setRows] = useState<GroupLayoutRow[]>(() => persisted.current?.rows || []);
   const [rowHeights, setRowHeights] = useState<number[]>(() => persisted.current?.rowHeights || [1]);
@@ -277,7 +375,7 @@ export function ProjectWindowPane({
   }, [activeTopicId, onActiveTopicChange]);
 
   // Mark active topic as read when it changes within the project
-  const isProjectFocused = focusedPanelId === createPaneId('project', projectPath);
+  const isProjectFocused = focusedPanelId === wrapperPaneId;
   useEffect(() => {
     if (!isProjectFocused) return;
     if (activeTopicId) {
@@ -334,7 +432,14 @@ export function ProjectWindowPane({
   useEffect(() => {
     if (mountedRef.current) userEditedRef.current = true;
     else mountedRef.current = true;
-    const nonChatPanes = panes.filter(p => p.type !== 'chat' && !p.preview);
+    // Defensive: never persist the project's own wrapper pane as one of its
+    // child panes. If it ever sneaks in (e.g. from a corrupted snapshot), it
+    // would resurface on reload as an unkillable phantom tab inside the
+    // project window.
+    const nonChatPanes = stripWrapperPaneId(
+      panes.filter(p => p.type !== 'chat' && !p.preview),
+      projectPath,
+    );
     const openChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);
@@ -756,7 +861,7 @@ export function ProjectWindowPane({
     // is already updated above, so we just need the parent to stay on this project tab.
     // (Sending a raw topicId would fail orderedIds lookup and fall back to orderedIds[0],
     // switching away from this project.)
-    onFocusPanel(createPaneId('project', projectPath));
+    onFocusPanel(wrapperPaneId);
   }, [onFocusPanel, projectPath]);
 
   const handleClosePane = useCallback((groupId: string, paneId: string) => {
@@ -1303,6 +1408,25 @@ export function ProjectWindowPane({
     const pane = panes.find(p => p.id === paneId);
     if (!pane) return;
 
+    // Same-group split where source has only this one pane is a logical
+    // no-op: removing the pane empties the source group (which then gets
+    // filtered), so the "target" group disappears from rows before we can
+    // insert next to it — leaving newGroup orphaned with no row reference.
+    // Bail out cleanly with a console hint rather than corrupt state.
+    // Future: route this case to "create new chat in adjacent group".
+    if (sourceGroupId === targetGroupId) {
+      const sourceGroup = groups.find(g => g.id === sourceGroupId);
+      if (sourceGroup && sourceGroup.paneIds.length <= 1) {
+        if (typeof console !== 'undefined') {
+          console.warn(
+            '[ProjectWindow] split-into-self with single-pane source is a no-op; ' +
+            'use the "+" menu to add a new pane, then drag-drop on edge to split.',
+          );
+        }
+        return;
+      }
+    }
+
     const newGroupId = createGroupId();
     const newGroup: PaneGroup = {
       id: newGroupId,
@@ -1359,7 +1483,7 @@ export function ProjectWindowPane({
     });
 
     setFocusedGroupId(newGroupId);
-  }, [panes]);
+  }, [panes, groups]);
 
   const handleReorderRows = useCallback((newRowOrder: number[]) => {
     setRows(prev => {
@@ -1423,7 +1547,7 @@ export function ProjectWindowPane({
         return (
           <ChatPane
             topic={topic}
-            isFocused={isFocused && focusedPanelId === createPaneId('project', projectPath)}
+            isFocused={isFocused && focusedPanelId === wrapperPaneId}
             getSessionMessages={getSessionMessages}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}

@@ -1313,8 +1313,15 @@ let assetWatcher: fs.FSWatcher | null = null;
 let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startAssetWatcher(): void {
-  const publicDir = path.join(__dirname, '..', 'public');
-  if (!fs.existsSync(publicDir)) {
+  // __dirname is electron-app/dist/, /public lives at workspace root
+  // (topics-app/public). Earlier path joined to electron-app/public, which
+  // never exists, so the watcher silently no-op'd — auto-reload was dead.
+  const candidates = [
+    path.join(__dirname, '..', '..', 'public'),
+    path.join(__dirname, '..', 'public'),
+  ];
+  const publicDir = candidates.find(p => fs.existsSync(p));
+  if (!publicDir) {
     console.log('[Topics Electron] /public/ directory not found, skipping asset watcher');
     return;
   }

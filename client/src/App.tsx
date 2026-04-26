@@ -29,7 +29,7 @@ import {
   isKnownPanePrefix,
   isUUIDLike,
 } from './state/pane/adapters';
-import { usePaneStore } from './state/pane/store';
+import { usePaneStore, findPaneLocation } from './state/pane/store';
 
 
 import { TopicTree } from './components/Sidebar/TopicTree';
@@ -1110,6 +1110,23 @@ function App() {
     // Capture panel index for undo
     let panelIndex = 0;
 
+    // Tell the pane-store the pane is closed BEFORE updating openPanels.
+    // The mirror effect dispatches REORDER_PANES, which is a *permutation*
+    // primitive — its reducer appends back any current panes missing from
+    // the payload (groups.ts: "never silently lose a tab from the bar"),
+    // so REORDER alone can't remove a pane. Without this CLOSE_PANE
+    // dispatch the close click is a visual no-op.
+    {
+      const s = usePaneStore.getState();
+      const loc = findPaneLocation(s, topicId);
+      if (loc && s.panes[topicId]) {
+        s.dispatch({
+          type: 'CLOSE_PANE',
+          payload: { id: topicId, groupId: loc.groupId, groupIndex: loc.groupIndex },
+        });
+      }
+    }
+
     setOpenPanels(prev => {
       panelIndex = prev.indexOf(topicId);
       const next = prev.filter(id => id !== topicId);
@@ -1282,6 +1299,33 @@ function App() {
       recentlyCreatedTerminalsRef.current.set(data.id, Date.now());
       // Optimistic update so label is available immediately
       setTerminalSessions(prev => prev.some(s => s.id === data.id) ? prev : [...prev, { id: data.id, name: data.name || name, createdAt: data.createdAt, cwd: data.cwd, command: data.command, clients: 0, topicId: data.topicId, type: data.type }]);
+      // Register the pane entity in the store BEFORE pushing it into
+      // openPanels. The bridge effect mirrors `openPanels` into the store via
+      // REORDER_PANES, which is a permutation primitive — it filters out any
+      // id that doesn't already exist as a pane entity. Without this dispatch
+      // the new terminal id never reaches `state.panes`, so REORDER drops it
+      // and the "+" → Claude Code menu silently does nothing.
+      // Pick the host group from where the user currently has focus rather
+      // than hardcoding 'group:default' — otherwise terminals created while
+      // a non-default group is focused get stranded in the wrong bucket.
+      {
+        const s = usePaneStore.getState();
+        const focusLoc = s.focusedPaneId
+          ? findPaneLocation(s, s.focusedPaneId)
+          : null;
+        const targetGroupId = focusLoc?.groupId ?? 'group:default';
+        s.dispatch({
+          type: 'OPEN_PANE',
+          payload: {
+            id: paneId,
+            type: 'terminal',
+            title: data.name || name,
+            terminalType: termType,
+            preview: false,
+            groupId: targetGroupId,
+          },
+        });
+      }
       setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
       setFocusedPanelId(paneId);
       // Auto-solo so the new terminal lands in its own grid cell instead of

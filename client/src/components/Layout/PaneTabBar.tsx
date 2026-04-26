@@ -7,6 +7,7 @@ import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
@@ -367,15 +368,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               setDragOverIdx(null);
               return;
             }
-            // Non-project groups: edge-only split (30px border zones)
+            // Non-project groups: edge-only split (EDGE_DROP_PX border zones)
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const x = e.clientX - rect.left;
-            const edgeSize = 30;
-            if (x < edgeSize) {
+            if (x < EDGE_DROP_PX) {
               setEdgeSplitZone('left');
               setDragOverIdx(null);
               return;
-            } else if (x > rect.width - edgeSize) {
+            } else if (x > rect.width - EDGE_DROP_PX) {
               setEdgeSplitZone('right');
               setDragOverIdx(null);
               return;

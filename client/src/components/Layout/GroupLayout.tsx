@@ -4,6 +4,8 @@ import { PaneTabBar } from './PaneTabBar';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
+import { useRefMirror } from '../../hooks/useRefMirror';
+import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -33,7 +35,6 @@ interface GroupLayoutProps {
   onPinPane?: (groupId: string, paneId: string) => void;
 }
 
-type EdgeZone = 'left' | 'right' | 'top' | 'bottom' | null;
 
 export function GroupLayout({
   panes, groups, rows, rowHeights, focusedGroupId,
@@ -104,6 +105,11 @@ export function GroupLayout({
 
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
   const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone } | null>(null);
+  // Ref mirror so the drop handler always sees the latest target — React
+  // state from `setEdgeDropTarget` may not be committed yet when `drop`
+  // fires in the same frame as `dragover`, causing fast drops to silently
+  // no-op (the "drop twice to land" bug).
+  const edgeDropTargetRef = useRefMirror(edgeDropTarget);
 
   const handleGroupContentDragOver = useCallback((groupId: string) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
@@ -116,29 +122,34 @@ export function GroupLayout({
     if (!onSplitGroup) return;
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const edgeSize = 30;
-
-    let edge: EdgeZone = null;
-    if (x < edgeSize) edge = 'left';
-    else if (x > rect.width - edgeSize) edge = 'right';
-    else if (y < edgeSize) edge = 'top';
-    else if (y > rect.height - edgeSize) edge = 'bottom';
+    // 4-zone (no center) — within a group's content area we only care about
+    // edges; the center area is owned by the active pane content / tab bar.
+    const edge = detectDropZone(e, rect, 'edges') as EdgeZone | null;
 
     if (edge) {
-      setEdgeDropTarget({ groupId, edge });
+      const next = { groupId, edge };
+      edgeDropTargetRef.current = next;
+      setEdgeDropTarget(next);
     } else {
-      setEdgeDropTarget(prev => prev?.groupId === groupId ? null : prev);
+      if (edgeDropTargetRef.current?.groupId === groupId) {
+        edgeDropTargetRef.current = null;
+        setEdgeDropTarget(null);
+      }
     }
-  }, [onSplitGroup]);
+  }, [onSplitGroup, edgeDropTargetRef]);
 
   const handleGroupContentDragLeave = useCallback((groupId: string) => () => {
-    setEdgeDropTarget(prev => prev?.groupId === groupId ? null : prev);
-  }, []);
+    if (edgeDropTargetRef.current?.groupId === groupId) {
+      edgeDropTargetRef.current = null;
+      setEdgeDropTarget(null);
+    }
+  }, [edgeDropTargetRef]);
 
   const handleGroupContentDrop = useCallback((groupId: string) => (e: React.DragEvent) => {
-    if (!edgeDropTarget || edgeDropTarget.groupId !== groupId || !edgeDropTarget.edge) return;
+    // Read from ref — state may lag the most recent dragover when drop fires
+    // back-to-back in the same frame.
+    const target = edgeDropTargetRef.current;
+    if (!target || target.groupId !== groupId || !target.edge) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -146,9 +157,10 @@ export function GroupLayout({
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     if (!sourcePaneId || !sourceGroupId) return;
 
-    onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, edgeDropTarget.edge);
+    onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, target.edge);
+    edgeDropTargetRef.current = null;
     setEdgeDropTarget(null);
-  }, [edgeDropTarget, onSplitGroup]);
+  }, [onSplitGroup, edgeDropTargetRef]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -330,6 +342,14 @@ export function GroupLayout({
                           }
                           onEdgeSplitDrop={onSplitGroup
                             ? (sourcePaneId, sourceGroupId, edge) => onSplitGroup(sourceGroupId, sourcePaneId, groupId, edge)
+                            : undefined
+                          }
+                          onSplitRight={onSplitGroup
+                            ? (paneId) => onSplitGroup(groupId, paneId, groupId, 'right')
+                            : undefined
+                          }
+                          onSplitDown={onSplitGroup
+                            ? (paneId) => onSplitGroup(groupId, paneId, groupId, 'bottom')
                             : undefined
                           }
                           contextPercent={contextPercent}

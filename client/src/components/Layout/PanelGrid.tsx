@@ -7,6 +7,9 @@ import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
+import { detectDropZone, type DropZone } from '../../lib/dropZone';
+import { useRefMirror } from '../../hooks/useRefMirror';
 
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
@@ -54,12 +57,6 @@ function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
-const MAX_COLS_PER_ROW = 4;
-const MAX_ROWS = 4;
-
-const DROP_EDGE_PX = 30;
-type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center';
-
 /**
  * Compute the drop zone under the cursor at the exact moment of drop.
  * dragover events can lag a frame behind the cursor on fast edge-to-edge
@@ -67,14 +64,9 @@ type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center';
  * whatever the last dragover recorded.
  */
 function computeDropZone(e: React.DragEvent, cell: HTMLElement): DropZone {
-  const rect = cell.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  if (x < DROP_EDGE_PX) return 'left';
-  if (x > rect.width - DROP_EDGE_PX) return 'right';
-  if (y < DROP_EDGE_PX) return 'top';
-  if (y > rect.height - DROP_EDGE_PX) return 'bottom';
-  return 'center';
+  // 5-zone (edges + center) — the inner area is meaningful here for tab
+  // reorder/merge intent. Non-null because mode is 'edges+center'.
+  return detectDropZone(e, cell.getBoundingClientRect(), 'edges+center')!;
 }
 
 /* ------------------------------------------------------------------ */
@@ -271,8 +263,7 @@ export function PanelGrid({
   // commits — closing over `naturalGridItems` from the effect schedule
   // would see a one-render-stale snapshot and silently prune just-added
   // sub-stack items. The ref always points at the latest derivation.
-  const naturalGridItemsRef = useRef(naturalGridItems);
-  naturalGridItemsRef.current = naturalGridItems;
+  const naturalGridItemsRef = useRefMirror(naturalGridItems);
 
   /* ---- Item lookup map ---- */
   const itemMap = useMemo(() => {
@@ -477,9 +468,12 @@ export function PanelGrid({
     };
   }, []);
 
-  // Ref to read gridRows synchronously for limit checks
-  const gridRowsRef = useRef(gridRows);
-  useEffect(() => { gridRowsRef.current = gridRows; }, [gridRows]);
+  // Render-time mirror so handlers reading the ref always see the current
+  // render's value — not the previously-committed one. The earlier effect-
+  // based assignment lagged a commit behind, which mattered if a handler
+  // dispatched a setGridRows then synchronously read the ref before the
+  // effect ran (e.g. drop → reorder → re-validate).
+  const gridRowsRef = useRefMirror(gridRows);
 
   /* ---- Split pane: move a topic to its own solo pane ----
    *
@@ -501,7 +495,6 @@ export function PanelGrid({
     }
     // For 'down': cap the in-cell stack depth — beyond ~3 the panes get too
     // squat to be useful. MAX_ROWS no longer applies (we don't add rows).
-    const MAX_STACK_DEPTH = 4;
 
     // Resolve the source CELL: the cell whose primary key the source pane
     // currently belongs to. For a tab dispatched from the standalone group
@@ -595,8 +588,35 @@ export function PanelGrid({
 
       if (direction === 'down') {
         if (sourceRowIdx === -1 || rows.length === 0) {
-          // No source — bootstrap a single-cell row.
-          rows = [{ itemKeys: [soloKey], widths: [1] }];
+          // Bootstrap: gridRows is empty (first split). The user's source
+          // pane lives inside a group that hasn't been materialized into
+          // gridRows yet — typically the standalone group. We need to
+          // stack the new pane *under* that group, not strand it in a
+          // single-cell row (which leaves the source group invisible until
+          // the additive sync re-adds it as a sibling column on the next
+          // render — i.e. the user sees a horizontal split on click 1 and
+          // has to repeat the action to actually get the vertical split).
+          // Pick the host cell key based on what naturalGridItems exposes.
+          // We restrict the fallback to the well-known 'standalone' cell —
+          // earlier we picked "any non-solo cell" which could land the new
+          // pane stacked under an unrelated solo cell (e.g. a project pane)
+          // when standalone was absent. Better to fall through to a
+          // single-cell row than to attach to the wrong host.
+          const liveItems = naturalGridItemsRef.current;
+          const hostKey =
+            (sourcePrimary && sourcePrimary !== soloKey ? sourcePrimary : null) ||
+            (liveItems.find(i => i.key === 'standalone')?.key ?? null);
+          if (hostKey) {
+            rows = [{
+              itemKeys: [hostKey],
+              widths: [1],
+              cellStacks: {
+                [hostKey]: { items: [soloKey], heights: [0.5, 0.5] },
+              },
+            }];
+          } else {
+            rows = [{ itemKeys: [soloKey], widths: [1] }];
+          }
           return rows;
         }
         const targetRow = rows[Math.min(sourceRowIdx, rows.length - 1)];
@@ -630,7 +650,19 @@ export function PanelGrid({
 
       // direction === 'right': insert as a new top-level cell
       if (rows.length === 0) {
-        rows = [{ itemKeys: [soloKey], widths: [1] }];
+        // Mirror the down-bootstrap fix: when gridRows hasn't materialized
+        // yet, the source group is invisible to us — naively `[soloKey]`
+        // strands the source until additive-sync re-adds it as a sibling
+        // on the next render (one click → no visible split, second click
+        // needed to see the column actually split). Seed with the host
+        // cell + soloKey so the split is visible on click 1.
+        const liveItems = naturalGridItemsRef.current;
+        const hostKey =
+          (sourcePrimary && sourcePrimary !== soloKey ? sourcePrimary : null) ||
+          (liveItems.find(i => i.key === 'standalone')?.key ?? null);
+        rows = hostKey
+          ? [{ itemKeys: [hostKey, soloKey], widths: [0.5, 0.5] }]
+          : [{ itemKeys: [soloKey], widths: [1] }];
       } else {
         const targetRow = sourceRowIdx >= 0 && sourceRowIdx < rows.length
           ? rows[sourceRowIdx]
@@ -747,10 +779,10 @@ export function PanelGrid({
     zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
     centerSide?: 'left' | 'right';
   } | null>(null);
-  // Ref mirror: updated synchronously so the drop handler always has the latest value
-  // (React state may not be committed yet when drop fires immediately after dragover)
-  const gridDropTargetRef = useRef(gridDropTarget);
-  gridDropTargetRef.current = gridDropTarget;
+  // Ref mirror so the drop handler always has the latest value — React
+  // state may not be committed yet when drop fires immediately after
+  // dragover (the "drop twice to land" class of bug).
+  const gridDropTargetRef = useRefMirror(gridDropTarget);
 
   const handleGridItemDragStart = useCallback((item: GridItem) => (e: React.DragEvent) => {
     setDraggingGridKey(item.key);
@@ -793,20 +825,10 @@ export function PanelGrid({
     }
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const edgeSize = 30;
-
-    let zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
+    const zone = detectDropZone(e, rect, 'edges+center')!;
     let centerSide: 'left' | 'right' | undefined;
-
-    if (x < edgeSize) zone = 'left';
-    else if (x > rect.width - edgeSize) zone = 'right';
-    else if (y < edgeSize) zone = 'top';
-    else if (y > rect.height - edgeSize) zone = 'bottom';
-    else {
-      zone = 'center';
-      centerSide = (x / rect.width) < 0.5 ? 'left' : 'right';
+    if (zone === 'center') {
+      centerSide = (e.clientX - rect.left) / rect.width < 0.5 ? 'left' : 'right';
     }
 
     // For PANE_TAB drags: let children handle center zone (tab reorder, project drops)
