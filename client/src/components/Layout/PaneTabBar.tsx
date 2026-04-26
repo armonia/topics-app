@@ -44,6 +44,14 @@ interface PaneTabBarProps {
   tabNotifications?: Map<string, number>;
   /** Reserve left padding for a floating sidebar toggle overlay */
   hasLeftOverlay?: boolean;
+  /**
+   * Whether THIS group currently owns focus. When false, the tab-bar still
+   * renders `activePaneId` as the local-active fallback (for content render
+   * downstream) but suppresses the visual highlight so the user doesn't see
+   * two simultaneously "selected" tabs across split groups. Default: true,
+   * so legacy callers that don't pass this prop keep the old behavior.
+   */
+  groupIsFocused?: boolean;
 }
 
 // Mini context ring SVG for chat tabs
@@ -76,7 +84,7 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true }: PaneTabBarProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuContentRef = useRef<HTMLDivElement>(null);
@@ -396,7 +404,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
       {panes.map((pane, paneIdx) => {
         const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
-        const isActive = activePaneId === pane.id;
+        // Only render the visual "active tab" highlight when this group
+        // actually owns focus. Otherwise the local-active fallback used by
+        // the content router would also paint a selected tab, producing two
+        // simultaneous highlights across split groups. See `groupIsFocused`
+        // prop docstring above.
+        const isActive = groupIsFocused && activePaneId === pane.id;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;

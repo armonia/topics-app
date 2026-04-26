@@ -795,6 +795,7 @@ export function StandaloneChatGroup({
       className="flex-1 py-1 pr-0 min-w-0 app-drag-region"
       panes={panes}
       activePaneId={activePaneId}
+      groupIsFocused={validatedOrderedIds.includes(focusedPanelId || '')}
       onActivate={(paneId) => {
         clearPane(paneId); // clear non-chat badge on tab activation
         if (isBrowserPaneId(paneId)) {

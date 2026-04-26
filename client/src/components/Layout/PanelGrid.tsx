@@ -456,9 +456,28 @@ export function PanelGrid({
 
       return rows;
     });
-    // Note: gridRowHeights sync is handled by the effect on [gridRows.length].
-    // The rendering fallback `gridRowHeights[rowIdx] ?? 1 / gridRows.length` covers
-    // the first render cycle before the effect runs.
+
+    // Synchronously align gridRowHeights with the new row count. The effect
+    // on [gridRows.length] also rebalances, but it runs AFTER the next
+    // render — meaning the first commit of a split-down ships with the OLD
+    // heights array (length N-1), the new row hits the `?? 1/gridRows.length`
+    // fallback, and the EXISTING rows keep their stale weights of 1. Net
+    // effect: parent flexbox distributes 1 vs 0.5 → the new row collapses
+    // to ~33% of the height, and any descendant pane that needs intrinsic
+    // height (chat scroller, terminal) appears as "tab-bar only, empty
+    // content" until the effect fires one frame later.
+    if (direction === 'down') {
+      setGridRowHeights(prev => {
+        const total = prev.length + 1;
+        if (prev.length === 0) return [1];
+        // Preserve existing proportions, scale them down, append a uniform
+        // slot for the new row so it gets a fair share immediately.
+        const sum = prev.reduce((s, h) => s + h, 0) || 1;
+        const scaled = prev.map(h => (h / sum) * (prev.length / total));
+        scaled.push(1 / total);
+        return scaled;
+      });
+    }
 
     // Focus the split-out panel so the source group falls back to its first remaining tab
     onFocusPanel(topicId);

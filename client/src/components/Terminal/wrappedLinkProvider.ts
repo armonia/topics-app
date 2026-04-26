@@ -30,7 +30,6 @@ interface Segment { row: number; col: number; len: number; }
 
 function buildLogicalText(term: Terminal, anchor: number): { text: string; segments: Segment[] } {
   const buffer = term.buffer.active;
-  const cols = term.cols;
   const total = buffer.length;
 
   let start = anchor;
