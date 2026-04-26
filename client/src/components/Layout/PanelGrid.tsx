@@ -1,11 +1,55 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack } from '../../types';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
+import { CellSubStack } from './CellSubStack';
+
+/**
+ * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
+ * historically did `{ itemKeys: [...r.itemKeys], widths: [...r.widths] }`
+ * which silently dropped any sub-stacks; this helper is the single point
+ * the layout code uses to clone, so adding new fields to `PanelGridRow`
+ * doesn't quietly lose them.
+ */
+function cloneRow(row: PanelGridRow): PanelGridRow {
+  const clone: PanelGridRow = {
+    itemKeys: [...row.itemKeys],
+    widths: [...row.widths],
+  };
+  if (row.cellStacks) {
+    clone.cellStacks = Object.fromEntries(
+      Object.entries(row.cellStacks).map(
+        ([k, s]) => [k, { items: [...s.items], heights: [...s.heights] }],
+      ),
+    );
+  }
+  return clone;
+}
+
+/**
+ * Walk a list of rows and collect every itemKey that has a presence in the
+ * grid — both top-level cell primaries AND items nested inside `cellStacks`.
+ * Used by the `naturalGridItems` sync effect to decide which keys are
+ * already accounted for vs which need to be appended as fresh top-level
+ * cells.
+ */
+function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
+  const out = new Set<string>();
+  for (const row of rows) {
+    for (const k of row.itemKeys) out.add(k);
+    if (row.cellStacks) {
+      for (const stack of Object.values(row.cellStacks)) {
+        for (const k of stack.items) out.add(k);
+      }
+    }
+  }
+  return out;
+}
+
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
@@ -245,43 +289,88 @@ export function PanelGrid({
     if (!isServerHydrated) return;
     const currentKeys = new Set(naturalGridItems.map(i => i.key));
     setGridRows(prev => {
-      // 1. Remove stale keys from each row, recalculate widths proportionally
+      // 1. Remove stale keys from each row, recalculate widths proportionally.
+      //    Keys are considered "kept" if they appear in `itemKeys` OR in any
+      //    `cellStacks[*].items` of that row — sub-stacks are treated as
+      //    first-class presence, otherwise the sync would orphan them.
       let rows = prev.map(row => {
+        const stackEntries = row.cellStacks ? Object.entries(row.cellStacks) : [];
+
+        // Filter cellStacks first: drop stale items, drop entire stack if its
+        // primary is being pruned out of itemKeys, drop stacks that became empty.
+        let nextStacks: Record<string, PanelGridCellStack> | undefined = undefined;
+        for (const [primary, stack] of stackEntries) {
+          if (!currentKeys.has(primary)) continue; // primary about to be pruned
+          const keptItems: string[] = [];
+          const keptHeights: number[] = [stack.heights[0] ?? 1 / (stack.items.length + 1)];
+          for (let i = 0; i < stack.items.length; i++) {
+            if (currentKeys.has(stack.items[i])) {
+              keptItems.push(stack.items[i]);
+              keptHeights.push(stack.heights[i + 1] ?? 1 / (stack.items.length + 1));
+            }
+          }
+          if (keptItems.length === 0) continue; // stack collapsed back to single-pane
+          const sum = keptHeights.reduce((s, h) => s + h, 0) || 1;
+          nextStacks = nextStacks ?? {};
+          nextStacks[primary] = {
+            items: keptItems,
+            heights: keptHeights.map(h => h / sum),
+          };
+        }
+
         const kept: number[] = [];
         for (let i = 0; i < row.itemKeys.length; i++) {
           if (currentKeys.has(row.itemKeys[i])) kept.push(i);
         }
-        if (kept.length === row.itemKeys.length) return row; // unchanged
-        if (kept.length === 0) return { itemKeys: [] as string[], widths: [] as number[] };
 
-        const newKeys = kept.map(i => row.itemKeys[i]);
+        const itemKeysUnchanged = kept.length === row.itemKeys.length;
+        const stacksUnchanged = nextStacks === row.cellStacks
+          || (nextStacks === undefined && !row.cellStacks);
+        if (itemKeysUnchanged && stacksUnchanged) return row;
+
+        if (kept.length === 0) {
+          return { itemKeys: [] as string[], widths: [] as number[] };
+        }
+
+        const newItemKeys = kept.map(i => row.itemKeys[i]);
         const newWidths = kept.map(i => row.widths[i]);
         const total = newWidths.reduce((s, w) => s + w, 0);
-        return {
-          itemKeys: newKeys,
-          widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length),
+        const next: PanelGridRow = {
+          itemKeys: newItemKeys,
+          widths: total > 0
+            ? newWidths.map(w => w / total)
+            : newItemKeys.map(() => 1 / newItemKeys.length),
         };
+        if (nextStacks) next.cellStacks = nextStacks;
+        return next;
       });
 
       // 2. Remove empty rows
       rows = rows.filter(r => r.itemKeys.length > 0);
 
-      // 3. Find new keys not in any row
-      const existing = new Set(rows.flatMap(r => r.itemKeys));
+      // 3. Find new keys not in any row (treating sub-stack items as present)
+      const existing = collectAllPresentKeys(rows);
       const newKeys = naturalGridItems.map(i => i.key).filter(k => !existing.has(k));
 
       // 4. Add new keys: when there are no rows yet they all share the first
       // (and only) row; otherwise they fold into the existing first row. Split
-      // placement is owned by `handleSplitPane` which writes the new row/col
-      // synchronously into `gridRows`, so by the time this effect runs the
-      // split key is already accounted for in step 1's "kept" check.
+      // placement is owned by `handleSplitPane` which writes the new key into
+      // `cellStacks` (or `itemKeys` for split-right) synchronously, so by the
+      // time this effect runs the split key is already accounted for above.
       if (newKeys.length > 0) {
         if (rows.length === 0) {
           rows = [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
         } else {
           const first = rows[0];
           const allKeys = [...first.itemKeys, ...newKeys];
-          rows = [{ itemKeys: allKeys, widths: allKeys.map(() => 1 / allKeys.length) }, ...rows.slice(1)];
+          rows = [
+            {
+              itemKeys: allKeys,
+              widths: allKeys.map(() => 1 / allKeys.length),
+              ...(first.cellStacks ? { cellStacks: first.cellStacks } : {}),
+            },
+            ...rows.slice(1),
+          ];
         }
       }
 
@@ -379,117 +468,168 @@ export function PanelGrid({
   const gridRowsRef = useRef(gridRows);
   useEffect(() => { gridRowsRef.current = gridRows; }, [gridRows]);
 
-  /* ---- Split pane: move a topic to its own solo grid cell ---- */
+  /* ---- Split pane: move a topic to its own solo pane ----
+   *
+   * 'right': solo the pane, append it as a new top-level cell in the
+   * source's row (creates a new column).
+   *
+   * 'down': solo the pane, append it to the source cell's vertical
+   * sub-stack (`cellStacks[primaryKey].items`), so the new pane lands
+   * UNDER the source cell's column rather than spanning the full grid
+   * width. When the source cell hosts no stack yet, this initializes
+   * one with [primary_height=0.5, new_height=0.5].
+   */
   const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
     // Check grid limits BEFORE marking as solo to prevent orphaned soloTopicIds
     const currentRows = gridRowsRef.current;
-    if (direction === 'down' && currentRows.length >= MAX_ROWS) return;
     if (direction === 'right') {
       const firstRow = currentRows[0];
       if (firstRow && firstRow.itemKeys.length >= MAX_COLS_PER_ROW) return;
     }
+    // For 'down': cap the in-cell stack depth — beyond ~3 the panes get too
+    // squat to be useful. MAX_ROWS no longer applies (we don't add rows).
+    const MAX_STACK_DEPTH = 4;
 
-    // Mark as solo (only after limit check passes)
-    setSoloTopicIds(prev => {
-      if (prev.includes(topicId)) return prev;
-      return [...prev, topicId];
-    });
-
-    // Place in grid
+    // Resolve the source CELL: the cell whose primary key the source pane
+    // currently belongs to. For a tab dispatched from the standalone group
+    // that's the cell with itemKey === 'standalone'; for a tab already in
+    // its own solo pane it's the cell whose itemKey === 'solo:<topicId>',
+    // OR a cell whose stack already contains 'solo:<topicId>'.
     const soloKey = `solo:${topicId}`;
-    // Resolve source row once, outside the setGridRows updater, so the
-    // setGridRowHeights updater below can use the same anchor. Reading
-    // from `gridRowsRef.current` is safe — handleSplitPane is invoked
-    // from event handlers AFTER React commits previous state.
-    const refRows = gridRowsRef.current;
     let sourceRowIdx = -1;
-    for (let r = 0; r < refRows.length; r++) {
-      if (refRows[r].itemKeys.includes(soloKey)) { sourceRowIdx = r; break; }
+    let sourceColIdx = -1;
+    let sourcePrimary = '';
+    for (let r = 0; r < currentRows.length; r++) {
+      const row = currentRows[r];
+      // Pass 1: source already a top-level solo cell.
+      const directIdx = row.itemKeys.indexOf(soloKey);
+      if (directIdx >= 0) {
+        sourceRowIdx = r;
+        sourceColIdx = directIdx;
+        sourcePrimary = soloKey;
+        break;
+      }
+      // Pass 2: source nested inside a sibling cell's stack.
+      if (row.cellStacks) {
+        for (const [primary, stack] of Object.entries(row.cellStacks)) {
+          if (stack.items.includes(soloKey)) {
+            sourceRowIdx = r;
+            sourceColIdx = row.itemKeys.indexOf(primary);
+            sourcePrimary = primary;
+            break;
+          }
+        }
+        if (sourceRowIdx >= 0) break;
+      }
     }
     if (sourceRowIdx === -1) {
-      for (let r = 0; r < refRows.length; r++) {
-        if (refRows[r].itemKeys.includes('standalone')) { sourceRowIdx = r; break; }
+      for (let r = 0; r < currentRows.length; r++) {
+        const idx = currentRows[r].itemKeys.indexOf('standalone');
+        if (idx >= 0) {
+          sourceRowIdx = r;
+          sourceColIdx = idx;
+          sourcePrimary = 'standalone';
+          break;
+        }
       }
     }
 
+    if (direction === 'down') {
+      const sourceRow = currentRows[sourceRowIdx];
+      const existingStack = sourceRow?.cellStacks?.[sourcePrimary];
+      const currentDepth = (existingStack?.items.length ?? 0) + 1; // primary + items
+      if (currentDepth >= MAX_STACK_DEPTH) return;
+    }
+
+    // Mark as solo (only after limit checks pass)
+    setSoloTopicIds(prev => prev.includes(topicId) ? prev : [...prev, topicId]);
+
     setGridRows(prev => {
-      // Double-check limits (state may have changed between ref read and updater)
-      if (direction === 'down' && prev.length >= MAX_ROWS) return prev;
+      // Re-check limits in the updater — `prev` may have shifted between
+      // the ref read above and React running this updater.
       if (direction === 'right') {
         const firstRow = prev[0];
         if (firstRow && firstRow.itemKeys.length >= MAX_COLS_PER_ROW) return prev;
       }
 
-      // Deep copy
-      let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+      // Deep clone — including cellStacks — so we never mutate prev shape.
+      let rows = prev.map(cloneRow);
 
-      // Safety: remove soloKey if already present
+      // Safety: remove soloKey from any top-level itemKeys (e.g. user
+      // double-splits the same pane). Stack membership is left intact —
+      // we'll handle dedupe inside the target stack below.
       for (const row of rows) {
         const idx = row.itemKeys.indexOf(soloKey);
         if (idx >= 0) {
           row.itemKeys.splice(idx, 1);
           row.widths.splice(idx, 1);
+          if (row.cellStacks?.[soloKey]) {
+            // Cell was the primary of a stack — drop the stack since the
+            // primary is gone. Sub-items would orphan.
+            const next = { ...row.cellStacks };
+            delete next[soloKey];
+            row.cellStacks = Object.keys(next).length > 0 ? next : undefined;
+          }
           if (row.itemKeys.length > 0) {
             const total = row.widths.reduce((s, w) => s + w, 0);
-            row.widths = row.widths.map(w => w / total);
+            row.widths = total > 0
+              ? row.widths.map(w => w / total)
+              : row.itemKeys.map(() => 1 / row.itemKeys.length);
           }
         }
       }
       rows = rows.filter(r => r.itemKeys.length > 0);
 
       if (direction === 'down') {
-        const newRow: PanelGridRow = { itemKeys: [soloKey], widths: [1] };
-        // Insert directly below the source row when we found it; otherwise
-        // append at the end (legacy behavior). The +1 accounts for the row
-        // index in the (possibly compacted) `rows` array — sourceRowIdx was
-        // computed against `prev`, but the source row is preserved (we only
-        // remove the soloKey from other rows, never the source itself), so
-        // its index doesn't shift.
-        if (sourceRowIdx >= 0 && sourceRowIdx < rows.length) {
-          rows = [...rows.slice(0, sourceRowIdx + 1), newRow, ...rows.slice(sourceRowIdx + 1)];
-        } else {
-          rows.push(newRow);
-        }
-      } else {
-        if (rows.length === 0) {
+        if (sourceRowIdx === -1 || rows.length === 0) {
+          // No source — bootstrap a single-cell row.
           rows = [{ itemKeys: [soloKey], widths: [1] }];
-        } else {
-          const first = rows[0];
-          first.itemKeys.push(soloKey);
-          first.widths = first.itemKeys.map(() => 1 / first.itemKeys.length);
+          return rows;
         }
+        const targetRow = rows[Math.min(sourceRowIdx, rows.length - 1)];
+        const primaryIdx = sourcePrimary
+          ? targetRow.itemKeys.indexOf(sourcePrimary)
+          : -1;
+        if (primaryIdx === -1) {
+          // Fallback: insert as a new top-level cell in the row.
+          targetRow.itemKeys.push(soloKey);
+          targetRow.widths = targetRow.itemKeys.map(() => 1 / targetRow.itemKeys.length);
+          return rows;
+        }
+        const stacks = targetRow.cellStacks ? { ...targetRow.cellStacks } : {};
+        const existing = stacks[sourcePrimary];
+        if (existing) {
+          // Append to existing stack — re-balance heights uniformly.
+          const slots = existing.items.length + 2; // primary + existing items + new
+          stacks[sourcePrimary] = {
+            items: [...existing.items, soloKey],
+            heights: Array.from({ length: slots }, () => 1 / slots),
+          };
+        } else {
+          stacks[sourcePrimary] = {
+            items: [soloKey],
+            heights: [0.5, 0.5],
+          };
+        }
+        targetRow.cellStacks = stacks;
+        return rows;
       }
 
+      // direction === 'right': insert as a new top-level cell
+      if (rows.length === 0) {
+        rows = [{ itemKeys: [soloKey], widths: [1] }];
+      } else {
+        const targetRow = sourceRowIdx >= 0 && sourceRowIdx < rows.length
+          ? rows[sourceRowIdx]
+          : rows[0];
+        // Insert immediately to the right of the source column when we
+        // have one — better UX than always at the end of the row.
+        const insertAt = sourceColIdx >= 0 ? sourceColIdx + 1 : targetRow.itemKeys.length;
+        targetRow.itemKeys.splice(insertAt, 0, soloKey);
+        targetRow.widths = targetRow.itemKeys.map(() => 1 / targetRow.itemKeys.length);
+      }
       return rows;
     });
-
-    // Synchronously align gridRowHeights with the new row count. The effect
-    // on [gridRows.length] also rebalances, but it runs AFTER the next
-    // render — meaning the first commit of a split-down ships with the OLD
-    // heights array (length N-1), the new row hits the `?? 1/gridRows.length`
-    // fallback, and the EXISTING rows keep their stale weights of 1. Net
-    // effect: parent flexbox distributes 1 vs 0.5 → the new row collapses
-    // to ~33% of the height, and any descendant pane that needs intrinsic
-    // height (chat scroller, terminal) appears as "tab-bar only, empty
-    // content" until the effect fires one frame later.
-    if (direction === 'down') {
-      setGridRowHeights(prev => {
-        const total = prev.length + 1;
-        if (prev.length === 0) return [1];
-        // Preserve existing proportions, scale them down, splice a uniform
-        // slot for the new row at the same position the row was inserted
-        // (so the new row's height aligns with where it visually appeared
-        // in `setGridRows` above). When sourceRowIdx is unknown we fall
-        // back to appending at the end — matching the legacy behavior.
-        const sum = prev.reduce((s, h) => s + h, 0) || 1;
-        const scaled = prev.map(h => (h / sum) * (prev.length / total));
-        const insertHeight = 1 / total;
-        const insertAt = (sourceRowIdx >= 0 && sourceRowIdx < scaled.length)
-          ? sourceRowIdx + 1
-          : scaled.length;
-        return [...scaled.slice(0, insertAt), insertHeight, ...scaled.slice(insertAt)];
-      });
-    }
 
     // Focus the split-out panel so the source group falls back to its first remaining tab
     onFocusPanel(topicId);
@@ -764,7 +904,7 @@ export function PanelGrid({
           if (!targetKey) return prev;
 
           // ISSUE 8 FIX: Use immutable operations instead of splice()
-          let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+          let rows = prev.map(cloneRow);
 
           // Safety: remove soloKey if already present (immutably)
           rows = rows.map(row => {
@@ -831,7 +971,7 @@ export function PanelGrid({
         // ISSUE 18: Invalid target — fall back to "add to end" if target disappeared
         if (!targetKey && prev.length > 0) {
           // Move source to end of last row
-          let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+          let rows = prev.map(cloneRow);
           // Remove source immutably
           rows = rows.map((r, i) => {
             if (i !== srcRow) return r;
@@ -854,7 +994,7 @@ export function PanelGrid({
 
       // ISSUE 8 FIX: Use immutable operations instead of splice()
       // Deep copy rows
-      let rows = prev.map(r => ({ itemKeys: [...r.itemKeys], widths: [...r.widths] }));
+      let rows = prev.map(cloneRow);
 
       // Remove source from its row (immutably)
       rows = rows.map((r, i) => {
@@ -1016,6 +1156,101 @@ export function PanelGrid({
     );
   }
 
+  /**
+   * Resize handler invoked by `CellSubStack` when the user drags one of its
+   * in-cell vertical dividers. Replaces the heights for the named cell-stack
+   * and re-normalizes (defensive — CellSubStack already keeps the sum
+   * stable, but rounding drift compounds).
+   */
+  const handleCellStackResize = useCallback(
+    (rowIdx: number, primaryKey: string, nextHeights: number[]) => {
+      setGridRows(prev => {
+        if (rowIdx < 0 || rowIdx >= prev.length) return prev;
+        const row = prev[rowIdx];
+        const stack = row.cellStacks?.[primaryKey];
+        if (!stack) return prev;
+        if (nextHeights.length !== stack.items.length + 1) return prev;
+        const sum = nextHeights.reduce((s, h) => s + h, 0) || 1;
+        const normalized = nextHeights.map(h => h / sum);
+        const nextStacks = { ...row.cellStacks, [primaryKey]: { ...stack, heights: normalized } };
+        const nextRow: PanelGridRow = { ...row, cellStacks: nextStacks };
+        return prev.map((r, i) => (i === rowIdx ? nextRow : r));
+      });
+    },
+    [setGridRows],
+  );
+
+  /**
+   * Render a `<StandaloneChatGroup>` for a given cell key. Centralizing the
+   * prop wiring here lets the cell's primary AND each item in a vertical
+   * sub-stack reuse the exact same group configuration without duplicating
+   * the ~30-prop call site twice. App-singleton concerns (sidebar toggle,
+   * standalone-only utility/browser hooks) are scoped to the primary cell
+   * at row 0 col 0; sub-stack items intentionally don't get them.
+   */
+  const renderGroupForKey = useCallback(
+    (item: GridItem, key: string, rowIdx: number, colIdx: number) => (
+      <StandaloneChatGroup
+        topicIds={item.panelIds}
+        topics={topics}
+        focusedPanelId={focusedPanelId}
+        onFocusPanel={onFocusPanel}
+        onClosePanel={onClosePanel}
+        onDragStart={handleDragStart}
+        onGroupDragStart={handleGridItemDragStart(item)}
+        getSessionMessages={getSessionMessages}
+        isSessionLoading={isSessionLoading}
+        isSessionStreaming={isSessionStreaming}
+        stopSession={stopSession}
+        sendMessage={sendMessage}
+        editMessage={editMessage}
+        switchBranch={switchBranch}
+        loadHistory={loadHistory}
+        chatError={chatError}
+        sendWS={sendWS}
+        onWSMessage={onWSMessage}
+        onUpdateTopic={onUpdateTopic}
+        onToggleSidebar={rowIdx === 0 && colIdx === 0 ? onToggleSidebar : undefined}
+        panelInitialTab={panelInitialTab}
+        onPanelInitialTabConsumed={onPanelInitialTabConsumed}
+        onNewChat={onNewChat}
+        pendingProjectPane={pendingProjectPane}
+        onPendingProjectPaneConsumed={onPendingProjectPaneConsumed}
+        onNewChatInProject={onNewChatInProject}
+        pendingProjectFocus={pendingProjectFocus}
+        onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
+        onProjectActiveTopicChange={onProjectActiveTopicChange}
+        onProjectOpenPanesChange={onProjectOpenPanesChange}
+        terminalSessions={terminalSessions}
+        onCreateTerminal={onCreateTerminal}
+        onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}
+        pendingBrowserPane={key === 'standalone' ? pendingBrowserPane : undefined}
+        onPendingBrowserPaneConsumed={key === 'standalone' ? onPendingBrowserPaneConsumed : undefined}
+        onOpenBrowserContextIds={key === 'standalone' ? onOpenBrowserContextIds : undefined}
+        promoteDraft={promoteDraft}
+        draftMeta={draftMeta}
+        onSplitPane={handleSplitPane}
+        persistOrder={key === 'standalone'}
+        gridItemKey={key}
+        onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
+        onAcceptSoloDrop={handleUnsoloTopic}
+      />
+    ),
+    [
+      topics, focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
+      handleGridItemDragStart, getSessionMessages, isSessionLoading,
+      isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch,
+      loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+      onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,
+      pendingProjectPane, onPendingProjectPaneConsumed, onNewChatInProject,
+      pendingProjectFocus, onPendingProjectFocusConsumed,
+      onProjectActiveTopicChange, onProjectOpenPanesChange, terminalSessions,
+      onCreateTerminal, handleStandaloneUtilityChange, pendingBrowserPane,
+      onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
+      draftMeta, handleSplitPane, handleUnsoloTopic,
+    ],
+  );
+
   /* ---- render multi-row grid layout ---- */
   return (
     <div
@@ -1095,52 +1330,33 @@ export function PanelGrid({
                         style={splitOverlayStyle}
                       />
                     )}
-                    {/* Unified standalone group (handles chat, utility, and project tabs) */}
-                    <StandaloneChatGroup
-                      topicIds={item.panelIds}
-                      topics={topics}
-                      focusedPanelId={focusedPanelId}
-                      onFocusPanel={onFocusPanel}
-                      onClosePanel={onClosePanel}
-                      onDragStart={handleDragStart}
-                      onGroupDragStart={handleGridItemDragStart(item)}
-                      getSessionMessages={getSessionMessages}
-                      isSessionLoading={isSessionLoading}
-                      isSessionStreaming={isSessionStreaming}
-                      stopSession={stopSession}
-                      sendMessage={sendMessage}
-                      editMessage={editMessage}
-                      switchBranch={switchBranch}
-                      loadHistory={loadHistory}
-                      chatError={chatError}
-                      sendWS={sendWS}
-                      onWSMessage={onWSMessage}
-                      onUpdateTopic={onUpdateTopic}
-                      onToggleSidebar={rowIdx === 0 && colIdx === 0 ? onToggleSidebar : undefined}
-                      panelInitialTab={panelInitialTab}
-                      onPanelInitialTabConsumed={onPanelInitialTabConsumed}
-                      onNewChat={onNewChat}
-                      pendingProjectPane={pendingProjectPane}
-                      onPendingProjectPaneConsumed={onPendingProjectPaneConsumed}
-                      onNewChatInProject={onNewChatInProject}
-                      pendingProjectFocus={pendingProjectFocus}
-                      onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
-                      onProjectActiveTopicChange={onProjectActiveTopicChange}
-                      onProjectOpenPanesChange={onProjectOpenPanesChange}
-                      terminalSessions={terminalSessions}
-                      onCreateTerminal={onCreateTerminal}
-                      onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}
-                      pendingBrowserPane={key === 'standalone' ? pendingBrowserPane : undefined}
-                      onPendingBrowserPaneConsumed={key === 'standalone' ? onPendingBrowserPaneConsumed : undefined}
-                      onOpenBrowserContextIds={key === 'standalone' ? onOpenBrowserContextIds : undefined}
-                      promoteDraft={promoteDraft}
-                      draftMeta={draftMeta}
-                      onSplitPane={handleSplitPane}
-                      persistOrder={key === 'standalone'}
-                      gridItemKey={key}
-                      onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
-                      onAcceptSoloDrop={handleUnsoloTopic}
-                    />
+                    {/* Unified standalone group (handles chat, utility, and
+                        project tabs). When the cell hosts a vertical
+                        sub-stack (split-down inside this column), wrap it
+                        in <CellSubStack> so the primary sits on top and
+                        each stack item renders as its own single-tab group
+                        beneath. The stack heights drive flex-grow ratios
+                        and the in-cell divider lets the user resize. */}
+                    {(() => {
+                      const stack = row.cellStacks?.[key];
+                      const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx);
+                      if (!stack) return primaryGroup;
+                      return (
+                        <CellSubStack
+                          stack={stack}
+                          primary={primaryGroup}
+                          renderStackItem={(stackKey) => {
+                            const stackItem = itemMap.get(stackKey);
+                            if (!stackItem) return null;
+                            return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx);
+                          }}
+                          onResize={(nextHeights) =>
+                            handleCellStackResize(rowIdx, key, nextHeights)
+                          }
+                          isDragActive={isAnyDragActive}
+                        />
+                      );
+                    })()}
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}
                     {zone && zone !== 'center' && (

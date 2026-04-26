@@ -1,5 +1,61 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PanelGridRow } from '../../types';
+import type { PanelGridRow, PanelGridCellStack } from '../../types';
+
+/**
+ * Sanitize one row read from localStorage. Returns `null` when the input is
+ * not plausibly a row. The row's optional `cellStacks` map is normalized:
+ * stacks whose primary key isn't in `itemKeys` are dropped (orphan), height
+ * arrays are coerced to match item count and renormalized to sum=1.
+ *
+ * Exported for tests so we can pin the contract precisely.
+ */
+export function sanitizeRow(raw: unknown): PanelGridRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Partial<PanelGridRow>;
+  if (!Array.isArray(r.itemKeys) || !Array.isArray(r.widths)) return null;
+  const itemKeys = r.itemKeys.filter((k): k is string => typeof k === 'string');
+  if (itemKeys.length === 0) return null;
+
+  const widths = itemKeys.map((_, i) => {
+    const w = r.widths![i];
+    return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 1 / itemKeys.length;
+  });
+  const wsum = widths.reduce((s, w) => s + w, 0) || 1;
+  const normWidths = widths.map(w => w / wsum);
+
+  const out: PanelGridRow = { itemKeys, widths: normWidths };
+
+  // cellStacks is optional; absent for the simple case.
+  if (r.cellStacks && typeof r.cellStacks === 'object' && !Array.isArray(r.cellStacks)) {
+    const itemKeySet = new Set(itemKeys);
+    const sanitized: Record<string, PanelGridCellStack> = {};
+    for (const [primary, stackRaw] of Object.entries(r.cellStacks)) {
+      // Drop orphan stacks (primary no longer in itemKeys) — they would
+      // never render and would silently bloat localStorage.
+      if (!itemKeySet.has(primary)) continue;
+      if (!stackRaw || typeof stackRaw !== 'object') continue;
+      const s = stackRaw as Partial<PanelGridCellStack>;
+      if (!Array.isArray(s.items)) continue;
+      const items = s.items.filter((k): k is string => typeof k === 'string');
+      if (items.length === 0) continue;
+      const rawHeights = Array.isArray(s.heights) ? s.heights : [];
+      // Heights array tracks `[primary, ...items]` — length items.length + 1.
+      // We require it; missing/short arrays are filled with 1s.
+      const heightsLen = items.length + 1;
+      const heights = Array.from({ length: heightsLen }, (_, i) => {
+        const h = rawHeights[i];
+        return typeof h === 'number' && Number.isFinite(h) && h > 0 ? h : 1;
+      });
+      const hsum = heights.reduce((sum, h) => sum + h, 0) || 1;
+      sanitized[primary] = { items, heights: heights.map(h => h / hsum) };
+    }
+    if (Object.keys(sanitized).length > 0) {
+      out.cellStacks = sanitized;
+    }
+  }
+
+  return out;
+}
 
 /**
  * Isolates the per-device localStorage side of <PanelGrid/> (review I2).
@@ -30,7 +86,11 @@ function readPersisted(): PanelGridPersistedData {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
     return {
-      gridRows: Array.isArray(parsed.gridRows) ? (parsed.gridRows as PanelGridRow[]) : undefined,
+      gridRows: Array.isArray(parsed.gridRows)
+        ? (parsed.gridRows
+            .map((r: unknown) => sanitizeRow(r))
+            .filter((r: PanelGridRow | null): r is PanelGridRow => r !== null))
+        : undefined,
       gridRowHeights: Array.isArray(parsed.gridRowHeights)
         ? (parsed.gridRowHeights as number[])
         : undefined,

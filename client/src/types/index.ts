@@ -248,9 +248,40 @@ export interface GroupLayoutRow {
   widths: number[];       // fractions summing to 1
 }
 
+/**
+ * Optional vertical sub-stack inside a single cell of a `PanelGridRow`.
+ *
+ * Why this is additive (vs reshaping `itemKeys` into a list of cells): the
+ * row's primary layout is already `itemKeys[colIdx]` → one pane per cell.
+ * 99% of cells today host exactly one item; we don't need to pay the cost
+ * of restructuring 40+ read sites in PanelGrid for that common case. When
+ * the user splits-down on a tab inside cell C, we append the soloed pane
+ * to `cellStacks[itemKeys[C]]` and the renderer composes it as a vertical
+ * stack below the primary — leaving the row's columns intact.
+ *
+ * Invariants:
+ *   - items.length === heights.length
+ *   - heights[i] > 0, sum(heights) === 1 (small float drift tolerated)
+ *   - the primary item (`itemKeys[colIdx]`) is NOT included in `items`;
+ *     conceptually the cell renders [primary, ...stack.items] vertically
+ *     with [primary_height, ...stack.heights] proportions, but storing
+ *     only the *additional* items keeps the legacy single-pane case as
+ *     `cellStacks` simply being absent.
+ */
+export interface PanelGridCellStack {
+  items: string[];
+  heights: number[];
+}
+
 export interface PanelGridRow {
-  itemKeys: string[];     // GridItem.key values in this row
+  itemKeys: string[];     // GridItem.key values in this row (one per cell)
   widths: number[];       // fractions summing to 1 per row
+  /**
+   * Optional vertical sub-stacks keyed by the primary `itemKeys[colIdx]`.
+   * Present only for cells that have been split vertically. Persisted to
+   * localStorage when present; absent for the legacy single-pane case.
+   */
+  cellStacks?: Record<string, PanelGridCellStack>;
 }
 
 export type SidebarTab = 'agents' | 'activity' | 'journal' | 'remote' | 'system' | 'browser' | 'terminal';
