@@ -309,6 +309,7 @@ export function GroupLayout({
                         <PaneTabBar
                           panes={groupPanes}
                           activePaneId={group.activePaneId}
+                          groupIsFocused={isFocusedGroup}
                           onActivate={(paneId) => { clearPane(paneId); onActivatePane(groupId, paneId); }}
                           onClose={(paneId) => onClosePane(groupId, paneId)}
                           onAddPane={(type, subType) => onAddPaneToGroup(groupId, type, subType)}
