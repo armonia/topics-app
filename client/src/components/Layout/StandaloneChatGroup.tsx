@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, TerminalSessionInfo } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
@@ -15,18 +15,17 @@ import {
   getTerminalSessionFromPaneId,
   getProjectPathFromPaneId,
   getSessionKeyFromViewerPaneId,
-  getBrowserContextFromPaneId,
-  createPaneId,
   isDraftPaneId,
   useProjectTabStatus,
   type ProjectTabStatus,
-  loadPanelOrder,
 } from '../../state/pane/adapters';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
-import { findPreviewInList, replaceInList } from '../../lib/previewTabs';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
+import { usePaneOrdering } from './hooks/usePaneOrdering';
+import { useActivePaneState } from './hooks/useActivePaneState';
+import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -39,7 +38,6 @@ const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => 
 const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
 const SessionViewerPane = lazy(() => import('../Agents/SessionViewerPane').then(m => ({ default: m.SessionViewerPane })));
 
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
 interface StandaloneChatGroupProps {
@@ -133,80 +131,33 @@ export function StandaloneChatGroup({
   onUnsolo, onAcceptSoloDrop,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
-  // Track order locally for tab reordering
-  const [orderedIds, setOrderedIds] = useState<string[]>(() => {
-    if (!persistOrder) return topicIds;
-    const saved = loadPanelOrder();
-    if (saved.order.length > 0) {
-      // Merge saved order with current topicIds: keep saved order for known IDs, append new ones
-      const savedSet = new Set(saved.order);
-      const existing = saved.order.filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id));
-      const added = topicIds.filter(id => !savedSet.has(id));
-      return [...existing, ...added];
-    }
-    return topicIds;
-  });
+
+  // Component-local UI state.
   const [panelDragOver, setPanelDragOver] = useState(false);
-  // Track which panes have been pinned (not preview)
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
-    if (!persistOrder) return new Set();
-    const saved = loadPanelOrder();
-    return new Set(saved.pinned);
-  });
-  // Ref for topicIds to use in the external update callback without recreating it
-  const topicIdsRef = useRef(topicIds);
-  // ISSUE 3 fix: move ref assignment to useEffect instead of during render
-  useEffect(() => { topicIdsRef.current = topicIds; });
-  // Persistence of tab order + pinned state is handled by the pane-store
-  // middleware (persistLocal + syncServer + syncWS + syncCrossTab). This
-  // component keeps local `useState<orderedIds>` that is sync'd from the
-  // `topicIds` prop via App.tsx's store bridge; the previous
-  // `usePanelOrderPersistence` shim was an explicit no-op left over from the
-  // Phase-30 cutover and has been removed.
-
-  // ISSUE 2 guard: orderedIds must NEVER contain an ID not in openPanels (topicIds)
-  // This runs synchronously via useMemo so it's atomic with the render cycle
-  const validatedOrderedIds = useMemo(() => {
-    const openSet = new Set(topicIds);
-    const filtered = orderedIds.filter(id =>
-      openSet.has(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id)
-    );
-    return filtered.length === orderedIds.length ? orderedIds : filtered;
-  }, [orderedIds, topicIds]);
-
-  // If validation pruned stale IDs, sync state (deferred to avoid render-phase setState)
-  useEffect(() => {
-    if (validatedOrderedIds !== orderedIds) {
-      setOrderedIds(validatedOrderedIds);
-    }
-  }, [validatedOrderedIds, orderedIds]);
-
-  // Effective pinned set: always includes project & utility panes (they must never be replaced)
-  // ISSUE 23 fix: cache previous result and only return new reference when contents change
-  const prevEffectivePinnedRef = useRef<Set<string>>(new Set());
-  const effectivePinnedIds = useMemo(() => {
-    const s = new Set(pinnedIds);
-    for (const id of validatedOrderedIds) {
-      if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) s.add(id);
-    }
-    // Compare with previous: if contents are identical, return same reference
-    const prev = prevEffectivePinnedRef.current;
-    if (s.size === prev.size && [...s].every(id => prev.has(id))) {
-      return prev;
-    }
-    prevEffectivePinnedRef.current = s;
-    return s;
-  }, [pinnedIds, validatedOrderedIds]);
-  const pinnedIdsRef = useRef(effectivePinnedIds);
-  // ISSUE 3 fix: move ref assignment to useEffect
-  useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
   // Context inspector state (lifted from ChatPanel so ring click can toggle it)
   const [contextOpen, setContextOpen] = useState(false);
-  // Settings modal state (opened via right-click menu on tabs)
-  const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
-
-  // Browser navigate URL (from WS)
+  // Browser navigate URL (from WS) — owned here, mutated by ordering hook via callback.
   const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
+
+  // Hook 1: pane ordering, pinning, preview-replacement, browser singleton,
+  // WS browser:navigate, initialTab, pendingBrowserPane, utility/browser
+  // reporters, and Path 4 activePaneId derivation.
+  const ordering = usePaneOrdering({
+    topicIds,
+    persistOrder,
+    onClosePanel,
+    onFocusPanel,
+    onWSMessage,
+    pendingBrowserPane,
+    onPendingBrowserPaneConsumed,
+    onUtilityPaneChange,
+    onOpenBrowserContextIds,
+    panelInitialTab,
+    onPanelInitialTabConsumed,
+    focusedPanelId,
+    onBrowserNavigateUrl: setBrowserNavigateUrl,
+  });
+  const { validatedOrderedIds, effectivePinnedIds, activePaneId } = ordering.derived;
 
   // Terminal pane labels derived from server sessions
   const terminalLabels = useMemo(() => {
@@ -217,211 +168,18 @@ export function StandaloneChatGroup({
     return map;
   }, [terminalSessions]);
 
-  // Sync when topicIds change externally (add/remove)
-  // Handles preview replacement: new tab replaces the existing preview tab
-  const prevTopicIdsRef = useRef(topicIds);
-  // ISSUE 5 fix: track pending close with dependency on topicIds instead of running on every render
-  const pendingCloseRef = useRef<string | null>(null);
-  useEffect(() => {
-    const prevTopicIds = prevTopicIdsRef.current;
-    prevTopicIdsRef.current = topicIds;
-
-    const wasAdded = topicIds.length > prevTopicIds.length;
-
-    setOrderedIds(prev => {
-      // Keep browser/session-viewer panes (they are managed locally, not via topicIds)
-      // Terminal panes are managed via topicIds (openPanels) for persistence
-      const existing = prev.filter(id => {
-        if (isBrowserPaneId(id)) return true;
-        if (isSessionViewerPaneId(id)) return true;
-        return topicIds.includes(id);
-      });
-      const added = topicIds.filter(id => !prev.includes(id));
-
-      // Preview replacement: if a single new tab was added, replace existing preview
-      if (wasAdded && added.length === 1) {
-        const previewId = findPreviewInList(existing, pinnedIdsRef.current, added[0]);
-        if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isSessionViewerPaneId(previewId) && !isDraftPaneId(previewId)) {
-          pendingCloseRef.current = previewId;
-          return replaceInList(existing, previewId, added[0]);
-        }
-      }
-
-      return [...existing, ...added];
-    });
-    // Cleanup pinnedIds for removed topics (keep browser panes)
-    setPinnedIds(prev => {
-      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [topicIds]);
-
-  // ISSUE 5 fix: Close the replaced preview tab — only runs when topicIds change (not every render)
-  useEffect(() => {
-    if (pendingCloseRef.current) {
-      const id = pendingCloseRef.current;
-      pendingCloseRef.current = null;
-      onClosePanel(id);
-    }
-  }, [topicIds, onClosePanel]);
-
-  // Active pane: prefer focusedPanelId if in our list, else first
-  const activePaneId = validatedOrderedIds.includes(focusedPanelId || '')
-    ? focusedPanelId!
-    : validatedOrderedIds[0] || null;
-
-  // Determine if the active pane is a utility panel, project pane, browser pane, terminal pane, session viewer, or a chat topic
-  const activeIsBrowser = activePaneId ? isBrowserPaneId(activePaneId) : false;
-  const activeIsTerminal = activePaneId ? isTerminalPaneId(activePaneId) : false;
-  const activeIsSessionViewer = activePaneId ? isSessionViewerPaneId(activePaneId) : false;
-  const activeSessionKey = activePaneId && activeIsSessionViewer ? getSessionKeyFromViewerPaneId(activePaneId) : null;
-  const activeIsProject = activePaneId && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer ? isProjectPaneId(activePaneId) : false;
-  const activeProjectPath = activePaneId && activeIsProject ? getProjectPathFromPaneId(activePaneId) : null;
-  const activeIsUtility = activePaneId && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer ? isUtilityPanelId(activePaneId) : false;
-  const activeUtilityType = activePaneId && activeIsUtility ? parseUtilityPanelType(activePaneId) : null;
-
-  // Synthetic topics for draft panes (not yet persisted on server)
-  const draftTopics = useMemo(() => {
-    const map: Record<string, Topic> = {};
-    for (const id of validatedOrderedIds) {
-      if (isDraftPaneId(id)) {
-        map[id] = {
-          id,
-          name: 'New Chat',
-          icon: '💬',
-          color: '#0066ff',
-          sessionKey: `draft-session:${id}`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        } as Topic;
-      }
-    }
-    return map;
-  }, [validatedOrderedIds]);
-
-  const activeTopic = activePaneId && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer
-    ? (topics[activePaneId] || draftTopics[activePaneId] || null)
-    : null;
-
-  // Compute browser context ID for RemoteBrowserPanel
-  const browserContextId = useMemo(() => {
-    // If the active pane is a browser pane, use its encoded context ID
-    if (activePaneId && isBrowserPaneId(activePaneId)) {
-      const ctx = getBrowserContextFromPaneId(activePaneId);
-      if (ctx) return ctx;
-    }
-    // Find a topic with projectPath among ordered IDs for context
-    for (const id of validatedOrderedIds) {
-      if (isProjectPaneId(id)) {
-        const p = getProjectPathFromPaneId(id);
-        if (p) return p;
-      }
-      const t = topics[id];
-      if (t?.projectPath) return t.id.slice(0, 8);
-    }
-    return validatedOrderedIds[0]?.slice(0, 8) || 'default';
-  }, [activePaneId, validatedOrderedIds, topics]);
-  const browserContextIdRef = useRef(browserContextId);
-  // ISSUE 3 fix: move ref assignment to useEffect
-  useEffect(() => { browserContextIdRef.current = browserContextId; });
-
-  // Report utility pane status to parent (PanelGrid uses this to keep standalone alive)
-  const hasUtilityPanes = useMemo(
-    () => validatedOrderedIds.some(id => isBrowserPaneId(id) || isSessionViewerPaneId(id)),
-    [validatedOrderedIds],
-  );
-  useEffect(() => {
-    onUtilityPaneChange?.(hasUtilityPanes);
-  }, [hasUtilityPanes, onUtilityPaneChange]);
-
-  // Report open browser context IDs to parent for sidebar highlighting
-  const openBrowserContextIds = useMemo(
-    () => validatedOrderedIds.filter(isBrowserPaneId).map(id => getBrowserContextFromPaneId(id)).filter((id): id is string => id !== null),
-    [validatedOrderedIds],
-  );
-  useEffect(() => {
-    onOpenBrowserContextIds?.(openBrowserContextIds);
-  }, [openBrowserContextIds, onOpenBrowserContextIds]);
-
-  // Listen for browser:navigate WS — add browser pane if needed and navigate
-  // Skip when a project pane exists (projects manage their own browser internally)
-  const hasProjectPaneRef = useRef(false);
-  // ISSUE 3 fix: move ref assignment to useEffect
-  useEffect(() => { hasProjectPaneRef.current = validatedOrderedIds.some(id => isProjectPaneId(id)); });
-  useEffect(() => {
-    const unsub = onWSMessage((msg: any) => {
-      if (msg.type === 'browser:navigate' && msg.url) {
-        if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
-        // Rewrite localhost URLs to use the current hostname (supports Tailscale / remote access)
-        let navigateUrl: string = msg.url;
-        try {
-          const parsed = new URL(navigateUrl);
-          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-            parsed.hostname = window.location.hostname;
-            // Keep protocol consistent with current page
-            parsed.protocol = window.location.protocol;
-            navigateUrl = parsed.toString();
-          }
-        } catch { /* not a valid URL, leave as-is */ }
-        setBrowserNavigateUrl(navigateUrl);
-        setOrderedIds(prev => {
-          if (msg.topicId && !prev.includes(msg.topicId)) return prev;
-          const existing = prev.find(id => isBrowserPaneId(id));
-          if (existing) {
-            queueMicrotask(() => onFocusPanel(existing));
-            return prev;
-          }
-          const newId = createPaneId('browser');
-          queueMicrotask(() => onFocusPanel(newId));
-          return [...prev, newId];
-        });
-      }
-    });
-    return unsub;
-  }, [onWSMessage, onFocusPanel]);
-
-  // Handle initialTab === 'browser' by adding a browser pane
-  useEffect(() => {
-    if (activePaneId && panelInitialTab?.[activePaneId] === 'browser') {
-      onPanelInitialTabConsumed?.(activePaneId);
-      setOrderedIds(prev => {
-        const existing = prev.find(id => isBrowserPaneId(id));
-        if (existing) {
-          queueMicrotask(() => onFocusPanel(existing));
-          return prev;
-        }
-        const newId = createPaneId('browser');
-        queueMicrotask(() => onFocusPanel(newId));
-        return [...prev, newId];
-      });
-    }
-  }, [activePaneId, panelInitialTab, onPanelInitialTabConsumed, onFocusPanel]);
-
-  // Consume pending browser pane request (from sidebar — contextId string)
-  useEffect(() => {
-    if (pendingBrowserPane) {
-      // Notify parent that we have utility panes BEFORE consuming the pending request,
-      // so PanelGrid keeps the standalone group alive across the re-render
-      onUtilityPaneChange?.(true);
-      onPendingBrowserPaneConsumed?.();
-      const targetId = createPaneId('browser', pendingBrowserPane);
-      setOrderedIds(prev => {
-        // Check if we already have a pane for this context
-        if (prev.includes(targetId)) {
-          queueMicrotask(() => onFocusPanel(targetId));
-          return prev;
-        }
-        // Check for any existing browser pane — reuse it (swap context)
-        const existing = prev.find(id => isBrowserPaneId(id));
-        if (existing) {
-          queueMicrotask(() => onFocusPanel(targetId));
-          return prev.map(id => id === existing ? targetId : id);
-        }
-        queueMicrotask(() => onFocusPanel(targetId));
-        return [...prev, targetId];
-      });
-    }
-  }, [pendingBrowserPane, onPendingBrowserPaneConsumed, onFocusPanel]);
+  // Hook 3: pure derivations from validatedOrderedIds + activePaneId + topics.
+  const active = useActivePaneState({
+    validatedOrderedIds,
+    activePaneId,
+    topics,
+  });
+  const {
+    activeIsBrowser, activeIsTerminal, activeIsSessionViewer,
+    activeIsProject, activeIsUtility,
+    activeSessionKey, activeProjectPath, activeUtilityType,
+    activeTopic, browserContextId,
+  } = active;
 
   // Build Pane[] for PaneTabBar (mix of chat topics, utility panes, project panes, browser panes, and terminal panes)
   const panes: Pane[] = useMemo(() =>
@@ -502,63 +260,22 @@ export function StandaloneChatGroup({
     return map;
   }, [panes, getBadgeCount, activePaneId]);
 
-  const handleReorderPanes = useCallback((newPaneIds: string[]) => {
-    setOrderedIds(newPaneIds);
-  }, []);
-
-  // Pin a preview pane (make it permanent)
-  const handlePinPane = useCallback((paneId: string) => {
-    setPinnedIds(prev => new Set([...prev, paneId]));
-  }, []);
-
-  // Add a pane via the "+" menu
-  const handleAddPane = useCallback(async (type: PaneType, subType?: string) => {
-    if (type === 'browser') {
-      // Singleton: if browser pane already exists, just focus it
-      const existing = validatedOrderedIds.find(id => isBrowserPaneId(id));
-      if (existing) {
-        onFocusPanel(existing);
-        return;
-      }
-      const newId = createPaneId('browser');
-      setOrderedIds(prev => [...prev, newId]);
-      queueMicrotask(() => onFocusPanel(newId));
-    } else if (type === 'terminal') {
-      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
-      onCreateTerminal?.(termType, claudeSkipPermissions);
-    }
-  }, [validatedOrderedIds, onFocusPanel, claudeSkipPermissions, onCreateTerminal]);
-
-  // Close handler: support closing browser/terminal panes locally (they're not in topicIds)
-  const handleClosePane = useCallback((paneId: string) => {
-    if (isBrowserPaneId(paneId)) {
-      setOrderedIds(prev => prev.filter(id => id !== paneId));
-      // Destroy THIS pane's specific server browser context
-      const paneContextId = getBrowserContextFromPaneId(paneId);
-      if (paneContextId) {
-        fetch(`/api/browsers/${encodeURIComponent(paneContextId)}`, { method: 'DELETE' }).catch(() => {});
-      }
-      // If the closed pane was active, focus the first remaining
-      if (activePaneId === paneId) {
-        const remaining = validatedOrderedIds.filter(id => id !== paneId);
-        if (remaining.length > 0) onFocusPanel(remaining[0]);
-      }
-    } else if (isSessionViewerPaneId(paneId)) {
-      setOrderedIds(prev => prev.filter(id => id !== paneId));
-      if (activePaneId === paneId) {
-        const remaining = validatedOrderedIds.filter(id => id !== paneId);
-        if (remaining.length > 0) onFocusPanel(remaining[0]);
-      }
-    } else if (isTerminalPaneId(paneId)) {
-      const sessionId = getTerminalSessionFromPaneId(paneId);
-      if (sessionId) {
-        fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
-      }
-      onClosePanel(paneId);
-    } else {
-      onClosePanel(paneId);
-    }
-  }, [onClosePanel, activePaneId, validatedOrderedIds, onFocusPanel]);
+  // Hook 2: action handlers (browser singleton, close, split, settings, etc.)
+  const lifecycle = usePaneLifecycle({
+    ordering, active,
+    topics, topicIds, gridItemKey,
+    onClosePanel, onFocusPanel, onCloseMultiplePanels,
+    onSplitPane, onUnsolo,
+    onCreateTerminal, claudeSkipPermissions,
+    stopSession,
+  });
+  const { settingsTopicId, setSettingsTopicId } = lifecycle;
+  const {
+    handleReorderPanes, handlePinPane, handleAddPane, handleClosePane,
+    handleStopStreaming, handleOpenSessionViewer, handleSettings, handlePopOut,
+    handleSplitRight, handleSplitDown, handleDetach, handleUnsolo,
+    handleCloseOthers,
+  } = lifecycle.handlers;
 
   // Cross-group drop: accept a tab dragged from another group (solo or project).
   // When a tab is dropped onto another group's tab bar:
@@ -668,112 +385,9 @@ export function StandaloneChatGroup({
     return ids;
   }, [validatedOrderedIds, topics, isSessionStreaming]);
 
-  // Stop streaming for a pane (paneId = topicId in standalone)
-  const handleStopStreaming = useCallback((paneId: string) => {
-    const topic = topics[paneId];
-    if (topic) {
-      const isFirst = stopSession(topic.sessionKey);
-      if (isFirst) onClosePanel(paneId);
-    }
-  }, [topics, stopSession, onClosePanel]);
-
   const handleToggleContext = useCallback(() => {
     setContextOpen(prev => !prev);
   }, []);
-
-  // Open session viewer pane (used by AgentSpawnCard in chat and AgentsPane)
-  const handleOpenSessionViewer = useCallback((sessionKey: string) => {
-    const newId = createPaneId('session-viewer', sessionKey);
-    setOrderedIds(prev => prev.includes(newId) ? prev : [...prev, newId]);
-    queueMicrotask(() => onFocusPanel(newId));
-  }, [onFocusPanel]);
-
-  // Right-click menu: Settings opens TopicSettingsModal
-  const handleSettings = useCallback((paneId: string) => {
-    setSettingsTopicId(paneId);
-  }, []);
-
-  // Right-click menu: Pop Out opens in new window
-  const handlePopOut = useCallback((paneId: string) => {
-    const url = `${window.location.origin}?topic=${paneId}`;
-    isNativeApp
-      ? window.open(url, `topic-${paneId}`, 'width=900,height=700')
-      : window.open(url, `topic-${paneId}`);
-    onClosePanel(paneId);
-  }, [onClosePanel]);
-
-  // Determine if a pane type can be split to its own grid cell
-  // Utility panels (activity, etc.) and drafts can't be split; everything else can.
-  // Also blocked if: already a solo group, or splitting would leave this panel empty
-  const isSplittable = useCallback((id: string) => {
-    if (isUtilityPanelId(id) || isDraftPaneId(id)) return false;
-    // Solo groups can't split further
-    if (gridItemKey.startsWith('solo:')) return false;
-    // Don't split the last splittable pane (would leave an empty panel)
-    const splittableCount = validatedOrderedIds.filter(pid =>
-      !isUtilityPanelId(pid) && !isDraftPaneId(pid)
-    ).length;
-    return splittableCount >= 2;
-  }, [gridItemKey, validatedOrderedIds]);
-
-  // Split Right: detach pane to a new grid column on the right
-  const handleSplitRight = useCallback((paneId: string) => {
-    if (!onSplitPane || !isSplittable(paneId)) return;
-    onSplitPane(paneId, 'right');
-  }, [onSplitPane, isSplittable]);
-
-  // Split Down: detach pane to a new grid row below
-  const handleSplitDown = useCallback((paneId: string) => {
-    if (!onSplitPane || !isSplittable(paneId)) return;
-    onSplitPane(paneId, 'down');
-  }, [onSplitPane, isSplittable]);
-
-  // Detach handler: split the pane to its own grid cell (right by default)
-  const handleDetach = useMemo(() => {
-    if (!onSplitPane) return undefined;
-    return (paneId: string) => {
-      if (!isSplittable(paneId)) return;
-      onSplitPane(paneId, 'right');
-    };
-  }, [onSplitPane, isSplittable]);
-
-  // Unsolo handler: merge a solo pane back into the main group
-  const handleUnsolo = useMemo(() => {
-    if (!onUnsolo) return undefined;
-    return (paneId: string) => {
-      onUnsolo(paneId);
-    };
-  }, [onUnsolo]);
-
-  // ISSUE 22 fix: "Close Others" — batch-close multiple panels atomically
-  const handleCloseOthers = useCallback((keepPaneId: string) => {
-    const toClose = validatedOrderedIds.filter(id => id !== keepPaneId);
-    if (toClose.length === 0) return;
-
-    // Close locally-managed panes (browser/session-viewer) from orderedIds
-    const localToClose = toClose.filter(id => isBrowserPaneId(id) || isSessionViewerPaneId(id));
-    if (localToClose.length > 0) {
-      setOrderedIds(prev => prev.filter(id => id === keepPaneId || (!isBrowserPaneId(id) && !isSessionViewerPaneId(id))));
-      // Destroy browser contexts for closed browser panes
-      for (const id of localToClose) {
-        if (isBrowserPaneId(id)) {
-          const ctx = getBrowserContextFromPaneId(id);
-          if (ctx) fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE' }).catch(() => {});
-        }
-      }
-    }
-
-    // Close parent-managed panes atomically (terminals, topics, utilities, etc.)
-    const parentToClose = toClose.filter(id => !isBrowserPaneId(id) && !isSessionViewerPaneId(id));
-    if (parentToClose.length > 0 && onCloseMultiplePanels) {
-      onCloseMultiplePanels(parentToClose);
-    } else {
-      // Fallback: close one by one if batch callback not available
-      for (const id of parentToClose) onClosePanel(id);
-    }
-
-    onFocusPanel(keepPaneId);
-  }, [validatedOrderedIds, onCloseMultiplePanels, onClosePanel, onFocusPanel]);
 
   if (validatedOrderedIds.length === 0) return null;
   // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
@@ -962,7 +576,7 @@ export function StandaloneChatGroup({
                   }
                 : !effectivePinnedIds.has(activePaneId!)
                   ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
-                      setPinnedIds(prev => new Set([...prev, activePaneId!]));
+                      ordering.ops.pin(activePaneId!);
                       return sendMessage(sk, content, options);
                     }
                   : sendMessage
