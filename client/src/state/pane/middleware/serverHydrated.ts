@@ -20,13 +20,27 @@
 
 let serverHydrated = false;
 
+// Subscribers used by `useServerHydrated()` (React hook below). One-shot:
+// once we mark hydrated, every listener fires and the set is cleared. There
+// is no "un-hydrate" transition during a session, so we don't bother with a
+// per-listener unsubscribe contract beyond the standard cleanup.
+const listeners = new Set<() => void>();
+
 /**
  * Mark that this tab has received an authoritative server state. Idempotent.
  * Called by syncWS on `ui-state:init` / `ui-state:updated`, and by the
  * bootstrap fallback GET when it succeeds.
  */
 export function markServerHydrated(): void {
+  if (serverHydrated) return;
   serverHydrated = true;
+  // Snapshot before iterating: a listener may synchronously trigger another
+  // mark/subscribe and we don't want to re-fire it in the same flush.
+  const toFire = Array.from(listeners);
+  listeners.clear();
+  for (const l of toFire) {
+    try { l(); } catch { /* listener errors must not poison hydration */ }
+  }
 }
 
 /** True iff `markServerHydrated()` has fired at least once this session. */
@@ -34,7 +48,27 @@ export function hasReceivedServerHydrate(): boolean {
   return serverHydrated;
 }
 
+/**
+ * Subscribe to the one-shot hydrate signal. Listener fires exactly once when
+ * `markServerHydrated()` is first called, then is removed automatically. If
+ * already hydrated at subscribe time, the listener fires synchronously on
+ * the next microtask (so callers can rely on the same dispatch boundary in
+ * both the cold-boot and warm-mount paths).
+ *
+ * Returns an unsubscribe function for the rare case the caller needs to
+ * cancel before hydration fires (e.g. an unmount during boot).
+ */
+export function onServerHydrated(listener: () => void): () => void {
+  if (serverHydrated) {
+    queueMicrotask(listener);
+    return () => {};
+  }
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
 /** Test-only — reset the flag back to false. Not exported via the barrel. */
 export function __resetServerHydratedForTests(): void {
   serverHydrated = false;
+  listeners.clear();
 }

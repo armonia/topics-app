@@ -4,6 +4,7 @@ import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
+import { useServerHydrated } from '../../hooks/useServerHydrated';
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
@@ -170,6 +171,13 @@ export function PanelGrid({
   /* Device-local layout persistence (rows, row heights, solo IDs) — see
    * usePanelGridPersistence.ts. Review I2: factored out to keep this file
    * focused on layout math / DnD. */
+  // Gate device-local sync against the async pane-store hydrate. Before this
+  // flag flips, `openPanels` is whatever `HYDRATE_FROM_LEGACY` produced —
+  // typically `[]` on a returning user — so any code that prunes/persists
+  // based on it would clobber the saved grid layout. See PR description for
+  // the boot-order race.
+  const isServerHydrated = useServerHydrated();
+
   const {
     gridRows,
     setGridRows,
@@ -177,7 +185,7 @@ export function PanelGrid({
     setGridRowHeights,
     soloTopicIdsRaw,
     setSoloTopicIds,
-  } = usePanelGridPersistence();
+  } = usePanelGridPersistence({ persistEnabled: isServerHydrated });
 
   // ISSUE 6 FIX: Derive effective soloTopicIds synchronously filtered against openPanels.
   // This avoids the transient render where naturalGridItems includes a solo item
@@ -223,8 +231,17 @@ export function PanelGrid({
 
   /* ---- Grid rows state (initial values come from usePanelGridPersistence above) ---- */
 
-  // Sync gridRows when naturalGridItems change (add/remove items)
+  // Sync gridRows when naturalGridItems change (add/remove items).
+  //
+  // Gated on `isServerHydrated`: the pruning logic below treats any key not
+  // in `currentKeys` as stale, but `currentKeys` is derived from `openPanels`
+  // — which is empty until the async pane-store hydrate fills it. Running
+  // this effect during the boot window therefore wipes every `solo:<id>`
+  // key out of `gridRows` and (via `usePanelGridPersistence`) writes the
+  // wiped layout back to localStorage, destroying the saved split. We wait
+  // until the server hydrate signal arrives before the first sync.
   useEffect(() => {
+    if (!isServerHydrated) return;
     const currentKeys = new Set(naturalGridItems.map(i => i.key));
     setGridRows(prev => {
       // 1. Remove stale keys from each row, recalculate widths proportionally
@@ -269,15 +286,18 @@ export function PanelGrid({
 
       return rows;
     });
-  }, [naturalGridItems]);
+  }, [naturalGridItems, isServerHydrated]);
 
-  // Sync row heights when row count changes
+  // Sync row heights when row count changes. Same hydrate gate as above —
+  // before hydrate, `gridRows` may be the persisted shape and we don't want
+  // to overwrite the saved heights with a uniform distribution.
   useEffect(() => {
+    if (!isServerHydrated) return;
     setGridRowHeights(prev => {
       if (prev.length === gridRows.length && gridRows.length > 0) return prev;
       return gridRows.map(() => 1 / Math.max(1, gridRows.length));
     });
-  }, [gridRows.length]);
+  }, [gridRows.length, isServerHydrated]);
 
   // Phase 30 PANE-01: direct server fetches for grid layout have been removed.
   // Server persistence of pane layout flows through state/pane/middleware/syncServer.ts

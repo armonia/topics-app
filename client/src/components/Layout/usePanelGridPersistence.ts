@@ -52,7 +52,22 @@ export interface PanelGridPersistence {
   setSoloTopicIds: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
-export function usePanelGridPersistence(): PanelGridPersistence {
+/**
+ * Optional hook arguments. `persistEnabled` gates the localStorage write so
+ * we don't overwrite a saved layout with the transient empty state during
+ * the boot window (before the pane store has hydrated from server). Reads
+ * are unaffected — the initial useState values still come from localStorage,
+ * so the saved layout shows immediately on mount.
+ */
+export interface UsePanelGridPersistenceOptions {
+  persistEnabled?: boolean;
+}
+
+export function usePanelGridPersistence(
+  options: UsePanelGridPersistenceOptions = {},
+): PanelGridPersistence {
+  const { persistEnabled = true } = options;
+
   // Read localStorage once per mount instead of three times (one per useState
   // initializer). JSON.parse on a non-trivial payload isn't free, and the
   // three reads are always consistent anyway — they write together.
@@ -68,6 +83,7 @@ export function usePanelGridPersistence(): PanelGridPersistence {
   );
 
   useEffect(() => {
+    if (!persistEnabled) return;
     try {
       localStorage.setItem(
         STORAGE_KEY,
@@ -80,7 +96,7 @@ export function usePanelGridPersistence(): PanelGridPersistence {
     } catch {
       /* quota exceeded / private mode — silent */
     }
-  }, [gridRows, gridRowHeights, soloTopicIdsRaw]);
+  }, [gridRows, gridRowHeights, soloTopicIdsRaw, persistEnabled]);
 
   return {
     gridRows,
