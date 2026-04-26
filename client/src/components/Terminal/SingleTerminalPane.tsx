@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -126,15 +126,8 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon((_event, uri) => {
-      const electron = (window as any).electronAPI;
-      if (electron?.openExternal) {
-        electron.openExternal(uri);
-      } else {
-        window.open(uri, '_blank');
-      }
-    }));
     term.open(el);
+    registerWrappedLinkProvider(term, openLinkExternally);
 
     // Cmd+C (mac) or Ctrl+Shift+C: copy selection without sending SIGINT
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {

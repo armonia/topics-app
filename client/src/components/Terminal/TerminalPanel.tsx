@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
+import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import '@xterm/xterm/css/xterm.css';
 import { Plus, X, TerminalSquare, RefreshCw, Link, Loader2, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, Play } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
@@ -231,15 +231,8 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon((_event, uri) => {
-      const electron = (window as any).electronAPI;
-      if (electron?.openExternal) {
-        electron.openExternal(uri);
-      } else {
-        window.open(uri, '_blank');
-      }
-    }));
     term.open(el);
+    registerWrappedLinkProvider(term, openLinkExternally);
 
     const detachTouchScroll = attachTerminalTouchScroll(el, term);
 

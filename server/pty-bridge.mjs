@@ -42,8 +42,8 @@ function handleMessage(msg, client) {
         if (mergedEnv[key] == null) delete mergedEnv[key];
       }
       const home = process.env.HOME || '';
-      const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin'];
-      const currentPath = mergedEnv.PATH || '/usr/local/bin';
+      const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+      const currentPath = mergedEnv.PATH || '';
       mergedEnv.PATH = [...extraPaths, currentPath].filter(Boolean).join(':');
       const p = pty.spawn(shell, args, {
         name: 'xterm-256color',
@@ -193,6 +193,19 @@ async function start() {
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // Exit when parent dies. An orphaned bridge (reparented to launchd, PPID=1)
+  // loses its Aqua/GUI session context, which breaks `open <url>` for child
+  // PTYs (Launch Services can't resolve the default browser). On parent
+  // death, exit so the next request spawns a fresh bridge in the proper
+  // session context.
+  const initialPpid = process.ppid;
+  setInterval(() => {
+    if (process.ppid === 1 && initialPpid !== 1) {
+      console.error(`[PTY Bridge] Parent died (was ${initialPpid}, now reparented to launchd). Exiting to avoid losing GUI session.`);
+      shutdown('PARENT_DIED');
+    }
+  }, 5000).unref();
 }
 
 start();
