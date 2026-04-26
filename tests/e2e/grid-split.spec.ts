@@ -555,6 +555,30 @@ test.describe("Grid Split System", () => {
       expect(afterRowDividers, 'Split Down should create a row-resize divider').toBeGreaterThan(initialRowDividers);
     });
 
+    test("GRID-02c: Split Down survives a page reload (persistence)", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (persistence)" });
+      await goToApp(page);
+      await openTwoTopics(page);
+      await splitViaContextMenu(page, 'Split Down');
+
+      // Capture localStorage before reload — should now contain `cellStacks`.
+      const before = await page.evaluate(() =>
+        localStorage.getItem('topics-panel-grid-layout'),
+      );
+      expect(before, 'split-down should have written cellStacks to localStorage').toBeTruthy();
+      expect(before!, 'cellStacks key must be present in saved layout').toContain('cellStacks');
+
+      await page.reload({ waitUntil: 'networkidle' });
+      // Allow the post-hydrate sync effect to settle.
+      await page.waitForTimeout(2000);
+
+      const after = await page.evaluate(() =>
+        localStorage.getItem('topics-panel-grid-layout'),
+      );
+      expect(after, 'localStorage must still contain cellStacks after reload').toBeTruthy();
+      expect(after!, 'cellStacks key must survive reload').toContain('cellStacks');
+    });
+
     test("GRID-03: Resize split panels by dragging col-resize divider", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);

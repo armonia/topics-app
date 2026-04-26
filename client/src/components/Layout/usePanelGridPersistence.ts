@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { PanelGridRow, PanelGridCellStack } from '../../types';
 
 /**
@@ -112,22 +112,7 @@ export interface PanelGridPersistence {
   setSoloTopicIds: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
-/**
- * Optional hook arguments. `persistEnabled` gates the localStorage write so
- * we don't overwrite a saved layout with the transient empty state during
- * the boot window (before the pane store has hydrated from server). Reads
- * are unaffected — the initial useState values still come from localStorage,
- * so the saved layout shows immediately on mount.
- */
-export interface UsePanelGridPersistenceOptions {
-  persistEnabled?: boolean;
-}
-
-export function usePanelGridPersistence(
-  options: UsePanelGridPersistenceOptions = {},
-): PanelGridPersistence {
-  const { persistEnabled = true } = options;
-
+export function usePanelGridPersistence(): PanelGridPersistence {
   // Read localStorage once per mount instead of three times (one per useState
   // initializer). JSON.parse on a non-trivial payload isn't free, and the
   // three reads are always consistent anyway — they write together.
@@ -142,8 +127,22 @@ export function usePanelGridPersistence(
     () => initial.soloTopicIds ?? [],
   );
 
-  useEffect(() => {
-    if (!persistEnabled) return;
+  // Persist on every state change. We use `useLayoutEffect` rather than
+  // `useEffect` so the localStorage write flushes synchronously after the
+  // commit, BEFORE the browser repaints — narrowing the race window where
+  // an external reload (e.g. Electron's prod asset auto-reload) could fire
+  // between commit and write and leave localStorage stale.
+  //
+  // We deliberately do NOT gate this on `serverHydrated`. The original gate
+  // (PR #6) was added because the `naturalGridItems` sync effect in
+  // `PanelGrid.tsx` could prune the saved layout during the boot window
+  // when `openPanels` was still empty. That root cause is fixed by gating
+  // *the sync effect itself* on `useServerHydrated()`. Gating the persist
+  // write too was redundantly defensive AND actively harmful: if the user
+  // split a pane before hydrate (or Electron auto-reloaded mid-boot), the
+  // split write was silently dropped — the symptom users reported as
+  // "split layout doesn't survive reload".
+  useLayoutEffect(() => {
     try {
       localStorage.setItem(
         STORAGE_KEY,
@@ -156,7 +155,7 @@ export function usePanelGridPersistence(
     } catch {
       /* quota exceeded / private mode — silent */
     }
-  }, [gridRows, gridRowHeights, soloTopicIdsRaw, persistEnabled]);
+  }, [gridRows, gridRowHeights, soloTopicIdsRaw]);
 
   return {
     gridRows,

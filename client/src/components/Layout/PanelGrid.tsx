@@ -216,11 +216,10 @@ export function PanelGrid({
   /* Device-local layout persistence (rows, row heights, solo IDs) — see
    * usePanelGridPersistence.ts. Review I2: factored out to keep this file
    * focused on layout math / DnD. */
-  // Gate device-local sync against the async pane-store hydrate. Before this
-  // flag flips, `openPanels` is whatever `HYDRATE_FROM_LEGACY` produced —
-  // typically `[]` on a returning user — so any code that prunes/persists
-  // based on it would clobber the saved grid layout. See PR description for
-  // the boot-order race.
+  // The `naturalGridItems` sync effect (below) is gated on this flag so it
+  // doesn't prune the saved layout during the boot window when `openPanels`
+  // is still empty. Persistence is NOT gated — see usePanelGridPersistence
+  // for the rationale.
   const isServerHydrated = useServerHydrated();
 
   const {
@@ -230,7 +229,7 @@ export function PanelGrid({
     setGridRowHeights,
     soloTopicIdsRaw,
     setSoloTopicIds,
-  } = usePanelGridPersistence({ persistEnabled: isServerHydrated });
+  } = usePanelGridPersistence();
 
   // ISSUE 6 FIX: Derive effective soloTopicIds synchronously filtered against openPanels.
   // This avoids the transient render where naturalGridItems includes a solo item
@@ -267,6 +266,14 @@ export function PanelGrid({
     return items;
   }, [openPanels, soloTopicIds, standaloneHasUtility, pendingBrowserPane]);
 
+  // Live ref for the sync effect's setGridRows updater. The updater can run
+  // AFTER another setGridRows from a user handler (e.g. handleSplitPane)
+  // commits — closing over `naturalGridItems` from the effect schedule
+  // would see a one-render-stale snapshot and silently prune just-added
+  // sub-stack items. The ref always points at the latest derivation.
+  const naturalGridItemsRef = useRef(naturalGridItems);
+  naturalGridItemsRef.current = naturalGridItems;
+
   /* ---- Item lookup map ---- */
   const itemMap = useMemo(() => {
     const m = new Map<string, GridItem>();
@@ -276,106 +283,112 @@ export function PanelGrid({
 
   /* ---- Grid rows state (initial values come from usePanelGridPersistence above) ---- */
 
-  // Sync gridRows when naturalGridItems change (add/remove items).
+  // Sync gridRows when naturalGridItems change.
   //
-  // Gated on `isServerHydrated`: the pruning logic below treats any key not
-  // in `currentKeys` as stale, but `currentKeys` is derived from `openPanels`
-  // — which is empty until the async pane-store hydrate fills it. Running
-  // this effect during the boot window therefore wipes every `solo:<id>`
-  // key out of `gridRows` and (via `usePanelGridPersistence`) writes the
-  // wiped layout back to localStorage, destroying the saved split. We wait
-  // until the server hydrate signal arrives before the first sync.
+  // Two passes — split intentionally:
+  //
+  // 1. **Additive pass (always safe)**: this effect's only job is to ensure
+  //    every key in `naturalGridItems` has a place in `gridRows`. Missing
+  //    top-level keys get appended to the first row. This is purely
+  //    additive and CANNOT lose user data even if it runs during a
+  //    transient state mismatch (e.g. before a soloTopicIds update has
+  //    propagated to naturalGridItems).
+  //
+  // 2. **Pruning pass (gated, deferred)**: stale-key removal happens in a
+  //    SEPARATE effect that runs only when the state has stabilized. We
+  //    can't safely prune here because this effect's setGridRows updater
+  //    can run during the same commit as another updater (e.g.
+  //    `handleSplitPane.setGridRows`). The closure-captured `currentKeys`
+  //    would then be one render stale relative to the `prev` we receive,
+  //    and we'd silently drop just-added sub-stack items.
+  //
+  // Gated on `isServerHydrated` so we don't run during the boot window
+  // when openPanels is still empty.
   useEffect(() => {
     if (!isServerHydrated) return;
-    const currentKeys = new Set(naturalGridItems.map(i => i.key));
     setGridRows(prev => {
-      // 1. Remove stale keys from each row, recalculate widths proportionally.
-      //    Keys are considered "kept" if they appear in `itemKeys` OR in any
-      //    `cellStacks[*].items` of that row — sub-stacks are treated as
-      //    first-class presence, otherwise the sync would orphan them.
-      let rows = prev.map(row => {
-        const stackEntries = row.cellStacks ? Object.entries(row.cellStacks) : [];
-
-        // Filter cellStacks first: drop stale items, drop entire stack if its
-        // primary is being pruned out of itemKeys, drop stacks that became empty.
-        let nextStacks: Record<string, PanelGridCellStack> | undefined = undefined;
-        for (const [primary, stack] of stackEntries) {
-          if (!currentKeys.has(primary)) continue; // primary about to be pruned
-          const keptItems: string[] = [];
-          const keptHeights: number[] = [stack.heights[0] ?? 1 / (stack.items.length + 1)];
-          for (let i = 0; i < stack.items.length; i++) {
-            if (currentKeys.has(stack.items[i])) {
-              keptItems.push(stack.items[i]);
-              keptHeights.push(stack.heights[i + 1] ?? 1 / (stack.items.length + 1));
-            }
-          }
-          if (keptItems.length === 0) continue; // stack collapsed back to single-pane
-          const sum = keptHeights.reduce((s, h) => s + h, 0) || 1;
-          nextStacks = nextStacks ?? {};
-          nextStacks[primary] = {
-            items: keptItems,
-            heights: keptHeights.map(h => h / sum),
-          };
-        }
-
-        const kept: number[] = [];
-        for (let i = 0; i < row.itemKeys.length; i++) {
-          if (currentKeys.has(row.itemKeys[i])) kept.push(i);
-        }
-
-        const itemKeysUnchanged = kept.length === row.itemKeys.length;
-        const stacksUnchanged = nextStacks === row.cellStacks
-          || (nextStacks === undefined && !row.cellStacks);
-        if (itemKeysUnchanged && stacksUnchanged) return row;
-
-        if (kept.length === 0) {
-          return { itemKeys: [] as string[], widths: [] as number[] };
-        }
-
-        const newItemKeys = kept.map(i => row.itemKeys[i]);
-        const newWidths = kept.map(i => row.widths[i]);
-        const total = newWidths.reduce((s, w) => s + w, 0);
-        const next: PanelGridRow = {
-          itemKeys: newItemKeys,
-          widths: total > 0
-            ? newWidths.map(w => w / total)
-            : newItemKeys.map(() => 1 / newItemKeys.length),
-        };
-        if (nextStacks) next.cellStacks = nextStacks;
-        return next;
-      });
-
-      // 2. Remove empty rows
-      rows = rows.filter(r => r.itemKeys.length > 0);
-
-      // 3. Find new keys not in any row (treating sub-stack items as present)
-      const existing = collectAllPresentKeys(rows);
-      const newKeys = naturalGridItems.map(i => i.key).filter(k => !existing.has(k));
-
-      // 4. Add new keys: when there are no rows yet they all share the first
-      // (and only) row; otherwise they fold into the existing first row. Split
-      // placement is owned by `handleSplitPane` which writes the new key into
-      // `cellStacks` (or `itemKeys` for split-right) synchronously, so by the
-      // time this effect runs the split key is already accounted for above.
-      if (newKeys.length > 0) {
-        if (rows.length === 0) {
-          rows = [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
-        } else {
-          const first = rows[0];
-          const allKeys = [...first.itemKeys, ...newKeys];
-          rows = [
-            {
-              itemKeys: allKeys,
-              widths: allKeys.map(() => 1 / allKeys.length),
-              ...(first.cellStacks ? { cellStacks: first.cellStacks } : {}),
-            },
-            ...rows.slice(1),
-          ];
-        }
+      const liveItems = naturalGridItemsRef.current;
+      const existing = collectAllPresentKeys(prev);
+      const newKeys = liveItems.map(i => i.key).filter(k => !existing.has(k));
+      if (newKeys.length === 0) return prev;
+      if (prev.length === 0) {
+        return [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
       }
-
-      return rows;
+      const first = prev[0];
+      const allKeys = [...first.itemKeys, ...newKeys];
+      return [
+        {
+          itemKeys: allKeys,
+          widths: allKeys.map(() => 1 / allKeys.length),
+          ...(first.cellStacks ? { cellStacks: first.cellStacks } : {}),
+        },
+        ...prev.slice(1),
+      ];
     });
+  }, [naturalGridItems, isServerHydrated]);
+
+  // Deferred pruning: run after a tick so any pending setGridRows updaters
+  // (from user handlers like handleSplitPane) have fully committed and
+  // `naturalGridItemsRef.current` reflects the post-commit state. The
+  // setTimeout(0) is intentional — it pushes the pruning work to the next
+  // task, after both the additive sync above AND any user-initiated
+  // updates have settled. Without this deferral, pruning races with adds
+  // and silently drops just-added sub-stack items.
+  useEffect(() => {
+    if (!isServerHydrated) return;
+    const handle = setTimeout(() => {
+      setGridRows(prev => {
+        const liveItems = naturalGridItemsRef.current;
+        const currentKeys = new Set(liveItems.map(i => i.key));
+        let mutated = false;
+        const next = prev.map(row => {
+          let stacksMutated = false;
+          let nextStacks: Record<string, PanelGridCellStack> | undefined = row.cellStacks;
+          if (row.cellStacks) {
+            const out: Record<string, PanelGridCellStack> = {};
+            for (const [primary, stack] of Object.entries(row.cellStacks)) {
+              if (!currentKeys.has(primary)) { stacksMutated = true; continue; }
+              const keptItems: string[] = [];
+              const keptHeights: number[] = [stack.heights[0] ?? 1 / (stack.items.length + 1)];
+              for (let i = 0; i < stack.items.length; i++) {
+                if (currentKeys.has(stack.items[i])) {
+                  keptItems.push(stack.items[i]);
+                  keptHeights.push(stack.heights[i + 1] ?? 1 / (stack.items.length + 1));
+                } else {
+                  stacksMutated = true;
+                }
+              }
+              if (keptItems.length === 0) { stacksMutated = true; continue; }
+              const sum = keptHeights.reduce((s, h) => s + h, 0) || 1;
+              out[primary] = { items: keptItems, heights: keptHeights.map(h => h / sum) };
+            }
+            nextStacks = Object.keys(out).length > 0 ? out : undefined;
+          }
+
+          const kept: number[] = [];
+          for (let i = 0; i < row.itemKeys.length; i++) {
+            if (currentKeys.has(row.itemKeys[i])) kept.push(i);
+          }
+          const itemKeysUnchanged = kept.length === row.itemKeys.length;
+          if (itemKeysUnchanged && !stacksMutated) return row;
+          mutated = true;
+          if (kept.length === 0) return { itemKeys: [] as string[], widths: [] as number[] };
+          const newItemKeys = kept.map(i => row.itemKeys[i]);
+          const newWidths = kept.map(i => row.widths[i]);
+          const total = newWidths.reduce((s, w) => s + w, 0);
+          const nextRow: PanelGridRow = {
+            itemKeys: newItemKeys,
+            widths: total > 0
+              ? newWidths.map(w => w / total)
+              : newItemKeys.map(() => 1 / newItemKeys.length),
+          };
+          if (nextStacks) nextRow.cellStacks = nextStacks;
+          return nextRow;
+        }).filter(r => r.itemKeys.length > 0);
+        return mutated ? next : prev;
+      });
+    }, 0);
+    return () => clearTimeout(handle);
   }, [naturalGridItems, isServerHydrated]);
 
   // Sync row heights when row count changes. Same hydrate gate as above —
