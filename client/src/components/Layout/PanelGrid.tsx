@@ -397,6 +397,21 @@ export function PanelGrid({
 
     // Place in grid
     const soloKey = `solo:${topicId}`;
+    // Resolve source row once, outside the setGridRows updater, so the
+    // setGridRowHeights updater below can use the same anchor. Reading
+    // from `gridRowsRef.current` is safe — handleSplitPane is invoked
+    // from event handlers AFTER React commits previous state.
+    const refRows = gridRowsRef.current;
+    let sourceRowIdx = -1;
+    for (let r = 0; r < refRows.length; r++) {
+      if (refRows[r].itemKeys.includes(soloKey)) { sourceRowIdx = r; break; }
+    }
+    if (sourceRowIdx === -1) {
+      for (let r = 0; r < refRows.length; r++) {
+        if (refRows[r].itemKeys.includes('standalone')) { sourceRowIdx = r; break; }
+      }
+    }
+
     setGridRows(prev => {
       // Double-check limits (state may have changed between ref read and updater)
       if (direction === 'down' && prev.length >= MAX_ROWS) return prev;
@@ -423,7 +438,18 @@ export function PanelGrid({
       rows = rows.filter(r => r.itemKeys.length > 0);
 
       if (direction === 'down') {
-        rows.push({ itemKeys: [soloKey], widths: [1] });
+        const newRow: PanelGridRow = { itemKeys: [soloKey], widths: [1] };
+        // Insert directly below the source row when we found it; otherwise
+        // append at the end (legacy behavior). The +1 accounts for the row
+        // index in the (possibly compacted) `rows` array — sourceRowIdx was
+        // computed against `prev`, but the source row is preserved (we only
+        // remove the soloKey from other rows, never the source itself), so
+        // its index doesn't shift.
+        if (sourceRowIdx >= 0 && sourceRowIdx < rows.length) {
+          rows = [...rows.slice(0, sourceRowIdx + 1), newRow, ...rows.slice(sourceRowIdx + 1)];
+        } else {
+          rows.push(newRow);
+        }
       } else {
         if (rows.length === 0) {
           rows = [{ itemKeys: [soloKey], widths: [1] }];
@@ -450,12 +476,18 @@ export function PanelGrid({
       setGridRowHeights(prev => {
         const total = prev.length + 1;
         if (prev.length === 0) return [1];
-        // Preserve existing proportions, scale them down, append a uniform
-        // slot for the new row so it gets a fair share immediately.
+        // Preserve existing proportions, scale them down, splice a uniform
+        // slot for the new row at the same position the row was inserted
+        // (so the new row's height aligns with where it visually appeared
+        // in `setGridRows` above). When sourceRowIdx is unknown we fall
+        // back to appending at the end — matching the legacy behavior.
         const sum = prev.reduce((s, h) => s + h, 0) || 1;
         const scaled = prev.map(h => (h / sum) * (prev.length / total));
-        scaled.push(1 / total);
-        return scaled;
+        const insertHeight = 1 / total;
+        const insertAt = (sourceRowIdx >= 0 && sourceRowIdx < scaled.length)
+          ? sourceRowIdx + 1
+          : scaled.length;
+        return [...scaled.slice(0, insertAt), insertHeight, ...scaled.slice(insertAt)];
       });
     }
 
