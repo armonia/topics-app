@@ -236,4 +236,21 @@ describe("sanitizeSnapshot (audit fixes)", () => {
     const sanitized = sanitizeSnapshot({ closedStack: [bad] });
     expect(sanitized!.closedStack).toEqual([]);
   });
+
+  test("group splitRatio rejects NaN/Infinity and clamps out-of-range values", () => {
+    const out = sanitizeSnapshot({
+      groups: {
+        gNaN: { id: "gNaN", paneIds: [], splitRatio: NaN, splitAxis: "horizontal" },
+        gInf: { id: "gInf", paneIds: [], splitRatio: Infinity, splitAxis: "horizontal" },
+        gNeg: { id: "gNeg", paneIds: [], splitRatio: -10, splitAxis: "horizontal" },
+        gBig: { id: "gBig", paneIds: [], splitRatio: 1e9, splitAxis: "horizontal" },
+        gOk:  { id: "gOk",  paneIds: [], splitRatio: 0.42, splitAxis: "horizontal" },
+      },
+    });
+    expect(out!.groups!.gNaN.splitRatio).toBe(0.5);
+    expect(out!.groups!.gInf.splitRatio).toBe(0.5);
+    expect(out!.groups!.gNeg.splitRatio).toBe(0.05);
+    expect(out!.groups!.gBig.splitRatio).toBe(0.95);
+    expect(out!.groups!.gOk.splitRatio).toBe(0.42);
+  });
 });

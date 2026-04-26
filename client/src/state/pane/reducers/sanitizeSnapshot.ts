@@ -122,7 +122,15 @@ function sanitizeGroup(raw: unknown): Group | null {
   if (typeof raw.id !== 'string' || !raw.id) return null;
   if (!Array.isArray(raw.paneIds)) return null;
   const paneIds = raw.paneIds.filter((x): x is string => typeof x === 'string');
-  const splitRatio = typeof raw.splitRatio === 'number' ? raw.splitRatio : 0.5;
+  // `typeof NaN === 'number'` — without the Number.isFinite check NaN would
+  // ride through and poison every downstream layout calc. Range-clamp to the
+  // same window the runtime reducer uses (groups.ts clampRatio) so an
+  // adversarial payload with splitRatio=1e9 can't strand a pane off-screen.
+  const rawRatio = raw.splitRatio;
+  const splitRatio =
+    typeof rawRatio === 'number' && Number.isFinite(rawRatio)
+      ? Math.min(0.95, Math.max(0.05, rawRatio))
+      : 0.5;
   const splitAxisIsValid = raw.splitAxis === 'vertical' || raw.splitAxis === 'horizontal';
   const splitAxis: 'vertical' | 'horizontal' = raw.splitAxis === 'vertical' ? 'vertical' : 'horizontal';
   // Nice-to-have (N1): warn in dev when we silently coerce an unexpected

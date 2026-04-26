@@ -184,7 +184,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     };
     state.groupOrder = ["g1"];
 
-    // Fill to the bound.
+    // Pre-fill the group so empty-group cleanup doesn't drop `g1` mid-loop.
     for (let i = 0; i < CLOSED_STACK_MAX; i++) {
       state.panes[`p${i}`] = {
         id: `p${i}`,
@@ -192,6 +192,8 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
         title: `P${i}`,
       } as any;
       state.groups["g1"].paneIds.push(`p${i}`);
+    }
+    for (let i = 0; i < CLOSED_STACK_MAX; i++) {
       paneReducer(state, {
         type: "CLOSE_PANE",
         payload: { id: `p${i}`, groupId: "g1", groupIndex: i },
@@ -199,13 +201,20 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     }
     expect(state.closedStack.length).toBe(CLOSED_STACK_MAX);
 
-    // Clear one then close one more — the bound must still hold.
+    // Clear one then close one more — the bound must still hold. The group
+    // was pruned when emptied, so re-create it before re-using the id.
     paneReducer(state, {
       type: "CLEAR_CLOSED_RECORD",
       payload: { id: "p10" },
     });
     expect(state.closedStack.length).toBe(CLOSED_STACK_MAX - 1);
 
+    state.groups["g1"] = {
+      id: "g1",
+      paneIds: [],
+      splitRatio: 0.5,
+      splitAxis: "horizontal",
+    };
     state.panes["pNew"] = { id: "pNew", type: "chat", title: "N" } as any;
     state.groups["g1"].paneIds.push("pNew");
     paneReducer(state, {
@@ -218,13 +227,21 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     paneReducer(state, { type: "CLEAR_CLOSED_STACK" });
     expect(state.closedStack.length).toBe(0);
 
+    state.groups["g1"] = {
+      id: "g1",
+      paneIds: [],
+      splitRatio: 0.5,
+      splitAxis: "horizontal",
+    };
     for (let i = 0; i < CLOSED_STACK_MAX + 5; i++) {
       const id = `q${i}`;
       state.panes[id] = { id, type: "chat", title: id } as any;
       state.groups["g1"].paneIds.push(id);
+    }
+    for (let i = 0; i < CLOSED_STACK_MAX + 5; i++) {
       paneReducer(state, {
         type: "CLOSE_PANE",
-        payload: { id, groupId: "g1", groupIndex: 0 },
+        payload: { id: `q${i}`, groupId: "g1", groupIndex: 0 },
       });
     }
     expect(state.closedStack.length).toBe(CLOSED_STACK_MAX);
@@ -425,6 +442,8 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
       splitAxis: "horizontal",
     };
     state.groupOrder = ["g1"];
+    // Pre-fill panes; close in a separate loop so empty-group cleanup
+    // doesn't prune `g1` after the first close.
     for (let i = 0; i < 55; i++) {
       state.panes[`p${i}`] = {
         id: `p${i}`,
@@ -433,6 +452,8 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
         topicId: `t${i}`,
       } as any;
       state.groups["g1"].paneIds.push(`p${i}`);
+    }
+    for (let i = 0; i < 55; i++) {
       paneReducer(state, {
         type: "CLOSE_PANE",
         payload: { id: `p${i}`, groupId: "g1", groupIndex: i },
@@ -442,5 +463,140 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     // Oldest 5 (p0..p4) were evicted
     expect(state.closedStack.find((r) => r.id === "p0")).toBeUndefined();
     expect(state.closedStack.find((r) => r.id === "p54")).toBeDefined();
+  });
+});
+
+describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder permutation)", () => {
+  test("CLOSE_PANE prunes a non-default group when its last pane closes", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "chat:t1", type: "chat", title: "A", groupId: "g1" },
+    });
+    expect(state.groups["g1"]).toBeDefined();
+    expect(state.groupOrder).toContain("g1");
+    paneReducer(state, {
+      type: "CLOSE_PANE",
+      payload: { id: "chat:t1", groupId: "g1", groupIndex: 0 },
+    });
+    expect(state.groups["g1"]).toBeUndefined();
+    expect(state.groupOrder).not.toContain("g1");
+  });
+
+  test("CLOSE_PANE keeps `group:default` even when emptied", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "chat:t1", type: "chat", title: "A", groupId: "group:default" },
+    });
+    paneReducer(state, {
+      type: "CLOSE_PANE",
+      payload: { id: "chat:t1", groupId: "group:default", groupIndex: 0 },
+    });
+    expect(state.groups["group:default"]).toBeDefined();
+    expect(state.groups["group:default"].paneIds).toEqual([]);
+  });
+
+  test("RESIZE clamps splitRatio to [0.05, 0.95] and rejects NaN", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p1", type: "chat", title: "A", groupId: "g1" },
+    });
+    state.groups["g1"].splitRatio = 0.5;
+
+    paneReducer(state, { type: "RESIZE", payload: { groupId: "g1", ratio: 0 } });
+    expect(state.groups["g1"].splitRatio).toBe(0.05);
+
+    paneReducer(state, { type: "RESIZE", payload: { groupId: "g1", ratio: 1 } });
+    expect(state.groups["g1"].splitRatio).toBe(0.95);
+
+    paneReducer(state, { type: "RESIZE", payload: { groupId: "g1", ratio: NaN } });
+    expect(state.groups["g1"].splitRatio).toBe(0.95); // unchanged
+
+    paneReducer(state, { type: "RESIZE", payload: { groupId: "g1", ratio: 0.3 } });
+    expect(state.groups["g1"].splitRatio).toBe(0.3);
+  });
+
+  test("REORDER_PANES drops orphan IDs and preserves the current member set", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p1", type: "chat", title: "A", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p2", type: "chat", title: "B", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p3", type: "chat", title: "C", groupId: "g1" },
+    });
+
+    // Adversarial payload: includes a non-existent id and drops p2.
+    paneReducer(state, {
+      type: "REORDER_PANES",
+      payload: { groupId: "g1", paneIds: ["p3", "ghost-id", "p1"] },
+    });
+
+    // p3 and p1 reordered; ghost dropped; p2 appended at the end.
+    expect(state.groups["g1"].paneIds).toEqual(["p3", "p1", "p2"]);
+  });
+
+  test("UNDO_CLOSE recreates the group after empty-group prune", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "chat:t1", type: "chat", title: "A", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "CLOSE_PANE",
+      payload: { id: "chat:t1", groupId: "g1", groupIndex: 0 },
+    });
+    expect(state.groups["g1"]).toBeUndefined();
+
+    paneReducer(state, { type: "UNDO_CLOSE" });
+    expect(state.groups["g1"]).toBeDefined();
+    expect(state.groups["g1"].paneIds).toEqual(["chat:t1"]);
+    expect(state.groupOrder).toContain("g1");
+    expect(state.panes["chat:t1"]).toBeDefined();
+  });
+
+  test("REORDER_PANES with empty payload preserves all current members", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p1", type: "chat", title: "A", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p2", type: "chat", title: "B", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "REORDER_PANES",
+      payload: { groupId: "g1", paneIds: [] },
+    });
+    expect(state.groups["g1"].paneIds).toEqual(["p1", "p2"]);
+  });
+
+  test("REORDER_PANES rejects pane IDs from another group", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p1", type: "chat", title: "A", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p2", type: "chat", title: "B", groupId: "g2" },
+    });
+
+    // Payload tries to inject p2 (lives in g2) into g1.
+    paneReducer(state, {
+      type: "REORDER_PANES",
+      payload: { groupId: "g1", paneIds: ["p2", "p1"] },
+    });
+
+    expect(state.groups["g1"].paneIds).toEqual(["p1"]);
+    expect(state.groups["g2"].paneIds).toEqual(["p2"]);
   });
 });

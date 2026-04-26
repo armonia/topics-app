@@ -95,6 +95,15 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       if (idx >= 0) group.paneIds.splice(idx, 1);
       delete state.panes[id];
       if (state.focusedPaneId === id) state.focusedPaneId = null;
+      // Mirror the OPEN_PANE healing branch above: a non-default group that
+      // just emptied is a ghost — keeping it leaks entries into groupOrder
+      // and renders an empty tab-bar slot. `group:default` is preserved
+      // even when empty because it is the app-level dispatch target.
+      if (group.paneIds.length === 0 && groupId !== 'group:default') {
+        delete state.groups[groupId];
+        const orderIdx = state.groupOrder.indexOf(groupId);
+        if (orderIdx >= 0) state.groupOrder.splice(orderIdx, 1);
+      }
       break;
     }
     case 'UNDO_CLOSE': {
