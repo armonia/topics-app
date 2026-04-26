@@ -1103,64 +1103,17 @@ export function PanelGrid({
     };
   }, [externalDragTopicId]);
 
-  /* ---- empty state ---- */
-  if (naturalGridItems.length === 0) {
-    return (
-      <div
-        ref={containerRef}
-        className={`flex-1 flex items-center justify-center bg-surface transition-colors ${
-          emptyDragOver ? 'bg-primary/5 dark:bg-primary/10' : ''
-        }`}
-        onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
-          e.preventDefault();
-          setEmptyDragOver(true);
-        }}
-        onDragLeave={() => setEmptyDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setEmptyDragOver(false);
-          const id = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
-          if (id) onOpenPanelAt(id, 0);
-        }}
-      >
-        <div className={`text-center transition-all duration-300 max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
-          {emptyDragOver ? (
-            <>
-              <div className="text-[40px] mb-3 float-icon">{'\uD83D\uDCCC'}</div>
-              <h2 className="text-[16px] font-semibold text-primary">Drop here to open</h2>
-            </>
-          ) : (
-            <>
-              <div className="mb-5 opacity-40">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-app-text-muted">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-              </div>
-              <h2 className="text-[17px] font-semibold text-app-text mb-2">Welcome to Topics</h2>
-              <p className="text-[13px] text-app-text-muted leading-relaxed mb-6">
-                {window.innerWidth < 768
-                  ? 'Tap the menu button to browse topics or create a new one.'
-                  : 'Select a topic to start'}
-              </p>
-              {window.innerWidth >= 768 && (
-                <div className="flex flex-wrap gap-3 justify-center text-[12px] text-app-text-muted">
-                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318K'}</kbd> Search</span>
-                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318B'}</kbd> Sidebar</span>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   /**
    * Resize handler invoked by `CellSubStack` when the user drags one of its
    * in-cell vertical dividers. Replaces the heights for the named cell-stack
    * and re-normalizes (defensive — CellSubStack already keeps the sum
    * stable, but rounding drift compounds).
+   *
+   * MUST be declared BEFORE the empty-state early return below — React's
+   * hook-order rules require the same number of hook calls every render,
+   * and the empty-state branch returns early before reaching the cell
+   * render path. Placing this after that return triggered React error
+   * #310 the moment the first pane opened.
    */
   const handleCellStackResize = useCallback(
     (rowIdx: number, primaryKey: string, nextHeights: number[]) => {
@@ -1187,6 +1140,8 @@ export function PanelGrid({
    * the ~30-prop call site twice. App-singleton concerns (sidebar toggle,
    * standalone-only utility/browser hooks) are scoped to the primary cell
    * at row 0 col 0; sub-stack items intentionally don't get them.
+   *
+   * Also pre-empty-state — see `handleCellStackResize` rationale above.
    */
   const renderGroupForKey = useCallback(
     (item: GridItem, key: string, rowIdx: number, colIdx: number) => (
@@ -1250,6 +1205,59 @@ export function PanelGrid({
       draftMeta, handleSplitPane, handleUnsoloTopic,
     ],
   );
+
+  /* ---- empty state ---- */
+  if (naturalGridItems.length === 0) {
+    return (
+      <div
+        ref={containerRef}
+        className={`flex-1 flex items-center justify-center bg-surface transition-colors ${
+          emptyDragOver ? 'bg-primary/5 dark:bg-primary/10' : ''
+        }`}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
+          e.preventDefault();
+          setEmptyDragOver(true);
+        }}
+        onDragLeave={() => setEmptyDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setEmptyDragOver(false);
+          const id = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
+          if (id) onOpenPanelAt(id, 0);
+        }}
+      >
+        <div className={`text-center transition-all duration-300 max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
+          {emptyDragOver ? (
+            <>
+              <div className="text-[40px] mb-3 float-icon">{'\uD83D\uDCCC'}</div>
+              <h2 className="text-[16px] font-semibold text-primary">Drop here to open</h2>
+            </>
+          ) : (
+            <>
+              <div className="mb-5 opacity-40">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-app-text-muted">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </div>
+              <h2 className="text-[17px] font-semibold text-app-text mb-2">Welcome to Topics</h2>
+              <p className="text-[13px] text-app-text-muted leading-relaxed mb-6">
+                {window.innerWidth < 768
+                  ? 'Tap the menu button to browse topics or create a new one.'
+                  : 'Select a topic to start'}
+              </p>
+              {window.innerWidth >= 768 && (
+                <div className="flex flex-wrap gap-3 justify-center text-[12px] text-app-text-muted">
+                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318K'}</kbd> Search</span>
+                  <span className="flex items-center gap-1.5 bg-app-hover dark:bg-elevated px-3 py-1.5 rounded-lg"><kbd className="kbd">{'\u2318B'}</kbd> Sidebar</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   /* ---- render multi-row grid layout ---- */
   return (
