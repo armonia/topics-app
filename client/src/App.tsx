@@ -1,10 +1,9 @@
-import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense, type ComponentType } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, Cpu, Activity, BarChart3, Radio, Globe, Timer } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { ClaudeIcon } from './components/Shared/ClaudeIcon';
-import type { Topic, CreateTopicRequest, AppSettings, SidebarTab, TerminalSessionInfo } from './types';
-import { DEFAULT_TOPIC_ICON } from './lib/topicIcons';
+import type { SidebarTab } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -12,40 +11,23 @@ import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
-import { useMobile } from './hooks/useMobile';
-import { useStorageSync } from './hooks/useStorageSync';
 import { useSidebarState } from './hooks/useSidebarState';
+import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
+import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
+import { usePanelLifecycle } from './hooks/usePanelLifecycle';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import {
-  useClosedTabs,
-  reopenClosedTab,
-  type ClosedTabRecord,
-  createPaneId,
-  isProjectPaneId,
-  isBrowserPaneId,
-  isDraftPaneId,
-  createDraftPaneId,
-  getProjectPathFromPaneId,
-  isKnownPanePrefix,
-  isUUIDLike,
-} from './state/pane/adapters';
-import { usePaneStore, findPaneLocation } from './state/pane/store';
-
+import { useClosedTabs } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
-import { loadSettings, saveSettings } from './lib/settings';
 import { ToastProvider } from './components/Shared/Toast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 import { DropdownPortal } from './components/Shared/DropdownPortal';
-import { utilityPanelId } from './components/Layout/UtilityPanel';
-import { generateUUID } from './utils/uuid';
-import { globalBoardApi } from './lib/api';
-import { undo as undoUndo, redo as undoRedo, pushUndo, isTextInputFocused } from './contexts/UndoContext';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -61,50 +43,10 @@ const TOPICS_MENU_PAGES = [
   { id: 'cron' as const, icon: Timer, label: 'Cron Jobs' },
 ];
 
-// Generate unique window ID (persists across reloads via sessionStorage)
-const getWindowId = () => {
-  let id = sessionStorage.getItem('topics-window-id');
-  if (!id) {
-    id = generateUUID();
-    sessionStorage.setItem('topics-window-id', id);
-  }
-  return id;
-};
-
 // Phase 30 PANE-01: persistence for open panels is owned by the pane-store
-// middleware (state/pane/middleware/{persistLocal,syncServer,syncWS,syncCrossTab}).
-// Components now read the canonical state from usePaneStore and dispatch
-// actions to mutate it. The helpers below are thin store readers — writes
-// happen inside the component via dispatch.
-const loadSavedPanels = (): string[] => {
-  try {
-    const s = usePaneStore.getState();
-    const defaultGroup = s.groups['group:default'];
-    const order = defaultGroup?.paneIds ?? [];
-    // Drop stale draft ids older than 24h — draft metadata still lives in
-    // localStorage ('draft-meta') and is not part of the pane-store snapshot.
-    const draftMetaRaw = localStorage.getItem('draft-meta');
-    const savedDraftMeta = draftMetaRaw ? JSON.parse(draftMetaRaw) : {};
-    const now = Date.now();
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    return order.filter(id => {
-      if (!id.startsWith('draft:')) return true;
-      const meta = savedDraftMeta[id];
-      if (!meta?.createdAt) return false;
-      return (now - new Date(meta.createdAt).getTime()) < TWENTY_FOUR_HOURS;
-    });
-  } catch {
-    return [];
-  }
-};
-
-const loadSavedFocused = (): string | null => {
-  try {
-    return usePaneStore.getState().focusedPaneId;
-  } catch {
-    return null;
-  }
-};
+// middleware. Component reads/writes happen via the panel-lifecycle hook
+// (`usePanelLifecycle`); App-level helpers were inlined into that hook
+// during the Commit 5 refactor.
 
 export function _SafeAreaFill() {
   return (
@@ -148,6 +90,24 @@ export function _SafeAreaDebug() {
   );
 }
 
+/**
+ * App — root component.
+ *
+ * Phase 3 refactor (commits on `refactor/app-hooks`) extracted four hooks:
+ *  - useSidebarAndLayout    — layout chrome, sidebar resize, traffic lights.
+ *  - useTerminalLifecycle   — terminal sessions + pure pruneStaleTerminalPanes
+ *                             helper.
+ *  - usePanelLifecycle      — full panel-state cluster: state, store-sync,
+ *                             validation, draft persistence, six per-cluster
+ *                             WS subscriptions, all panel handlers, electron
+ *                             effects, drain-on-reconnect, detached auto-close.
+ *  - useKeyboardShortcuts   — global keydown + open-all-boards listener with
+ *                             ref-mirror pattern (CRITIQUE C2 fix).
+ *
+ * App.tsx now owns: detached-mode detection, ten modal/menu useState
+ * declarations (CRITIQUE C10), DOM refs for App-local dropdowns, two
+ * outside-click effects, and the JSX tree.
+ */
 function App() {
   // DEV-only overlay — lazy-loaded via dynamic import() so the module stays
   // out of the production graph entirely (PANE-05 strip contract). The static
@@ -162,229 +122,40 @@ function App() {
     }
   }, []);
 
-  // Unique ID for this window (for cross-window drag coordination)
-  const windowId = getWindowId();
-
-  // Mobile detection
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  
-  // PWA standalone mode detection
-  const [isPWA] = useState(() => 
-    window.matchMedia('(display-mode: standalone)').matches || 
-    (window.navigator as any).standalone === true
-  );
-  
-  // Touch detection
-  const { isTouch: _isTouch } = useMobile();
-
-  // Mobile keyboard: adjust app height when virtual keyboard opens
-  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
-  const fullHeightRef = useRef(window.innerHeight);
-  useEffect(() => {
-    if (!isMobile || !window.visualViewport) return;
-    const vv = window.visualViewport;
-    // Track the full height when no keyboard is open
-    const trackFullHeight = () => {
-      if (vv.height >= window.innerHeight * 0.85) {
-        fullHeightRef.current = window.innerHeight;
-      }
-    };
-    window.addEventListener('resize', trackFullHeight);
-
-    const onResize = () => {
-      const isKeyboardOpen = vv.height < fullHeightRef.current * 0.85;
-      if (isKeyboardOpen) {
-        setViewportHeight(vv.height);
-      } else {
-        setViewportHeight(null);
-        // Force reset scroll offset when keyboard closes — iOS/WebView
-        // leaves the page scrolled up after keyboard dismissal
-        requestAnimationFrame(() => {
-          window.scrollTo(0, 0);
-          document.documentElement.scrollTop = 0;
-          document.body.scrollTop = 0;
-        });
-      }
-    };
-    // Listen to both resize and scroll on visualViewport
-    vv.addEventListener('resize', onResize);
-    vv.addEventListener('scroll', onResize);
-    return () => {
-      vv.removeEventListener('resize', onResize);
-      vv.removeEventListener('scroll', onResize);
-      window.removeEventListener('resize', trackFullHeight);
-    };
-  }, [isMobile]);
-
-  // Electron detection
-  const isElectron = !!(window as any).electronAPI?.isElectron;
-  
   // Check if we're in detached/pop-out mode (single topic window)
   const urlParams = new URLSearchParams(window.location.search);
   const detachedTopicId = urlParams.get('topic');
   const isDetached = !!detachedTopicId;
 
-  // Multi-panel state (restore from localStorage for main window)
-  const [openPanels, setOpenPanels] = useState<string[]>(() => {
-    if (isDetached && detachedTopicId) return [detachedTopicId];
-    return loadSavedPanels();
-  });
-  const [focusedPanelId, setFocusedPanelId] = useState<string | null>(() => {
-    if (isDetached && detachedTopicId) return detachedTopicId;
-    return loadSavedFocused();
-  });
-  const focusedPanelIdRef = useRef(focusedPanelId);
-  // ISSUE 3 fix: move ref assignment from render to useEffect
-  useEffect(() => { focusedPanelIdRef.current = focusedPanelId; }, [focusedPanelId]);
+  // Topics-menu modal state declared up-front so useSidebarAndLayout can
+  // observe it for the macOS traffic-light effect (CRITIQUE C10: modal
+  // state stays in App, but the side-effect lives in the layout hook).
+  const [showTopicsMenu, setShowTopicsMenu] = useState(false);
 
-  // Phase 30 PANE-01: panel persistence is owned by the pane-store middleware.
-  // Here we only bridge between the reducer (canonical source of truth) and
-  // the local React state: store updates push into React state, and React
-  // state changes dispatch REORDER_PANES / FOCUS_PANE to the store. No direct
-  // localStorage, no direct server fetches, no WS listener — the middleware
-  // layer (persistLocal, syncServer, syncWS, syncCrossTab) handles all of it.
-
-  // Subscribe to the store's default group for openPanels and focusedPaneId
-  // and mirror them into local React state so the rest of App.tsx's render
-  // logic (which reads openPanels / focusedPanelId) stays unchanged.
-  const storeSyncInternalRef = useRef(false);
-  useEffect(() => {
-    if (isDetached) return;
-    const applyFromStore = () => {
-      const s = usePaneStore.getState();
-      const storeOrder = s.groups['group:default']?.paneIds ?? [];
-      const storeFocus = s.focusedPaneId;
-      storeSyncInternalRef.current = true;
-      setOpenPanels(prev => {
-        if (prev.length === storeOrder.length && prev.every((id, i) => id === storeOrder[i])) return prev;
-        return storeOrder;
-      });
-      setFocusedPanelId(prev => {
-        if (prev === storeFocus) return prev;
-        if (storeFocus && storeOrder.includes(storeFocus)) return storeFocus;
-        if (prev && storeOrder.includes(prev)) return prev;
-        return storeOrder[0] ?? storeFocus ?? null;
-      });
-      // Next microtask: clear the internal flag so subsequent user-driven
-      // changes dispatch back into the store.
-      queueMicrotask(() => { storeSyncInternalRef.current = false; });
-    };
-    // Apply once on mount to catch any updates that landed before subscribe.
-    applyFromStore();
-    const unsub = usePaneStore.subscribe(
-      (s) => s.lastSeq,
-      () => applyFromStore(),
-    );
-    return () => unsub();
-  }, [isDetached]);
-
-  // Push React state changes back to the store when the user initiated them.
-  useEffect(() => {
-    if (isDetached) return;
-    if (storeSyncInternalRef.current) return;
-    const s = usePaneStore.getState();
-    const storeOrder = s.groups['group:default']?.paneIds ?? [];
-    const changed = storeOrder.length !== openPanels.length || !storeOrder.every((id, i) => id === openPanels[i]);
-    if (changed) {
-      s.dispatch({
-        type: 'REORDER_PANES',
-        payload: { groupId: 'group:default', paneIds: openPanels },
-      });
-    }
-  }, [openPanels, isDetached]);
-
-  useEffect(() => {
-    if (isDetached) return;
-    if (storeSyncInternalRef.current) return;
-    const s = usePaneStore.getState();
-    if (s.focusedPaneId !== focusedPanelId) {
-      s.dispatch({ type: 'FOCUS_PANE', payload: { id: focusedPanelId } });
-    }
-  }, [focusedPanelId, isDetached]);
-
-  // Track topic switches initiated by this client (so topic:switch:complete only affects own switches)
-  const ownTopicSwitchesRef = useRef<Set<string>>(new Set());
-
-  // Pending focus for a topic inside a project tab
-  const [pendingProjectFocus, setPendingProjectFocus] = useState<{ projectPath: string; topicId: string } | null>(null);
-  // Active topic per project (for sidebar highlighting) — keyed by projectPath
-  const [projectActiveTopics, setProjectActiveTopics] = useState<Record<string, string | null>>({});
-  const handleProjectActiveTopicChange = useCallback((projectPath: string, topicId: string | null) => {
-    setProjectActiveTopics(prev => prev[projectPath] === topicId ? prev : { ...prev, [projectPath]: topicId });
-  }, []);
-  const [projectOpenPanes, setProjectOpenPanes] = useState<Record<string, string[]>>({});
-  const handleProjectOpenPanesChange = useCallback((projectPath: string, paneIds: string[]) => {
-    setProjectOpenPanes(prev => {
-      const existing = prev[projectPath];
-      if (existing && existing.length === paneIds.length && existing.every((id, i) => id === paneIds[i])) return prev;
-      return { ...prev, [projectPath]: paneIds };
-    });
-  }, []);
-
-  // Cross-window drag state
-  const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
-  const [externalDragSourceWindow, setExternalDragSourceWindow] = useState<string | null>(null);
-
-  // Pending pane request (e.g. add terminal to a project from sidebar)
-  const [pendingProjectPane, setPendingProjectPane] = useState<{ projectPath: string; type: import('./types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null>(null);
-  // Initial tab override for standalone panels (e.g. "New Terminal" opens with terminal tab)
-  const [panelInitialTab, setPanelInitialTab] = useState<Record<string, import('./types').PanelTab>>({});
-  // Draft chat state: tracks metadata for draft panes (not yet persisted on server)
-  const [draftMeta, setDraftMeta] = useState<Record<string, { projectPath?: string; createdAt?: string }>>(() => {
-    try {
-      const saved = localStorage.getItem('draft-meta');
-      return saved ? JSON.parse(saved) : {};
-    } catch { return {}; }
-  });
-
-  // Persist draftMeta to localStorage
-  useEffect(() => {
-    try { localStorage.setItem('draft-meta', JSON.stringify(draftMeta)); } catch {}
-  }, [draftMeta]);
-
-  // Terminal sessions state (fetched from server, updated via WS)
-  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>(() => {
-    try {
-      const cached = localStorage.getItem('terminal-sessions-cache');
-      if (cached) { const p = JSON.parse(cached); if (Array.isArray(p)) return p; }
-    } catch {}
-    return [];
-  });
-  const terminalSessionsLoaded = useRef(false);
-  // ISSUE 13 fix: track recently created terminal session IDs with timestamps
-  // to avoid cleanup race when server WS broadcast hasn't caught up yet
-  const recentlyCreatedTerminalsRef = useRef<Map<string, number>>(new Map());
-  const fetchTerminalSessions = useCallback(() => {
-    fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
-      terminalSessionsLoaded.current = true;
-      setTerminalSessions(data);
-      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(data)); } catch {}
-    }).catch(() => {});
-  }, []);
-
-  // Cleanup drafts > 24h on mount
-  useEffect(() => {
-    const now = Date.now();
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    setDraftMeta(prev => {
-      const next: typeof prev = {};
-      let changed = false;
-      for (const [id, meta] of Object.entries(prev)) {
-        if (meta.createdAt && (now - new Date(meta.createdAt).getTime()) >= TWENTY_FOUR_HOURS) {
-          changed = true;
-          try { localStorage.removeItem(`draft-content-${id}`); } catch {}
-        } else {
-          next[id] = meta;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, []);
+  // Sidebar + layout chrome (Phase 3 hook 1)
+  const layout = useSidebarAndLayout({ isDetached, showTopicsMenu });
+  const {
+    appSettings,
+    sidebarWidth,
+    sidebarCollapsed,
+    isMobile,
+    isPWA,
+    viewportHeight,
+    isElectron,
+    windowId,
+  } = layout.state;
+  const { sidebarRef } = layout.refs;
+  const {
+    toggleSidebar,
+    handleSidebarResizeStart,
+    handleSidebarDoubleClick,
+    handleSidebarTouchStart,
+    handleSidebarTouchEnd,
+    handleEdgeTouchStart,
+    handleEdgeTouchEnd,
+    setSidebarCollapsed,
+    setAppSettings,
+  } = layout.handlers;
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
@@ -398,22 +169,10 @@ function App() {
   const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
-  const [showTopicsMenu, setShowTopicsMenu] = useState(false);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-
-  // Show/hide macOS traffic lights with Topics dropdown
-  useEffect(() => {
-    if (!isElectron) return;
-    const api = (window as any).electronAPI?.window;
-    if (showTopicsMenu) {
-      api?.showTrafficLights();
-    } else {
-      api?.hideTrafficLights();
-    }
-  }, [showTopicsMenu, isElectron]);
 
   // Close topics menu on outside click or Escape
   useEffect(() => {
@@ -444,147 +203,6 @@ function App() {
   }, [expandedTool]);
 
 
-  // App settings
-  const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);
-
-  // Cross-tab sync for settings
-  useStorageSync('app-settings', useCallback((newSettings: AppSettings) => {
-    if (newSettings) setAppSettings(newSettings);
-  }, []));
-
-  // Sidebar resize state - collapsed by default in detached windows and mobile
-  const [sidebarWidth, setSidebarWidth] = useState(() => appSettings.sidebarWidth || 256);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    return isDetached || isMobile ? true : (appSettings.sidebarCollapsed || false);
-  });
-
-  // Remove pre-render sidebar-collapsed class now that React owns the state
-  useEffect(() => {
-    document.documentElement.classList.remove('sidebar-pre-collapsed');
-  }, []);
-  
-  // Auto-collapse sidebar on mobile
-  useEffect(() => {
-    if (isMobile && !sidebarCollapsed) {
-      setSidebarCollapsed(true);
-    }
-  }, [isMobile]);
-  const sidebarResizing = useRef(false);
-  const sidebarStartX = useRef(0);
-  const sidebarStartWidth = useRef(0);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-
-  // Mobile swipe-to-dismiss sidebar
-  const touchStartX = useRef<number | null>(null);
-  const handleSidebarTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-  }, []);
-  const handleSidebarTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (touchStartX.current !== null) {
-      const delta = e.changedTouches[0].clientX - touchStartX.current;
-      if (delta < -60) {
-        setSidebarCollapsed(true);
-      }
-      touchStartX.current = null;
-    }
-  }, []);
-
-  // Mobile swipe-from-left-edge to open sidebar
-  const edgeTouchStartX = useRef<number | null>(null);
-  const handleEdgeTouchStart = useCallback((e: React.TouchEvent) => {
-    if (sidebarCollapsed && e.touches[0].clientX < 30) {
-      edgeTouchStartX.current = e.touches[0].clientX;
-    }
-  }, [sidebarCollapsed]);
-  const handleEdgeTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (edgeTouchStartX.current !== null) {
-      const delta = e.changedTouches[0].clientX - edgeTouchStartX.current;
-      if (delta > 60) {
-        setSidebarCollapsed(false);
-      }
-      edgeTouchStartX.current = null;
-    }
-  }, []);
-
-  // Sidebar resize handlers — bypass React during drag for fluid resizing
-  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    sidebarResizing.current = true;
-    sidebarStartX.current = e.clientX;
-    sidebarStartWidth.current = sidebarCollapsed ? 0 : sidebarWidth;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    // Disable CSS transition during drag for instant feedback
-    if (sidebarRef.current) {
-      sidebarRef.current.style.transition = 'none';
-    }
-  }, [sidebarWidth, sidebarCollapsed]);
-
-  const handleSidebarDoubleClick = useCallback(() => {
-    setSidebarCollapsed(prev => {
-      const newVal = !prev;
-      if (!isDetached) {
-        const newSettings = { ...appSettings, sidebarCollapsed: newVal };
-        saveSettings(newSettings);
-        setAppSettings(newSettings);
-      }
-      return newVal;
-    });
-  }, [appSettings, isDetached]);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!sidebarResizing.current) return;
-      const delta = e.clientX - sidebarStartX.current;
-      const newWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
-      // Update DOM directly — no React re-render per pixel
-      if (sidebarRef.current) {
-        sidebarRef.current.style.width = `${newWidth}px`;
-        sidebarRef.current.style.opacity = '';
-      }
-    };
-    const onUp = (e: MouseEvent) => {
-      if (!sidebarResizing.current) return;
-      sidebarResizing.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      // Re-enable CSS transition
-      if (sidebarRef.current) {
-        sidebarRef.current.style.transition = '';
-      }
-      // Sync final width to React state
-      const delta = e.clientX - sidebarStartX.current;
-      const finalWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
-      const collapsed = finalWidth <= 180 && delta < -20;
-      setSidebarWidth(collapsed ? 180 : finalWidth);
-      setSidebarCollapsed(collapsed);
-      // Persist (but not from detached windows — they'd overwrite main window's sidebar state)
-      if (!isDetached) {
-        const newSettings = { ...loadSettings(), sidebarWidth: collapsed ? 180 : finalWidth, sidebarCollapsed: collapsed };
-        saveSettings(newSettings);
-        setAppSettings(newSettings);
-      }
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [isDetached]);
-
-  const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed(prev => {
-      const newVal = !prev;
-      if (!isDetached) {
-        const newSettings = { ...appSettings, sidebarCollapsed: newVal };
-        saveSettings(newSettings);
-        setAppSettings(newSettings);
-      }
-      return newVal;
-    });
-  }, [appSettings, isDetached]);
-
   const {
     topics,
     workspaceProjects,
@@ -597,68 +215,6 @@ function App() {
     archiveProject,
     applyTopicFromWS,
   } = useTopics();
-
-  // Resolve projectPath from focused pane — works for both project panes and topic panes
-  const focusedProjectPath = useMemo(() => {
-    if (!focusedPanelId) return undefined;
-    if (isProjectPaneId(focusedPanelId)) return getProjectPathFromPaneId(focusedPanelId) || undefined;
-    return topics[focusedPanelId]?.projectPath || undefined;
-  }, [focusedPanelId, topics]);
-
-  // ISSUE 12 fix: track previous openPanels and topics to detect when they actually change
-  const prevOpenPanelsForValidation = useRef<string[]>(openPanels);
-  const prevTopicsForValidation = useRef(topics);
-  // Validate saved panels exist (remove deleted/archived topics, move project-linked topics)
-  useEffect(() => {
-    if (!topicsLoading && Object.keys(topics).length > 0 && !isDetached) {
-      // Guard: skip if neither openPanels nor topics changed since last validation
-      // (prevents loops when this effect itself triggers setOpenPanels)
-      const panelsChanged = openPanels !== prevOpenPanelsForValidation.current;
-      const topicsChanged = topics !== prevTopicsForValidation.current;
-      prevTopicsForValidation.current = topics;
-      if (!panelsChanged && !topicsChanged) return;
-
-      const projectPanesToAdd: string[] = [];
-      const validPanels = openPanels.filter(id => {
-        // Structural tabs: always survive (identified by prefix)
-        if (isKnownPanePrefix(id)) return true;
-        const topic = topics[id];
-        // Topic not found yet but looks like a UUID → preserve (may still be loading)
-        if (!topic) return isUUIDLike(id);
-        if (topic.archived) return false;
-        // Topic linked to a project → remove from standalone, ensure project pane is open
-        if (topic.projectPath) {
-          const paneId = createPaneId('project', topic.projectPath);
-          if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
-          return false;
-        }
-        return true;
-      });
-      // Add project panes for topics that were moved
-      for (const p of projectPanesToAdd) {
-        if (!validPanels.includes(p)) validPanels.push(p);
-      }
-      const changed = validPanels.length !== openPanels.length || validPanels.some((v, i) => v !== openPanels[i]);
-      if (changed) {
-        prevOpenPanelsForValidation.current = validPanels;
-        setOpenPanels(validPanels);
-        // Don't reset focus for browser panes (managed locally by StandaloneChatGroup)
-        if (focusedPanelId && !validPanels.includes(focusedPanelId) && !isBrowserPaneId(focusedPanelId)) {
-          // If focused topic was moved to a project, focus the project pane
-          const movedTopic = topics[focusedPanelId];
-          if (movedTopic?.projectPath) {
-            const projectPaneId = createPaneId('project', movedTopic.projectPath);
-            setFocusedPanelId(projectPaneId);
-            setPendingProjectFocus({ projectPath: movedTopic.projectPath, topicId: focusedPanelId });
-          } else {
-            setFocusedPanelId(validPanels.length > 0 ? validPanels[0] : null);
-          }
-        }
-      } else {
-        prevOpenPanelsForValidation.current = openPanels;
-      }
-    }
-  }, [topics, topicsLoading, isDetached, openPanels, focusedPanelId]);
 
   const {
     sendMessage,
@@ -689,6 +245,13 @@ function App() {
     return onWSMessage(chatStreamHandler);
   }, [onWSMessage, chatStreamHandler]);
 
+  // Terminal lifecycle (Phase 3 hook 2). Owns terminal sessions + grace
+  // period ref + WS subscription. Exposes a pure pruneStaleTerminalPanes
+  // helper used by the App-side cleanup effect below (CRITIQUE C5: NO
+  // setOpenPanels crosses the seam).
+  const terminals = useTerminalLifecycle({ wsStatus, onWSMessage });
+  const terminalSessions = terminals.sessions;
+
   // Phase 30 PANE-01: cross-device panels sync is owned by state/pane/middleware/syncWS.ts.
   // The middleware subscribes to the pane-store reducer's lastSeq and applies
   // `ui-state:init` / `ui-state:updated` frames with the Option-A envelope
@@ -696,884 +259,81 @@ function App() {
   // an LWW guard. The store-subscription effect above mirrors those updates
   // back into React state, so there is no need for a WS listener here.
 
-  // Drain outbound message queue and reload open panel histories when WS reconnects
-  const prevWsStatus = useRef(wsStatus);
-  useEffect(() => {
-    if (prevWsStatus.current !== 'connected' && wsStatus === 'connected') {
-      drainQueue();
-      // Re-fetch message history for all open topics to clear stale partial/failed states
-      for (const panelId of openPanels) {
-        const topic = topics[panelId];
-        if (topic) {
-          loadHistory(topic.sessionKey);
-        }
-      }
-    }
-    prevWsStatus.current = wsStatus;
-  }, [wsStatus, drainQueue, openPanels, topics, loadHistory]);
   const { themeMode, toggleTheme, setTheme } = useTheme(onWSMessage);
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: true });
   const agentLiveCount = activeSessions.length + idleSessions.length;
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
-  const handleReopenClosedTab = useCallback(async (record: ClosedTabRecord) => {
-    try {
-      const pane = await reopenClosedTab(record);
-      if (record.level === 'project') {
-        // Dispatch to ProjectWindow
-        window.dispatchEvent(new CustomEvent('reopen-closed-tab', { detail: record }));
-      } else {
-        // App-level: re-add to openPanels
-        setOpenPanels(prev => [...prev, pane.id]);
-        setFocusedPanelId(pane.id);
-      }
-      removeClosedTab(record.id);
-    } catch (err) {
-      console.warn('Failed to reopen closed tab:', err);
-    }
-  }, [removeClosedTab]);
-
-
-  // Board task counts per project (for sidebar badges)
-  const [boardTaskCounts, setBoardTaskCounts] = useState<Record<string, number>>({});
-  useEffect(() => {
-    globalBoardApi.listTasks().then(data => {
-      const counts: Record<string, number> = {};
-      for (const t of data.tasks) {
-        if (t.status !== 'done') counts[t.projectId] = (counts[t.projectId] || 0) + 1;
-      }
-      setBoardTaskCounts(counts);
-    }).catch(() => {});
-  }, []);
-  // Keep board task counts in sync via WS
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type === 'task:created' || msg.type === 'task:moved' || msg.type === 'task:updated' || msg.type === 'task:deleted') {
-        // Re-fetch counts on any task change
-        globalBoardApi.listTasks().then(data => {
-          const counts: Record<string, number> = {};
-          for (const t of data.tasks) {
-            if (t.status !== 'done') counts[t.projectId] = (counts[t.projectId] || 0) + 1;
-          }
-          setBoardTaskCounts(counts);
-        }).catch(() => {});
-      }
-    });
-  }, [onWSMessage]);
-
-  // Fetch terminal sessions + reload topics on mount + WS reconnect
-  useEffect(() => { fetchTerminalSessions(); }, [fetchTerminalSessions]);
-  useEffect(() => {
-    if (wsStatus === 'connected') {
-      fetchTerminalSessions();
-      loadTopics();
-    }
-  }, [wsStatus, fetchTerminalSessions, loadTopics]);
-  // Keep terminal sessions in sync via WS
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type === 'terminal:sessions' && Array.isArray(msg.sessions)) {
-        setTerminalSessions(msg.sessions as TerminalSessionInfo[]);
-        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(msg.sessions)); } catch {}
-      }
-    });
-  }, [onWSMessage]);
-
-  // Clean stale terminal panes from openPanels when sessions change (skip until first fetch)
-  // ISSUE 13 fix: exclude recently created sessions from cleanup (5s grace period)
-  useEffect(() => {
-    if (!terminalSessionsLoaded.current) return;
-    const sessionIds = new Set(terminalSessions.map(s => s.id));
-    const now = Date.now();
-    const GRACE_MS = 5000;
-    // Prune expired entries from recentlyCreated
-    for (const [id, ts] of recentlyCreatedTerminalsRef.current) {
-      if (now - ts > GRACE_MS) recentlyCreatedTerminalsRef.current.delete(id);
-    }
-    setOpenPanels(prev => {
-      const filtered = prev.filter(id => {
-        if (!id.startsWith('terminal:')) return true;
-        const sessionId = id.slice('terminal:'.length);
-        // Keep if server knows about it OR if it was recently created (grace period)
-        return sessionIds.has(sessionId) || recentlyCreatedTerminalsRef.current.has(sessionId);
-      });
-      return filtered.length === prev.length ? prev : filtered;
-    });
-  }, [terminalSessions]);
-
-  // Browser pane management
-  const [pendingBrowserPane, setPendingBrowserPane] = useState<string | null>(null);
-  const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(null), []);
-
-  // Auto-solo signal: when a new top-level utility pane (terminal/browser) is
-  // created via quick-create, signal PanelGrid to give it its own grid cell.
-  // Without this, the new pane joins the standalone group with existing panels
-  // and the user perceives it as "merged" with their other tabs.
-  const [pendingSoloPanelId, setPendingSoloPanelId] = useState<string | null>(null);
-  const handlePendingSoloConsumed = useCallback(() => setPendingSoloPanelId(null), []);
-  const openBrowserPane = useCallback((contextId: string) => {
-    setPendingBrowserPane(contextId);
-    // Same rationale as quick-create terminal: a new browser pane should land
-    // in its own grid cell instead of being merged into the standalone group
-    // with chats/projects. PanelGrid only solo's if other panels already exist.
-    setPendingSoloPanelId(`browser:${contextId}`);
-    if (isMobile) {
-      setSidebarCollapsed(true);
-    }
-  }, [isMobile]);
-  const [, setOpenBrowserContextIds] = useState<string[]>([]);
-
   const sidebarContentRef = useRef<HTMLDivElement>(null);
 
-  // Open a utility page (Activity/Journal/Agents/Dashboard/All Boards) as a pane in the main panel
-  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => {
-    const id = utilityPanelId(type);
-    if (isMobile) {
-      setOpenPanels([id]);
-      setSidebarCollapsed(true);
-    } else {
-      setOpenPanels(prev => prev.includes(id) ? prev : [...prev, id]);
-    }
-    setFocusedPanelId(id);
-  }, [isMobile]);
+  // Phase 3 hook 3 — full panel-state cluster (state, store-sync,
+  // validation, per-cluster WS subs, handlers). See usePanelLifecycle.ts
+  // for the full effect-declaration-order contract.
+  const panelLifecycle = usePanelLifecycle({
+    isDetached, detachedTopicId, isMobile,
+    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject,
+    workspaceProjects,
+    terminalSessions,
+    pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
+    terminalOps: terminals.ops,
+    onWSMessage, sendWS, wsStatus, windowId,
+    chatStreamHandlers: {
+      isOwnStream, getSessionMessages, addMessageFromWS, clearSession,
+      loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
+    },
+    setSidebarCollapsed,
+    removeClosedTab,
+  });
+  const {
+    openPanels, focusedPanelId, previewPanelId, nextPanelMode, draftMeta,
+    pendingProjectFocus, projectActiveTopics, projectOpenPanes,
+    pendingProjectPane, panelInitialTab, contextMenu, expandedProjects,
+    externalDragTopicId, pendingBrowserPane, pendingSoloPanelId,
+    boardTaskCounts,
+  } = panelLifecycle.state;
+  const { focusedProjectPath } = panelLifecycle.derived;
+  const {
+    handleTopicClick, handleTopicDoubleClick, handleClosePanel,
+    handleProjectClick, handleFocusPanel, handleReorderPanels,
+    handleOpenPanelAt, handleOpenAsProject, handleAddProjectPane,
+    handleOpenProjectBoard, handleArchiveProject, handleTopicContextMenu,
+    handleQuickCreateTopic, handleCreateTopic, promoteDraft,
+    handleQuickCreateTerminal, handleCloseTerminal, handleTerminalClick,
+    handleOpenAsPage, handleExternalDrop, handleReopenClosedTab,
+    handleProjectActiveTopicChange, handleProjectOpenPanesChange,
+    handlePendingBrowserPaneConsumed, handlePendingSoloConsumed,
+    openBrowserPane,
+    setNextPanelMode, setExpandedProjects, setContextMenu,
+    setPendingProjectFocus, setPendingProjectPane, setPanelInitialTab,
+  } = panelLifecycle.handlers;
 
-  // Listen for WS messages to trigger notifications
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-
-    const unsub = onWSMessage((msg) => {
-      // Cross-window topic sync (archive, update, create)
-      if ((msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') && msg.topic) {
-        applyTopicFromWS(msg.topic as Topic);
-      }
-
-      // Real-time message sync across windows (skip if this client owns the stream)
-      if (msg.type === 'message:new' && msg.sessionKey && msg.content) {
-        const sessionKey = msg.sessionKey as string;
-        // Skip if this client has an active SSE stream for this session — we already have the messages
-        if (isOwnStream(sessionKey)) return;
-        const role = msg.role as 'user' | 'assistant';
-        const content = msg.content as string;
-
-        // Check if we already have this message (avoid duplicates)
-        const existingMessages = getSessionMessages(sessionKey);
-        const lastMsgOfRole = [...existingMessages].reverse().find(m => m.role === role);
-        if (!lastMsgOfRole || lastMsgOfRole.content !== content) {
-          // Add message from another window
-          addMessageFromWS(sessionKey, {
-            role,
-            content,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
-      
-      // Notifications for messages in non-focused topics
-      // Rules: only assistant messages, only when tab is not visible, only when topic is not focused
-      if (
-        msg.type === 'message:new' &&
-        msg.role === 'assistant' &&
-        msg.topicId !== focusedPanelId &&
-        document.visibilityState === 'hidden'
-      ) {
-        if ('Notification' in window && Notification.permission === 'granted') {
-          const topic = topics[msg.topicId];
-          if (topic) {
-            new Notification(topic.name, {
-              body: msg.preview || 'New message',
-              tag: `topic-${msg.topicId}`,
-            });
-          }
-        }
-      }
-      // Handle topic auto-switch: open target panel (messages move happens on :complete)
-      // Only handle if this client initiated the stream (prevents ghost panels on LAN clients)
-      if (msg.type === 'topic:switch' && msg.toTopicId) {
-        const fromSK = msg.fromSessionKey as string;
-        if (!fromSK || isOwnStream(fromSK)) {
-          const toId = msg.toTopicId as string;
-          // Track this as our own switch so topic:switch:complete also applies
-          if (fromSK) ownTopicSwitchesRef.current.add(fromSK);
-          // Open target panel immediately (source stays until :complete removes messages)
-          if (!openPanels.includes(toId)) {
-            setOpenPanels(prev => [...prev, toId]);
-          }
-          setFocusedPanelId(toId);
-        }
-      }
-      // Handle topic switch complete: move messages between sessions and close source
-      // Only handle if we previously processed topic:switch for this session
-      if (msg.type === 'topic:switch:complete' && msg.fromSessionKey && msg.toSessionKey) {
-        const fromSK = msg.fromSessionKey as string;
-        if (!ownTopicSwitchesRef.current.has(fromSK)) return;
-        ownTopicSwitchesRef.current.delete(fromSK);
-        const fromId = msg.fromTopicId as string;
-        const toSK = msg.toSessionKey as string;
-        const userContent = msg.userContent as string;
-        const assistantContent = msg.assistantContent as string;
-        // Remove last 2 messages (user + assistant) from source session in-memory
-        clearSession(fromSK);
-        // Re-load source session from server (now without the moved messages)
-        loadHistory(fromSK);
-        // Add messages to target session in-memory
-        if (userContent) {
-          addMessageFromWS(toSK, { role: 'user', content: userContent, timestamp: new Date().toISOString() });
-        }
-        if (assistantContent) {
-          addMessageFromWS(toSK, { role: 'assistant', content: assistantContent, timestamp: new Date().toISOString() });
-        }
-        // Close source panel
-        setOpenPanels(prev => prev.filter(id => id !== fromId));
-        // Focus target
-        const toId = msg.toTopicId as string;
-        setFocusedPanelId(toId);
-      }
-      // Handle media files detected after a chat response
-      if (msg.type === 'message:media' && msg.sessionKey && msg.media) {
-        appendMediaToLastAssistant(msg.sessionKey, msg.media as string[]);
-      }
-      // Handle clear command
-      if (msg.type === 'clear' && msg.sessionKey) {
-        clearSession(msg.sessionKey as string);
-      }
-      // Inject inline card when a sub-agent is spawned for a topic
-      if (msg.type === 'agents:spawned' && msg.topicId && msg.sessionKey) {
-        const parentTopic = topics[msg.topicId as string];
-        if (parentTopic) {
-          addMessageFromWS(parentTopic.sessionKey, {
-            role: 'assistant',
-            content: `{{AGENT_SPAWN:${msg.sessionKey}|${(msg.label as string) || 'Claude Code'}}}`,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
-    });
-
-    return unsub;
-  }, [onWSMessage, focusedPanelId, topics, appendMediaToLastAssistant, clearSession, loadHistory, addMessageFromWS, getSessionMessages, applyTopicFromWS, openPanels]);
-
-  // Listen for open-project broadcast (from Claude Code or API)
-  useEffect(() => {
-    return onWSMessage((msg: any) => {
-      if (msg.type === 'open-project' && msg.projectPath) {
-        const projectPaneId = createPaneId('project', msg.projectPath);
-        setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
-        setFocusedPanelId(projectPaneId);
-      }
-    });
-  }, [onWSMessage]);
-
-  // Listen for cross-window drag messages
-  useEffect(() => {
-    const unsub = onWSMessage((msg) => {
-      // Another window started dragging
-      if (msg.type === 'drag:start' && msg.sourceWindowId !== windowId) {
-        setExternalDragTopicId(msg.topicId as string);
-        setExternalDragSourceWindow(msg.sourceWindowId as string);
-      }
-      
-      // Drag ended (cancelled or dropped elsewhere)
-      if (msg.type === 'drag:end' && msg.sourceWindowId !== windowId) {
-        setExternalDragTopicId(null);
-        setExternalDragSourceWindow(null);
-      }
-      
-      // Another window accepted our drag - remove the panel
-      if (msg.type === 'drag:accepted' && msg.sourceWindowId === windowId) {
-        const topicId = msg.topicId as string;
-        setOpenPanels(prev => prev.filter(id => id !== topicId));
-        if (focusedPanelId === topicId) {
-          setFocusedPanelId(null);
-        }
-      }
-    });
-
-    return unsub;
-  }, [onWSMessage, windowId, focusedPanelId]);
-
-  // Handle dropping a panel from another window into this one
-  const handleExternalDrop = useCallback(() => {
-    if (externalDragTopicId && externalDragSourceWindow) {
-      // Add the panel to this window
-      if (!openPanels.includes(externalDragTopicId)) {
-        setOpenPanels(prev => [...prev, externalDragTopicId]);
-        setFocusedPanelId(externalDragTopicId);
-      }
-      // Notify the source window to remove it
-      sendWS({
-        type: 'drag:drop',
-        topicId: externalDragTopicId,
-        windowId: windowId,
-        sourceWindowId: externalDragSourceWindow,
-      });
-      setExternalDragTopicId(null);
-      setExternalDragSourceWindow(null);
-    }
-  }, [externalDragTopicId, externalDragSourceWindow, openPanels, sendWS, windowId]);
-
-  // Panel layout mode: 'side' = add to existing row, 'below' = new row
-  const [nextPanelMode, setNextPanelMode] = useState<'side' | 'below'>('side');
-  // Track "preview" panel that can be replaced by next single-click
-  const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
-
-  // Panel management
-  // Single click = open in "preview" mode (replaces previous preview panel)
-  // Cmd/Ctrl+click = open permanently below  
-  // Double click = open permanently (won't be replaced)
-  // autoFocus = false: add panel but don't focus it (used for new topic creation)
-  const openPanel = useCallback((topicId: string, mode: 'preview' | 'permanent' | 'below', autoFocus = true) => {
-    if (openPanels.includes(topicId)) {
-      // Already open - focus it (if autoFocus)
-      if (autoFocus) {
-        setFocusedPanelId(topicId);
-      }
-      if (mode === 'permanent' && previewPanelId === topicId) {
-        setPreviewPanelId(null);
-      }
-      return;
-    }
-
-    // Calculate new panels list
-    let newPanels: string[];
-    if (isMobile) {
-      // Mobile: single panel only — replace whatever is open
-      newPanels = [topicId];
-    } else if (mode === 'preview' && previewPanelId) {
-      // Replace existing preview
-      newPanels = openPanels.filter(id => id !== previewPanelId).concat(topicId);
-    } else {
-      // Add new panel
-      newPanels = [...openPanels, topicId];
-    }
-
-    setOpenPanels(newPanels);
-    if (autoFocus) {
-      setFocusedPanelId(topicId);
-    }
-    setPreviewPanelId(mode === 'preview' ? topicId : null);
-    setNextPanelMode(mode === 'below' ? 'below' : 'side');
-  }, [openPanels, previewPanelId, isMobile]);
-
-  // Electron: listen for navigate-to-topic from tray/notifications
-  useEffect(() => {
-    const api = (window as any).electronAPI;
-    if (!api?.onNavigateToTopic) return;
-    api.onNavigateToTopic((topicId: string) => {
-      if (topicId) openPanel(topicId, 'permanent');
-    });
-  }, [openPanel]);
-
-  // Electron: report focused topic for notification suppression
-  useEffect(() => {
-    const api = (window as any).electronAPI;
-    if (!api?.reportFocusedTopic) return;
-    api.reportFocusedTopic(focusedPanelId || null);
-  }, [focusedPanelId]);
-
-  const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
-    const topic = topics[topicId];
-    // If this topic belongs to a project, open/focus the project tab instead
-    if (topic?.projectPath) {
-      const projectPaneId = createPaneId('project', topic.projectPath);
-      if (isMobile) {
-        setOpenPanels([projectPaneId]);
-        setSidebarCollapsed(true);
-      } else if (!openPanels.includes(projectPaneId)) {
-        setOpenPanels(prev => [...prev, projectPaneId]);
-      }
-      setFocusedPanelId(projectPaneId);
-      setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
-      return;
-    }
-    if (e && (e.metaKey || e.ctrlKey)) {
-      openPanel(topicId, 'below');
-    } else {
-      openPanel(topicId, 'preview');
-    }
-    // Close sidebar on mobile after selecting a topic
-    if (isMobile) {
-      setSidebarCollapsed(true);
-    }
-  }, [openPanel, isMobile, topics, openPanels]);
-
-  const handleTopicDoubleClick = useCallback((topicId: string, _e?: React.MouseEvent) => {
-    openPanel(topicId, 'permanent');
-  }, [openPanel]);
-
-  // Ref-backed impl keeps handleClosePanel identity stable forever while the
-  // body can freely close over props/state/refs — the `redo` closure below
-  // calls through the ref, so it never captures a stale copy of the logic.
-  const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
-  handleClosePanelRef.current = (topicId: string) => {
-    // Capture panel index for undo
-    let panelIndex = 0;
-
-    // Tell the pane-store the pane is closed BEFORE updating openPanels.
-    // The mirror effect dispatches REORDER_PANES, which is a *permutation*
-    // primitive — its reducer appends back any current panes missing from
-    // the payload (groups.ts: "never silently lose a tab from the bar"),
-    // so REORDER alone can't remove a pane. Without this CLOSE_PANE
-    // dispatch the close click is a visual no-op.
-    {
-      const s = usePaneStore.getState();
-      const loc = findPaneLocation(s, topicId);
-      if (loc && s.panes[topicId]) {
-        s.dispatch({
-          type: 'CLOSE_PANE',
-          payload: { id: topicId, groupId: loc.groupId, groupIndex: loc.groupIndex },
-        });
-      }
-    }
-
-    setOpenPanels(prev => {
-      panelIndex = prev.indexOf(topicId);
-      const next = prev.filter(id => id !== topicId);
-      if (focusedPanelIdRef.current === topicId) {
-        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
-      }
-      return next;
-    });
-    // Clean up draft metadata if closing a draft pane
-    if (isDraftPaneId(topicId)) {
-      setDraftMeta(prev => {
-        const next = { ...prev };
-        delete next[topicId];
-        return next;
-      });
-    }
-
-    // Push undo action
-    pushUndo({
-      description: `Close panel`,
-      undo: () => {
-        setOpenPanels(prev => {
-          const next = [...prev];
-          const idx = Math.min(panelIndex, next.length);
-          next.splice(idx, 0, topicId);
-          return next;
-        });
-        setFocusedPanelId(topicId);
-      },
-      redo: () => {
-        handleClosePanelRef.current(topicId);
-      },
-    });
-  };
-  const handleClosePanel = useCallback(
-    (topicId: string) => handleClosePanelRef.current(topicId),
-    [],
-  );
-
-  const handleProjectClick = useCallback((projectPath: string) => {
-    const paneId = createPaneId('project', projectPath);
-    if (isMobile) {
-      setOpenPanels([paneId]);
-      setSidebarCollapsed(true);
-    } else {
-      // Always use functional update to avoid stale closure with openPanels
-      setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
-    }
-    setFocusedPanelId(paneId);
-  }, [isMobile]);
-
-  const handleCloseProject = useCallback((projectPath: string) => {
-    const paneId = createPaneId('project', projectPath);
-    setOpenPanels(prev => {
-      const next = prev.filter(id => id !== paneId);
-      if (focusedPanelIdRef.current === paneId) {
-        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleFocusPanel = useCallback((topicId: string) => {
-    setFocusedPanelId(topicId);
-  }, []);
-
-  const handleReorderPanels = useCallback((panels: string[]) => {
-    setOpenPanels(panels);
-  }, []);
-
-  const handleOpenPanelAt = useCallback((topicId: string, index: number) => {
-    setOpenPanels(prev => {
-      // Remove if already open (reposition)
-      const without = prev.filter(id => id !== topicId);
-      const insertAt = Math.min(index, without.length);
-      const next = [...without];
-      next.splice(insertAt, 0, topicId);
-      return next;
-    });
-    setFocusedPanelId(topicId);
-  }, []);
-
-  const handleCreateTopic = async (data: CreateTopicRequest) => {
-    const topic = await createTopic(data);
-    if (topic) {
-      if (data.projectPath) {
-        // Topic belongs to a project — focus the project pane
-        const projectPaneId = createPaneId('project', data.projectPath);
-        if (!openPanels.includes(projectPaneId)) {
-          setOpenPanels(prev => [...prev, projectPaneId]);
-        }
-        setFocusedPanelId(projectPaneId);
-        setPendingProjectFocus({ projectPath: data.projectPath, topicId: topic.id });
-      } else {
-        openPanel(topic.id, 'permanent', false);
-      }
-    }
-    return topic;
-  };
-
-  // Quick-create empty chat (bypasses modal)
-  // projectPath must be explicitly provided to bind to a project
-  const handleQuickCreateTopic = async (projectPath?: string) => {
-    if (projectPath) {
-      // Project-bound: create immediately on server (existing behavior)
-      const topic = await createTopic({
-        name: 'New Chat',
-        icon: DEFAULT_TOPIC_ICON,
-        color: '#0066ff',
-        projectPath,
-      });
-      if (topic) {
-        const projectPaneId = createPaneId('project', projectPath);
-        if (!openPanels.includes(projectPaneId)) {
-          setOpenPanels(prev => [...prev, projectPaneId]);
-        }
-        setFocusedPanelId(projectPaneId);
-        setPendingProjectFocus({ projectPath, topicId: topic.id });
-      }
-      return topic;
-    }
-    // Standalone: open a draft pane (no API call until first message)
-    const draftId = createDraftPaneId();
-    setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
-    openPanel(draftId, 'permanent', true);
-    return null;
-  };
-
-  // Promote a draft pane to a real topic on first message
-  const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => {
-    const meta = draftMeta[draftId] || {};
-    const topic = await createTopic({
-      name: 'New Chat',
-      icon: DEFAULT_TOPIC_ICON,
-      color: '#0066ff',
-      projectPath: meta.projectPath,
-    });
-    if (!topic) return;
-    // Replace draft ID with real topic ID in openPanels
-    setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
-    if (focusedPanelId === draftId) {
-      setFocusedPanelId(topic.id);
-    }
-    // Clean up draft metadata
-    setDraftMeta(prev => {
-      const next = { ...prev };
-      delete next[draftId];
-      try { localStorage.removeItem(`draft-content-${draftId}`); } catch {}
-      return next;
-    });
-    // Send the first message with the real session key
-    await sendMessage(topic.sessionKey, firstMessage, options);
-  }, [draftMeta, createTopic, focusedPanelId, sendMessage]);
-
-  // Quick-create standalone terminal (creates a terminal session and adds as pane)
-  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
-    try {
-      const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
-      const body: Record<string, unknown> = { type: termType, name };
-      if (termType === 'claude-code') body.skipPermissions = skipPermissions;
-      const res = await fetch('/api/terminal/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      const paneId = createPaneId('terminal', data.id);
-      // ISSUE 13 fix: register in grace period set so cleanup won't remove it
-      recentlyCreatedTerminalsRef.current.set(data.id, Date.now());
-      // Optimistic update so label is available immediately
-      setTerminalSessions(prev => prev.some(s => s.id === data.id) ? prev : [...prev, { id: data.id, name: data.name || name, createdAt: data.createdAt, cwd: data.cwd, command: data.command, clients: 0, topicId: data.topicId, type: data.type }]);
-      // Register the pane entity in the store BEFORE pushing it into
-      // openPanels. The bridge effect mirrors `openPanels` into the store via
-      // REORDER_PANES, which is a permutation primitive — it filters out any
-      // id that doesn't already exist as a pane entity. Without this dispatch
-      // the new terminal id never reaches `state.panes`, so REORDER drops it
-      // and the "+" → Claude Code menu silently does nothing.
-      // Pick the host group from where the user currently has focus rather
-      // than hardcoding 'group:default' — otherwise terminals created while
-      // a non-default group is focused get stranded in the wrong bucket.
-      {
-        const s = usePaneStore.getState();
-        const focusLoc = s.focusedPaneId
-          ? findPaneLocation(s, s.focusedPaneId)
-          : null;
-        const targetGroupId = focusLoc?.groupId ?? 'group:default';
-        s.dispatch({
-          type: 'OPEN_PANE',
-          payload: {
-            id: paneId,
-            type: 'terminal',
-            title: data.name || name,
-            terminalType: termType,
-            preview: false,
-            groupId: targetGroupId,
-          },
-        });
-      }
-      setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
-      setFocusedPanelId(paneId);
-      // Auto-solo so the new terminal lands in its own grid cell instead of
-      // being merged into the standalone group with other panels.
-      setPendingSoloPanelId(paneId);
-      if (isMobile) setSidebarCollapsed(true);
-    } catch {}
-  }, [isMobile]);
-
-  // Close a terminal session from the sidebar
-  const handleCloseTerminal = useCallback(async (sessionId: string) => {
-    fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
-    setTerminalSessions(prev => prev.filter(s => s.id !== sessionId));
-    const paneId = createPaneId('terminal', sessionId);
-    setOpenPanels(prev => prev.filter(p => p !== paneId));
-  }, []);
-
-  // Open a directory as a project tab
-  const handleOpenAsProject = useCallback((path: string) => {
-    const projectPaneId = createPaneId('project', path);
-    setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
-    setFocusedPanelId(projectPaneId);
-  }, []);
-
-  // Open an existing terminal session from the sidebar (reattach)
-  const handleTerminalClick = useCallback((sessionId: string, _sessionName: string) => {
-    // Check if this terminal belongs to a project (cwd matches a project path)
-    const session = terminalSessions.find(s => s.id === sessionId);
-    if (session?.cwd) {
-      // Check if cwd matches any known project path
-      const knownProjectPaths = new Set<string>();
-      for (const t of Object.values(topics)) {
-        if (t.projectPath) knownProjectPaths.add(t.projectPath);
-      }
-      for (const p of workspaceProjects) knownProjectPaths.add(p);
-
-      if (knownProjectPaths.has(session.cwd)) {
-        const projectPath = session.cwd;
-        const projectPaneId = createPaneId('project', projectPath);
-        // Open project pane if not already open
-        if (isMobile) {
-          setOpenPanels([projectPaneId]);
-          setSidebarCollapsed(true);
-        } else if (!openPanels.includes(projectPaneId)) {
-          setOpenPanels(prev => [...prev, projectPaneId]);
-        }
-        setFocusedPanelId(projectPaneId);
-        setPendingProjectPane({ projectPath, type: 'terminal' as import('./types').PaneType, terminalSessionId: sessionId });
-        if (isMobile) setSidebarCollapsed(true);
-        return;
-      }
-    }
-    const paneId = createPaneId('terminal', sessionId);
-    if (!openPanels.includes(paneId)) {
-      setOpenPanels(prev => [...prev, paneId]);
-    }
-    setFocusedPanelId(paneId);
-    if (isMobile) setSidebarCollapsed(true);
-  }, [openPanels, isMobile, terminalSessions, topics, workspaceProjects]);
-
-  // Add a non-chat pane (terminal, browser) to a project window
-  const handleAddProjectPane = useCallback((projectPath: string, type: import('./types').PaneType, subType?: string) => {
-    // Ensure the project pane is open
-    const projectPaneId = createPaneId('project', projectPath);
-    if (isMobile) {
-      setOpenPanels([projectPaneId]);
-      setSidebarCollapsed(true);
-    } else if (!openPanels.includes(projectPaneId)) {
-      setOpenPanels(prev => [...prev, projectPaneId]);
-    }
-    setFocusedPanelId(projectPaneId);
-    setPendingProjectPane({
-      projectPath,
-      type,
-      terminalType: type === 'terminal' ? (subType as 'shell' | 'claude-code' || 'shell') : undefined,
-    });
-  }, [openPanels, isMobile]);
-
-  // Open the board pane for a project (from sidebar or context menu)
-  const handleOpenProjectBoard = useCallback((projectPath: string) => {
-    handleAddProjectPane(projectPath, 'board');
-  }, [handleAddProjectPane]);
-
-  const handleArchiveProject = useCallback(async (projectPath: string, archive: boolean) => {
-    const success = await archiveProject(projectPath, archive);
-    if (success && archive) {
-      handleCloseProject(projectPath);
-    }
-    return success;
-  }, [archiveProject, handleCloseProject]);
-
-  const handleTopicContextMenu = useCallback((e: React.MouseEvent, topic: Topic) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, topic });
-  }, []);
-
-  // Sidebar state
-  // searchQuery removed — sidebar search now opens command palette
+  // Sidebar / browser-context state (App-level — sidebar UI consumers).
   const sidebar = useSidebarState(onWSMessage);
   const browserCtx = useBrowserContexts(true, onWSMessage);
-  const [expandedProjects, setExpandedProjects] = useState<string[]>(() => {
-    // Initialize from openPanels so accordions start expanded — no flash
-    const panels = loadSavedPanels();
-    return panels
-      .filter(id => id.startsWith('project:'))
-      .map(id => `project:${decodeURIComponent(id.slice('project:'.length))}`);
+
+  // Keyboard shortcuts (Phase 3 hook 4 — ref-mirror pattern fixes
+  // CRITIQUE C2 listener churn). Snapshot args mirrored into refs
+  // inside the hook so the keydown listener registers ONCE on mount.
+  useKeyboardShortcuts({
+    isElectron,
+    focusedPanelId,
+    openPanels,
+    topics,
+    focusedProjectPath,
+    showSearch,
+    showNewTopic,
+    showShortcuts,
+    showFileSearch,
+    handleClosePanel,
+    handleQuickCreateTopic,
+    toggleSidebar,
+    handleOpenAsPage,
+    setFocusedPanelId: handleFocusPanel,
+    setShowSearch,
+    setShowNewTopic,
+    setShowShortcuts,
+    setShowFileSearch,
   });
-  // Auto-expand projects that have an open project tab
-  useEffect(() => {
-    const sidebarProjectIds = openPanels
-      .filter(id => id.startsWith('project:'))
-      .map(id => `project:${decodeURIComponent(id.slice('project:'.length))}`);
-    if (sidebarProjectIds.length > 0) {
-      setExpandedProjects(prev => {
-        const set = new Set(prev);
-        let changed = false;
-        for (const sid of sidebarProjectIds) {
-          if (!set.has(sid)) { set.add(sid); changed = true; }
-        }
-        return changed ? Array.from(set) : prev;
-      });
-    }
-  }, [openPanels]);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; topic: Topic } | null>(null);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      // Cmd+Z / Cmd+Shift+Z — UI undo/redo (skip when focus is in text input/terminal)
-      if (isMod && (e.key === 'z' || e.key === 'Z')) {
-        if (!isTextInputFocused(e.target)) {
-          e.preventDefault();
-          if (e.shiftKey) {
-            undoRedo();
-          } else {
-            undoUndo();
-          }
-          return;
-        }
-      }
-
-      if (isMod && e.key === 'k') {
-        e.preventDefault();
-        setShowSearch(prev => !prev);
-        return;
-      }
-
-      if (isElectron && isMod && e.key === 'n') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          setShowNewTopic({}); // ⌘⇧N = templates modal
-        } else {
-          handleQuickCreateTopic(); // ⌘N = quick create
-        }
-        return;
-      }
-
-      if (isMod && e.key === 'p') {
-        e.preventDefault();
-        setShowSearch(prev => !prev);
-        return;
-      }
-
-      if (isMod && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        setShowFileSearch(prev => {
-          if (prev) return false;
-          // Try focused pane's projectPath first (works for both project panes and topic panes)
-          if (focusedProjectPath) return { projectPath: focusedProjectPath };
-          // Fallback: find any topic with a projectPath
-          const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
-          if (projectPaths.length === 1) return { projectPath: projectPaths[0] };
-          if (projectPaths.length > 1) return { projectPath: projectPaths[0] }; // use first available
-          return false; // no projects
-        });
-        return;
-      }
-
-      if (isMod && e.key === 'b') {
-        e.preventDefault();
-        toggleSidebar();
-        return;
-      }
-
-      // Cmd+Shift+T — reopen last closed tab
-      if (isMod && e.shiftKey && (e.key === 't' || e.key === 'T')) {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('reopen-closed-tab'));
-        return;
-      }
-
-      if (isElectron && isMod && e.key === 'w') {
-        e.preventDefault();
-        if (focusedPanelId) {
-          handleClosePanel(focusedPanelId);
-        }
-        return;
-      }
-
-      if (isElectron && isMod && e.key >= '1' && e.key <= '9') {
-        e.preventDefault();
-        const idx = parseInt(e.key) - 1;
-        if (idx < openPanels.length) {
-          setFocusedPanelId(openPanels[idx]);
-        }
-        return;
-      }
-
-      // ⌘? or ⌘/ — keyboard shortcuts help
-      if (isMod && (e.key === '?' || e.key === '/')) {
-        e.preventDefault();
-        setShowShortcuts(prev => !prev);
-        return;
-      }
-
-      if (e.key === 'Escape') {
-        if (showFileSearch !== false) { setShowFileSearch(false); e.preventDefault(); return; }
-        if (showShortcuts) { setShowShortcuts(false); e.preventDefault(); return; }
-        if (showSearch) { setShowSearch(false); e.preventDefault(); return; }
-        if (showNewTopic) { setShowNewTopic(false); e.preventDefault(); return; }
-      }
-    };
-
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [focusedPanelId, openPanels, handleClosePanel, showSearch, showNewTopic, showFileSearch, toggleSidebar, isElectron, topics]);
-
-  // Listen for "open-all-boards" custom event from sidebar
-  useEffect(() => {
-    const handler = () => handleOpenAsPage('all-boards');
-    window.addEventListener('open-all-boards', handler);
-    return () => window.removeEventListener('open-all-boards', handler);
-  }, [handleOpenAsPage]);
-
-  // Close window if all panels are gone (for detached windows)
-  useEffect(() => {
-    if (isDetached && openPanels.length === 0) {
-      // For detached windows with no panels, show close prompt
-      // window.close() only works if window was opened by JS
-      window.close();
-      // Fallback: redirect back to main (resets to normal window)
-      setTimeout(() => {
-        window.location.href = window.location.origin;
-      }, 200);
-    }
-  }, [isDetached, openPanels.length]);
 
   return (
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
@@ -1856,7 +616,7 @@ function App() {
           onExternalDrop={handleExternalDrop}
           onToggleSidebar={toggleSidebar}
           panelInitialTab={panelInitialTab}
-          onPanelInitialTabConsumed={(topicId) => setPanelInitialTab(prev => { const n = { ...prev }; delete n[topicId]; return n; })}
+          onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
           onPendingProjectPaneConsumed={() => setPendingProjectPane(null)}
           onNewChatInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
@@ -1871,7 +631,6 @@ function App() {
           onPendingBrowserPaneConsumed={handlePendingBrowserPaneConsumed}
           pendingSoloPanelId={pendingSoloPanelId}
           onPendingSoloPanelIdConsumed={handlePendingSoloConsumed}
-          onOpenBrowserContextIds={setOpenBrowserContextIds}
           promoteDraft={promoteDraft}
           draftMeta={draftMeta}
         />
