@@ -97,7 +97,7 @@ export interface UseProjectLayoutArgs {
   onNewChat?: () => void;
   // Closed-tab undo:
   pushClosedTab: (record: ClosedTabRecord) => void;
-  popClosedTab: () => ClosedTabRecord | null;
+  popClosedTab: () => ClosedTabRecord | undefined;
   removeClosedTab: (paneId: string) => void;
   // Reporting:
   onOpenPanesChange?: (paneIds: string[]) => void;

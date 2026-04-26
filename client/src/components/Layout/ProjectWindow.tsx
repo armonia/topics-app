@@ -34,7 +34,6 @@ const KanbanBoard = lazy(() => import('../Board/KanbanBoard').then(m => ({ defau
 const BoardMemoryPanel = lazy(() => import('../Board/BoardMemoryPanel').then(m => ({ default: m.BoardMemoryPanel })));
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => ({ default: m.ProcessLogPane })));
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
 
 const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
