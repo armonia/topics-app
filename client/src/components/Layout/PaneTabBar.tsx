@@ -336,23 +336,29 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
   const isElectron = !!(window as any).electronAPI?.isElectron;
 
+  // Only the App-focused group (the one the user is actually looking at)
+  // claims Cmd/Ctrl+1-9. Otherwise every PaneTabBar in every group would
+  // race for the same shortcut and the badges (⌘1, ⌘2, …) would be
+  // duplicated across panes. Capture-phase + stopImmediatePropagation
+  // pre-empts App-level Cmd+1-9 when a sub-group owns focus.
   useEffect(() => {
-    if (!isElectron || !panes.length) return;
+    if (!isElectron || !panes.length || !isAppFocused) return;
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
+      if (!mod || e.shiftKey || e.altKey) return;
       const n = parseInt(e.key, 10);
       if (n >= 1 && n <= 9) {
         const idx = n - 1;
         if (idx < panes.length) {
           e.preventDefault();
+          e.stopImmediatePropagation();
           onActivate(panes[idx].id);
         }
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [panes, onActivate, isElectron]);
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [panes, onActivate, isElectron, isAppFocused]);
 
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
@@ -522,7 +528,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
               onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
               className={`${'w-5 h-5'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0`}
             >
-              {isElectron && !isTouch && paneIdx < 9 ? (
+              {isElectron && !isTouch && paneIdx < 9 && isAppFocused ? (
                 <>
                   <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{paneIdx + 1}</kbd>
                   <X size={12} className="hidden group-hover:block" />
