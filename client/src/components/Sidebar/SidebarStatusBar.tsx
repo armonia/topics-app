@@ -3,6 +3,7 @@ import { Wifi, RefreshCw } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
 
 declare const __BUILD_TIME__: string;
 
@@ -80,6 +81,7 @@ function useFps() {
 export function SidebarStatusBar() {
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
+  const openclawAvailable = useOpenClawAvailable();
   const gatewayOnline = status?.gateway.online ?? false;
   const latency = status?.gateway.latencyMs;
   const lastChangeTime = useLastChangeTime();
@@ -139,15 +141,24 @@ export function SidebarStatusBar() {
           className={`flex items-center gap-1.5 text-[10px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
           title="System Status"
         >
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-            gatewayOnline ? 'bg-emerald-500' : 'bg-red-500'
-          }`} />
-          <Wifi size={10} className={gatewayOnline ? 'text-emerald-500' : 'text-red-500'} />
-          <span className={gatewayOnline ? 'text-app-text-secondary' : 'text-red-500'}>
-            {gatewayOnline ? 'Online' : 'Offline'}
-          </span>
-          {gatewayOnline && latency !== undefined && (
-            <span className="text-app-text-muted">{latency}ms</span>
+          {openclawAvailable ? (
+            <>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                gatewayOnline ? 'bg-emerald-500' : 'bg-red-500'
+              }`} />
+              <Wifi size={10} className={gatewayOnline ? 'text-emerald-500' : 'text-red-500'} />
+              <span className={gatewayOnline ? 'text-app-text-secondary' : 'text-red-500'}>
+                {gatewayOnline ? 'Online' : 'Offline'}
+              </span>
+              {gatewayOnline && latency !== undefined && (
+                <span className="text-app-text-muted">{latency}ms</span>
+              )}
+            </>
+          ) : (
+            <span
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${status ? 'bg-emerald-500' : 'bg-app-text-muted/40'}`}
+              title={status ? 'Topics server reachable' : 'Topics server unreachable'}
+            />
           )}
           {status && (
             <span

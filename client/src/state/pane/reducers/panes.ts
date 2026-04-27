@@ -205,9 +205,9 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       break;
     }
     case 'PANE_ID_REMAP': {
-      const { from, to } = action.payload;
+      const { from, to, updates } = action.payload;
       if (!state.panes[from]) break;
-      state.panes[to] = { ...state.panes[from], id: to };
+      state.panes[to] = { ...state.panes[from], ...(updates ?? {}), id: to };
       delete state.panes[from];
       for (const g of Object.values(state.groups)) {
         const idx = g.paneIds.indexOf(from);

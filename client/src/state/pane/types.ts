@@ -137,7 +137,7 @@ export type PaneAction =
       type: 'HYDRATE_FROM_SNAPSHOT';
       payload: { snapshot: Partial<PaneState> & { seq: number; server_seq?: number } };
     }
-  | { type: 'PANE_ID_REMAP'; payload: { from: string; to: string } }
+  | { type: 'PANE_ID_REMAP'; payload: { from: string; to: string; updates?: Partial<Pane> } }
   | { type: 'CLEAR_CLOSED_RECORD'; payload: { id: string } }
   | { type: 'CLEAR_CLOSED_STACK' };
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Wifi, Server, HardDrive, RefreshCw, Clock, RotateCcw } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
+import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
 
 function formatUptime(ms: number): string {
@@ -27,6 +28,7 @@ interface SystemStatusPanelProps {
 
 export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const { status, loading, error, refresh } = useSystemStatus(enabled, 30000);
+  const openclawAvailable = useOpenClawAvailable();
   const [restarting, setRestarting] = useState(false);
   const [confirmingRestart, setConfirmingRestart] = useState(false);
 
@@ -40,14 +42,16 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
 
       {status && (
         <div className="space-y-1">
-          {/* Gateway */}
-          <StatusRow
-            icon={<Wifi size={12} />}
-            label="Gateway"
-            value={formatGatewayStatus(status.gateway.status)}
-            detail={gatewayOnline ? formatLatency(status.gateway.latencyMs) : undefined}
-            color={gatewayOnline ? 'green' : status.gateway.status === 'timeout' ? 'yellow' : 'red'}
-          />
+          {/* Gateway — OpenClaw only */}
+          {openclawAvailable && (
+            <StatusRow
+              icon={<Wifi size={12} />}
+              label="Gateway"
+              value={formatGatewayStatus(status.gateway.status)}
+              detail={gatewayOnline ? formatLatency(status.gateway.latencyMs) : undefined}
+              color={gatewayOnline ? 'green' : status.gateway.status === 'timeout' ? 'yellow' : 'red'}
+            />
+          )}
 
           {/* Server */}
           <StatusRow
@@ -67,14 +71,16 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             color={status.server.memoryMB > 512 ? 'yellow' : 'green'}
           />
 
-          {/* Cron Jobs */}
-          <StatusRow
-            icon={<Clock size={12} />}
-            label="Cron Jobs"
-            value={`${status.cronJobs.enabled}/${status.cronJobs.total}`}
-            detail={status.cronJobs.nextRun ? `next: ${formatTimeAgo(status.cronJobs.nextRun)}` : 'enabled'}
-            color={status.cronJobs.total === 0 ? 'yellow' : 'green'}
-          />
+          {/* Cron Jobs — OpenClaw only */}
+          {openclawAvailable && (
+            <StatusRow
+              icon={<Clock size={12} />}
+              label="Cron Jobs"
+              value={`${status.cronJobs.enabled}/${status.cronJobs.total}`}
+              detail={status.cronJobs.nextRun ? `next: ${formatTimeAgo(status.cronJobs.nextRun)}` : 'enabled'}
+              color={status.cronJobs.total === 0 ? 'yellow' : 'green'}
+            />
+          )}
 
           {/* Connections */}
           <div className="flex items-center gap-3 px-2 py-1.5 rounded bg-elevated">
@@ -114,31 +120,33 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             ? formatTimeAgo(status.gateway.lastCheckedAt)
             : 'Refresh'}
         </button>
-        <button
-          onClick={async () => {
-            if (!confirmingRestart) {
-              setConfirmingRestart(true);
-              setTimeout(() => setConfirmingRestart(false), 3000);
-              return;
-            }
-            setConfirmingRestart(false);
-            setRestarting(true);
-            try {
-              await openclawControlApi.restart();
-              setTimeout(refresh, 3000);
-            } catch {}
-            setRestarting(false);
-          }}
-          disabled={restarting}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors whitespace-nowrap ${
-            confirmingRestart
-              ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20'
-              : 'text-amber-400 hover:text-amber-300 hover:bg-app-hover'
-          }`}
-        >
-          <RotateCcw size={12} className={restarting ? 'animate-spin' : ''} />
-          {restarting ? 'Riavvio…' : confirmingRestart ? 'Sei sicuro?' : 'Riavvia'}
-        </button>
+        {openclawAvailable && (
+          <button
+            onClick={async () => {
+              if (!confirmingRestart) {
+                setConfirmingRestart(true);
+                setTimeout(() => setConfirmingRestart(false), 3000);
+                return;
+              }
+              setConfirmingRestart(false);
+              setRestarting(true);
+              try {
+                await openclawControlApi.restart();
+                setTimeout(refresh, 3000);
+              } catch {}
+              setRestarting(false);
+            }}
+            disabled={restarting}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors whitespace-nowrap ${
+              confirmingRestart
+                ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20'
+                : 'text-amber-400 hover:text-amber-300 hover:bg-app-hover'
+            }`}
+          >
+            <RotateCcw size={12} className={restarting ? 'animate-spin' : ''} />
+            {restarting ? 'Riavvio…' : confirmingRestart ? 'Sei sicuro?' : 'Riavvia'}
+          </button>
+        )}
       </div>
     </div>
   );

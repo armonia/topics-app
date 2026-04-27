@@ -10,6 +10,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
+import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
@@ -260,7 +261,8 @@ function App() {
   // back into React state, so there is no need for a WS listener here.
 
   const { themeMode, toggleTheme, setTheme } = useTheme(onWSMessage);
-  const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: true });
+  const openclawAvailable = useOpenClawAvailable();
+  const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: openclawAvailable });
   const agentLiveCount = activeSessions.length + idleSessions.length;
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
@@ -428,29 +430,33 @@ function App() {
             )}
           </div>
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
-            <button
-              onClick={() => handleOpenAsPage('activity')}
-              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer`}
-              style={{ pointerEvents: 'auto' }}
-              title="Activity"
-              aria-label="Activity"
-            >
-              <Activity size={isMobile ? 18 : 14} />
-            </button>
-            <button
-              onClick={() => handleOpenAsPage('agents')}
-              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative`}
-              style={{ pointerEvents: 'auto' }}
-              title="Agents"
-              aria-label="Agents"
-            >
-              <Cpu size={isMobile ? 18 : 14} />
-              {agentLiveCount > 0 && (
-                <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
-                  {agentLiveCount}
-                </span>
-              )}
-            </button>
+            {openclawAvailable && (
+              <button
+                onClick={() => handleOpenAsPage('activity')}
+                className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer`}
+                style={{ pointerEvents: 'auto' }}
+                title="Activity"
+                aria-label="Activity"
+              >
+                <Activity size={isMobile ? 18 : 14} />
+              </button>
+            )}
+            {openclawAvailable && (
+              <button
+                onClick={() => handleOpenAsPage('agents')}
+                className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative`}
+                style={{ pointerEvents: 'auto' }}
+                title="Agents"
+                aria-label="Agents"
+              >
+                <Cpu size={isMobile ? 18 : 14} />
+                {agentLiveCount > 0 && (
+                  <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
+                    {agentLiveCount}
+                  </span>
+                )}
+              </button>
+            )}
             <button
               onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
               className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
@@ -644,16 +650,18 @@ function App() {
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
           style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
         >
-          {TOPICS_MENU_PAGES.map(({ id, icon: Icon, label }) => (
-            <button
-              key={id}
-              onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
-            >
-              <Icon size={isMobile ? 18 : 14} />
-              <span className="flex-1 text-left">{label}</span>
-            </button>
-          ))}
+          {TOPICS_MENU_PAGES
+            .filter(({ id }) => id !== 'cron' || openclawAvailable)
+            .map(({ id, icon: Icon, label }) => (
+              <button
+                key={id}
+                onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
+              >
+                <Icon size={isMobile ? 18 : 14} />
+                <span className="flex-1 text-left">{label}</span>
+              </button>
+            ))}
           <button
             onClick={() => { setShowSettings(true); setShowTopicsMenu(false); setExpandedTool(null); }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"

@@ -111,11 +111,15 @@ const loadSavedFocused = (): string | null => {
  */
 function ensurePaneRegistered(
   pane: { id: string; type: PaneType; title?: string; topicId?: string; projectPath?: string },
+  options?: { groupId?: string },
 ): void {
   const s = usePaneStore.getState();
   if (s.panes[pane.id]) return;
+  // Caller-provided groupId wins (App-level openings must always land in the
+  // standalone group regardless of which inner project pane is focused).
+  // Otherwise we fall back to the focused group, then to the default.
   const focusLoc = s.focusedPaneId ? findPaneLocation(s, s.focusedPaneId) : null;
-  const groupId = focusLoc?.groupId ?? 'group:default';
+  const groupId = options?.groupId ?? focusLoc?.groupId ?? 'group:default';
   s.dispatch({
     type: 'OPEN_PANE',
     payload: { ...pane, preview: false, groupId },
@@ -467,7 +471,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // otherwise Effect A reconciles openPanels back to the store-known
     // ids and silently drops the new utility id (same trap that
     // broke cmd+K project open).
-    ensurePaneRegistered({ id, type: type as PaneType, title: type });
+    ensurePaneRegistered(
+      { id, type: type as PaneType, title: type },
+      { groupId: 'group:default' },
+    );
     if (isMobile) {
       setOpenPanels([id]);
       setSidebarCollapsed(true);
@@ -688,7 +695,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       return;
     }
-    ensurePaneRegistered({ id: topicId, type: 'chat', topicId, title: topics[topicId]?.name });
+    // App-level open: always land in the standalone group, never inside a
+    // focused project's inner group (otherwise the new tab would appear as a
+    // child of whatever project happens to have focus).
+    ensurePaneRegistered(
+      { id: topicId, type: 'chat', topicId, title: topics[topicId]?.name },
+      { groupId: 'group:default' },
+    );
     let newPanels: string[];
     if (isMobile) {
       newPanels = [topicId];
@@ -732,7 +745,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
       return;
     }
-    ensurePaneRegistered({ id: topicId, type: 'chat', topicId, title: topic?.name });
+    ensurePaneRegistered(
+      { id: topicId, type: 'chat', topicId, title: topic?.name },
+      { groupId: 'group:default' },
+    );
     if (e && (e.metaKey || e.ctrlKey)) {
       openPanel(topicId, 'below');
     } else {
@@ -896,6 +912,21 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       projectPath: meta.projectPath,
     });
     if (!topic) return;
+    // Atomically remap the draft pane to the new topic id in the pane store
+    // (covers groups + focusedPaneId + closedStack in one shot). REORDER_PANES
+    // alone would silently drop the new id because the pane entity didn't
+    // exist yet, leaving the store stuck on the draft id while React moved on.
+    const s = usePaneStore.getState();
+    if (s.panes[draftId]) {
+      s.dispatch({
+        type: 'PANE_ID_REMAP',
+        payload: {
+          from: draftId,
+          to: topic.id,
+          updates: { topicId: topic.id, title: topic.name },
+        },
+      });
+    }
     setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
     if (focusedPanelIdRef.current === draftId) {
       setFocusedPanelId(topic.id);
