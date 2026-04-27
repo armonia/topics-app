@@ -146,18 +146,30 @@ export function GroupLayout({
   }, [edgeDropTargetRef]);
 
   const handleGroupContentDrop = useCallback((groupId: string) => (e: React.DragEvent) => {
-    // Read from ref — state may lag the most recent dragover when drop fires
-    // back-to-back in the same frame.
-    const target = edgeDropTargetRef.current;
-    if (!target || target.groupId !== groupId || !target.edge) return;
-    e.preventDefault();
-    e.stopPropagation();
-
+    // Validate this is a tab drop before consuming the event.
     const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     if (!sourcePaneId || !sourceGroupId) return;
 
-    onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, target.edge);
+    // Prefer the cached target from the latest dragover (ref to dodge React
+    // commit lag), but if the user wobbled out of the edge zone in the last
+    // few pixels before release the cache may be null/stale — fall back to
+    // recomputing from the drop coordinates so a drop anywhere inside an
+    // edge band still splits.
+    let edge: EdgeZone | null = null;
+    const cached = edgeDropTargetRef.current;
+    if (cached && cached.groupId === groupId && cached.edge) {
+      edge = cached.edge;
+    } else {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      edge = detectDropZone(e, rect, 'edges') as EdgeZone | null;
+    }
+    if (!edge) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, edge);
     edgeDropTargetRef.current = null;
     setEdgeDropTarget(null);
   }, [onSplitGroup, edgeDropTargetRef]);

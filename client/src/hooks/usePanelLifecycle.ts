@@ -265,6 +265,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       const s = usePaneStore.getState();
       const storeOrder = s.groups['group:default']?.paneIds ?? [];
       const storeFocus = s.focusedPaneId;
+      // Pre-hydrate guard: the bootstrap path runs Effect A synchronously
+      // at mount, before WS init or the 500ms /api/ui-state fallback has
+      // hydrated the store. At that moment storeOrder=[] and storeFocus=null.
+      // Letting the fallback `storeOrder[0] ?? null` run would WIPE the
+      // local-only focused pane id seeded from `pane-store-focused-id`,
+      // and then post-hydrate apply would land on the first pane regardless
+      // of where the user was before reload. Skip until the store has panes.
+      if (storeOrder.length === 0) return;
       storeSyncInternalRef.current = true;
       setOpenPanels(prev => {
         if (prev.length === storeOrder.length && prev.every((id, i) => id === storeOrder[i])) return prev;
