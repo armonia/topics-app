@@ -367,6 +367,11 @@ export function GroupLayout({
                         className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${
                           isFocusedGroup ? 'ring-1 ring-inset ring-primary/20' : ''
                         }`}
+                        onMouseDownCapture={() => {
+                          if (!isFocusedGroup && group.activePaneId) {
+                            onActivatePane(groupId, group.activePaneId);
+                          }
+                        }}
                         onDragOver={handleGroupContentDragOver(groupId)}
                         onDragLeave={handleGroupContentDragLeave(groupId)}
                         onDrop={handleGroupContentDrop(groupId)}
