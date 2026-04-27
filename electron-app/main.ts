@@ -1327,15 +1327,20 @@ function startAssetWatcher(): void {
   }
 
   try {
+    // Only react to index.html — Vite writes it LAST after all hashed chunks
+    // are in place. Watching all assets would fire mid-build and reload onto
+    // an HTML that still references chunks that don't exist yet, which is
+    // what was wiping tab/panel state. Debounce stays as a safety net.
     assetWatcher = fs.watch(publicDir, { recursive: true }, (_eventType, filename) => {
+      if (filename !== 'index.html') return;
       if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
       reloadDebounceTimer = setTimeout(() => {
-        console.log(`[Topics Electron] Asset change detected (${filename}), reloading...`);
+        console.log(`[Topics Electron] index.html updated, reloading...`);
         reloadAllAppWindows();
       }, 500);
     });
 
-    console.log('[Topics Electron] Asset watcher started on /public/');
+    console.log('[Topics Electron] Asset watcher started on /public/index.html');
   } catch (err: unknown) {
     console.error('[Topics Electron] Failed to start asset watcher:', (err as Error).message);
   }

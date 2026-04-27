@@ -12,6 +12,8 @@ import type {
   ClaudeProviderConfig,
   CompletionResult,
   ProviderCapability,
+  ProviderDiagnostic,
+  ProviderRequirement,
   StreamHandler,
 } from "./types";
 
@@ -58,14 +60,15 @@ export class ClaudeProvider implements AIProvider {
   async sendChat(
     sessionKey: string,
     message: string,
-    handler: StreamHandler
+    handler: StreamHandler,
+    options?: { model?: string },
   ): Promise<{ runId?: string }> {
     const client = this.requireClient();
     const runId = crypto.randomUUID();
     const abortController = new AbortController();
     this.activeAbortControllers.set(runId, abortController);
 
-    const model = this.config.model ?? DEFAULT_MODEL;
+    const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
     const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     const params: Anthropic.MessageCreateParams = {
@@ -250,6 +253,61 @@ export class ClaudeProvider implements AIProvider {
       }
       this.activeAbortControllers.clear();
     }
+  }
+
+  // --- Diagnostics ---
+
+  async diagnose(): Promise<ProviderDiagnostic> {
+    const requirements: ProviderRequirement[] = [{
+      key: "ANTHROPIC_API_KEY",
+      label: "Anthropic API key",
+      present: Boolean(this.config.apiKey),
+      hint: this.config.apiKey ? undefined : "Set ANTHROPIC_API_KEY in env, or configure in Settings.",
+    }];
+
+    if (!this.config.apiKey) {
+      return { name: this.name, status: "unavailable", requirements };
+    }
+
+    let status: ProviderDiagnostic["status"] = "ready";
+    let lastError: string | undefined;
+    let modelsCount = 0;
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/models", {
+        headers: {
+          "x-api-key": this.config.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const data: any = await resp.json();
+        modelsCount = Array.isArray(data?.data) ? data.data.length : 0;
+      } else if (resp.status === 401 || resp.status === 403) {
+        // Key is set but rejected — that's a real misconfiguration.
+        status = "error";
+        lastError = `Auth failed (HTTP ${resp.status})`;
+      } else {
+        // Other HTTP failures or network issues = transient; treat as unavailable
+        // so the user isn't startled by red badges for a hiccup.
+        status = "unavailable";
+        lastError = `HTTP ${resp.status}`;
+      }
+    } catch (err: any) {
+      status = "unavailable";
+      lastError = err?.message ?? "Network error";
+    }
+
+    return { name: this.name, status, modelsCount, requirements, lastError };
+  }
+
+  async listModels(): Promise<string[]> {
+    return [
+      "claude-opus-4-7",
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-4-20250514",
+    ];
   }
 
   // --- Internals ---

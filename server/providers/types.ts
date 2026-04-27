@@ -97,6 +97,39 @@ export type ProviderCapability =
   | "abort"          // can abort an in-progress stream
   | "context";       // injects external context (OpenClaw SOUL.md, etc.)
 
+// ============ Status & Diagnostics ============
+
+/** 4-state provider status (pattern from Paseo) */
+export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
+
+export interface ProviderRequirement {
+  /** Stable id, e.g. "GATEWAY_URL", "ANTHROPIC_API_KEY", "claude-cli" */
+  key: string;
+  /** Human-readable label */
+  label: string;
+  /** Whether this requirement is currently satisfied */
+  present: boolean;
+  /** Optional copy-paste hint to fix it (shell command, env var line, etc.) */
+  hint?: string;
+}
+
+export interface ProviderDiagnostic {
+  name: string;
+  status: ProviderStatus;
+  /** Set if provider is the current default */
+  isDefault?: boolean;
+  /** Filesystem path of the binary (for CLI providers) */
+  binaryPath?: string;
+  /** Detected version string */
+  version?: string;
+  /** Number of available models, if listModels is implemented */
+  modelsCount?: number;
+  /** Per-requirement breakdown */
+  requirements: ProviderRequirement[];
+  /** Last error message from a failed health-check */
+  lastError?: string;
+}
+
 // ============ Stream Handler (callback-style) ============
 
 /** Callback-style handler — maps to the existing ChatStreamHandler pattern */
@@ -136,8 +169,16 @@ export interface AIProvider {
   /**
    * Send a chat message and stream the response via callbacks.
    * Returns a runId for tracking/aborting.
+   *
+   * `options.model` overrides the configured default for this single request,
+   * without mutating shared provider config.
    */
-  sendChat(sessionKey: string, message: string, handler: StreamHandler): Promise<{ runId?: string }>;
+  sendChat(
+    sessionKey: string,
+    message: string,
+    handler: StreamHandler,
+    options?: { model?: string },
+  ): Promise<{ runId?: string }>;
 
   /**
    * Register a handler to receive stream events for a session.
@@ -179,6 +220,14 @@ export interface AIProvider {
 
   invokeTool?(tool: string, args: Record<string, any>): Promise<any>;
 
+  // --- Diagnostics ---
+
+  /** Inspect config + connectivity. Returns a structured report for the UI. */
+  diagnose?(): Promise<ProviderDiagnostic>;
+
+  /** List available models for this provider (for the picker UI) */
+  listModels?(): Promise<string[]>;
+
   // --- Event routing ---
 
   /**
@@ -215,4 +264,23 @@ export interface ClaudeCodeProviderConfig {
   defaultWorkspace?: string; // defaults to HOME
 }
 
-export type ProviderConfig = OpenClawProviderConfig | ClaudeProviderConfig | ClaudeCodeProviderConfig;
+export interface CodexProviderConfig {
+  type: "codex";
+  model?: string;             // defaults to "gpt-5-codex"
+  approvalMode?: "auto" | "full-access";
+  defaultWorkspace?: string;  // defaults to HOME
+}
+
+export interface OpenAIProviderConfig {
+  type: "openai";
+  apiKey: string;
+  model?: string;             // defaults to "gpt-4o"
+  maxTokens?: number;         // defaults to 8192
+}
+
+export type ProviderConfig =
+  | OpenClawProviderConfig
+  | ClaudeProviderConfig
+  | ClaudeCodeProviderConfig
+  | CodexProviderConfig
+  | OpenAIProviderConfig;

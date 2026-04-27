@@ -1,6 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts } from "./processes";
 import { getProvider } from "../providers";
+import { checkGatewayHealth as pingGateway } from "../providers/health";
 
 const SERVER_START_TIME = Date.now();
 
@@ -45,30 +46,18 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       };
     }
 
-    // OpenClaw: do an HTTP health check via invokeTool or raw fetch
-    const start = Date.now();
-    try {
-      // Use GATEWAY_URL from env for the health ping (OpenClaw-specific)
-      const gatewayUrl = process.env.GATEWAY_URL;
-      if (!gatewayUrl) {
-        return { status: provider.connected ? "online" : "offline", online: provider.connected, latencyMs: 0 };
-      }
-      const resp = await fetch(`${gatewayUrl}/`, {
-        method: "GET",
-        headers: process.env.GATEWAY_TOKEN ? { Authorization: `Bearer ${process.env.GATEWAY_TOKEN}` } : {},
-        signal: AbortSignal.timeout(5000),
-      });
-      const latencyMs = Date.now() - start;
-      if (resp.ok) return { status: "online", online: true, latencyMs, httpStatus: resp.status };
-      if (resp.status === 401 || resp.status === 403) return { status: "auth_error", online: false, latencyMs, httpStatus: resp.status };
-      if (resp.status >= 500) return { status: "server_error", online: false, latencyMs, httpStatus: resp.status };
-      return { status: "offline", online: false, latencyMs, httpStatus: resp.status };
-    } catch (err: any) {
-      const latencyMs = Date.now() - start;
-      if (err?.name === "AbortError" || err?.name === "TimeoutError") return { status: "timeout", online: false, latencyMs };
-      if (err?.code === "ECONNREFUSED" || err?.message?.includes("ECONNREFUSED")) return { status: "connection_refused", online: false, latencyMs };
-      return { status: "offline", online: false, latencyMs };
+    // OpenClaw: HTTP health check via shared helper
+    const gatewayUrl = process.env.GATEWAY_URL;
+    if (!gatewayUrl) {
+      return { status: provider.connected ? "online" : "offline", online: provider.connected, latencyMs: 0 };
     }
+    const result = await pingGateway(gatewayUrl, process.env.GATEWAY_TOKEN);
+    return {
+      status: result.status,
+      online: result.online,
+      latencyMs: result.latencyMs,
+      httpStatus: result.httpStatus,
+    };
   }
 
   async function fetchCronStatus(): Promise<CronJobsStatus> {

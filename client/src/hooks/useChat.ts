@@ -7,11 +7,17 @@ const CACHE_PREFIX = 'messages-cache-';
 const CACHE_MAX_MESSAGES = 50;
 const QUEUE_KEY = 'messages-outbound-queue';
 
+export interface SendMessageOptions {
+  planMode?: boolean;
+  provider?: string;
+  model?: string;
+}
+
 interface QueuedMessage {
   sessionKey: string;
   content: string;
   timestamp: string;
-  options?: { planMode?: boolean };
+  options?: SendMessageOptions;
   id?: string; // unique id for dedup — prevents re-sending already-delivered messages
 }
 
@@ -114,13 +120,13 @@ export function useChat() {
   // DrainQueue concurrency guard
   const drainingRef = useRef(false);
   // Stream queue: messages queued while AI is streaming (auto-sent on stream:end)
-  const streamQueueRef = useRef<Record<string, { content: string; options?: { planMode?: boolean } }[]>>({});
+  const streamQueueRef = useRef<Record<string, { content: string; options?: SendMessageOptions }[]>>({});
 
   // Keep a ref to the latest messages to avoid stale closure in sendMessage
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   // Ref for sendMessage to allow stream:end to trigger next queued message
-  const sendMessageRef = useRef<((sk: string, content: string, opts?: { planMode?: boolean }) => Promise<boolean>) | null>(null);
+  const sendMessageRef = useRef<((sk: string, content: string, opts?: SendMessageOptions) => Promise<boolean>) | null>(null);
 
   // Auto-clear stuck streams after 3 minutes of no activity
   const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -441,7 +447,7 @@ export function useChat() {
     }
   }, [handleStreamEvent]);
 
-  const sendMessage = useCallback(async (sessionKey: string, content: string, options?: { planMode?: boolean }): Promise<boolean> => {
+  const sendMessage = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
     // If there's an active send/stream for this session, queue the message for later
     if (isSendLocked(sessionKey)) {
       // Show user message immediately, queue content for auto-send on stream:end
@@ -488,6 +494,8 @@ export function useChat() {
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
       if (options?.planMode) chatRequest.planMode = true;
+      if (options?.provider) chatRequest.provider = options.provider;
+      if (options?.model) chatRequest.model = options.model;
 
       const stream = await chatApi.sendMessage(chatRequest, abortController.signal);
 

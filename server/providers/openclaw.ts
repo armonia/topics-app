@@ -11,8 +11,11 @@ import {
   type CompletionResult,
   type OpenClawProviderConfig,
   type ProviderCapability,
+  type ProviderDiagnostic,
+  type ProviderRequirement,
   type StreamHandler,
 } from "./types";
+import { checkGatewayHealth } from "./health";
 
 import {
   type ChatStreamHandler,
@@ -93,7 +96,10 @@ export class OpenClawProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
+    _options?: { model?: string },
   ): Promise<{ runId?: string }> {
+    // OpenClaw routes through the gateway which selects models server-side;
+    // per-request `model` overrides aren't plumbed through the WS protocol yet.
     this.ensureConnected();
     const result = await this.gw!.sendChat(sessionKey, message);
     registerSessionHandler(sessionKey, result.runId, toChatStreamHandler(handler));
@@ -215,6 +221,52 @@ export class OpenClawProvider implements AIProvider {
 
   async invokeTool(tool: string, args: Record<string, any>): Promise<any> {
     return this.toolPost(tool, args);
+  }
+
+  // --- Diagnostics ---
+
+  async diagnose(): Promise<ProviderDiagnostic> {
+    const requirements: ProviderRequirement[] = [
+      {
+        key: "GATEWAY_URL",
+        label: "Gateway URL",
+        present: Boolean(this.config.gatewayUrl),
+        hint: this.config.gatewayUrl ? undefined : "Set GATEWAY_URL in your environment.",
+      },
+      {
+        key: "GATEWAY_TOKEN",
+        label: "Gateway token",
+        present: Boolean(this.config.token),
+        hint: this.config.token ? undefined : "Set GATEWAY_TOKEN, or run OpenClaw to write ~/.openclaw/openclaw.json",
+      },
+    ];
+
+    const allReq = requirements.every((r) => r.present);
+    if (!allReq) {
+      return { name: this.name, status: "unavailable", requirements };
+    }
+
+    const health = await checkGatewayHealth(this.config.gatewayUrl, this.freshToken());
+    if (health.online) {
+      return { name: this.name, status: "ready", requirements };
+    }
+    // Distinguish "server simply off" (unavailable) from "configured but broken" (error).
+    // Connection refused / timeout / generic offline = the gateway just isn't running.
+    // 401/403 / 5xx = configuration is wrong or server is broken.
+    const offlineStates = new Set(["connection_refused", "timeout", "offline"]);
+    const isJustOff = offlineStates.has(health.status);
+    return {
+      name: this.name,
+      status: isJustOff ? "unavailable" : "error",
+      requirements,
+      lastError: isJustOff
+        ? "Gateway not reachable — start the OpenClaw server"
+        : health.error ?? health.status,
+    };
+  }
+
+  async listModels(): Promise<string[]> {
+    return ["openclaw"];
   }
 
   // --- Event Routing ---

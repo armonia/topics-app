@@ -14,7 +14,7 @@
 
 export * from "./types";
 
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig } from "./types";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -40,6 +40,14 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case "claude-code": {
       const { ClaudeCodeProvider } = require("./claude-code");
       return new ClaudeCodeProvider(config);
+    }
+    case "codex": {
+      const { CodexProvider } = require("./codex");
+      return new CodexProvider(config);
+    }
+    case "openai": {
+      const { OpenAIProvider } = require("./openai");
+      return new OpenAIProvider(config);
     }
     default:
       throw new Error(`Unknown provider type: ${(config as any).type}`);
@@ -125,7 +133,7 @@ export function removeProvider(name: string): void {
 // Init all providers from env
 // ---------------------------------------------------------------------------
 
-export function initProviders(): AIProvider[] {
+export async function initProviders(): Promise<AIProvider[]> {
   const started: AIProvider[] = [];
 
   // OpenClaw — init if GATEWAY_URL is set
@@ -165,21 +173,63 @@ export function initProviders(): AIProvider[] {
     }
   }
 
-  // Claude Code — init if CLAUDE_CODE_ENABLED is set
-  if (process.env.CLAUDE_CODE_ENABLED === "true") {
+  // Claude Code — auto-detect (CLI installed). Legacy CLAUDE_CODE_ENABLED still works.
+  if (!_providers.has("claude-code")) {
+    const explicitlyEnabled = process.env.CLAUDE_CODE_ENABLED === "true";
+    const cliAvailable = await detectClaudeCodeCli();
+    if (explicitlyEnabled || cliAvailable) {
+      try {
+        const config: ClaudeCodeProviderConfig = {
+          type: "claude-code",
+          model: process.env.CLAUDE_CODE_MODEL || undefined,
+          permissionMode: process.env.CLAUDE_CODE_PERMISSION_MODE || undefined,
+          defaultWorkspace: process.env.CLAUDE_CODE_WORKSPACE || undefined,
+        };
+        const p = createProvider(config);
+        p.start();
+        _providers.set(p.name, p);
+        started.push(p);
+      } catch (err: any) {
+        console.warn(`[Providers] Failed to init claude-code: ${err.message}`);
+      }
+    }
+  }
+
+  // Codex — auto-detect (CLI installed or Codex.app present)
+  if (!_providers.has("codex") && await detectCodexCli()) {
     try {
-      const config: ClaudeCodeProviderConfig = {
-        type: "claude-code",
-        model: process.env.CLAUDE_CODE_MODEL || undefined,
-        permissionMode: process.env.CLAUDE_CODE_PERMISSION_MODE || undefined,
-        defaultWorkspace: process.env.CLAUDE_CODE_WORKSPACE || undefined,
+      const config: CodexProviderConfig = {
+        type: "codex",
+        model: process.env.CODEX_MODEL || undefined,
+        approvalMode: (process.env.CODEX_APPROVAL_MODE as any) || undefined,
+        defaultWorkspace: process.env.CODEX_WORKSPACE || undefined,
       };
       const p = createProvider(config);
       p.start();
       _providers.set(p.name, p);
       started.push(p);
     } catch (err: any) {
-      console.warn(`[Providers] Failed to init claude-code: ${err.message}`);
+      console.warn(`[Providers] Failed to init codex: ${err.message}`);
+    }
+  }
+
+  // OpenAI — init if OPENAI_API_KEY is set
+  if (!_providers.has("openai") && process.env.OPENAI_API_KEY) {
+    try {
+      const config: OpenAIProviderConfig = {
+        type: "openai",
+        apiKey: process.env.OPENAI_API_KEY,
+        model: process.env.OPENAI_MODEL || undefined,
+        maxTokens: process.env.OPENAI_MAX_TOKENS
+          ? parseInt(process.env.OPENAI_MAX_TOKENS, 10)
+          : undefined,
+      };
+      const p = createProvider(config);
+      p.start();
+      _providers.set(p.name, p);
+      started.push(p);
+    } catch (err: any) {
+      console.warn(`[Providers] Failed to init openai: ${err.message}`);
     }
   }
 
@@ -187,31 +237,69 @@ export function initProviders(): AIProvider[] {
   const explicit = process.env.AI_PROVIDER?.toLowerCase();
   if (explicit && _providers.has(explicit)) {
     _defaultName = explicit;
-  } else if (_providers.size > 0) {
+  } else if (!_defaultName && _providers.size > 0) {
     // Prefer openclaw for backwards compat, else first
     _defaultName = _providers.has("openclaw") ? "openclaw" : _providers.keys().next().value;
   }
 
   if (started.length === 0) {
-    console.warn("[Providers] No providers configured. Set GATEWAY_URL+GATEWAY_TOKEN and/or ANTHROPIC_API_KEY");
+    console.warn("[Providers] No providers configured. Set GATEWAY_URL+GATEWAY_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY, or install codex/claude-code CLIs.");
   }
 
   return started;
+}
+
+// --- Auto-detect helpers ---
+
+async function detectClaudeCodeCli(): Promise<boolean> {
+  // Avoid hard import cost if Bun.which already says no
+  if (Bun.which("claude")) return true;
+  // Check the version-managed install path used by claude-code provider
+  try {
+    const { existsSync } = require("fs");
+    const home = process.env.HOME || "";
+    if (existsSync(`${home}/.local/bin/claude`)) return true;
+    if (existsSync(`${home}/.local/share/claude/versions`)) return true;
+  } catch {}
+  return false;
+}
+
+async function detectCodexCli(): Promise<boolean> {
+  if (process.env.CODEX_BIN) return true;
+  if (Bun.which("codex")) return true;
+  try {
+    const { existsSync } = require("fs");
+    const home = process.env.HOME || "";
+    if (existsSync("/Applications/Codex.app/Contents/Resources/codex")) return true;
+    if (existsSync(`${home}/Applications/Codex.app/Contents/Resources/codex`)) return true;
+  } catch {}
+  return false;
 }
 
 // ---------------------------------------------------------------------------
 // Legacy compat — initProvider / getProvider work as before
 // ---------------------------------------------------------------------------
 
-/** @deprecated Use initProviders() instead */
+/**
+ * Legacy single-provider init. Starts the explicit `config` as the default,
+ * then asynchronously auto-detects and registers all other available providers
+ * (codex, openai, claude-code, etc.) so the picker UI sees them.
+ */
 export function initProvider(config?: ProviderConfig): AIProvider {
   if (config) {
     const p = createProvider(config);
     p.start();
     _providers.set(p.name, p);
     if (!_defaultName) _defaultName = p.name;
+    // Fire-and-forget: register any other auto-detected providers in the
+    // background. Errors are logged but don't block startup.
+    initProviders().catch((err) => {
+      console.warn(`[Providers] Background auto-detect failed: ${err?.message ?? err}`);
+    });
     return p;
   }
-  const started = initProviders();
-  return started[0] ?? (() => { throw new Error("No providers configured"); })();
+  // Sync caller without config: initialize providers eagerly via a deferred init.
+  // We can't await here, so bootstrap and return whatever we can synchronously.
+  void initProviders();
+  return getDefaultProvider();
 }

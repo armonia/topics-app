@@ -93,6 +93,37 @@ export interface ChatRequest {
   sessionKey: string;
   messages: Message[];
   planMode?: boolean;
+  /** Per-message provider override (e.g. "claude-code", "codex"). Falls back to topic.provider or global default. */
+  provider?: string;
+  /** Per-message model override. Ignored by providers without per-call model selection. */
+  model?: string;
+}
+
+// ============ Providers ============
+
+export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
+
+export interface ProviderRequirement {
+  key: string;
+  label: string;
+  present: boolean;
+  hint?: string;
+}
+
+export interface ProviderDiagnostic {
+  name: string;
+  status: ProviderStatus;
+  isDefault?: boolean;
+  binaryPath?: string;
+  version?: string;
+  modelsCount?: number;
+  requirements: ProviderRequirement[];
+  lastError?: string;
+}
+
+export interface ProviderModels {
+  provider: string;
+  models: string[];
 }
 
 export interface HistoryRequest {

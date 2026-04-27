@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check } from 'lucide-react';
-import type { AppSettings, ThemeMode } from '../../types';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle } from 'lucide-react';
+import type { AppSettings, ProviderDiagnostic, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
+import { providersApi } from '../../lib/api';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -199,25 +200,38 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
   );
 }
 
-interface Provider {
-  name: string;
-  connected: boolean;
-  capabilities: string[];
-  isDefault: boolean;
-}
+const STATUS_COLORS: Record<ProviderDiagnostic['status'], string> = {
+  ready: 'bg-green-500',
+  loading: 'bg-yellow-500',
+  error: 'bg-red-500',
+  unavailable: 'bg-gray-400',
+};
+
+const STATUS_LABELS: Record<ProviderDiagnostic['status'], string> = {
+  ready: 'ready',
+  loading: 'loading…',
+  error: 'error',
+  unavailable: 'not set up',
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openclaw: 'OpenClaw',
+  claude: 'Claude (API)',
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  openai: 'OpenAI (ChatGPT)',
+};
 
 function AIProvidersSection() {
-  const [providers, setProviders] = useState<Provider[]>([]);
+  const [diagnostics, setDiagnostics] = useState<ProviderDiagnostic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-  const [configuring, setConfiguring] = useState(false);
-  const [showReconfigure, setShowReconfigure] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
 
-  const fetchProviders = async () => {
+  const fetchAll = async (force = false) => {
     try {
-      const res = await fetch('/api/providers');
-      const data = await res.json();
-      setProviders(data.providers ?? []);
+      const data = await providersApi.diagnoseAll(force);
+      setDiagnostics(data.providers ?? []);
     } catch {
       // ignore
     } finally {
@@ -225,38 +239,24 @@ function AIProvidersSection() {
     }
   };
 
-  useEffect(() => {
-    fetchProviders();
-  }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   const setDefault = async (name: string) => {
-    await fetch('/api/providers/default', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: name }),
-    });
-    await fetchProviders();
+    try {
+      await providersApi.setDefault(name);
+      await fetchAll();
+    } catch {}
   };
 
-  const configureClaude = async () => {
-    if (!apiKey.trim()) return;
-    setConfiguring(true);
+  const test = async (name: string) => {
+    setTesting(name);
     try {
-      await fetch('/api/providers/claude/configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
-      });
-      setApiKey('');
-      setShowReconfigure(false);
-      await fetchProviders();
+      const result = await providersApi.diagnose(name, true);
+      setDiagnostics((prev) => prev.map((p) => (p.name === name ? result : p)));
     } finally {
-      setConfiguring(false);
+      setTesting(null);
     }
   };
-
-  const claudeProvider = providers.find((p) => p.name === 'claude');
-  const claudeConnected = claudeProvider?.connected ?? false;
 
   if (loading) {
     return (
@@ -265,7 +265,7 @@ function AIProvidersSection() {
           <Cpu size={14} />
           AI Providers
         </label>
-        <div className="text-[12px] text-app-text-muted">Loading...</div>
+        <div className="text-[12px] text-app-text-muted">Loading…</div>
       </div>
     );
   }
@@ -277,84 +277,198 @@ function AIProvidersSection() {
         AI Providers
       </label>
 
-      {/* Provider list */}
-      <div className="space-y-1.5 mb-3">
-        {providers.map((provider) => (
-          <button
-            key={provider.name}
-            onClick={() => setDefault(provider.name)}
-            className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
-              provider.isDefault
-                ? 'bg-primary/10 border-primary/30 text-primary'
-                : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                provider.connected ? 'bg-green-500' : 'bg-gray-400'
-              }`}
-            />
-            <span className="font-semibold capitalize">{provider.name}</span>
-            {provider.isDefault && (
-              <span className="ml-auto text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                Default
-              </span>
-            )}
-          </button>
+      <div className="space-y-1.5">
+        {diagnostics.map((d) => (
+          <ProviderCard
+            key={d.name}
+            diag={d}
+            expanded={expanded === d.name}
+            testing={testing === d.name}
+            onToggle={() => setExpanded(expanded === d.name ? null : d.name)}
+            onSetDefault={() => setDefault(d.name)}
+            onTest={() => test(d.name)}
+            onAfterConfigure={() => fetchAll(true)}
+          />
         ))}
-        {providers.length === 0 && (
+        {diagnostics.length === 0 && (
           <div className="text-[12px] text-app-text-muted">No providers registered.</div>
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* Claude API Key configuration */}
-      <div className="bg-app-hover rounded-lg p-3 border border-app-border">
-        {claudeConnected && !showReconfigure ? (
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400 font-medium">
-                <Check size={13} />
-                Claude configured
-              </span>
-              <button
-                onClick={() => setShowReconfigure(true)}
-                className="text-[11px] text-app-text-muted hover:text-app-text-secondary transition-colors"
-              >
-                Reconfigure
-              </button>
-            </div>
-          ) : (
-            <div>
-              <label className="text-[12px] text-app-text-secondary mb-1.5 block">
-                Claude API Key
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md text-[12px] bg-surface border border-app-border text-app-text placeholder:text-app-text-muted focus:outline-none focus:border-primary/50"
-                  onKeyDown={(e) => e.key === 'Enter' && configureClaude()}
-                />
-                <button
-                  onClick={configureClaude}
-                  disabled={configuring || !apiKey.trim()}
-                  className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {configuring ? '...' : 'Configure'}
-                </button>
-              </div>
-              {showReconfigure && (
-                <button
-                  onClick={() => setShowReconfigure(false)}
-                  className="text-[11px] text-app-text-muted hover:text-app-text-secondary mt-1.5 transition-colors"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
+interface ProviderCardProps {
+  diag: ProviderDiagnostic;
+  expanded: boolean;
+  testing: boolean;
+  onToggle: () => void;
+  onSetDefault: () => void;
+  onTest: () => void;
+  onAfterConfigure: () => void;
+}
+
+function ProviderCard({ diag, expanded, testing, onToggle, onSetDefault, onTest, onAfterConfigure }: ProviderCardProps) {
+  const label = PROVIDER_LABELS[diag.name] ?? diag.name;
+
+  return (
+    <div className={`rounded-lg border ${diag.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+      >
+        {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[diag.status]}`} />
+        <span className="text-[12px] font-semibold text-app-text">{label}</span>
+        <span className="text-[10px] text-app-text-muted">{STATUS_LABELS[diag.status]}</span>
+        {diag.version && <span className="text-[10px] text-app-text-muted">· v{diag.version}</span>}
+        {diag.modelsCount !== undefined && diag.modelsCount > 0 && (
+          <span className="text-[10px] text-app-text-muted">· {diag.modelsCount} models</span>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          {diag.isDefault && (
+            <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">Default</span>
           )}
         </div>
+      </button>
+
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-app-border space-y-2">
+          {/* Action row */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); onTest(); }}
+              disabled={testing}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
+            >
+              <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
+              Test connection
+            </button>
+            {!diag.isDefault && diag.status === 'ready' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
+                className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
+              >
+                Set as default
+              </button>
+            )}
+          </div>
+
+          {/* Binary path */}
+          {diag.binaryPath && (
+            <div className="text-[11px] text-app-text-muted font-mono break-all">
+              {diag.binaryPath}
+            </div>
+          )}
+
+          {/* Last error */}
+          {diag.lastError && (
+            <div className="flex items-start gap-1.5 text-[11px] text-red-500">
+              <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
+              <span className="break-words">{diag.lastError}</span>
+            </div>
+          )}
+
+          {/* Requirements */}
+          {diag.requirements.length > 0 && (
+            <div className="space-y-1.5">
+              {diag.requirements.map((req) => (
+                <RequirementRow key={req.key} req={req} />
+              ))}
+            </div>
+          )}
+
+          {/* Inline configure forms */}
+          {diag.name === 'claude' && diag.requirements.some((r) => r.key === 'ANTHROPIC_API_KEY' && !r.present) && (
+            <ApiKeyForm provider="claude" placeholder="sk-ant-..." onSaved={onAfterConfigure} />
+          )}
+          {diag.name === 'openai' && diag.requirements.some((r) => r.key === 'OPENAI_API_KEY' && !r.present) && (
+            <ApiKeyForm provider="openai" placeholder="sk-..." onSaved={onAfterConfigure} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RequirementRow({ req }: { req: { key: string; label: string; present: boolean; hint?: string } }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    if (!req.hint) return;
+    // Extract command from hint (heuristic: look for a "Run … :" or after "→")
+    const cmd = req.hint.match(/Run [^:]*:\s*(.+)/)?.[1]
+      ?? req.hint.match(/→\s*(.+)/)?.[1]
+      ?? req.hint;
+    navigator.clipboard.writeText(cmd.trim()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div className="text-[11px]">
+      <div className="flex items-center gap-1.5">
+        {req.present ? (
+          <Check size={12} className="text-green-500 flex-shrink-0" />
+        ) : (
+          <X size={12} className="text-red-500 flex-shrink-0" />
+        )}
+        <span className={req.present ? 'text-app-text-secondary' : 'text-app-text'}>{req.label}</span>
+      </div>
+      {!req.present && req.hint && (
+        <div className="ml-5 mt-0.5 flex items-start gap-1.5 text-app-text-muted">
+          <span className="break-words flex-1">{req.hint}</span>
+          <button
+            onClick={copy}
+            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface border border-app-border hover:bg-app-hover text-[10px]"
+            title="Copy"
+          >
+            <Copy size={10} />
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | 'openai'; placeholder: string; onSaved: () => void }) {
+  const [apiKey, setApiKey] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    try {
+      if (provider === 'claude') await providersApi.configureClaude(apiKey.trim());
+      else await providersApi.configureOpenAI(apiKey.trim());
+      setApiKey('');
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="pt-1">
+      <div className="flex gap-1.5">
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border text-app-text placeholder:text-app-text-muted focus:outline-none focus:border-primary/50"
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+        <button
+          onClick={submit}
+          disabled={saving || !apiKey.trim()}
+          className="px-2 py-1 rounded-md text-[11px] font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
+        >
+          {saving ? '…' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }

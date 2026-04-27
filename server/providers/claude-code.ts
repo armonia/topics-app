@@ -15,8 +15,11 @@ import type {
   ChatMessage,
   CompletionResult,
   ProviderCapability,
+  ProviderDiagnostic,
+  ProviderRequirement,
   StreamHandler,
 } from "./types";
+import { probeBinaryPath } from "../utils/executable";
 
 // ============ Config ============
 
@@ -165,6 +168,7 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
+    options?: { model?: string },
   ): Promise<{ runId?: string }> {
     // Serial queue: prevent concurrent stdin writes per session
     const prev = this.queues.get(sessionKey) ?? Promise.resolve();
@@ -174,6 +178,10 @@ export class ClaudeCodeProvider implements AIProvider {
     await prev;
 
     try {
+      // Note: per-message `options.model` override is intentionally ignored —
+      // claude-code spawns a long-lived child whose --model is set at spawn
+      // time. Switching models requires respawning, which we don't do mid-flow.
+      // To use a different model, set it as the topic default or in config.
       return await this.sendChatInternal(sessionKey, message, handler);
     } finally {
       resolveQueue();
@@ -348,6 +356,53 @@ export class ClaudeCodeProvider implements AIProvider {
     }
     pp.pendingResolve = null;
     pp.pendingReject = null;
+  }
+
+  // --- Diagnostics ---
+
+  async diagnose(): Promise<ProviderDiagnostic> {
+    const requirements: ProviderRequirement[] = [];
+
+    const cliPath = resolveCliPath();
+    const probe = await probeBinaryPath(cliPath);
+    requirements.push({
+      key: "claude-cli",
+      label: "Claude Code CLI installed",
+      present: probe.available,
+      hint: probe.available ? undefined : "Install from https://docs.claude.com/claude-code or run: npm i -g @anthropic-ai/claude-code",
+    });
+
+    // Claude Code uses `claude login` (OAuth) — no env key required.
+    // Check for a credentials directory under ~/.claude as a best-effort signal.
+    const claudeHome = join(process.env.HOME || "", ".claude");
+    const hasSession =
+      Boolean(process.env.ANTHROPIC_API_KEY) ||
+      existsSync(claudeHome);
+    requirements.push({
+      key: "claude-session",
+      label: "Active Claude Code session",
+      present: hasSession,
+      hint: hasSession ? undefined : "Run in terminal: claude login",
+    });
+
+    const allOk = requirements.every((r) => r.present);
+    return {
+      name: this.name,
+      // Missing requirement (CLI not installed, no API key) = unavailable, not error.
+      // "error" is reserved for runtime failures with all requirements present.
+      status: allOk ? "ready" : "unavailable",
+      binaryPath: probe.path,
+      version: probe.version,
+      requirements,
+    };
+  }
+
+  async listModels(): Promise<string[]> {
+    return [
+      "claude-sonnet-4-6",
+      "claude-opus-4-7",
+      "claude-haiku-4-5",
+    ];
   }
 
   // ============ Process Pool Internals ============

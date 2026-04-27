@@ -86,18 +86,16 @@ export function subscribeToProjectLayout(
       const r = raw as Record<string, unknown>;
       if (Array.isArray(r.nonChatPanes)) {
         onUpdate(raw as PersistedTabState);
-      } else if (r.panes && typeof r.panes === 'object' && !Array.isArray(r.panes)) {
-        const all = Object.values(r.panes as Record<string, Pane>);
-        onUpdate({
-          nonChatPanes: stripWrapperPaneId(
-            all.filter(p => p.type !== 'chat' && !p.preview),
-            projectPath,
-          ),
-          openChatTopicIds: all
-            .filter(p => p.type === 'chat' && !!p.topicId)
-            .map(p => p.topicId!),
-        });
+        return;
       }
+      // The other shape this used to handle — `{ panes: Record<id, Pane>,
+      // groups, … }` — is the PROJECT_LAYOUT_SNAPSHOT capture of the
+      // GLOBAL pane store. The project window manages its inner panes in
+      // React state OUTSIDE of `state.panes`, so that snapshot is never
+      // an authoritative source for this project's inner tabs. Treating
+      // it as one resurrected phantom panes (or wiped real ones) on every
+      // reload. We now silently ignore it — the localStorage `nonChatPanes`
+      // shape remains the only legitimate hydration source.
     },
   );
 }

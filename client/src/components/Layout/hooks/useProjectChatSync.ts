@@ -133,8 +133,16 @@ export function useProjectChatSync(
     // Guard: if topicIds is transiently empty but we already have chat panes,
     // skip removal — an empty topicIds for a project with open chats is almost
     // certainly a re-render transient (topics state temporarily cleared).
+    // We still mark the chat-sync gate as complete so the persistence-save
+    // effect is unblocked: otherwise a project whose topics are slow to load
+    // (or never load) keeps suppressing every save, and tab closures don't
+    // stick across reloads.
     const existingChatPanes = curPanes.filter(p => p.type === 'chat');
     if (currentSet.size === 0 && existingChatPanes.length > 0) {
+      if (!gateRefs.initialChatsSyncedRef.current) {
+        gateRefs.initialChatsSyncedRef.current = true;
+        markChatSyncDone();
+      }
       return;
     }
 

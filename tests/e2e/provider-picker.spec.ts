@@ -1,0 +1,94 @@
+import { expect, type Route } from "@playwright/test";
+import { test } from "./fixtures/chat.fixture";
+import { goToApp, openTopic } from "./helpers";
+import { mockChatStream } from "./helpers/sse-helpers";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+
+test.describe.serial("Provider/Model picker", () => {
+  let topicId: string;
+  let topicName: string;
+
+  test.beforeAll(async ({ request }) => {
+    topicName = "Picker E2E " + Date.now();
+    const t = await createTopic(request, topicName);
+    topicId = t.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  test("diagnose endpoint returns ProviderDiagnostic[]", async ({ request }) => {
+    const resp = await request.get("/api/providers/diagnose");
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(Array.isArray(data.providers)).toBe(true);
+    for (const p of data.providers) {
+      expect(p).toHaveProperty("name");
+      expect(p).toHaveProperty("status");
+      expect(["ready", "loading", "error", "unavailable"]).toContain(p.status);
+      expect(Array.isArray(p.requirements)).toBe(true);
+    }
+  });
+
+  test("models endpoint returns provider->models map", async ({ request }) => {
+    const resp = await request.get("/api/providers/models");
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(Array.isArray(data.providers)).toBe(true);
+  });
+
+  test("selecting a provider/model adds it to the chat payload", async ({ page }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Set up mock first, then add capture as a NEWER route — Playwright
+    // resolves to the most recently-registered matching route, so the capture
+    // wraps the mock and forwards via route.fallback().
+    await mockChatStream(page, {
+      chunks: ["ok"],
+      userMessage: "ping",
+    });
+    let capturedBody: any = null;
+    await page.route("**/api/chat", async (route: Route) => {
+      if (route.request().method() === "POST") {
+        try { capturedBody = JSON.parse(route.request().postData() ?? ""); } catch {}
+      }
+      return route.fallback();
+    });
+
+    // Open the picker
+    const pickerBtn = page.getByTestId("provider-model-picker");
+    await pickerBtn.waitFor({ state: "visible", timeout: 5_000 });
+    await pickerBtn.click();
+
+    // Pick the first ENABLED model row. Disabled models (provider not 'ready')
+    // show with `disabled` attribute and grey styling — Playwright's
+    // `:not([disabled])` filter skips them.
+    const enabledModel = page
+      .locator("button:not([disabled])")
+      .filter({ hasText: /^(claude-|gpt-|o\d|openclaw)/ })
+      .first();
+
+    if (await enabledModel.count() === 0) {
+      test.skip(true, "No 'ready' provider with models available in this environment");
+    }
+    await enabledModel.click();
+
+    // Send message
+    await textarea.click();
+    await textarea.fill("ping");
+    await textarea.press("Enter");
+
+    // Wait for the request to fire
+    await expect.poll(() => !!capturedBody, { timeout: 10_000 }).toBe(true);
+    expect(capturedBody).toHaveProperty("provider");
+    expect(typeof capturedBody.provider).toBe("string");
+    expect(capturedBody).toHaveProperty("model");
+    expect(typeof capturedBody.model).toBe("string");
+  });
+});

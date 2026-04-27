@@ -1,9 +1,9 @@
-import type { 
-  TopicsData, 
-  Topic, 
-  CreateTopicRequest, 
-  UpdateTopicRequest, 
-  LinkTopicRequest, 
+import type {
+  TopicsData,
+  Topic,
+  CreateTopicRequest,
+  UpdateTopicRequest,
+  LinkTopicRequest,
   ChatRequest,
   HistoryRequest,
   HistoryResponse,
@@ -16,6 +16,8 @@ import type {
   ProcessInfo,
   GitBranch,
   GitLogEntry,
+  ProviderDiagnostic,
+  ProviderModels,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1309,6 +1311,57 @@ export const agentActionsApi = {
     const qs = params.toString();
     const data = await request<{ actions: AgentActionLog[] }>(`/agent/boards/${projectId}/actions${qs ? '?' + qs : ''}`);
     return data.actions;
+  },
+};
+
+// Providers API
+export interface ProviderListEntry {
+  name: string;
+  connected: boolean;
+  capabilities: string[];
+  isDefault: boolean;
+}
+
+export const providersApi = {
+  async list(): Promise<{ providers: ProviderListEntry[]; default: string | null }> {
+    return request<{ providers: ProviderListEntry[]; default: string | null }>('/providers');
+  },
+
+  async diagnoseAll(force = false): Promise<{ providers: ProviderDiagnostic[] }> {
+    return request<{ providers: ProviderDiagnostic[] }>(`/providers/diagnose${force ? '?force=1' : ''}`);
+  },
+
+  async diagnose(name: string, force = false): Promise<ProviderDiagnostic> {
+    return request<ProviderDiagnostic>(`/providers/${encodeURIComponent(name)}/diagnose${force ? '?force=1' : ''}`);
+  },
+
+  async listModels(): Promise<{ providers: ProviderModels[] }> {
+    return request<{ providers: ProviderModels[] }>('/providers/models');
+  },
+
+  async setDefault(name: string): Promise<{ ok: boolean; default: string }> {
+    return request<{ ok: boolean; default: string }>('/providers/default', {
+      method: 'PUT',
+      body: JSON.stringify({ provider: name }),
+    });
+  },
+
+  async configureClaude(apiKey: string, model?: string, maxTokens?: number) {
+    return request<{ ok: boolean; provider: any }>('/providers/claude/configure', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, model, maxTokens }),
+    });
+  },
+
+  async configureOpenAI(apiKey: string, model?: string, maxTokens?: number) {
+    return request<{ ok: boolean; provider: any }>('/providers/openai/configure', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, model, maxTokens }),
+    });
+  },
+
+  async remove(name: string) {
+    return request<{ ok: boolean }>(`/providers/${encodeURIComponent(name)}`, { method: 'DELETE' });
   },
 };
 

@@ -1646,8 +1646,20 @@ Wait for the user to approve the plan before executing any changes.` };
         finalMessages.splice(planInsertIdx >= 0 ? planInsertIdx : finalMessages.length, 0, planInstruction);
       }
 
-      // ─── Resolve provider for this topic ───
-      const topicProvider = resolveProvider(matchedTopic);
+      // ─── Resolve provider for this topic (with optional per-message override) ───
+      let topicProvider: AIProvider;
+      const overrideProvider = typeof body.provider === "string" && body.provider.trim() ? body.provider.trim() : null;
+      if (overrideProvider) {
+        try {
+          topicProvider = getProvider(overrideProvider);
+        } catch (err: any) {
+          console.warn(`[Chat] Override provider "${overrideProvider}" not available, falling back: ${err.message}`);
+          topicProvider = resolveProvider(matchedTopic);
+        }
+      } else {
+        topicProvider = resolveProvider(matchedTopic);
+      }
+      const overrideModel = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
 
       // ─── Streaming ───
       const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;
@@ -1958,7 +1970,7 @@ Wait for the user to approve the plan before executing any changes.` };
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const result = await topicProvider.sendChat(sessionKey, userContent, handler);
+            const result = await topicProvider.sendChat(sessionKey, userContent, handler, overrideModel ? { model: overrideModel } : undefined);
             // Update handler with the real runId now that we have it
             topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
             console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);

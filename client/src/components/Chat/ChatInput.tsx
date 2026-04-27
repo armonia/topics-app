@@ -6,6 +6,7 @@ import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useS
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
 import { ContextPills, useContextFileTokens } from './ContextPills';
 import { MentionAutocomplete } from './MentionAutocomplete';
+import { ProviderModelPicker } from './ProviderModelPicker';
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -174,6 +175,10 @@ interface ChatInputProps {
   onTogglePlanMode?: () => void;
   editingMessage?: ChatMessage | null;
   onCancelEdit?: () => void;
+  providerOverride?: { provider: string; model: string } | null;
+  onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  defaultProviderLabel?: string;
+  onOpenSettings?: () => void;
 }
 
 export function ChatInput({
@@ -213,6 +218,10 @@ export function ChatInput({
   onTogglePlanMode,
   editingMessage,
   onCancelEdit,
+  providerOverride,
+  onProviderOverrideChange,
+  defaultProviderLabel,
+  onOpenSettings,
 }: ChatInputProps) {
   // Context pills state
   const contextFilePaths = topic.contextFiles || [];
@@ -663,6 +672,14 @@ export function ChatInput({
                 >
                   <ClipboardList size={16} />
                 </button>
+                {onProviderOverrideChange && (
+                  <ProviderModelPicker
+                    override={providerOverride ?? null}
+                    defaultProviderLabel={defaultProviderLabel}
+                    onChange={onProviderOverrideChange}
+                    onOpenSettings={onOpenSettings}
+                  />
+                )}
               </div>
 
               {/* Right: voice + send */}
