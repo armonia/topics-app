@@ -831,17 +831,24 @@ export function PanelGrid({
       centerSide = (e.clientX - rect.left) / rect.width < 0.5 ? 'left' : 'right';
     }
 
-    // For PANE_TAB drags: let children handle center zone (tab reorder, project drops)
-    // and top zone (tab bar lives at top — don't intercept same-cell tab reorders).
-    // Only intercept left/right/bottom edges for grid-level splits.
+    // HTML5 DnD: the LAST dragover before mouseup MUST call preventDefault or
+    // the drop event never fires on any handler. We always preventDefault for
+    // pane-tab/grid-item drags (whatever zone the cursor is in) so a release
+    // at the wobble moment between two edge frames still produces a `drop`.
+    e.preventDefault();
+
+    // For PANE_TAB drags over center/top of a cell: keep the target populated
+    // with the actual zone so the drop handler can identify the case at
+    // release time and let children handle the reorder/drop. We don't
+    // stopPropagation here so the child's dragover can also run.
     if (isTabDrag && !isGridDrag && (zone === 'center' || zone === 'top')) {
-      setGridDropTarget(null);
-      gridDropTargetRef.current = null;
+      const target = { rowIdx, colIdx, zone, centerSide };
+      setGridDropTarget(target);
+      gridDropTargetRef.current = target;
       return;
     }
 
     // Edge zone (or any GRID_ITEM drag): handle at grid level
-    e.preventDefault();
     e.stopPropagation(); // Prevent children from also handling this edge drag
     const target = { rowIdx, colIdx, zone, centerSide };
     setGridDropTarget(target);
