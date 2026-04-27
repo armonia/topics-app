@@ -99,5 +99,5 @@ export function useProjectPersistenceSave(
     // Report open panes to parent for sidebar filtering
     onOpenPanesChange?.(panes.map(p => p.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panes, groups, rows, rowHeights, sidebarCollapsed, projectPath, onOpenPanesChange]);
+  }, [panes, groups, rows, rowHeights, sidebarCollapsed, activeChatTopicId, projectPath, onOpenPanesChange]);
 }
