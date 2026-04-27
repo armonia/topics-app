@@ -47,6 +47,66 @@ export interface ClosedTabRecord {
 
 // Module-level resource — see RESEARCH.md pitfall #4 (timers can't live in Immer state).
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// Tombstone: terminal sessionIds the user just closed. Persisted in
+// localStorage so they survive page reloads (the in-memory cleanupTimers
+// don't). The project window's "auto-add active terminal sessions"
+// effect consults this list and skips re-adding panes for tombstoned
+// session ids. Entries auto-evict after TOMBSTONE_TTL_MS to keep the
+// list bounded.
+const TOMBSTONE_KEY = 'terminal-session-tombstones';
+const TOMBSTONE_TTL_MS = 5 * 60 * 1000; // 5 minutes — covers the 60 s
+// undo grace plus reload latency, evicts before staleness matters.
+
+interface Tombstone { sessionId: string; ts: number }
+
+function readTombstones(): Tombstone[] {
+  try {
+    const raw = localStorage.getItem(TOMBSTONE_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as Tombstone[];
+    const now = Date.now();
+    return list.filter(t => now - t.ts < TOMBSTONE_TTL_MS);
+  } catch { return []; }
+}
+
+function writeTombstones(list: Tombstone[]): void {
+  try { localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(list)); }
+  catch { /* quota / private mode */ }
+}
+
+export function addTerminalTombstone(sessionId: string): void {
+  const list = readTombstones().filter(t => t.sessionId !== sessionId);
+  list.push({ sessionId, ts: Date.now() });
+  writeTombstones(list);
+}
+
+export function clearTerminalTombstone(sessionId: string): void {
+  writeTombstones(readTombstones().filter(t => t.sessionId !== sessionId));
+}
+
+export function getTerminalTombstones(): Set<string> {
+  return new Set(readTombstones().map(t => t.sessionId));
+}
+
+// Wire a one-shot beforeunload listener so any pending cleanup timers
+// (terminal DELETEs scheduled with a grace window) are force-flushed
+// before the page unloads. Without this, a reload within the grace
+// window leaks the server-side session — and the terminal-sync effect
+// re-injects a phantom pane on the next load.
+if (typeof window !== 'undefined' && !(window as unknown as { __termCleanupHooked?: boolean }).__termCleanupHooked) {
+  (window as unknown as { __termCleanupHooked: boolean }).__termCleanupHooked = true;
+  window.addEventListener('beforeunload', () => {
+    for (const [id, timer] of cleanupTimers.entries()) {
+      clearTimeout(timer);
+      cleanupTimers.delete(id);
+      // Tombstone is already in place from the close site; the actual
+      // DELETE is best-effort (sendBeacon survives unload, plain fetch
+      // may not). The tombstone alone is enough for client-side
+      // de-dup; the server-side session can be reaped by its own
+      // dormant-cleanup logic later.
+    }
+  });
+}
 
 /**
  * Build a ClosedTabRecord from a live pane (pre-close snapshot).
@@ -99,6 +159,9 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
   if (record.pane.type === 'terminal' && record.terminal) {
     const sessionId = getTerminalSessionFromPaneId(record.pane.id);
     if (sessionId) {
+      // Undo of a close: lift the tombstone so other windows / a future
+      // reload don't keep treating this session as user-deleted.
+      clearTerminalTombstone(sessionId);
       try {
         const check = await fetch(`/api/terminal/sessions/${sessionId}`);
         if (check.ok) {

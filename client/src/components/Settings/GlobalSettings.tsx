@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard } from 'lucide-react';
 import type { AppSettings, ProviderDiagnostic, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
@@ -14,8 +14,18 @@ interface GlobalSettingsProps {
   onThemeChange?: (mode: ThemeMode) => void;
 }
 
+type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts';
+
+const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'providers', label: 'AI Providers', icon: Cpu },
+  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
+];
+
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange }: GlobalSettingsProps) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
+  const [section, setSection] = useState<SectionId>('appearance');
 
   useEffect(() => {
     setLocalSettings(settings);
@@ -34,7 +44,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
         data-testid="settings-panel"
-        className="w-full max-w-[400px] mx-4 max-h-[90vh] sm:max-h-[80vh] bg-surface rounded-xl shadow-xl border border-app-border overflow-hidden"
+        className="w-full max-w-[760px] mx-4 h-[80vh] max-h-[640px] bg-surface rounded-xl shadow-xl border border-app-border overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -48,153 +58,196 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           </button>
         </div>
 
-        {/* Content */}
-        <div className="px-5 py-4 space-y-5 overflow-y-auto max-h-[60vh]">
-          {/* Font Size */}
-          <div>
-            <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
-              <Type size={14} />
-              Font Size
-              <span className="ml-auto text-[12px] text-app-text-muted font-normal">{localSettings.fontSize}px</span>
-            </label>
-            <input
-              type="range"
-              min={12}
-              max={18}
-              step={1}
-              value={localSettings.fontSize}
-              onChange={(e) => handleChange('fontSize', parseInt(e.target.value))}
-              className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
-            />
-            <div className="flex justify-between text-[10px] text-app-text-muted mt-1">
-              <span>12px</span>
-              <span>15px</span>
-              <span>18px</span>
-            </div>
-          </div>
-
-          {/* Theme */}
-          {onThemeChange && (
-            <div>
-              <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
-                {themeMode === 'light' ? <Sun size={14} /> : themeMode === 'dark' ? <Moon size={14} /> : <Monitor size={14} />}
-                Theme
-              </label>
-              <div className="flex gap-2">
-                {([
-                  { mode: 'light' as ThemeMode, icon: Sun, label: 'Light' },
-                  { mode: 'dark' as ThemeMode, icon: Moon, label: 'Dark' },
-                  { mode: 'system' as ThemeMode, icon: Monitor, label: 'System' },
-                ]).map(({ mode, icon: Icon, label }) => (
-                  <button
-                    key={mode}
-                    onClick={() => onThemeChange(mode)}
-                    className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-3 rounded-lg text-[12px] font-medium transition-all border ${
-                      themeMode === mode
-                        ? 'bg-primary/10 border-primary/30 text-primary'
-                        : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
-                    }`}
-                  >
-                    <Icon size={16} />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Message Density */}
-          <div>
-            <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
-              {localSettings.messageDensity === 'compact' ? <Rows3 size={14} /> : <AlignJustify size={14} />}
-              Message Density
-            </label>
-            <div className="flex gap-2">
+        {/* Body */}
+        <div className="flex flex-1 min-h-0">
+          {/* Sidebar */}
+          <nav className="w-[180px] flex-shrink-0 border-r border-app-border py-3 px-2 space-y-0.5 bg-app-hover/30">
+            {SECTIONS.map(({ id, label, icon: Icon }) => (
               <button
-                onClick={() => handleChange('messageDensity', 'compact')}
-                className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
-                  localSettings.messageDensity === 'compact'
+                key={id}
+                onClick={() => setSection(id)}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] text-left transition-colors ${
+                  section === id
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-app-text-secondary hover:bg-app-hover hover:text-app-text'
+                }`}
+              >
+                <Icon size={14} className="flex-shrink-0" />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Content */}
+          <div className="flex-1 px-5 py-4 overflow-y-auto">
+            {section === 'appearance' && (
+              <AppearanceSection
+                settings={localSettings}
+                themeMode={themeMode}
+                onThemeChange={onThemeChange}
+                onChange={handleChange}
+              />
+            )}
+            {section === 'notifications' && <PushNotificationsToggle />}
+            {section === 'providers' && <AIProvidersSection />}
+            {section === 'shortcuts' && <ShortcutsSection />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AppearanceSectionProps {
+  settings: AppSettings;
+  themeMode: ThemeMode;
+  onThemeChange?: (mode: ThemeMode) => void;
+  onChange: (key: keyof AppSettings, value: any) => void;
+}
+
+function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: AppearanceSectionProps) {
+  return (
+    <div className="space-y-5">
+      {/* Font Size */}
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+          <Type size={14} />
+          Font Size
+          <span className="ml-auto text-[12px] text-app-text-muted font-normal">{settings.fontSize}px</span>
+        </label>
+        <input
+          type="range"
+          min={12}
+          max={18}
+          step={1}
+          value={settings.fontSize}
+          onChange={(e) => onChange('fontSize', parseInt(e.target.value))}
+          className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
+        />
+        <div className="flex justify-between text-[10px] text-app-text-muted mt-1">
+          <span>12px</span>
+          <span>15px</span>
+          <span>18px</span>
+        </div>
+      </div>
+
+      {/* Theme */}
+      {onThemeChange && (
+        <div>
+          <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+            {themeMode === 'light' ? <Sun size={14} /> : themeMode === 'dark' ? <Moon size={14} /> : <Monitor size={14} />}
+            Theme
+          </label>
+          <div className="flex gap-2">
+            {([
+              { mode: 'light' as ThemeMode, icon: Sun, label: 'Light' },
+              { mode: 'dark' as ThemeMode, icon: Moon, label: 'Dark' },
+              { mode: 'system' as ThemeMode, icon: Monitor, label: 'System' },
+            ]).map(({ mode, icon: Icon, label }) => (
+              <button
+                key={mode}
+                onClick={() => onThemeChange(mode)}
+                className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+                  themeMode === mode
                     ? 'bg-primary/10 border-primary/30 text-primary'
                     : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
                 }`}
               >
-                <div className="space-y-0.5 mb-1.5">
-                  <div className="h-1 bg-current opacity-30 rounded w-3/4" />
-                  <div className="h-1 bg-current opacity-30 rounded w-1/2" />
-                  <div className="h-1 bg-current opacity-30 rounded w-2/3" />
-                </div>
-                Compact
+                <Icon size={16} />
+                {label}
               </button>
-              <button
-                onClick={() => handleChange('messageDensity', 'comfortable')}
-                className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
-                  localSettings.messageDensity === 'comfortable'
-                    ? 'bg-primary/10 border-primary/30 text-primary'
-                    : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
-                }`}
-              >
-                <div className="space-y-1.5 mb-1.5">
-                  <div className="h-1 bg-current opacity-30 rounded w-3/4" />
-                  <div className="h-1 bg-current opacity-30 rounded w-1/2" />
-                  <div className="h-1 bg-current opacity-30 rounded w-2/3" />
-                </div>
-                Comfortable
-              </button>
-            </div>
+            ))}
           </div>
+        </div>
+      )}
 
-          {/* Preview */}
-          <div>
-            <label className="text-[13px] font-medium text-app-text mb-2 block">Preview</label>
-            <div className="bg-app-hover rounded-lg p-3 border border-app-border">
-              <div className={`${localSettings.messageDensity === 'compact' ? 'space-y-1' : 'space-y-2.5'}`}>
-                <div className="flex justify-end">
-                  <div
-                    className="bg-primary text-white rounded-lg px-2.5 py-1.5"
-                    style={{ fontSize: `${localSettings.fontSize}px` }}
-                  >
-                    Hello! How are you?
-                  </div>
-                </div>
-                <div className="flex justify-start">
-                  <div
-                    className="bg-surface text-app-text rounded-lg px-2.5 py-1.5"
-                    style={{ fontSize: `${localSettings.fontSize}px` }}
-                  >
-                    I'm doing well, thanks for asking!
-                  </div>
-                </div>
+      {/* Message Density */}
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+          {settings.messageDensity === 'compact' ? <Rows3 size={14} /> : <AlignJustify size={14} />}
+          Message Density
+        </label>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onChange('messageDensity', 'compact')}
+            className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+              settings.messageDensity === 'compact'
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
+            }`}
+          >
+            <div className="space-y-0.5 mb-1.5">
+              <div className="h-1 bg-current opacity-30 rounded w-3/4" />
+              <div className="h-1 bg-current opacity-30 rounded w-1/2" />
+              <div className="h-1 bg-current opacity-30 rounded w-2/3" />
+            </div>
+            Compact
+          </button>
+          <button
+            onClick={() => onChange('messageDensity', 'comfortable')}
+            className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+              settings.messageDensity === 'comfortable'
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
+            }`}
+          >
+            <div className="space-y-1.5 mb-1.5">
+              <div className="h-1 bg-current opacity-30 rounded w-3/4" />
+              <div className="h-1 bg-current opacity-30 rounded w-1/2" />
+              <div className="h-1 bg-current opacity-30 rounded w-2/3" />
+            </div>
+            Comfortable
+          </button>
+        </div>
+      </div>
+
+      {/* Preview */}
+      <div>
+        <label className="text-[13px] font-medium text-app-text mb-2 block">Preview</label>
+        <div className="bg-app-hover rounded-lg p-3 border border-app-border">
+          <div className={`${settings.messageDensity === 'compact' ? 'space-y-1' : 'space-y-2.5'}`}>
+            <div className="flex justify-end">
+              <div
+                className="bg-primary text-white rounded-lg px-2.5 py-1.5"
+                style={{ fontSize: `${settings.fontSize}px` }}
+              >
+                Hello! How are you?
               </div>
             </div>
-          </div>
-
-          {/* Push Notifications */}
-          <PushNotificationsToggle />
-
-          {/* AI Providers */}
-          <AIProvidersSection />
-
-          {/* Keyboard Shortcuts Reference */}
-          <div>
-            <label className="text-[13px] font-medium text-app-text mb-2 block">Keyboard Shortcuts</label>
-            <div className="space-y-1.5 text-[12px]">
-              {[
-                ['⌘K', 'Search'],
-                ['⌘N', 'New topic'],
-                ['⌘W', 'Close panel'],
-                ['⌘B', 'Toggle sidebar'],
-                ['⌘1-9', 'Switch panels'],
-              ].map(([key, desc]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-app-text-secondary">{desc}</span>
-                  <kbd className="kbd">
-                    {key}
-                  </kbd>
-                </div>
-              ))}
+            <div className="flex justify-start">
+              <div
+                className="bg-surface text-app-text rounded-lg px-2.5 py-1.5"
+                style={{ fontSize: `${settings.fontSize}px` }}
+              >
+                I'm doing well, thanks for asking!
+              </div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ShortcutsSection() {
+  return (
+    <div>
+      <label className="text-[13px] font-medium text-app-text mb-3 block">Keyboard Shortcuts</label>
+      <div className="space-y-1.5 text-[12px]">
+        {[
+          ['⌘K', 'Search'],
+          ['⌘N', 'New topic'],
+          ['⌘W', 'Close panel'],
+          ['⌘B', 'Toggle sidebar'],
+          ['⌘1-9', 'Switch panels'],
+        ].map(([key, desc]) => (
+          <div key={key} className="flex items-center justify-between">
+            <span className="text-app-text-secondary">{desc}</span>
+            <kbd className="kbd">
+              {key}
+            </kbd>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -222,11 +275,18 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI (ChatGPT)',
 };
 
+interface TestResult {
+  ok: boolean;
+  message: string;
+  at: number;
+}
+
 function AIProvidersSection() {
   const [diagnostics, setDiagnostics] = useState<ProviderDiagnostic[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, TestResult>>({});
 
   const fetchAll = async (force = false) => {
     try {
@@ -253,6 +313,13 @@ function AIProvidersSection() {
     try {
       const result = await providersApi.diagnose(name, true);
       setDiagnostics((prev) => prev.map((p) => (p.name === name ? result : p)));
+      const ok = result.status === 'ready';
+      const message = ok
+        ? `Connected${result.modelsCount ? ` · ${result.modelsCount} models` : ''}${result.version ? ` · v${result.version}` : ''}`
+        : result.lastError ?? STATUS_LABELS[result.status];
+      setResults((prev) => ({ ...prev, [name]: { ok, message, at: Date.now() } }));
+    } catch (err: any) {
+      setResults((prev) => ({ ...prev, [name]: { ok: false, message: err?.message ?? 'Test failed', at: Date.now() } }));
     } finally {
       setTesting(null);
     }
@@ -261,7 +328,7 @@ function AIProvidersSection() {
   if (loading) {
     return (
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-3">
           <Cpu size={14} />
           AI Providers
         </label>
@@ -272,7 +339,7 @@ function AIProvidersSection() {
 
   return (
     <div>
-      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-3">
         <Cpu size={14} />
         AI Providers
       </label>
@@ -284,6 +351,7 @@ function AIProvidersSection() {
             diag={d}
             expanded={expanded === d.name}
             testing={testing === d.name}
+            result={results[d.name]}
             onToggle={() => setExpanded(expanded === d.name ? null : d.name)}
             onSetDefault={() => setDefault(d.name)}
             onTest={() => test(d.name)}
@@ -302,14 +370,19 @@ interface ProviderCardProps {
   diag: ProviderDiagnostic;
   expanded: boolean;
   testing: boolean;
+  result?: TestResult;
   onToggle: () => void;
   onSetDefault: () => void;
   onTest: () => void;
   onAfterConfigure: () => void;
 }
 
-function ProviderCard({ diag, expanded, testing, onToggle, onSetDefault, onTest, onAfterConfigure }: ProviderCardProps) {
+function ProviderCard({ diag, expanded, testing, result, onToggle, onSetDefault, onTest, onAfterConfigure }: ProviderCardProps) {
   const label = PROVIDER_LABELS[diag.name] ?? diag.name;
+  // Test connection only makes sense once requirements are met. When the
+  // provider is "not set up" (unavailable), there's nothing to test — the user
+  // first needs to satisfy the requirements below.
+  const canTest = diag.status !== 'unavailable';
 
   return (
     <div className={`rounded-lg border ${diag.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
@@ -335,24 +408,34 @@ function ProviderCard({ diag, expanded, testing, onToggle, onSetDefault, onTest,
       {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-app-border space-y-2">
           {/* Action row */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); onTest(); }}
-              disabled={testing}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
-            >
-              <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
-              Test connection
-            </button>
-            {!diag.isDefault && diag.status === 'ready' && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
-                className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
-              >
-                Set as default
-              </button>
-            )}
-          </div>
+          {(canTest || (!diag.isDefault && diag.status === 'ready')) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {canTest && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onTest(); }}
+                  disabled={testing}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
+                >
+                  <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
+                  Test connection
+                </button>
+              )}
+              {!diag.isDefault && diag.status === 'ready' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
+                  className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
+                >
+                  Set as default
+                </button>
+              )}
+              {result && (
+                <span className={`text-[11px] flex items-center gap-1 ${result.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+                  {result.ok ? <Check size={11} /> : <AlertCircle size={11} />}
+                  {result.message}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Binary path */}
           {diag.binaryPath && (
@@ -361,8 +444,8 @@ function ProviderCard({ diag, expanded, testing, onToggle, onSetDefault, onTest,
             </div>
           )}
 
-          {/* Last error */}
-          {diag.lastError && (
+          {/* Last error (only when no fresh test result has overridden) */}
+          {diag.lastError && !result && (
             <div className="flex items-start gap-1.5 text-[11px] text-red-500">
               <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
               <span className="break-words">{diag.lastError}</span>
@@ -396,7 +479,6 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
 
   const copy = () => {
     if (!req.hint) return;
-    // Extract command from hint (heuristic: look for a "Run … :" or after "→")
     const cmd = req.hint.match(/Run [^:]*:\s*(.+)/)?.[1]
       ?? req.hint.match(/→\s*(.+)/)?.[1]
       ?? req.hint;
@@ -476,14 +558,24 @@ function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | '
 function PushNotificationsToggle() {
   const { state, loading, subscribe, unsubscribe } = usePushNotifications();
 
-  if (state === "unsupported") return null;
+  if (state === "unsupported") {
+    return (
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+          <BellOff size={14} />
+          Push Notifications
+        </label>
+        <p className="text-[12px] text-app-text-muted">Not supported in this browser.</p>
+      </div>
+    );
+  }
 
   const isSubscribed = state === "subscribed";
   const isDenied = state === "denied";
 
   return (
     <div>
-      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-3">
         {isSubscribed ? <Bell size={14} /> : <BellOff size={14} />}
         Push Notifications
       </label>

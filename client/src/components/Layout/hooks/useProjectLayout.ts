@@ -42,6 +42,9 @@ import {
   captureClosedTab,
   reopenClosedTab,
   scheduleTerminalCleanup,
+  addTerminalTombstone,
+  clearTerminalTombstone,
+  getTerminalTombstones,
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
@@ -250,8 +253,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   useEffect(() => {
     const syncTerminals = (sessions: { id: string; cwd: string; name: string; type: string }[]) => {
       const sessionIds = new Set(sessions.map(s => s.id));
+      // Tombstoned session ids are sessions the user just closed in
+      // this or another window (persisted in localStorage). Don't
+      // auto-add panes for them — otherwise close-then-reload
+      // resurrects them indefinitely until the server-side dormant
+      // reaper kills the session, which can take much longer than the
+      // user's patience.
+      const tombstones = getTerminalTombstones();
       const projectSessions = sessions.filter(
-        s => s.cwd === projectPath || s.cwd.startsWith(projectPath + '/'),
+        s => (s.cwd === projectPath || s.cwd.startsWith(projectPath + '/'))
+          && !tombstones.has(s.id),
       );
       setPanes(prev => {
         let updated = prev.filter(
@@ -281,7 +292,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     fetch(`/api/terminal/sessions/dormant?cwd=${encodeURIComponent(projectPath)}`)
       .then(r => r.json())
       .then(async (dormant: { id: string; name: string; cwd: string; type: string }[]) => {
+        const tombstones = getTerminalTombstones();
         for (const d of dormant) {
+          if (tombstones.has(d.id)) continue;
           try {
             const res = await fetch(`/api/terminal/sessions/${d.id}/revive`, { method: 'POST' });
             if (res.ok) console.log(`[ProjectWindow] Revived dormant session ${d.id} (${d.type})`);
@@ -589,8 +602,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         if (pane.type === 'terminal') {
           const sessionId = getTerminalSessionFromPaneId(paneId);
           if (sessionId) {
+            // Tombstone the session id IMMEDIATELY (persisted in
+            // localStorage). The mount-time terminal-sync effect skips
+            // tombstoned ids, so a reload before the cleanup timer fires
+            // can no longer resurrect this terminal as a phantom pane.
+            addTerminalTombstone(sessionId);
             scheduleTerminalCleanup(record.id, 60_000, () => {
               fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+              clearTerminalTombstone(sessionId);
             });
           }
         }
