@@ -53,6 +53,14 @@ interface PaneTabBarProps {
    * so legacy callers that don't pass this prop keep the old behavior.
    */
   groupIsFocused?: boolean;
+  /**
+   * Whether the panel hosting THIS group is the App-level focused panel.
+   * When `groupIsFocused` is true but `groupIsAppFocused` is false the
+   * active tab renders in a dimmed-active state (visible enough to identify
+   * "this is the tab here" but clearly less prominent than full focus).
+   * Defaults to `groupIsFocused`'s value for legacy callers.
+   */
+  groupIsAppFocused?: boolean;
 }
 
 // Mini context ring SVG for chat tabs
@@ -85,7 +93,10 @@ function ContextRing({ percent, onClick }: { percent: number; onClick?: () => vo
   );
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
+  // Default groupIsAppFocused to groupIsFocused so non-project callers
+  // (StandaloneChatGroup) keep the existing two-state behavior.
+  const isAppFocused = groupIsAppFocused ?? groupIsFocused;
   const [showAddMenu, setShowAddMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuContentRef = useRef<HTMLDivElement>(null);
@@ -410,6 +421,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         // simultaneous highlights across split groups. See `groupIsFocused`
         // prop docstring above.
         const isActive = groupIsFocused && activePaneId === pane.id;
+        // Tri-state: full highlight when fully focused, dimmed-active when
+        // the tab is the active one in this group but the App focus is
+        // elsewhere (e.g. project sits next to a focused sibling in split
+        // view), inactive otherwise.
+        const isActiveDimmed = isActive && !isAppFocused;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
@@ -427,9 +443,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             data-active={isActive ? 'true' : 'false'}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md app-no-drag ${
-              isActive
+              isActive && !isActiveDimmed
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
-                : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
+                : isActiveDimmed
+                  ? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary ring-1 ring-black/[0.03]'
+                  : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}

@@ -13,6 +13,12 @@ interface GroupLayoutProps {
   rows: GroupLayoutRow[];
   rowHeights: number[];
   focusedGroupId: string | null;
+  /** True when the panel hosting this layout is the App-level focused panel.
+   *  Drives the dimmed-active vs full-active visual state in PaneTabBar
+   *  and the pane content ring, so the active tab stays visually identifiable
+   *  even when the project sits next to a focused sibling in split view.
+   *  Defaults to true for callers that don't track App-level focus. */
+  isAppFocused?: boolean;
   onActivatePane: (groupId: string, paneId: string) => void;
   onClosePane: (groupId: string, paneId: string) => void;
   onAddPaneToGroup: (groupId: string, type: PaneType, subType?: string) => void;
@@ -37,7 +43,7 @@ interface GroupLayoutProps {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId,
+  panes, groups, rows, rowHeights, focusedGroupId, isAppFocused = true,
   onActivatePane, onClosePane, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -318,6 +324,12 @@ export function GroupLayout({
                   if (c > 0) groupNotifications.set(p.id, c);
                 }
                 const isFocusedGroup = focusedGroupId === groupId;
+                // Tri-state for the active tab + content ring:
+                //  - fully focused: project is App-focused AND this is the focused group
+                //  - dimmed-active: this is the focused group inside the project, but
+                //    the project itself sits next to a focused sibling at App level
+                //  - inactive: not the focused group of this project
+                const isFullyFocused = isFocusedGroup && isAppFocused;
                 const edgeDrop = edgeDropTarget?.groupId === groupId ? edgeDropTarget.edge : null;
 
                 return (
@@ -334,6 +346,7 @@ export function GroupLayout({
                           panes={groupPanes}
                           activePaneId={group.activePaneId}
                           groupIsFocused={isFocusedGroup}
+                          groupIsAppFocused={isFullyFocused}
                           onActivate={(paneId) => { clearPane(paneId); onActivatePane(groupId, paneId); }}
                           onClose={(paneId) => onClosePane(groupId, paneId)}
                           onAddPane={(type, subType) => onAddPaneToGroup(groupId, type, subType)}
@@ -377,7 +390,11 @@ export function GroupLayout({
                       {/* Active pane content */}
                       <div
                         className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${
-                          isFocusedGroup ? 'ring-1 ring-inset ring-primary/20' : ''
+                          isFullyFocused
+                            ? 'ring-1 ring-inset ring-primary/20'
+                            : isFocusedGroup
+                              ? 'ring-1 ring-inset ring-primary/10'
+                              : ''
                         }`}
                         onMouseDownCapture={() => {
                           if (!isFocusedGroup && group.activePaneId) {
