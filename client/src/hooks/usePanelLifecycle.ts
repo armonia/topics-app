@@ -54,6 +54,7 @@ import {
   getProjectPathFromPaneId,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
+import { loadLocalFocusedPaneId } from '../state/pane/middleware';
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { globalBoardApi } from '../lib/api';
@@ -82,6 +83,12 @@ const loadSavedPanels = (): string[] => {
 
 const loadSavedFocused = (): string | null => {
   try {
+    // The store hydrates focusedPaneId from server-synced state, but focus
+    // is device-local and stripped from the synced snapshot — so on a fresh
+    // reload the store has it as `null`. Read the dedicated localStorage
+    // key first so reload preserves the user's last focused tab.
+    const local = loadLocalFocusedPaneId();
+    if (local) return local;
     return usePaneStore.getState().focusedPaneId;
   } catch {
     return null;

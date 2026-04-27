@@ -14,6 +14,11 @@ import { selectSyncableSnapshot } from '../selectors';
 import { getTabId } from './syncCrossTab';
 
 const LOCAL_KEY = 'pane-store-v2';
+// Device-local key for focusedPaneId. Excluded from the synced snapshot
+// (selectSyncableSnapshot strips it because focus is per-device) but we
+// still want it to survive a same-device reload — otherwise the user
+// reloads with focus on tab N and lands back on tab 0.
+const LOCAL_FOCUS_KEY = 'pane-store-focused-id';
 const DEBOUNCE_MS = 100;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -30,8 +35,22 @@ function writeSnapshotNow(): void {
       senderId: getTabId(),
     };
     localStorage.setItem(LOCAL_KEY, JSON.stringify(snap));
+    const focused = usePaneStore.getState().focusedPaneId;
+    if (focused) {
+      localStorage.setItem(LOCAL_FOCUS_KEY, focused);
+    } else {
+      localStorage.removeItem(LOCAL_FOCUS_KEY);
+    }
   } catch {
     // Quota exceeded or private mode — silent; the server sync is the source of truth.
+  }
+}
+
+export function loadLocalFocusedPaneId(): string | null {
+  try {
+    return localStorage.getItem(LOCAL_FOCUS_KEY);
+  } catch {
+    return null;
   }
 }
 

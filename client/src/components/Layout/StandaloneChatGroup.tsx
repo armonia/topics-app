@@ -448,6 +448,11 @@ export function StandaloneChatGroup({
     <>
       <div
         className={`flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
+        onMouseDownCapture={() => {
+          if (activePaneId && focusedPanelId !== activePaneId) {
+            onFocusPanel(activePaneId);
+          }
+        }}
         onDragOver={handleStandaloneDragOver}
         onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
