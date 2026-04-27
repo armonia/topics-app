@@ -381,7 +381,12 @@ export function ProjectWindowPane({
             groups={groups}
             rows={rows}
             rowHeights={rowHeights}
-            focusedGroupId={focusedGroupId}
+            // Visually dim the focused-group ring when the project itself
+            // isn't the App-level focused panel (e.g. user moved to a
+            // sibling panel in split view). Internal focus state is still
+            // tracked — clicking back into the project re-illuminates the
+            // last focused group via handleActivatePane / mousedown capture.
+            focusedGroupId={isProjectFocused ? focusedGroupId : null}
             onActivatePane={handleActivatePane}
             onClosePane={handleClosePane}
             onAddPaneToGroup={handleAddPaneToGroup}
