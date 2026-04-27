@@ -130,10 +130,23 @@ export function CommandPalette({
     const items: CommandAction[] = [];
 
     // ── Projects ──────────────────────────────────────────────────────
+    // Sources: topics' projectPath (legacy) + persisted recent-projects
+    // (so a project the user just opened shows up even before any topic
+    // is created in it). Recent first, then alphabetic for the rest.
+    const recentProjects: string[] = (() => {
+      try {
+        const raw = localStorage.getItem('recent-projects');
+        return raw ? JSON.parse(raw) : [];
+      } catch { return []; }
+    })();
     const projectPaths = new Set<string>();
     Object.values(topics).forEach(t => { if (t.projectPath) projectPaths.add(t.projectPath); });
-    Array.from(projectPaths)
-      .sort()
+    recentProjects.forEach(p => projectPaths.add(p));
+    const orderedProjects = [
+      ...recentProjects.filter(p => projectPaths.has(p)),
+      ...Array.from(projectPaths).filter(p => !recentProjects.includes(p)).sort(),
+    ];
+    orderedProjects
       .forEach(pp => {
         items.push({
           id: `project-${pp}`,

@@ -74,7 +74,11 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         pane: { ...paneWithoutScroll },
         groupId,
         groupIndex,
-        level: pane.projectPath ? 'project' : 'app',
+        // The project-wrapper pane itself (type === 'project') is an
+        // App-level top panel even though it carries a projectPath. Only
+        // panes that LIVE INSIDE a project (chats, files, terminals with
+        // a projectPath) count as 'project'-level for reopen routing.
+        level: pane.type !== 'project' && pane.projectPath ? 'project' : 'app',
         projectPath: pane.projectPath,
         topicId: pane.topicId,
         filePath: pane.filePath,

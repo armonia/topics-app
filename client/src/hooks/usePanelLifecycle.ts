@@ -800,6 +800,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
     }
     setFocusedPanelId(paneId);
+    // Track recently-opened projects so the cmd+K palette can surface
+    // projects the user has touched even when no topics live there yet.
+    try {
+      const KEY = 'recent-projects';
+      const raw = localStorage.getItem(KEY);
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      const next = [projectPath, ...list.filter(p => p !== projectPath)].slice(0, 20);
+      localStorage.setItem(KEY, JSON.stringify(next));
+    } catch { /* localStorage may be unavailable */ }
   }, [isMobile, setSidebarCollapsed]);
 
   const handleCloseProject = useCallback((projectPath: string) => {
@@ -1040,7 +1049,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (record.level === 'project') {
         window.dispatchEvent(new CustomEvent('reopen-closed-tab', { detail: record }));
       } else {
-        setOpenPanels(prev => [...prev, pane.id]);
+        // App-level reopen: CLOSE_PANE deleted the pane entity. We must
+        // re-register it before pushing into openPanels — otherwise
+        // Effect A reconciles openPanels back to the store and our id
+        // disappears (the same trap that broke cmd+K project open).
+        ensurePaneRegistered({
+          id: pane.id,
+          type: pane.type,
+          title: pane.title,
+          topicId: pane.topicId,
+          projectPath: pane.projectPath,
+        });
+        setOpenPanels(prev => prev.includes(pane.id) ? prev : [...prev, pane.id]);
         setFocusedPanelId(pane.id);
       }
       removeClosedTab(record.id);
