@@ -671,6 +671,27 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     return () => window.removeEventListener('reopen-closed-tab', handler);
   }, [handleReopenLastClosed]);
 
+  // Listen for Cmd+W → close-focused-pane: when this project is the App-
+  // focused panel, close its inner active sub-tab instead of letting the
+  // App-level handler close the whole project. preventDefault marks the
+  // event handled so App falls through.
+  const handleClosePaneRef = useRef<((groupId: string, paneId: string) => void) | null>(null);
+  handleClosePaneRef.current = handleClosePane;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ panelId?: string }>;
+      if (ce.detail?.panelId !== wrapperPaneId) return;
+      const fgid = focusedGroupIdRef.current;
+      if (!fgid) return;
+      const group = groupsRef.current.find(g => g.id === fgid);
+      if (!group?.activePaneId) return;
+      ce.preventDefault();
+      handleClosePaneRef.current?.(fgid, group.activePaneId);
+    };
+    window.addEventListener('close-focused-pane', handler);
+    return () => window.removeEventListener('close-focused-pane', handler);
+  }, [wrapperPaneId]);
+
   const handleAddPaneToGroup = useCallback(
     async (groupId: string, type: PaneType, subType?: string) => {
       const config = getPaneConfig(type);

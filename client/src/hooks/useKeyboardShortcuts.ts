@@ -147,7 +147,18 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       if (isElectron && isMod && e.key === 'w') {
         e.preventDefault();
         const fp = focusedPanelIdRef.current;
-        if (fp) handleClosePanel(fp);
+        if (!fp) return;
+        // Give nested handlers (e.g. a focused project's GroupLayout)
+        // first refusal — they close their inner active sub-tab and
+        // mark the event handled. If nobody handles, fall back to
+        // closing the App-level panel.
+        const evt = new CustomEvent('close-focused-pane', {
+          cancelable: true,
+          detail: { panelId: fp },
+        });
+        window.dispatchEvent(evt);
+        if (evt.defaultPrevented) return;
+        handleClosePanel(fp);
         return;
       }
 
