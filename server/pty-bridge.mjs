@@ -116,27 +116,127 @@ function handleMessage(msg, client) {
 }
 
 // --- Startup ---
-function checkExistingBridge() {
+// Single-instance guarantee: a pidfile next to the socket holds the
+// owning PID. On startup we check it. If a process with that PID is
+// alive AND its socket is healthy AND it can still spawn, we exit.
+// Otherwise the pidfile is stale (or the bridge is degraded — see
+// posix_spawnp incident) and we take over. The pidfile + healthCheck
+// together prevent the "two bridges, one broken" zombie state we saw
+// in production.
+function pidAlive(pid) {
+  if (!pid || isNaN(pid)) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function probeBridge(timeoutMs = 1500) {
   return new Promise((resolve) => {
-    if (!fs.existsSync(socketPath)) { resolve(false); return; }
-    const testConn = net.connect(socketPath, () => {
-      testConn.end();
-      resolve(true); // Another bridge is already running
+    if (!fs.existsSync(socketPath)) { resolve({ ok: false, reason: 'no-socket' }); return; }
+    const conn = net.connect(socketPath);
+    let buffer = '';
+    let resolved = false;
+    const finish = (result) => {
+      if (resolved) return;
+      resolved = true;
+      try { conn.destroy(); } catch {}
+      resolve(result);
+    };
+    conn.on('connect', () => {
+      // Health-test: ask it to spawn /bin/true. A bridge whose
+      // node-pty native addon has lost its session context (see the
+      // posix_spawnp failure) responds with {type:'error'}, and that
+      // is exactly the case we MUST treat as "this bridge is dead,
+      // take over". A simple {type:'ping'} would say {type:'pong'}
+      // even from such a degraded bridge.
+      const probeId = `__probe-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      conn.write(JSON.stringify({
+        type: 'create',
+        id: probeId,
+        shell: '/bin/true',
+        args: [],
+        cwd: '/tmp',
+        cols: 80,
+        rows: 24,
+      }) + '\n');
+      conn.on('data', (chunk) => {
+        buffer += chunk.toString();
+        let nl;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, nl);
+          buffer = buffer.slice(nl + 1);
+          try {
+            const msg = JSON.parse(line);
+            if (msg.id !== probeId) continue;
+            if (msg.type === 'created') {
+              // Probe succeeded — clean up the throwaway PTY.
+              conn.write(JSON.stringify({ type: 'kill', id: probeId }) + '\n');
+              finish({ ok: true });
+              return;
+            }
+            if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
+          } catch {}
+        }
+      });
     });
-    testConn.on('error', () => {
-      // Stale socket — remove it
-      try { fs.unlinkSync(socketPath); } catch {}
-      resolve(false);
-    });
+    conn.on('error', () => finish({ ok: false, reason: 'connect-error' }));
+    setTimeout(() => finish({ ok: false, reason: 'timeout' }), timeoutMs);
   });
+}
+
+async function checkExistingBridge() {
+  // Read pidfile first — if it points to a healthy process whose
+  // bridge can actually spawn, we yield.
+  let recordedPid = null;
+  try {
+    if (fs.existsSync(pidPath)) recordedPid = Number(fs.readFileSync(pidPath, 'utf8').trim());
+  } catch {}
+
+  const probe = await probeBridge();
+  if (probe.ok) return true; // Healthy bridge owns the socket — yield.
+
+  // Bridge unreachable or degraded — clean up.
+  if (recordedPid && pidAlive(recordedPid) && recordedPid !== process.pid) {
+    // The owning process is alive but its bridge is broken (e.g.
+    // posix_spawnp failures from a stale Aqua session). Kill it so
+    // we can take over cleanly. SIGTERM, fall through to SIGKILL
+    // after 1 s if it ignores us.
+    console.error(`[PTY Bridge] Recorded owner ${recordedPid} is degraded (${probe.reason}${probe.detail ? ': ' + probe.detail : ''}). Sending SIGTERM.`);
+    try { process.kill(recordedPid, 'SIGTERM'); } catch {}
+    await new Promise(r => setTimeout(r, 1000));
+    if (pidAlive(recordedPid)) {
+      try { process.kill(recordedPid, 'SIGKILL'); } catch {}
+    }
+  }
+  // Remove stale socket / pidfile so listen() can rebind.
+  try { fs.unlinkSync(socketPath); } catch {}
+  try { fs.unlinkSync(pidPath); } catch {}
+  return false;
+}
+
+async function selfTest() {
+  // Verify node-pty can actually spawn before we advertise the
+  // socket. If the native addon is broken (the posix_spawnp failure
+  // we saw on a long-running orphan), we exit so the parent server
+  // respawns us with a fresh process state.
+  try {
+    const p = pty.spawn('/bin/true', [], { name: 'xterm-256color', cols: 80, rows: 24, cwd: '/tmp', env: process.env });
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('self-test timeout')), 2000);
+      p.onExit(() => { clearTimeout(t); resolve(); });
+    });
+  } catch (e) {
+    console.error(`[PTY Bridge] Self-test failed: ${e.message}. Exiting.`);
+    process.exit(2);
+  }
 }
 
 async function start() {
   const existing = await checkExistingBridge();
   if (existing) {
-    console.error(`[PTY Bridge] Another bridge is already running on ${socketPath}`);
+    console.error(`[PTY Bridge] Another healthy bridge is already running on ${socketPath}`);
     process.exit(1);
   }
+
+  await selfTest();
 
   const server = net.createServer((socket) => {
     clients.add(socket);
@@ -149,10 +249,17 @@ async function start() {
       while ((nl = lineBuffer.indexOf('\n')) !== -1) {
         const line = lineBuffer.slice(0, nl);
         lineBuffer = lineBuffer.slice(nl + 1);
-        try {
-          handleMessage(JSON.parse(line), socket);
-        } catch (e) {
+        let parsed = null;
+        try { parsed = JSON.parse(line); } catch (e) {
           sendTo(socket, { type: 'error', error: e.message });
+          continue;
+        }
+        try {
+          handleMessage(parsed, socket);
+        } catch (e) {
+          // Echo the id back so the server can fail the right pending
+          // create instead of cancelling all of them.
+          sendTo(socket, { type: 'error', error: e.message, id: parsed?.id });
         }
       }
     });

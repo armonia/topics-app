@@ -125,7 +125,9 @@ function tryConnect(): Promise<boolean> {
     const socket = net.connect(SOCKET_PATH, () => {
       bridgeSocket = socket;
       bridgeReady = true;
+      lastPongAt = Date.now();
       setupSocketReader(socket);
+      startBridgeWatchdog();
       console.log("[Terminal] Connected to PTY bridge daemon");
       resolve(true);
     });
@@ -175,10 +177,87 @@ function sendToBridge(msg: any) {
   bridgeSocket.write(JSON.stringify(msg) + "\n");
 }
 
+// --- Create-ack tracking ---
+// Pending POST /sessions calls park here until the bridge replies with
+// {type:'created', id} or {type:'error', error}. Without this gate the
+// API returned 200 even when pty.spawn threw inside the bridge — the
+// user got an empty terminal pane and no clue why.
+const pendingCreates = new Map<string, { resolve: (pid: number) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+
+function awaitBridgeCreate(id: string, timeoutMs = 5000): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingCreates.delete(id);
+      reject(new Error(`Bridge did not ack create within ${timeoutMs}ms`));
+    }, timeoutMs);
+    pendingCreates.set(id, { resolve, reject, timer });
+  });
+}
+
+// --- Bridge spawn-failure circuit breaker ---
+// After N consecutive 'error' replies from the bridge, treat the bridge
+// itself as degraded (the posix_spawnp incident: native node-pty can
+// stop spawning anything if the process loses its Aqua session).
+// Force a respawn so the next create lands on a fresh bridge.
+let consecutiveSpawnErrors = 0;
+const SPAWN_ERROR_LIMIT = 3;
+
+function recycleBridge(reason: string) {
+  console.warn(`[Terminal] Recycling bridge: ${reason}`);
+  if (bridgeSocket && !bridgeSocket.destroyed) {
+    try { bridgeSocket.destroy(); } catch {}
+  }
+  bridgeSocket = null;
+  bridgeReady = false;
+  // Try to send a SIGTERM to whatever owns the pidfile — see bridge
+  // checkExistingBridge for the same logic on the bridge side.
+  try {
+    const pidPath = SOCKET_PATH.replace(/\.sock$/, '.pid');
+    if (fs.existsSync(pidPath)) {
+      const pid = Number(fs.readFileSync(pidPath, 'utf8').trim());
+      if (pid && pid !== process.pid) {
+        try { process.kill(pid, 'SIGTERM'); } catch {}
+      }
+    }
+  } catch {}
+  // ensureBridge will respawn on next demand.
+  ensureBridge().catch(() => {});
+}
+
 function handleBridgeMessage(msg: any) {
   switch (msg.type) {
     case "created": {
-      // Session created in bridge — no special handling needed
+      consecutiveSpawnErrors = 0;
+      const pending = pendingCreates.get(msg.id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingCreates.delete(msg.id);
+        pending.resolve(msg.pid);
+      }
+      break;
+    }
+    case "error": {
+      consecutiveSpawnErrors++;
+      // Failed creates: surface to whoever was awaiting that id, if
+      // any. The bridge sends `{type:'error', error, id?}` from the
+      // catch block in handleMessage — but it doesn't know the id, so
+      // we fall back to failing every pending create.
+      if (msg.id && pendingCreates.has(msg.id)) {
+        const pending = pendingCreates.get(msg.id)!;
+        clearTimeout(pending.timer);
+        pendingCreates.delete(msg.id);
+        pending.reject(new Error(msg.error || 'Bridge error'));
+      } else {
+        for (const [id, pending] of pendingCreates) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error(msg.error || 'Bridge error'));
+          pendingCreates.delete(id);
+        }
+      }
+      if (consecutiveSpawnErrors >= SPAWN_ERROR_LIMIT) {
+        consecutiveSpawnErrors = 0;
+        recycleBridge(`${SPAWN_ERROR_LIMIT} consecutive spawn errors`);
+      }
       break;
     }
     case "data": {
@@ -234,7 +313,32 @@ function handleBridgeMessage(msg: any) {
       }
       break;
     }
+    case "pong": {
+      lastPongAt = Date.now();
+      break;
+    }
   }
+}
+
+// --- Bridge liveness watchdog ---
+// Ping every 30 s. If the bridge doesn't pong within 5 s for two
+// consecutive intervals, we assume the connection is wedged
+// (one-way socket break, daemon hang) and recycle.
+let lastPongAt = Date.now();
+let watchdogStarted = false;
+function startBridgeWatchdog() {
+  if (watchdogStarted) return;
+  watchdogStarted = true;
+  setInterval(() => {
+    if (!bridgeReady || !bridgeSocket || bridgeSocket.destroyed) return;
+    try { bridgeSocket.write(JSON.stringify({ type: 'ping' }) + '\n'); }
+    catch { recycleBridge('ping write failed'); return; }
+    setTimeout(() => {
+      if (Date.now() - lastPongAt > 60_000) {
+        recycleBridge('no pong in 60s');
+      }
+    }, 5_000);
+  }, 30_000).unref();
 }
 
 // --- Session reconciliation ---
@@ -307,7 +411,7 @@ async function reconcileSessions() {
         // Claude Code session — recreate with --resume
         console.log(`[Terminal] Recreating claude-code session ${row.id} with --resume`);
         try {
-          createSession(
+          await createSession(
             row.id, row.name, row.cwd, undefined,
             row.cols || 120, row.rows || 30,
             row.topic_id || undefined, 'claude-code',
@@ -347,7 +451,7 @@ function requestBuffer(sessionId: string): Promise<Uint8Array> {
 }
 
 // --- Session management ---
-function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, claudeSessionId?: string): TerminalSession {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, claudeSessionId?: string): Promise<TerminalSession> {
   let file: string;
   let args: string[];
 
@@ -383,7 +487,19 @@ function createSession(id: string, name: string, cwd: string, command?: string, 
     env = { CLAUDECODE: null, PATH: augmentedPath };
   }
 
-  sendToBridge({ type: "create", id, shell: file, args, cwd, cols, rows, ...(env ? { env } : {}) });
+  // Await the bridge's ack before populating in-memory + DB. If the
+  // bridge can't actually spawn (broken native addon, missing
+  // binary, lost session context), throw — the API handler returns
+  // 502 and the user sees a real error instead of an empty xterm
+  // pane that silently never produces output.
+  const ackPromise = awaitBridgeCreate(id);
+  try {
+    sendToBridge({ type: "create", id, shell: file, args, cwd, cols, rows, ...(env ? { env } : {}) });
+    await ackPromise;
+  } catch (err) {
+    pendingCreates.delete(id);
+    throw err;
+  }
 
   const session: TerminalSession = {
     id,
@@ -495,12 +611,15 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
 
       try {
         await ensureBridge();
-        const session = createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
+        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions);
         if (idemKey) idempotencyRemember(idemKey, id);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
       } catch (err: any) {
-        return errorResponse(500, `Failed to create terminal: ${err.message}`);
+        // Bridge couldn't spawn — return 502 so the client knows the
+        // terminal really didn't start, instead of opening an empty
+        // pane against a phantom session id.
+        return errorResponse(502, `Failed to create terminal: ${err.message}`);
       }
     }
 
@@ -577,7 +696,7 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       if (!row) return errorResponse(404, "Dormant session not found");
       try {
         await ensureBridge();
-        const session = createSession(
+        const session = await createSession(
           row.id, row.name, row.cwd, undefined,
           row.cols || 120, row.rows || 30,
           row.topic_id || undefined,
