@@ -284,13 +284,27 @@ function handleBridgeMessage(msg: any) {
       }
       if (exitedSession) {
         // Preserve claude-code sessions with a claudeSessionId so the user can
-        // click "Resume" and relaunch claude with --resume <sessionId>. Dormant
-        // rows are garbage-collected after 1h by the existing cleanup logic.
-        const canResume = exitedSession.type === 'claude-code' && !!exitedSession.claudeSessionId;
+        // click "Resume" and relaunch claude with --resume <sessionId>.
+        //
+        // BUT: a session that exits within a few seconds of creation —
+        // especially with a non-zero code — is a launch failure (e.g. the
+        // upstream claude session referenced by --resume is gone). Marking
+        // such a session as 'dormant' makes the project window auto-revive
+        // it on every reload, which immediately exits again, producing the
+        // "chat appears then closes" flicker. Treat those as dead: DELETE
+        // the row so they stop haunting the UI.
+        const ageMs = Date.now() - new Date(exitedSession.createdAt).getTime();
+        const failedQuickly = ageMs < 3000 && msg.exitCode !== 0;
+        const canResume = exitedSession.type === 'claude-code'
+          && !!exitedSession.claudeSessionId
+          && !failedQuickly;
         try {
           if (canResume) {
             getDatabase().run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [msg.id]);
           } else {
+            if (failedQuickly) {
+              console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
+            }
             getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]);
           }
         } catch {}
