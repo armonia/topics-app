@@ -88,6 +88,33 @@ const loadSavedFocused = (): string | null => {
   }
 };
 
+/**
+ * Register a pane entity in the pane-store BEFORE pushing its id into
+ * `openPanels`. The store→React bridge dispatches `REORDER_PANES` from
+ * Effect B, which is a *permutation primitive* — its reducer filters out
+ * any id whose pane entity does not exist in `state.panes`. Without this
+ * dispatch the new id is silently dropped, then Effect A (subscribed to
+ * `lastSeq`) reads the unchanged `groups['group:default']` and reverts
+ * `setOpenPanels`. Net effect: the click does nothing.
+ *
+ * The pre-refactor App.tsx had this dispatch only in the terminal
+ * handler; project / topic panes opened from the sidebar happened to
+ * already exist in the store from prior sessions, masking the bug. Cmd+K
+ * → "open project" surfaces it on a fresh session.
+ */
+function ensurePaneRegistered(
+  pane: { id: string; type: PaneType; title?: string; topicId?: string; projectPath?: string },
+): void {
+  const s = usePaneStore.getState();
+  if (s.panes[pane.id]) return;
+  const focusLoc = s.focusedPaneId ? findPaneLocation(s, s.focusedPaneId) : null;
+  const groupId = focusLoc?.groupId ?? 'group:default';
+  s.dispatch({
+    type: 'OPEN_PANE',
+    payload: { ...pane, preview: false, groupId },
+  });
+}
+
 interface PendingProjectFocus { projectPath: string; topicId: string }
 interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' }
 interface ContextMenuState { x: number; y: number; topic: Topic }
@@ -641,6 +668,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       return;
     }
+    ensurePaneRegistered({ id: topicId, type: 'chat', topicId, title: topics[topicId]?.name });
     let newPanels: string[];
     if (isMobile) {
       newPanels = [topicId];
@@ -653,7 +681,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (autoFocus) setFocusedPanelId(topicId);
     setPreviewPanelId(mode === 'preview' ? topicId : null);
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
-  }, [openPanels, previewPanelId, isMobile]);
+  }, [openPanels, previewPanelId, isMobile, topics]);
 
   // ---- 19. Electron navigate-to-topic + report focused ----
   useEffect(() => {
@@ -673,6 +701,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const topic = topics[topicId];
     if (topic?.projectPath) {
       const projectPaneId = createPaneId('project', topic.projectPath);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
       if (isMobile) {
         setOpenPanels([projectPaneId]);
         setSidebarCollapsed(true);
@@ -683,6 +712,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
       return;
     }
+    ensurePaneRegistered({ id: topicId, type: 'chat', topicId, title: topic?.name });
     if (e && (e.metaKey || e.ctrlKey)) {
       openPanel(topicId, 'below');
     } else {
@@ -747,6 +777,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
+    ensurePaneRegistered({ id: paneId, type: 'project', projectPath });
     if (isMobile) {
       setOpenPanels([paneId]);
       setSidebarCollapsed(true);
@@ -792,6 +823,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (topic) {
       if (data.projectPath) {
         const projectPaneId = createPaneId('project', data.projectPath);
+        ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: data.projectPath });
         setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
         setFocusedPanelId(projectPaneId);
         setPendingProjectFocus({ projectPath: data.projectPath, topicId: topic.id });
@@ -813,6 +845,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       });
       if (topic) {
         const projectPaneId = createPaneId('project', projectPath);
+        ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath });
         setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
         setFocusedPanelId(projectPaneId);
         setPendingProjectFocus({ projectPath, topicId: topic.id });
@@ -937,6 +970,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleAddProjectPane = useCallback((projectPath: string, type: PaneType, subType?: string) => {
     const projectPaneId = createPaneId('project', projectPath);
+    ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath });
     if (isMobile) {
       setOpenPanels([projectPaneId]);
       setSidebarCollapsed(true);
