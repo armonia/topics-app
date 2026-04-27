@@ -463,6 +463,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // ---- handleOpenAsPage ----
   const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => {
     const id = utilityPanelId(type);
+    // Register in the pane store BEFORE pushing into openPanels —
+    // otherwise Effect A reconciles openPanels back to the store-known
+    // ids and silently drops the new utility id (same trap that
+    // broke cmd+K project open).
+    ensurePaneRegistered({ id, type: type as PaneType, title: type });
     if (isMobile) {
       setOpenPanels([id]);
       setSidebarCollapsed(true);

@@ -201,6 +201,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     const seed: Pane[] = stripWrapperPaneId(initial?.nonChatPanes || [], projectPath);
     const seenIds = new Set(seed.map(p => p.id));
     for (const topicId of initial?.openChatTopicIds || []) {
+      // Defensive: a utility-pane id (`__agents__`, `__dashboard__`, …)
+      // can never be a topic. If a previous buggy build persisted one
+      // here it would resurface as a "Topic not found" pane on every
+      // reload — drop it on hydrate.
+      if (topicId.startsWith('__') && topicId.endsWith('__')) continue;
       const id = createPaneId('chat', topicId);
       if (seenIds.has(id)) continue;
       seenIds.add(id);
@@ -489,9 +494,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // Mirrors the inline `reopenTopic` in ProjectWindow.tsx (line 781-794):
   // just adds the pane stub if missing; group placement is handled by the
   // calling effect.
+  //
+  // Refuses to act on ids that don't resolve to a real topic. Without this
+  // guard, the external-focus effect below would happily create
+  // `chat:__agents__` panes (etc.) when the user clicks an App-level
+  // utility tab — those pseudo-ids are NOT colons-prefixed (the only test
+  // the caller used to do) so they slipped through and rendered as
+  // "Topic not found" inside every open project window.
   const reopenTopicLocal = useCallback(
     (topicId: string) => {
       const topic = topics[topicId];
+      if (!topic) return;
       const paneId = createPaneId('chat', topicId);
       setPanes(prev => {
         if (prev.some(p => p.id === paneId)) return prev;
@@ -511,9 +524,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   );
 
   // --- External focus: when focusedPanelId changes, route to chat pane ---
+  // Only act on ids that actually identify a topic. App-level utility
+  // panes (`__agents__`, `__dashboard__`, …) and other special pane ids
+  // (project / browser / terminal / session-viewer / draft) are not
+  // topics and must not trigger an inner chat-pane reopen.
   const lastFocusedPanelRef = useRef<string | null>(null);
   useEffect(() => {
-    if (focusedPanelId && !focusedPanelId.includes(':') && focusedPanelId !== lastFocusedPanelRef.current) {
+    if (
+      focusedPanelId &&
+      topics[focusedPanelId] &&
+      focusedPanelId !== lastFocusedPanelRef.current
+    ) {
       lastFocusedPanelRef.current = focusedPanelId;
       reopenTopicLocal(focusedPanelId);
       const chatPaneId = createPaneId('chat', focusedPanelId);

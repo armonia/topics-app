@@ -270,6 +270,10 @@ export function useProjectChatSync(
         const stubs: Pane[] = [];
         for (const tid of fresh.openChatTopicIds) {
           if (existing.has(tid)) continue;
+          // Same guard as the initial seed in useProjectLayout: a
+          // utility-pane id is never a topic, so don't materialise it
+          // as a "Topic not found" stub on cross-device hydrate.
+          if (tid.startsWith('__') && tid.endsWith('__')) continue;
           stubs.push({
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,
