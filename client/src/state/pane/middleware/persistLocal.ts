@@ -10,7 +10,7 @@
  * reaches localStorage. Cross-tab LWW (syncCrossTab.ts) relies on this.
  */
 import { usePaneStore, type PaneStore } from '../store';
-import { selectSyncableSnapshot } from '../selectors';
+import { selectLocalSnapshot } from '../selectors';
 import { getTabId } from './syncCrossTab';
 
 const LOCAL_KEY = 'pane-store-v2';
@@ -27,7 +27,7 @@ let started = false;
 function writeSnapshotNow(): void {
   try {
     const snap = {
-      ...selectSyncableSnapshot(usePaneStore.getState()),
+      ...selectLocalSnapshot(usePaneStore.getState()),
       savedAt: Date.now(),
       // Bug #4: self-suppression for cross-tab receivers. `senderId` is the
       // per-tab UUID from syncCrossTab; the receiver drops payloads whose

@@ -501,14 +501,27 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       Notification.requestPermission();
     }
     return onWSMessage((msg) => {
-      // message:new cross-window sync
-      if (msg.type === 'message:new' && msg.content) {
+      // message:new cross-window sync — uses stable messageId for dedupe.
+      // Falls back to last-of-role/content match for legacy emissions that
+      // pre-date the messageId field (still in flight from older servers).
+      if (msg.type === 'message:new') {
         if (isOwnStream(msg.sessionKey)) return;
+        const fullContent = msg.content ?? msg.preview ?? '';
+        if (!fullContent) return;
+        const id = msg.messageId;
         const existingMessages = getSessionMessages(msg.sessionKey);
-        const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);
-        if (!lastMsgOfRole || lastMsgOfRole.content !== msg.content) {
-          addMessageFromWS(msg.sessionKey, { role: msg.role, content: msg.content, timestamp: new Date().toISOString() });
+        if (id && existingMessages.some(m => m.id === id)) return;
+        if (!id) {
+          // Legacy fallback: dedupe by last-of-role content match.
+          const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);
+          if (lastMsgOfRole && lastMsgOfRole.content === fullContent) return;
         }
+        addMessageFromWS(msg.sessionKey, {
+          id,
+          role: msg.role,
+          content: fullContent,
+          timestamp: new Date().toISOString(),
+        });
       }
       // Notifications for messages in non-focused topics
       if (

@@ -294,12 +294,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
 
       if (fullContent) {
-        appendLocalMessage(watched.sessionKey, 'assistant', fullContent);
+        const storedSubagent = appendLocalMessage(watched.sessionKey, 'assistant', fullContent);
         broadcastToAll({
           type: "message:new",
           sessionKey: watched.sessionKey,
           topicId: watched.topicId,
           role: "assistant",
+          messageId: storedSubagent.id,
           content: fullContent,
           preview: fullContent.slice(0, 100),
         });
@@ -316,12 +317,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
   function deliverRawResult(watched: WatchedSession, result: string, task: string) {
     const msgContent = `📋 **Sub-agent result${task ? ` (${task.slice(0, 80)})` : ''}:**\n\n${result}`;
-    appendLocalMessage(watched.sessionKey, 'assistant', msgContent);
+    const storedRaw = appendLocalMessage(watched.sessionKey, 'assistant', msgContent);
     broadcastToAll({
       type: "message:new",
       sessionKey: watched.sessionKey,
       topicId: watched.topicId,
       role: "assistant",
+      messageId: storedRaw.id,
       content: msgContent,
       preview: result.slice(0, 100),
     });
@@ -678,8 +680,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         // Fallback: use complete() and synthesize an SSE response
         const result = await topicProvider.complete(finalMessages);
         clearTimeout(timeoutId);
-        appendLocalMessage(sessionKey, "assistant", result.content);
-        if (matchedTopic) broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: result.content.slice(0, 100) });
+        const storedAssistant = appendLocalMessage(sessionKey, "assistant", result.content);
+        if (matchedTopic) broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedAssistant.id, content: result.content, preview: result.content.slice(0, 100) });
         const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(result.content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
         return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
       }
@@ -1108,7 +1110,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!topic) return json({ error: "Topic not found" }, 404);
         const stored = appendLocalMessage(topic.sessionKey, "assistant", body.content);
         broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: body.content, timestamp: stored.timestamp } });
-        broadcastToAll({ type: "message:new", topicId: params.id, sessionKey: topic.sessionKey, role: "assistant", preview: body.content.slice(0, 100) });
+        broadcastToAll({ type: "message:new", topicId: params.id, sessionKey: topic.sessionKey, role: "assistant", messageId: stored.id, content: body.content, preview: body.content.slice(0, 100) });
         updateUnreadCount(params.id);
         return json({ ok: true, message: stored });
       }
@@ -1296,7 +1298,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
         const storedUserMsg = appendLocalMessage(sessionKey, "user", lastUserMsg.content);
         if (matchedTopic) {
-          broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
+          broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
         }
 
         // Parse and store mentions from user message
@@ -1476,9 +1478,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
             // If a command produced a response, inject it as a synthetic assistant message
             if (response) {
-              appendLocalMessage(sessionKey, "assistant", response);
+              const storedCmdMsg = appendLocalMessage(sessionKey, "assistant", response);
               if (matchedTopic) {
-                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", content: response, preview: response.slice(0, 100) });
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedCmdMsg.id, content: response, preview: response.slice(0, 100) });
               }
               // Return the response as an SSE payload so the client displays it
               const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(response)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
@@ -1807,7 +1809,7 @@ Wait for the user to approve the plan before executing any changes.` };
             }
 
             if (matchedTopic) {
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
               updateUnreadCount(matchedTopic.id);
             }
@@ -2089,9 +2091,9 @@ Wait for the user to approve the plan before executing any changes.` };
             const result = await topicProvider.complete(finalMessages);
             clearTimeout(timeoutId);
             const content = result.content;
-            appendLocalMessage(sessionKey, "assistant", content);
+            const storedFallback = appendLocalMessage(sessionKey, "assistant", content);
             if (matchedTopic) {
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedFallback.id, content, preview: content.slice(0, 100) });
             }
             const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
             return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
@@ -2108,7 +2110,7 @@ Wait for the user to approve the plan before executing any changes.` };
             updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: errorMsg.slice(0, 100) });
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id });
               updateUnreadCount(matchedTopic.id);
             }
@@ -2133,9 +2135,9 @@ Wait for the user to approve the plan before executing any changes.` };
                 totalTokens: inputTokens + outputTokens, costUsd: calculateCost(model, inputTokens, outputTokens),
               }).catch(err => console.warn("[Usage] Failed to record usage:", err));
             }
-            if (content) appendLocalMessage(sessionKey, "assistant", content);
+            const storedJsonAssistant = content ? appendLocalMessage(sessionKey, "assistant", content) : null;
             if (matchedTopic) {
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: content.slice(0, 100) });
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant?.id, content, preview: content.slice(0, 100) });
               updateUnreadCount(matchedTopic.id);
             }
             if (matchedTopic && !matchedTopic.projectPath) setTimeout(() => autoBindProject(matchedTopic!), 100);
@@ -2200,7 +2202,7 @@ Wait for the user to approve the plan before executing any changes.` };
               endStream(sessionKey);
               topicProvider.unregisterStreamHandler?.(sessionKey);
               if (matchedTopic) {
-                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", preview: fullContent.slice(0, 100) });
+                broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
                 updateUnreadCount(matchedTopic.id);
               }

@@ -126,7 +126,9 @@ function sanitizeGroup(raw: unknown): Group | null {
   if (!isPlainObject(raw)) return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;
   if (!Array.isArray(raw.paneIds)) return null;
-  const paneIds = raw.paneIds.filter((x): x is string => typeof x === 'string');
+  const paneIds = raw.paneIds.filter(
+    (x): x is string => typeof x === 'string' && !x.startsWith('draft:'),
+  );
   // `typeof NaN === 'number'` — without the Number.isFinite check NaN would
   // ride through and poison every downstream layout calc. Range-clamp to the
   // same window the runtime reducer uses (groups.ts clampRatio) so an
@@ -157,6 +159,11 @@ function sanitizePanes(raw: unknown): Record<string, Pane> | null {
   if (!isPlainObject(raw)) return null;
   const out: Record<string, Pane> = {};
   for (const [key, v] of Object.entries(raw)) {
+    // Drafts are device-local pre-promotion scratch panes (mirror of
+    // selectSyncableSnapshot's outbound stripping). Drop them on inbound so a
+    // cross-tab storage event from a sibling tab can't seed someone else's
+    // draft into this tab's store.
+    if (key.startsWith('draft:')) continue;
     const p = sanitizePane(v);
     if (p && p.id === key) out[key] = p;
   }

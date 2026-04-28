@@ -164,16 +164,23 @@ export function useChat() {
     return content.startsWith('[Chat messages since your last reply');
   };
 
-  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'>) => {
+  const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
     const newMessage: ChatMessage = {
       ...message,
-      id: generateMessageId(),
+      id: message.id || generateMessageId(),
     };
 
-    setMessages(prev => ({
-      ...prev,
-      [sessionKey]: [...(prev[sessionKey] || []), newMessage],
-    }));
+    setMessages(prev => {
+      const existing = prev[sessionKey] || [];
+      // Dedupe by stable id (cross-window message:new + history fetch races).
+      if (newMessage.id && existing.some(m => m.id === newMessage.id)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [sessionKey]: [...existing, newMessage],
+      };
+    });
 
     return newMessage;
   }, []);
@@ -823,7 +830,7 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       
       const response = await chatApi.getHistory(sessionKey, { limit: 100 });
-      
+
       const chatMessages: ChatMessage[] = response.messages
         .filter(msg => !isContextMessage(msg.content))
         .map(msg => ({
@@ -833,10 +840,18 @@ export function useChat() {
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
-      setMessages(prev => ({
-        ...prev,
-        [sessionKey]: chatMessages,
-      }));
+      // Merge with any messages that arrived via WS during the fetch (cross-window
+      // sync race). Server history is the source of truth; we additively keep
+      // local-only messages whose id isn't in the fetched set.
+      setMessages(prev => {
+        const existing = prev[sessionKey] || [];
+        const fetchedIds = new Set(chatMessages.map(m => m.id));
+        const localOnly = existing.filter(m => m.id && !fetchedIds.has(m.id));
+        const merged = localOnly.length > 0
+          ? [...chatMessages, ...localOnly]
+          : chatMessages;
+        return { ...prev, [sessionKey]: merged };
+      });
 
       // Cache messages for offline fallback
       cacheMessages(sessionKey, chatMessages);

@@ -300,7 +300,10 @@ export interface WSMessageNewMessage {
   topicId: string;
   sessionKey: string;
   role: 'user' | 'assistant';
-  /** Full message body — present on assistant message broadcasts. */
+  /** Stable message id — used for cross-window dedupe. Optional for legacy
+   *  broadcasts; receivers fall back to last-of-role/content matching. */
+  messageId?: string;
+  /** Full message body — receivers also accept `preview` as a fallback. */
   content?: string;
   /** First 100 chars, used for unread previews. */
   preview?: string;

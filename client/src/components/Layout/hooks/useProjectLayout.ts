@@ -1439,7 +1439,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     (topicId: string, title: string) => {
       const paneId = createPaneId('chat', topicId);
 
-      // 1) Already exists? Just focus its group.
+      // 1) Already exists AND already in a group? Just focus its group.
+      // If it exists in `panes` but not in any group (orphan — happens when
+      // chat-sync added the pane just before this call, before orphan-sync
+      // could place it), fall through to step 3 and place + focus.
       const existing = panesRef.current.find(p => p.id === paneId);
       if (existing) {
         const g = groupsRef.current.find(g => g.paneIds.includes(paneId));
@@ -1448,19 +1451,22 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           setGroups(prev =>
             prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: paneId } : gg)),
           );
+          return;
         }
-        return;
+        // Orphan pane — fall through to placement (skip step 2 add).
       }
 
-      // 2) Add the pane stub.
-      const newPane: Pane = {
-        id: paneId,
-        type: 'chat',
-        topicId,
-        title,
-        preview: false,
-      };
-      setPanes(prev => (prev.some(p => p.id === paneId) ? prev : [...prev, newPane]));
+      // 2) Add the pane stub (skip if it already exists as orphan).
+      if (!existing) {
+        const newPane: Pane = {
+          id: paneId,
+          type: 'chat',
+          topicId,
+          title,
+          preview: false,
+        };
+        setPanes(prev => (prev.some(p => p.id === paneId) ? prev : [...prev, newPane]));
+      }
 
       // 3) Place in a chat group via fallback chain.
       const curGroups = groupsRef.current;

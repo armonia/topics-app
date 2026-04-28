@@ -23,7 +23,7 @@ export interface ChatStreamHandlers {
   getSessionMessages: (sessionKey: string) => Message[];
   addMessageFromWS: (
     sessionKey: string,
-    msg: { role: 'user' | 'assistant'; content: string; timestamp: string },
+    msg: { role: 'user' | 'assistant'; content: string; timestamp: string; id?: string },
   ) => void;
   clearSession: (sessionKey: string) => void;
   loadHistory: (sessionKey: string) => void;

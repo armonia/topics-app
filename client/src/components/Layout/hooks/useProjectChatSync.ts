@@ -108,6 +108,11 @@ export function useProjectChatSync(
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
 
+  // Track previous topicIds set so we can detect "just-arrived" topics
+  // (e.g. created in another window via WS) and surface them as chat panes
+  // without re-opening every closed tab on every render.
+  const prevTopicIdsSetRef = useRef<Set<string>>(new Set());
+
   // --- topicIds: sorted list of topics belonging to this project ---
   const topicIds = useMemo(
     () =>
@@ -211,7 +216,31 @@ export function useProjectChatSync(
           };
         }
       }
+    } else {
+      // Post-first-sync: surface topics that JUST arrived (delta vs the
+      // previous topicIds snapshot) as new chat panes. This handles the
+      // cross-window case where another window (Electron vs browser) creates
+      // a topic in this project — without this, the topic enters `topics`
+      // and the global sidebar, but the project window never opens a tab
+      // for it. We do NOT auto-focus the new pane (the local user shouldn't
+      // lose context) and we do NOT re-add panes the user has explicitly
+      // closed (they'd reappear on every re-render).
+      const prevSet = prevTopicIdsSetRef.current;
+      for (const tid of topicIds) {
+        if (survivingChatTopicIds.has(tid)) continue;
+        if (prevSet.has(tid)) continue; // not new — was here last time
+        const topic = topics[tid];
+        add.push({
+          id: createPaneId('chat', tid),
+          type: 'chat' as PaneType,
+          topicId: tid,
+          title: topic?.name || 'Chat',
+          preview: false,
+        });
+        survivingChatTopicIds.add(tid);
+      }
     }
+    prevTopicIdsSetRef.current = currentSet;
 
     // Title sync: update chat pane titles when topic names change.
     const retitle = new Map<string, string>();

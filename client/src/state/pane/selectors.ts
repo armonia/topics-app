@@ -32,6 +32,60 @@ export function useClosedStackSize(): number {
   return usePaneStore((s) => s.closedStack.length);
 }
 
+function isDraftId(id: string): boolean {
+  return id.startsWith('draft:');
+}
+
+interface SnapshotOptions {
+  /** Strip pre-promotion draft panes from the output. True for server PUTs and
+   *  cross-tab broadcasts; false for same-device persistence. */
+  excludeDrafts: boolean;
+}
+
+function buildSnapshot(s: PaneState, opts: SnapshotOptions) {
+  const panesWithoutScroll: Record<string, Omit<Pane, 'scrollOffset'>> = {};
+  for (const [id, p] of Object.entries(s.panes)) {
+    if (opts.excludeDrafts && isDraftId(id)) continue;
+    const { scrollOffset: _scroll, ...rest } = p;
+    panesWithoutScroll[id] = rest;
+  }
+  const groupsOut: Record<string, Group> = {};
+  for (const [gid, g] of Object.entries(s.groups)) {
+    if (!opts.excludeDrafts) {
+      groupsOut[gid] = g;
+      continue;
+    }
+    const filteredIds = g.paneIds.filter((id) => !isDraftId(id));
+    groupsOut[gid] =
+      filteredIds.length === g.paneIds.length ? g : { ...g, paneIds: filteredIds };
+  }
+  const projectsOut: Record<string, ProjectLayout> = {};
+  for (const [projectKey, layout] of Object.entries(s.projects)) {
+    const nestedPanes: Record<string, Pane> = {};
+    for (const [paneId, p] of Object.entries(layout.panes)) {
+      if (opts.excludeDrafts && isDraftId(paneId)) continue;
+      const { scrollOffset: _scroll, ...rest } = p;
+      nestedPanes[paneId] = rest as Pane;
+    }
+    projectsOut[projectKey] = { ...layout, panes: nestedPanes };
+  }
+  const closedStackOut: ClosedPaneRecord[] = s.closedStack
+    .filter((rec) => !(opts.excludeDrafts && isDraftId(rec.pane.id)))
+    .map((rec) => {
+      const { scrollOffset: _nested, ...paneRest } = rec.pane;
+      const { scrollOffset: _outer, ...recRest } = rec;
+      return { ...recRest, pane: paneRest as Pane };
+    });
+  return {
+    panes: panesWithoutScroll,
+    groups: groupsOut,
+    projects: projectsOut,
+    groupOrder: s.groupOrder,
+    closedStack: closedStackOut,
+    lastSeq: s.lastSeq,
+  };
+}
+
 /**
  * Server-syncable snapshot.
  *
@@ -40,46 +94,22 @@ export function useClosedStackSize(): number {
  *  - Pane.scrollOffset (per-device scroll position)
  *  - ClosedPaneRecord.scrollOffset (also per-device — PANE-03 scroll restore
  *    runs post-mount via the DOM scroll tracker, not via the synced record)
- *
- * The returned shape carries only cross-device-safe data: panes (without scrollOffset),
- * groups, projects (with nested panes also stripped of scrollOffset), groupOrder,
- * closedStack (both outer and nested pane.scrollOffset stripped), lastSeq.
+ *  - Draft panes (id starts with `draft:`). Drafts are pre-promotion scratch
+ *    panes — leaking them cross-device causes the bug where a concurrent
+ *    Electron client's PUT broadcasts back without the draft, the receiving
+ *    browser dispatches HYDRATE_FROM_SNAPSHOT, and `state.panes = clean.panes`
+ *    wipes the local draft within ~300ms of creation.
  */
 export function selectSyncableSnapshot(s: PaneState) {
-  const panesWithoutScroll: Record<string, Omit<Pane, 'scrollOffset'>> = {};
-  for (const [id, p] of Object.entries(s.panes)) {
-    const { scrollOffset: _scroll, ...rest } = p;
-    panesWithoutScroll[id] = rest;
-  }
-  // Strip scrollOffset from nested project panes too — PROJECT_LAYOUT_SNAPSHOT
-  // shallow-copies state.panes into projects[*].panes (reducers/projects.ts:14),
-  // so every nested pane still carries its scrollOffset. PANE-02 requires
-  // device-local fields never cross the network.
-  const projectsWithoutScroll: Record<string, ProjectLayout> = {};
-  for (const [projectKey, layout] of Object.entries(s.projects)) {
-    const nestedPanes: Record<string, Pane> = {};
-    for (const [paneId, p] of Object.entries(layout.panes)) {
-      const { scrollOffset: _scroll, ...rest } = p;
-      nestedPanes[paneId] = rest as Pane;
-    }
-    projectsWithoutScroll[projectKey] = { ...layout, panes: nestedPanes };
-  }
-  // Strip BOTH outer and nested pane.scrollOffset inside each ClosedPaneRecord.
-  // CLOSE_PANE (reducers/panes.ts) no longer writes scrollOffset onto the
-  // record — but a localStorage payload written by an older build could still
-  // carry it, so we also strip here as defense-in-depth.
-  const closedStackWithoutScroll: ClosedPaneRecord[] = s.closedStack.map((rec) => {
-    const { scrollOffset: _nested, ...paneRest } = rec.pane;
-    const { scrollOffset: _outer, ...recRest } = rec;
-    return { ...recRest, pane: paneRest as Pane };
-  });
-  return {
-    panes: panesWithoutScroll,
-    groups: s.groups,
-    projects: projectsWithoutScroll,
-    groupOrder: s.groupOrder,
-    closedStack: closedStackWithoutScroll,
-    lastSeq: s.lastSeq,
-    // NOTE: focusedPaneId intentionally excluded — device-local per CONTEXT.md
-  };
+  return buildSnapshot(s, { excludeDrafts: true });
+}
+
+/**
+ * Same-device localStorage snapshot. Like selectSyncableSnapshot but keeps
+ * draft panes so a same-device reload restores in-flight scratch panes. Drafts
+ * are still device-local; cross-tab consumers must run sanitizeSnapshot on the
+ * incoming payload to filter them out.
+ */
+export function selectLocalSnapshot(s: PaneState) {
+  return buildSnapshot(s, { excludeDrafts: false });
 }

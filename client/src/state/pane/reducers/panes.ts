@@ -177,11 +177,42 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // overwrite fresh local state with an older shape.
       if (typeof clean.lastSeq !== 'number') break;
       if (clean.lastSeq <= state.lastSeq) break;
+      // Capture local drafts BEFORE the merge. Drafts are device-local
+      // pre-promotion scratch panes (mirror of the outbound stripping in
+      // selectSyncableSnapshot) — a remote snapshot that doesn't know about
+      // them must not erase them. Without this, a concurrent Electron client
+      // PUT triggers a broadcast back to this tab whose `state.panes = clean.panes`
+      // assignment wipes the locally-created draft within ~300ms of creation.
+      const localDraftPanes: PaneState['panes'] = {};
+      const localDraftsByGroup: Record<string, string[]> = {};
+      for (const [id, pane] of Object.entries(state.panes)) {
+        if (id.startsWith('draft:')) localDraftPanes[id] = pane;
+      }
+      if (Object.keys(localDraftPanes).length > 0) {
+        for (const [gid, group] of Object.entries(state.groups)) {
+          const drafts = group.paneIds.filter((id) => id.startsWith('draft:'));
+          if (drafts.length > 0) localDraftsByGroup[gid] = drafts;
+        }
+      }
       if (clean.panes) state.panes = clean.panes;
       if (clean.groups) state.groups = clean.groups;
       if (clean.projects) state.projects = clean.projects;
       if (clean.groupOrder) state.groupOrder = clean.groupOrder;
       if (clean.closedStack) state.closedStack = clean.closedStack;
+      // Re-inject local drafts on top of the freshly applied snapshot. We
+      // append rather than insert at a fixed index because the draft's prior
+      // position is meaningful only locally and the user expects a freshly-
+      // created tab to remain on the right side of the bar.
+      for (const [id, pane] of Object.entries(localDraftPanes)) {
+        state.panes[id] = pane;
+      }
+      for (const [gid, drafts] of Object.entries(localDraftsByGroup)) {
+        const group = state.groups[gid];
+        if (!group) continue;
+        for (const draftId of drafts) {
+          if (!group.paneIds.includes(draftId)) group.paneIds.push(draftId);
+        }
+      }
       // Defense-in-depth — sanitizer also clamps, but a test fixture or legacy
       // payload that bypasses the sanitizer must not blow up the stack. Keep
       // the tail (most recent closes) so undo still works; see sanitizeSnapshot
