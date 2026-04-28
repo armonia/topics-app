@@ -42,7 +42,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
 
   // Single subscription point — replaces the per-component fetches the picker
   // used to do. The hook handles initial fetch, WS push updates, and reconnect.
-  const { snapshot, refresh } = useProvidersSnapshot();
+  const { snapshot, error, retry, refresh } = useProvidersSnapshot();
   const entries: ProviderSnapshotEntry[] = snapshot?.providers ?? [];
 
   // Outside click + Escape — outside-click uses pointerdown so the Settings
@@ -230,7 +230,22 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
 
           {/* Provider/model groups */}
           <div className="overflow-y-auto flex-1 py-1">
-            {noProvidersReady && (
+            {/* Error state takes priority over the empty state — without it
+                the picker would loop on "No providers ready" forever when
+                /api/providers/snapshot fails on first paint, with no way to
+                retry short of reloading the page. */}
+            {error && !snapshot && (
+              <div className="px-3 py-6 text-center">
+                <div className="text-[11px] text-red-500 mb-2">Couldn't load providers.</div>
+                <button
+                  onClick={() => void retry()}
+                  className="text-[11px] text-primary hover:underline"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!error && noProvidersReady && (
               <div className="px-3 py-6 text-center">
                 <div className="text-[11px] text-app-text-muted mb-2">No providers ready.</div>
                 {onOpenSettings && (
@@ -243,7 +258,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                 )}
               </div>
             )}
-            {!noProvidersReady && filteredGroups.length === 0 && (
+            {!error && !noProvidersReady && filteredGroups.length === 0 && (
               <div className="px-3 py-4 text-[11px] text-app-text-muted text-center">No matches.</div>
             )}
             {(() => {

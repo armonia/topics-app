@@ -70,10 +70,10 @@ export function TabNotificationProvider({
   const prevSessionStatusRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
-    return onWSMessage((msg: WSMessage) => {
+    return onWSMessage((msg) => {
       // Agent session status changes → detect completion (active→idle) or error
-      if (msg.type === 'agents:sessions' && Array.isArray((msg as any).sessions)) {
-        const sessions = (msg as any).sessions as Array<{ key: string; status: string; topicId?: string; updatedAt?: number }>;
+      if (msg.type === 'agents:sessions') {
+        const sessions = msg.sessions;
         const prevStatuses = prevSessionStatusRef.current;
         let shouldNotifyAgents = false;
 
@@ -114,19 +114,19 @@ export function TabNotificationProvider({
         }
       }
       // Stream ended (Claude finished responding) → badge on agents panes
-      if (msg.type === 'stream:end' && (msg as any).sessionKey) {
+      if (msg.type === 'stream:end' && msg.sessionKey) {
         for (const panelId of openPanelsRef.current) {
           if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
             notifyPane(panelId);
           }
         }
-        if ((msg as any).topicId) {
-          touchTopic((msg as any).topicId as string);
+        if (msg.topicId) {
+          touchTopic(msg.topicId);
         }
       }
       // Chat message unread → touch topic for sidebar sort
-      if (msg.type === 'unread:updated' && (msg as any).topicId && (msg as any).unreadCount > 0) {
-        touchTopic((msg as any).topicId as string);
+      if (msg.type === 'unread:updated' && msg.topicId && msg.unreadCount > 0) {
+        touchTopic(msg.topicId);
       }
     });
   }, [onWSMessage, notifyPane, touchTopic]);

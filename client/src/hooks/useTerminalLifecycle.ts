@@ -88,10 +88,9 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   // WS terminal:sessions subscription
   useEffect(() => {
     return onWSMessage((msg) => {
-      if (msg.type === 'terminal:sessions' && Array.isArray((msg as unknown as { sessions?: unknown }).sessions)) {
-        const incoming = (msg as unknown as { sessions: TerminalSessionInfo[] }).sessions;
-        setSessions(incoming);
-        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(incoming)); } catch {}
+      if (msg.type === 'terminal:sessions') {
+        setSessions(msg.sessions);
+        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(msg.sessions)); } catch {}
       }
     });
   }, [onWSMessage]);

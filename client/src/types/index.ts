@@ -207,33 +207,28 @@ export interface UnreadData {
   };
 }
 
-/**
- * Loose WebSocket message base. Most consumers narrow on `msg.type` and read
- * fields opportunistically; widening the index sig to `any` keeps that
- * pattern working without forcing every consumer to do explicit casts.
- *
- * For new code, prefer the typed variants below (`WSProvidersSnapshotMessage`,
- * `WSTopicUpdatedMessage`, etc.) and use the `parseTypedWSMessage` helper to
- * narrow when reading off the wire.
- *
- * TODO(types): once all 23 consumers narrow via discriminated union, swap the
- * index sig to `unknown` and remove this exception. Tracked under Slice 8.
- */
-export interface WSMessage {
-  type: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
+// ---------------------------------------------------------------------------
+// WebSocket message discriminated union
+// ---------------------------------------------------------------------------
+//
+// `WSMessage` is the type emitted by `useWebSocket` and consumed by every
+// handler the app registers. Variants below cover messages the client
+// actively narrows on; everything else falls through to `WSUnknownMessage`
+// (loose `[k: string]: unknown` — strictly better than `any` because reads
+// require explicit narrowing).
+//
+// Adding a new typed variant: define an interface below, append it to the
+// `WSMessage` union, then handlers narrowing on `msg.type === '<literal>'`
+// automatically get the correct payload shape. No central registry edit.
+//
+// Server side broadcasts via `broadcastToAll(message: object)` — the wire
+// format isn't enforced. These types document intent at the boundary; if the
+// server changes a payload shape, narrowing here may surface stale reads.
 
-/** Typed variants for messages consumed by the new snapshot flow. */
+// --- Snapshot / settings -----------------------------------------------------
 export interface WSProvidersSnapshotMessage {
   type: 'providers:snapshot';
   snapshot: ProvidersSnapshot;
-}
-
-export interface WSTopicUpdatedMessage {
-  type: 'topic:updated';
-  topic: Topic;
 }
 
 export interface WSGatewayStatusMessage {
@@ -241,22 +236,170 @@ export interface WSGatewayStatusMessage {
   connected: boolean;
 }
 
-/** Catch-all variant — preserves the loose-shape escape hatch. */
-export interface WSUnknownMessage {
-  type: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
+// --- Topics ------------------------------------------------------------------
+export interface WSTopicUpdatedMessage {
+  type: 'topic:updated' | 'topic:created' | 'topic:archived';
+  topic: Topic;
 }
 
+export interface WSTopicsReorderedMessage {
+  type: 'topics:reordered';
+  topicIds: string[];
+}
+
+export interface WSTopicSwitchCompleteMessage {
+  type: 'topic:switch:complete';
+  /** Original session id that just got migrated. */
+  fromSessionKey: string;
+  /** New session id the conversation now lives under. */
+  toSessionKey: string;
+  fromTopicId: string;
+  toTopicId: string;
+  /** First user message that triggered the switch (replayed cross-window). */
+  userContent?: string;
+  /** Assistant response from the switching turn. */
+  assistantContent?: string;
+  topicId?: string;
+}
+
+export interface WSTopicSwitchMessage {
+  type: 'topic:switch';
+  fromSessionKey?: string;
+  toTopicId: string;
+}
+
+export interface WSOpenProjectMessage {
+  type: 'open-project';
+  projectPath: string;
+}
+
+export interface WSDragMessage {
+  type: 'drag:start' | 'drag:end' | 'drag:accepted' | 'drag:drop';
+  sourceWindowId: string;
+  /** Window that initiated the drop (mirror of sourceWindowId for drag:drop). */
+  windowId?: string;
+  topicId?: string;
+}
+
+// --- Streaming / chat --------------------------------------------------------
+export interface WSStreamStartMessage {
+  type: 'stream:start';
+  sessionKey: string;
+  messageId?: string;
+}
+
+export interface WSStreamEndMessage {
+  type: 'stream:end';
+  sessionKey: string;
+  messageId?: string;
+  topicId?: string;
+}
+
+export interface WSMessageNewMessage {
+  type: 'message:new';
+  topicId: string;
+  sessionKey: string;
+  role: 'user' | 'assistant';
+  /** Full message body — present on assistant message broadcasts. */
+  content?: string;
+  /** First 100 chars, used for unread previews. */
+  preview?: string;
+  message?: { id: string; role: string; content: string; timestamp?: string };
+}
+
+/** Inline media (images/files) appended to the last assistant message. */
+export interface WSMessageMediaMessage {
+  type: 'message:media';
+  sessionKey: string;
+  media: string[];
+}
+
+/** Server requests the client to drop a session's local message buffer. */
+export interface WSClearMessage {
+  type: 'clear';
+  sessionKey: string;
+}
+
+// --- Sessions / agents -------------------------------------------------------
+export interface WSAgentsSessionsMessage {
+  type: 'agents:sessions';
+  sessions: Array<{ key: string; status: string; topicId?: string; updatedAt?: number }>;
+}
+
+export interface WSAgentsSpawnedMessage {
+  type: 'agents:spawned';
+  topicId: string;
+  sessionKey: string;
+  label: string;
+}
+
+export interface WSAgentsStoppedMessage {
+  type: 'agents:stopped';
+  sessionKey: string;
+}
+
+export interface WSTerminalSessionsMessage {
+  type: 'terminal:sessions';
+  sessions: TerminalSessionInfo[];
+}
+
+// --- Notifications -----------------------------------------------------------
+export interface WSUnreadUpdatedMessage {
+  type: 'unread:updated';
+  topicId: string;
+  unreadCount: number;
+}
+
+// --- Boards ------------------------------------------------------------------
+export interface WSTaskMessage {
+  type: 'task:created' | 'task:updated' | 'task:moved' | 'task:deleted'
+       | 'task:archived' | 'task:unarchived';
+  projectId: string;
+  task?: unknown;
+  taskId?: string;
+}
+
+export interface WSDashboardUpdatedMessage {
+  type: 'dashboard:updated' | 'cron:updated';
+}
+
+// --- Catch-all ---------------------------------------------------------------
 /**
- * Discriminated union for new code paths. Catch-all kept so unknown types
- * don't crash the dispatcher; consumers narrow with `if (msg.type === 'X')`.
+ * Fallback for message types not (yet) listed above. Keeps the dispatcher
+ * resilient to forward-compat messages without forcing every new server
+ * broadcast to add a typed variant first. Index sig is `unknown` (not `any`)
+ * so reads require explicit casts — visible churn is the point.
  */
-export type TypedWSMessage =
+export interface WSUnknownMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
+export type WSMessage =
   | WSProvidersSnapshotMessage
-  | WSTopicUpdatedMessage
   | WSGatewayStatusMessage
+  | WSTopicUpdatedMessage
+  | WSTopicsReorderedMessage
+  | WSTopicSwitchCompleteMessage
+  | WSTopicSwitchMessage
+  | WSOpenProjectMessage
+  | WSDragMessage
+  | WSStreamStartMessage
+  | WSStreamEndMessage
+  | WSMessageNewMessage
+  | WSMessageMediaMessage
+  | WSClearMessage
+  | WSAgentsSessionsMessage
+  | WSAgentsSpawnedMessage
+  | WSAgentsStoppedMessage
+  | WSTerminalSessionsMessage
+  | WSUnreadUpdatedMessage
+  | WSTaskMessage
+  | WSDashboardUpdatedMessage
   | WSUnknownMessage;
+
+/** @deprecated alias retained while consumers migrate. Use `WSMessage`. */
+export type TypedWSMessage = WSMessage;
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 

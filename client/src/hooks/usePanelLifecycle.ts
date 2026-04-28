@@ -489,8 +489,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // WS Cluster 1: topic sync
   useEffect(() => {
     return onWSMessage((msg) => {
-      if ((msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') && (msg as unknown as { topic?: Topic }).topic) {
-        applyTopicFromWS((msg as unknown as { topic: Topic }).topic);
+      if (msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') {
+        if (msg.topic) applyTopicFromWS(msg.topic);
       }
     });
   }, [onWSMessage, applyTopicFromWS]);
@@ -501,51 +501,47 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       Notification.requestPermission();
     }
     return onWSMessage((msg) => {
-      const m = msg as Record<string, unknown> & { type: string };
       // message:new cross-window sync
-      if (m.type === 'message:new' && m.sessionKey && m.content) {
-        const sessionKey = m.sessionKey as string;
-        if (isOwnStream(sessionKey)) return;
-        const role = m.role as 'user' | 'assistant';
-        const content = m.content as string;
-        const existingMessages = getSessionMessages(sessionKey);
-        const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === role);
-        if (!lastMsgOfRole || lastMsgOfRole.content !== content) {
-          addMessageFromWS(sessionKey, { role, content, timestamp: new Date().toISOString() });
+      if (msg.type === 'message:new' && msg.content) {
+        if (isOwnStream(msg.sessionKey)) return;
+        const existingMessages = getSessionMessages(msg.sessionKey);
+        const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);
+        if (!lastMsgOfRole || lastMsgOfRole.content !== msg.content) {
+          addMessageFromWS(msg.sessionKey, { role: msg.role, content: msg.content, timestamp: new Date().toISOString() });
         }
       }
       // Notifications for messages in non-focused topics
       if (
-        m.type === 'message:new' &&
-        m.role === 'assistant' &&
-        m.topicId !== focusedPanelIdRef.current &&
+        msg.type === 'message:new' &&
+        msg.role === 'assistant' &&
+        msg.topicId !== focusedPanelIdRef.current &&
         document.visibilityState === 'hidden'
       ) {
         if ('Notification' in window && Notification.permission === 'granted') {
-          const topic = topicsRef.current[m.topicId as string];
+          const topic = topicsRef.current[msg.topicId];
           if (topic) {
             new Notification(topic.name, {
-              body: (m.preview as string) || 'New message',
-              tag: `topic-${m.topicId}`,
+              body: msg.preview || 'New message',
+              tag: `topic-${msg.topicId}`,
             });
           }
         }
       }
       // message:media
-      if (m.type === 'message:media' && m.sessionKey && m.media) {
-        appendMediaToLastAssistant(m.sessionKey as string, m.media as string[]);
+      if (msg.type === 'message:media') {
+        appendMediaToLastAssistant(msg.sessionKey, msg.media);
       }
       // clear
-      if (m.type === 'clear' && m.sessionKey) {
-        clearSession(m.sessionKey as string);
+      if (msg.type === 'clear') {
+        clearSession(msg.sessionKey);
       }
       // agents:spawned
-      if (m.type === 'agents:spawned' && m.topicId && m.sessionKey) {
-        const parentTopic = topicsRef.current[m.topicId as string];
+      if (msg.type === 'agents:spawned') {
+        const parentTopic = topicsRef.current[msg.topicId];
         if (parentTopic) {
           addMessageFromWS(parentTopic.sessionKey, {
             role: 'assistant',
-            content: `{{AGENT_SPAWN:${m.sessionKey}|${(m.label as string) || 'Claude Code'}}}`,
+            content: `{{AGENT_SPAWN:${msg.sessionKey}|${msg.label || 'Claude Code'}}}`,
             timestamp: new Date().toISOString(),
           });
         }
@@ -558,37 +554,29 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const ownTopicSwitchesRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     return onWSMessage((msg) => {
-      const m = msg as Record<string, unknown> & { type: string };
-      if (m.type === 'topic:switch' && m.toTopicId) {
-        const fromSK = m.fromSessionKey as string;
+      if (msg.type === 'topic:switch') {
+        const fromSK = msg.fromSessionKey;
         if (!fromSK || isOwnStream(fromSK)) {
-          const toId = m.toTopicId as string;
           if (fromSK) ownTopicSwitchesRef.current.add(fromSK);
-          if (!openPanelsRef.current.includes(toId)) {
-            setOpenPanels(prev => [...prev, toId]);
+          if (!openPanelsRef.current.includes(msg.toTopicId)) {
+            setOpenPanels(prev => [...prev, msg.toTopicId]);
           }
-          setFocusedPanelId(toId);
+          setFocusedPanelId(msg.toTopicId);
         }
       }
-      if (m.type === 'topic:switch:complete' && m.fromSessionKey && m.toSessionKey) {
-        const fromSK = m.fromSessionKey as string;
-        if (!ownTopicSwitchesRef.current.has(fromSK)) return;
-        ownTopicSwitchesRef.current.delete(fromSK);
-        const fromId = m.fromTopicId as string;
-        const toSK = m.toSessionKey as string;
-        const userContent = m.userContent as string;
-        const assistantContent = m.assistantContent as string;
-        clearSession(fromSK);
-        loadHistory(fromSK);
-        if (userContent) {
-          addMessageFromWS(toSK, { role: 'user', content: userContent, timestamp: new Date().toISOString() });
+      if (msg.type === 'topic:switch:complete') {
+        if (!ownTopicSwitchesRef.current.has(msg.fromSessionKey)) return;
+        ownTopicSwitchesRef.current.delete(msg.fromSessionKey);
+        clearSession(msg.fromSessionKey);
+        loadHistory(msg.fromSessionKey);
+        if (msg.userContent) {
+          addMessageFromWS(msg.toSessionKey, { role: 'user', content: msg.userContent, timestamp: new Date().toISOString() });
         }
-        if (assistantContent) {
-          addMessageFromWS(toSK, { role: 'assistant', content: assistantContent, timestamp: new Date().toISOString() });
+        if (msg.assistantContent) {
+          addMessageFromWS(msg.toSessionKey, { role: 'assistant', content: msg.assistantContent, timestamp: new Date().toISOString() });
         }
-        setOpenPanels(prev => prev.filter(id => id !== fromId));
-        const toId = m.toTopicId as string;
-        setFocusedPanelId(toId);
+        setOpenPanels(prev => prev.filter(id => id !== msg.fromTopicId));
+        setFocusedPanelId(msg.toTopicId);
       }
     });
   }, [onWSMessage, isOwnStream, clearSession, loadHistory, addMessageFromWS]);
@@ -596,9 +584,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // WS Cluster 4: open-project broadcast
   useEffect(() => {
     return onWSMessage((msg) => {
-      const m = msg as Record<string, unknown> & { type: string };
-      if (m.type === 'open-project' && m.projectPath) {
-        const projectPaneId = createPaneId('project', m.projectPath as string);
+      if (msg.type === 'open-project') {
+        const projectPaneId = createPaneId('project', msg.projectPath);
         setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
         setFocusedPanelId(projectPaneId);
       }
@@ -608,20 +595,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // WS Cluster 5: cross-window drag
   useEffect(() => {
     return onWSMessage((msg) => {
-      const m = msg as Record<string, unknown> & { type: string };
-      if (m.type === 'drag:start' && m.sourceWindowId !== windowId) {
-        setExternalDragTopicId(m.topicId as string);
-        setExternalDragSourceWindow(m.sourceWindowId as string);
+      if (msg.type === 'drag:start' && msg.sourceWindowId !== windowId) {
+        setExternalDragTopicId(msg.topicId ?? null);
+        setExternalDragSourceWindow(msg.sourceWindowId);
       }
-      if (m.type === 'drag:end' && m.sourceWindowId !== windowId) {
+      if (msg.type === 'drag:end' && msg.sourceWindowId !== windowId) {
         setExternalDragTopicId(null);
         setExternalDragSourceWindow(null);
       }
-      if (m.type === 'drag:accepted' && m.sourceWindowId === windowId) {
-        const topicId = m.topicId as string;
-        setOpenPanels(prev => prev.filter(id => id !== topicId));
-        if (focusedPanelIdRef.current === topicId) {
-          setFocusedPanelId(null);
+      if (msg.type === 'drag:accepted' && msg.sourceWindowId === windowId) {
+        if (msg.topicId) {
+          setOpenPanels(prev => prev.filter(id => id !== msg.topicId));
+          if (focusedPanelIdRef.current === msg.topicId) {
+            setFocusedPanelId(null);
+          }
         }
       }
     });
@@ -1084,7 +1071,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         topicId: externalDragTopicId,
         windowId: windowId,
         sourceWindowId: externalDragSourceWindow,
-      } as unknown as WSMessage);
+      });
       setExternalDragTopicId(null);
       setExternalDragSourceWindow(null);
     }

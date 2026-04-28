@@ -3,6 +3,7 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, getDefaultProvider, type AIProvider, type StreamHandler } from "../providers";
+import { getSnapshotManager } from "../providers/snapshot-manager";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
@@ -1669,9 +1670,30 @@ Wait for the user to approve the plan before executing any changes.` };
       // Per-message override wins; otherwise the topic's persisted model is
       // used (set by the picker via PUT /api/topics/:id and broadcast as
       // topic:updated). Falls through to the provider default when both unset.
-      const overrideModel = typeof body.model === "string" && body.model.trim()
+      const requestedModel = typeof body.model === "string" && body.model.trim()
         ? body.model.trim()
         : (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
+
+      // Drop the override if the resolved provider no longer offers that
+      // model — e.g. the user picked `gpt-5-codex` two months ago, then ChatGPT
+      // auth changed plan and the cache no longer lists it. Without this check
+      // the model name is forwarded to the CLI which fails with "exit 1" and
+      // surfaces as a "Codex error" stub. If we can't resolve a model list
+      // (manager not warmed yet, or provider has no listModels), trust the
+      // override — the previous behavior. The validation is a guard, not a
+      // contract.
+      let overrideModel: string | undefined = requestedModel;
+      if (requestedModel) {
+        const snap = getSnapshotManager().getSnapshot();
+        const entry = snap.providers.find(p => p.name === topicProvider.name);
+        if (entry && entry.models.length > 0 && !entry.models.includes(requestedModel)) {
+          console.warn(
+            `[Chat] Dropping stale model override "${requestedModel}" — not offered by provider "${topicProvider.name}". ` +
+            `Available: [${entry.models.slice(0, 5).join(", ")}${entry.models.length > 5 ? ", …" : ""}]`,
+          );
+          overrideModel = undefined;
+        }
+      }
 
       // ─── Streaming ───
       const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;

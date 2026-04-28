@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ProvidersSnapshot } from '../types';
 import {
-  getProvidersSnapshot,
+  getProvidersSnapshotState,
   reloadProvidersSnapshot,
   subscribeProvidersSnapshot,
 } from '../lib/providersSnapshotStore';
@@ -23,10 +23,10 @@ function fromSnapshot(snap: ProvidersSnapshot | null): boolean {
  * picker and Settings — so we don't double-fetch on first paint.
  */
 export function useOpenClawAvailable(): boolean {
-  const [available, setAvailable] = useState<boolean>(() => fromSnapshot(getProvidersSnapshot()));
+  const [available, setAvailable] = useState<boolean>(() => fromSnapshot(getProvidersSnapshotState().snapshot));
 
   useEffect(() => {
-    const unsub = subscribeProvidersSnapshot((snap) => setAvailable(fromSnapshot(snap)));
+    const unsub = subscribeProvidersSnapshot((state) => setAvailable(fromSnapshot(state.snapshot)));
     return unsub;
   }, []);
 

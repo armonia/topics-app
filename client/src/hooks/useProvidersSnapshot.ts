@@ -10,24 +10,37 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ProvidersSnapshot } from '../types';
 import {
-  getProvidersSnapshot,
+  getProvidersSnapshotState,
   refreshProvidersSnapshot,
+  reloadProvidersSnapshot,
   subscribeProvidersSnapshot,
 } from '../lib/providersSnapshotStore';
 
 interface UseProvidersSnapshotResult {
   snapshot: ProvidersSnapshot | null;
-  /** True until the first snapshot lands (HTTP or WS, whichever wins). */
+  /** True while waiting for the first snapshot AND no error has been raised. */
   loading: boolean;
+  /**
+   * Most recent fetch error (cleared by any successful HTTP/WS response).
+   * Consumers should expose a retry button when this is set instead of
+   * showing an indefinite loading state.
+   */
+  error: Error | null;
   /** Force the server to re-probe (single provider when name supplied). */
   refresh: (name?: string) => Promise<void>;
+  /**
+   * Re-run the GET fetch that failed on first paint. Different from `refresh`,
+   * which asks the server to re-probe; this just re-fetches whatever the
+   * server currently has cached. Use it from a retry button.
+   */
+  retry: () => Promise<void>;
 }
 
 export function useProvidersSnapshot(): UseProvidersSnapshotResult {
-  const [snapshot, setSnapshot] = useState<ProvidersSnapshot | null>(getProvidersSnapshot());
+  const [state, setState] = useState(getProvidersSnapshotState);
 
   useEffect(() => {
-    const unsub = subscribeProvidersSnapshot((next) => setSnapshot(next));
+    const unsub = subscribeProvidersSnapshot(setState);
     return unsub;
   }, []);
 
@@ -35,5 +48,15 @@ export function useProvidersSnapshot(): UseProvidersSnapshotResult {
     await refreshProvidersSnapshot(name);
   }, []);
 
-  return { snapshot, loading: snapshot === null, refresh };
+  const retry = useCallback(async () => {
+    await reloadProvidersSnapshot();
+  }, []);
+
+  return {
+    snapshot: state.snapshot,
+    loading: state.snapshot === null && state.error === null,
+    error: state.error,
+    refresh,
+    retry,
+  };
 }

@@ -140,6 +140,19 @@ export class ProviderSnapshotManager extends EventEmitter {
       };
     }
 
+    // Registry guard: between the await above and now, `removeProvider(name)`
+    // may have run (e.g. settings reload, hot-swap). Without this check we'd
+    // re-`set` a stale entry that `getSnapshot` would happily serve, and
+    // `invalidate` would have to fire a second time to clear it. Re-resolve
+    // and bail if the provider is no longer registered.
+    try {
+      getProvider(name);
+    } catch {
+      this.entries.delete(name);
+      this.emit("change");
+      return;
+    }
+
     this.entries.set(name, entry);
     this.emit("change");
   }
