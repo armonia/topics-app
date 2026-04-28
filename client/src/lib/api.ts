@@ -16,8 +16,8 @@ import type {
   ProcessInfo,
   GitBranch,
   GitLogEntry,
-  ProviderDiagnostic,
-  ProviderModels,
+  ProvidersSnapshot,
+  ProviderSnapshotEntry,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1322,21 +1322,61 @@ export interface ProviderListEntry {
   isDefault: boolean;
 }
 
+/**
+ * Cheap runtime guard for `ProvidersSnapshot`. We don't pull in Zod just for
+ * this — the wire format is owned by us and stable, so a structural check is
+ * enough to catch wire drift without paying the dep cost.
+ */
+function isProviderSnapshotEntry(v: unknown): v is ProviderSnapshotEntry {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.name === 'string' &&
+    (o.status === 'ready' || o.status === 'loading' || o.status === 'error' || o.status === 'unavailable') &&
+    typeof o.isDefault === 'boolean' &&
+    Array.isArray(o.models) &&
+    Array.isArray(o.requirements) &&
+    typeof o.fetchedAt === 'string'
+  );
+}
+
+export function isProvidersSnapshot(v: unknown): v is ProvidersSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    Array.isArray(o.providers) &&
+    o.providers.every(isProviderSnapshotEntry) &&
+    (o.defaultProvider === null || typeof o.defaultProvider === 'string') &&
+    typeof o.generatedAt === 'string'
+  );
+}
+
 export const providersApi = {
   async list(): Promise<{ providers: ProviderListEntry[]; default: string | null }> {
     return request<{ providers: ProviderListEntry[]; default: string | null }>('/providers');
   },
 
-  async diagnoseAll(force = false): Promise<{ providers: ProviderDiagnostic[] }> {
-    return request<{ providers: ProviderDiagnostic[] }>(`/providers/diagnose${force ? '?force=1' : ''}`);
+  /**
+   * Server-authoritative snapshot. Used by `useProvidersSnapshot` for the
+   * initial fetch; subsequent updates arrive via WS as `providers:snapshot`.
+   */
+  async snapshot(): Promise<ProvidersSnapshot> {
+    const raw = await request<unknown>('/providers/snapshot');
+    if (!isProvidersSnapshot(raw)) {
+      throw new Error('Invalid /providers/snapshot response shape');
+    }
+    return raw;
   },
 
-  async diagnose(name: string, force = false): Promise<ProviderDiagnostic> {
-    return request<ProviderDiagnostic>(`/providers/${encodeURIComponent(name)}/diagnose${force ? '?force=1' : ''}`);
-  },
-
-  async listModels(): Promise<{ providers: ProviderModels[] }> {
-    return request<{ providers: ProviderModels[] }>('/providers/models');
+  /**
+   * Forces a fresh probe of all providers (or a single provider when name is
+   * supplied). Server then broadcasts the new snapshot to every WS client.
+   */
+  async refreshSnapshot(name?: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('/providers/snapshot/refresh', {
+      method: 'POST',
+      body: JSON.stringify(name ? { provider: name } : {}),
+    });
   },
 
   async setDefault(name: string): Promise<{ ok: boolean; default: string }> {

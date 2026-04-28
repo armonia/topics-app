@@ -353,7 +353,15 @@ export function GroupLayout({
                           availableTypes={availableTypesForGroup(group.type, groupId)}
                           groupType={group.type}
                           groupId={groupId}
-                          onNewChat={group.type === 'chat' && onNewChatInGroup
+                          // "New Chat" is always offered in project tab bars
+                          // regardless of group.type. Previously gated to
+                          // `group.type === 'chat'`, which hid the entry from
+                          // file/browser/git/board groups — the user couldn't
+                          // create a project chat from them at all. The
+                          // handler routes the new chat into the project's
+                          // existing chat group (or creates one) — it does
+                          // NOT add a chat into a non-chat group.
+                          onNewChat={onNewChatInGroup
                             ? () => onNewChatInGroup(groupId)
                             : undefined
                           }

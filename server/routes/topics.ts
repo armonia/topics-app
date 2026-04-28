@@ -943,6 +943,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           topic.autonomyLevel = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
         }
         if (body.provider !== undefined) topic.provider = body.provider || null;
+        if (body.model !== undefined) topic.model = body.model || null;
         if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
         topic.updatedAt = new Date().toISOString();
         saveTopics(data);
@@ -1245,8 +1246,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const sortOrder = body.sortOrder ?? Date.now();
       try {
         db.prepare(`
-          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index)
-          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, 0)
+          INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
+          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, 0, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
         `).run({
           $id: id,
           $session_key: body.sessionKey,
@@ -1258,6 +1259,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           $timestamp: timestamp,
           $sort_order: sortOrder,
           $parent_id: body.parentId || null,
+          // Slice 7 — optional per-message footer fields. Tests use these to
+          // exercise the MessageMetaFooter without driving a real provider.
+          $latency_ms: typeof body.latencyMs === "number" ? body.latencyMs : null,
+          $usage_prompt_tokens: typeof body.usagePromptTokens === "number" ? body.usagePromptTokens : null,
+          $usage_completion_tokens: typeof body.usageCompletionTokens === "number" ? body.usageCompletionTokens : null,
+          $cost_cents: typeof body.costCents === "number" ? body.costCents : null,
         });
         return json({ ok: true, id });
       } catch (err: any) {
@@ -1659,7 +1666,12 @@ Wait for the user to approve the plan before executing any changes.` };
       } else {
         topicProvider = resolveProvider(matchedTopic);
       }
-      const overrideModel = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
+      // Per-message override wins; otherwise the topic's persisted model is
+      // used (set by the picker via PUT /api/topics/:id and broadcast as
+      // topic:updated). Falls through to the provider default when both unset.
+      const overrideModel = typeof body.model === "string" && body.model.trim()
+        ? body.model.trim()
+        : (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
 
       // ─── Streaming ───
       const useWS = topicProvider.capabilities.has('streaming') && topicProvider.connected;
@@ -1678,6 +1690,13 @@ Wait for the user to approve the plan before executing any changes.` };
           const trackedToolCallIds: string[] = [];
           let topicSwitchDetected = false;
           let switchTargetTopicId: string | null = null;
+          // Captured at stream-end if the provider's final message includes
+          // usage (claude-code SDK does; codex turn.completed will too).
+          // finalizeStream() reads these and persists them on the message so
+          // the UI footer can render `<duration>s · <tokens> · $<cost>`.
+          let usagePromptTokens: number | undefined;
+          let usageCompletionTokens: number | undefined;
+          let costCents: number | undefined;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -1746,7 +1765,17 @@ Wait for the user to approve the plan before executing any changes.` };
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
             }
 
-            updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
+            const latencyMs = Date.now() - requestStartMs;
+            updateLastMessage(sessionKey, {
+              content: fullContent,
+              thinking: fullThinking || undefined,
+              partial: undefined,
+              streamedAt: undefined,
+              latencyMs,
+              usagePromptTokens,
+              usageCompletionTokens,
+              costCents,
+            });
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
 
@@ -1862,7 +1891,7 @@ Wait for the user to approve the plan before executing any changes.` };
               updateStreamContent(sessionKey, fullContent, fullThinking);
             },
 
-            onToolStart: (toolCallId: string, name: string, args?: any) => {
+            onToolStart: (toolCallId: string, name: string, args?: Record<string, unknown>) => {
               resetStreamTimer();
               console.log(`[StreamWS] Tool start: ${name} (${toolCallId.slice(0,8)}) for ${sessionKey}`);
               const toolCall: ToolCall = {
@@ -1920,6 +1949,28 @@ Wait for the user to approve the plan before executing any changes.` };
                   if (extra) {
                     fullContent = finalText;
                     broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra });
+                  }
+                }
+                // Capture provider-reported usage so the message footer can
+                // render. Different providers shape this slightly differently:
+                // claude-code → `{ input_tokens, output_tokens, ... }`,
+                // codex → `{ inputTokens, outputTokens, totalTokens }`.
+                const usage = message.usage;
+                if (usage && typeof usage === "object") {
+                  const inTok = usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens;
+                  const outTok = usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens;
+                  if (typeof inTok === "number") usagePromptTokens = inTok;
+                  if (typeof outTok === "number") usageCompletionTokens = outTok;
+                  // Cost: try the provider field first, then derive via the
+                  // existing per-model price table when both token counts exist.
+                  const usdFromProvider = typeof usage.costUsd === "number" ? usage.costUsd : undefined;
+                  if (usdFromProvider != null) {
+                    costCents = Math.round(usdFromProvider * 100);
+                  } else if (typeof inTok === "number" && typeof outTok === "number") {
+                    try {
+                      const usd = calculateCost(message.model || overrideModel || "unknown", inTok, outTok);
+                      if (usd > 0) costCents = Math.round(usd * 100);
+                    } catch { /* unknown model — skip cost, keep tokens */ }
                   }
                 }
               }
@@ -2089,8 +2140,8 @@ Wait for the user to approve the plan before executing any changes.` };
             topicProvider.registerStreamHandler?.(sessionKey, httpRunId, {
               onTextDelta() {},  // Handled by HTTP SSE processLine
               onThinkingDelta() {},
-              onToolStart(toolCallId: string, name: string, args: Record<string, any>) {
-                const toolCall = { id: toolCallId, name, args, status: 'running' as const, contentOffset: fullContent.length };
+              onToolStart(toolCallId: string, name: string, args?: Record<string, unknown>) {
+                const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: fullContent.length };
                 addToolCallToLastMessage(sessionKey, toolCall);
                 broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
               },

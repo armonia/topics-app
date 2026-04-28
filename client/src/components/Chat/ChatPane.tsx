@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
+import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
@@ -31,7 +32,7 @@ export interface ChatPaneProps {
   getSessionMessages: (sk: string) => ChatMessage[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
-  sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
   sendWS: (msg: WSMessage) => void;
@@ -171,9 +172,61 @@ export function ChatPane({
   const currentLoading = isSessionLoading(topic.sessionKey);
   const currentStreaming = isSessionStreaming(topic.sessionKey);
 
-  // Per-message provider/model override. Resets when topic changes.
-  const [providerOverride, setProviderOverride] = useState<{ provider: string; model: string } | null>(null);
-  useEffect(() => { setProviderOverride(null); }, [topic.sessionKey]);
+  // Picker keeps a simple local override per pane. On first paint we seed it
+  // from the topic's persisted `provider`/`model` (set previously via PATCH);
+  // after that, picking a model is purely local — we no longer auto-PATCH on
+  // every click. This avoids the draft→real promotion flash where the topic
+  // id changes mid-flight and async state updates raced the chat submit.
+  //
+  // Cross-window sync stays available via the read path (next page load picks
+  // up `topic.model` from the server). A future revisit can add per-window
+  // live sync when we have a deliberate UX for it.
+  const [providerOverride, setProviderOverride] = useState<{ provider: string; model: string } | null>(
+    topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
+  );
+  // Mirror state into a ref so the session-switch effect can read the latest
+  // override without listing it as a dep (which would re-run the reseed every
+  // time the user picks a model — the opposite of what we want).
+  const providerOverrideRef = useRef(providerOverride);
+  useEffect(() => { providerOverrideRef.current = providerOverride; }, [providerOverride]);
+  // Track the previous topic id so we can detect a draft → real promotion vs
+  // a genuine session switch.
+  const prevTopicIdRef = useRef(topic.id);
+  useEffect(() => {
+    const prevId = prevTopicIdRef.current;
+    prevTopicIdRef.current = topic.id;
+    const wasDraft = prevId.startsWith('draft:');
+    const isNowReal = !topic.id.startsWith('draft:');
+    if (wasDraft && isNowReal && prevId !== topic.id) {
+      // Draft → real promotion: the user's pick from the draft phase must
+      // survive (server just created the real topic with NULL provider/model
+      // because the PATCH was gated while still a draft). Keep the override
+      // in local state AND persist it to the new topic id now.
+      const pick = providerOverrideRef.current;
+      if (pick) {
+        void onUpdateTopic(topic.id, { provider: pick.provider, model: pick.model });
+      }
+      return;
+    }
+    // Genuine session switch — reseed from whatever the new topic persists.
+    setProviderOverride(
+      topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
+    );
+  }, [topic.sessionKey, topic.id, topic.provider, topic.model, onUpdateTopic]);
+
+  const isDraftTopic = topic.id.startsWith('draft:');
+  const handleProviderOverrideChange = useCallback((next: { provider: string; model: string } | null) => {
+    setProviderOverride(next);
+    if (isDraftTopic) return;
+    // Best-effort persist so a reload (or another pane on the same topic) sees
+    // the same selection. Failures are non-fatal — the local state still
+    // drives the next chat request.
+    void onUpdateTopic(topic.id, {
+      provider: next?.provider ?? null,
+      model: next?.model ?? null,
+    });
+  }, [isDraftTopic, onUpdateTopic, topic.id]);
+
   const defaultProviderLabel = topic.provider ?? undefined;
 
   const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming);
@@ -250,10 +303,14 @@ export function ChatPane({
 
   const handleRetry = useCallback(() => {
     const lastUserMsg = [...currentMessages].reverse().find(m => m.role === 'user');
-    if (lastUserMsg) {
-      sendMessage(topic.sessionKey, lastUserMsg.content);
+    if (!lastUserMsg) return;
+    const opts: { provider?: string; model?: string } = {};
+    if (providerOverride) {
+      opts.provider = providerOverride.provider;
+      opts.model = providerOverride.model;
     }
-  }, [currentMessages, sendMessage, topic.sessionKey]);
+    sendMessage(topic.sessionKey, lastUserMsg.content, Object.keys(opts).length ? opts : undefined);
+  }, [currentMessages, sendMessage, topic.sessionKey, providerOverride]);
 
   const handleRememberMessage = useCallback(async (msg: ChatMessage) => {
     const snippet = msg.content.length > 300 ? msg.content.slice(0, 300) + '...' : msg.content;
@@ -380,7 +437,7 @@ export function ChatPane({
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={setProviderOverride} defaultProviderLabel={defaultProviderLabel} />
+        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
       </div>
     </div>
   );

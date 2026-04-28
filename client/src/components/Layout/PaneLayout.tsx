@@ -69,7 +69,10 @@ export function PaneLayout({
 
               return (
                 <div
-                  key={paneId}
+                  // Same reasoning as PaneTabBar: stableKey survives
+                  // PANE_ID_REMAP so the rendered pane (chat body, terminal,
+                  // etc.) doesn't unmount/remount on draft → real promotion.
+                  key={pane.stableKey ?? paneId}
                   className="flex min-h-0"
                   style={{ width: `${row.widths[paneIdx] * 100}%` }}
                 >

@@ -66,8 +66,8 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
 
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $archived, $created_at, $updated_at)
+      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $archived, $created_at, $updated_at)
     `),
     deleteTopic: db.prepare(`DELETE FROM topics WHERE id = ?`),
 
@@ -90,12 +90,16 @@ export function createAppContext(baseDir: string): AppContext {
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET content = $content, thinking = $thinking, tool_calls = $tool_calls, media = $media,
-        partial = $partial, streamed_at = $streamed_at, plan_status = $plan_status
+        partial = $partial, streamed_at = $streamed_at, plan_status = $plan_status,
+        latency_ms = COALESCE($latency_ms, latency_ms),
+        usage_prompt_tokens = COALESCE($usage_prompt_tokens, usage_prompt_tokens),
+        usage_completion_tokens = COALESCE($usage_completion_tokens, usage_completion_tokens),
+        cost_cents = COALESCE($cost_cents, cost_cents)
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
@@ -132,6 +136,7 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.sort_order !== undefined) topic.sortOrder = row.sort_order;
     if (row.autonomy_level && row.autonomy_level !== 'ask') topic.autonomyLevel = row.autonomy_level;
     if (row.provider) topic.provider = row.provider;
+    if (row.model) topic.model = row.model;
 
     const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -167,6 +172,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: topic.sortOrder ?? 0,
       $autonomy_level: topic.autonomyLevel || 'ask',
       $provider: topic.provider || null,
+      $model: topic.model || null,
       $archived: topic.archived ? 1 : 0,
       $created_at: topic.createdAt,
       $updated_at: topic.updatedAt,
@@ -218,7 +224,23 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.plan_status) msg.planStatus = row.plan_status;
     if (row.parent_id !== undefined && row.parent_id !== null) msg.parentId = row.parent_id;
     if (row.branch_index !== undefined) msg.branchIndex = row.branch_index;
+    if (row.latency_ms !== undefined && row.latency_ms !== null) msg.latencyMs = row.latency_ms;
+    if (row.usage_prompt_tokens !== undefined && row.usage_prompt_tokens !== null) msg.usagePromptTokens = row.usage_prompt_tokens;
+    if (row.usage_completion_tokens !== undefined && row.usage_completion_tokens !== null) msg.usageCompletionTokens = row.usage_completion_tokens;
+    if (row.cost_cents !== undefined && row.cost_cents !== null) msg.costCents = row.cost_cents;
     return msg;
+  }
+
+  // Build the meta param block for insertMessage/updateMessage. Mirrors the
+  // schema in 014-message-meta.sql; passing null means "leave existing value
+  // alone" because updateMessage uses COALESCE on these fields.
+  function metaParams(msg: Partial<StoredMessage>) {
+    return {
+      $latency_ms: msg.latencyMs ?? null,
+      $usage_prompt_tokens: msg.usagePromptTokens ?? null,
+      $usage_completion_tokens: msg.usageCompletionTokens ?? null,
+      $cost_cents: msg.costCents ?? null,
+    };
   }
 
   // --- Broadcast helpers ---
@@ -418,6 +440,7 @@ export function createAppContext(baseDir: string): AppContext {
           $sort_order: i,
           $parent_id: msg.parentId || null,
           $branch_index: msg.branchIndex || 0,
+          ...metaParams(msg),
         });
       }
     })();
@@ -445,6 +468,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: 0,
+      ...metaParams({}),
     });
     return stored;
   }
@@ -474,6 +498,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: 0,
+      ...metaParams({}),
     });
     return stored;
   }
@@ -499,6 +524,9 @@ export function createAppContext(baseDir: string): AppContext {
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
+      // Only the partial-msg fields landing in `updates` should overwrite —
+      // the SQL's COALESCE keeps existing values when these are null.
+      ...metaParams(updates),
     });
     return msg;
   }
@@ -518,6 +546,7 @@ export function createAppContext(baseDir: string): AppContext {
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
+      ...metaParams({}),
     });
     return msg;
   }
@@ -537,6 +566,7 @@ export function createAppContext(baseDir: string): AppContext {
       $partial: 0,
       $streamed_at: null,
       $plan_status: msg.planStatus || null,
+      ...metaParams({}),
     });
     return msg;
   }
@@ -556,6 +586,7 @@ export function createAppContext(baseDir: string): AppContext {
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
       $plan_status: msg.planStatus || null,
+      ...metaParams({}),
     });
     return msg;
   }
@@ -578,6 +609,7 @@ export function createAppContext(baseDir: string): AppContext {
         $partial: msg.partial ? 1 : 0,
         $streamed_at: msg.streamedAt || null,
         $plan_status: msg.planStatus || null,
+        ...metaParams({}),
       });
     }
     return msg;
@@ -889,6 +921,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: branchIndex,
+      ...metaParams({}),
     });
     // Set this new branch as active
     stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
@@ -916,6 +949,7 @@ export function createAppContext(baseDir: string): AppContext {
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
       $branch_index: 0,
+      ...metaParams({}),
     });
     return stored;
   }

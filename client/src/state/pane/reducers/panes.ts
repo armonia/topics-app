@@ -9,7 +9,10 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
   switch (action.type) {
     case 'OPEN_PANE': {
       const { groupId, insertIndex, ...pane } = action.payload;
-      state.panes[pane.id] = pane;
+      // Seed stableKey on first insert so PANE_ID_REMAP has something to
+      // preserve. For panes that come back through hydration (sanitizeSnapshot
+      // already stripped/preserved the field), we leave the existing value.
+      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id };
       if (!state.groups[groupId]) {
         state.groups[groupId] = {
           id: groupId,
@@ -149,6 +152,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
             id: paneId,
             type: inferTypeFromId(paneId),
             title: paneId,
+            stableKey: paneId,
           };
           state.groups[groupId].paneIds.push(paneId);
         }
@@ -207,7 +211,23 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
     case 'PANE_ID_REMAP': {
       const { from, to, updates } = action.payload;
       if (!state.panes[from]) break;
-      state.panes[to] = { ...state.panes[from], ...(updates ?? {}), id: to };
+      // No-op: same id in/out. Defensive — call sites usually filter, but a
+      // stale dispatcher tick could request from === to and corrupt
+      // closedStack via the rec.id rewrite below.
+      if (from === to) break;
+      // Collision guard: if `to` is already a real pane (race: same topic
+      // promoted twice, or remap into a pre-existing id), the previous code
+      // overwrote `state.panes[to]` with a copy of `prev` — silently turning
+      // the existing pane into a clone of the draft. Bail out instead so the
+      // dispatcher can decide (delete + remap, or close the duplicate).
+      if (state.panes[to]) break;
+      // stableKey survives the remap: it's the value React uses as the tab's
+      // list key, so the DOM element persists across draft → real promotion
+      // (no unmount/mount = no flash). Default to the original `from` id for
+      // panes that predate the field.
+      const prev = state.panes[from];
+      const stableKey = prev.stableKey ?? from;
+      state.panes[to] = { ...prev, ...(updates ?? {}), id: to, stableKey };
       delete state.panes[from];
       for (const g of Object.values(state.groups)) {
         const idx = g.paneIds.indexOf(from);

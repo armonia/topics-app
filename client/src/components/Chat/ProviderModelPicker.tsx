@@ -1,15 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Settings, Zap, X } from 'lucide-react';
-import type { ProviderDiagnostic, ProviderModels, ProviderStatus } from '../../types';
-import { providersApi } from '../../lib/api';
-
-const STATUS_DOT: Record<ProviderStatus, string> = {
-  ready: 'bg-green-500',
-  loading: 'bg-yellow-500',
-  error: 'bg-red-500',
-  unavailable: 'bg-gray-400',
-};
+import { Search, Settings, Zap, X, RefreshCw } from 'lucide-react';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import type { ProviderSnapshotEntry } from '../../types';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openclaw: 'OpenClaw',
@@ -18,6 +11,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   codex: 'Codex',
   openai: 'OpenAI (ChatGPT)',
 };
+
+function labelFor(entry: ProviderSnapshotEntry): string {
+  return entry.label ?? PROVIDER_LABELS[entry.name] ?? entry.name;
+}
 
 export interface ProviderModelOverride {
   provider: string;
@@ -35,71 +32,94 @@ interface Props {
 
 export function ProviderModelPicker({ override, defaultProviderLabel, onChange, onOpenSettings }: Props) {
   const [open, setOpen] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<ProviderDiagnostic[]>([]);
-  const [models, setModels] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Per-row refs let us scroll the highlighted row into view as the user
+  // arrows past the visible window.
+  const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  // Fetch on open
+  // Single subscription point — replaces the per-component fetches the picker
+  // used to do. The hook handles initial fetch, WS push updates, and reconnect.
+  const { snapshot, refresh } = useProvidersSnapshot();
+  const entries: ProviderSnapshotEntry[] = snapshot?.providers ?? [];
+
+  // Outside click + Escape — outside-click uses pointerdown so the Settings
+  // sheet's mousedown→focus cycle can't swallow it; the data-popover boundary
+  // ensures the portal-rendered popover counts as "inside".
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
-    Promise.all([
-      providersApi.diagnoseAll(),
-      providersApi.listModels(),
-    ]).then(([d, m]) => {
-      if (cancelled) return;
-      setDiagnostics(d.providers ?? []);
-      const map: Record<string, string[]> = {};
-      for (const entry of (m.providers ?? []) as ProviderModels[]) {
-        map[entry.provider] = entry.models;
-      }
-      setModels(map);
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [open]);
-
-  // Outside click + Escape
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
+    const onPointer = (e: PointerEvent) => {
       const t = e.target as Node;
       if (btnRef.current?.contains(t) || popoverRef.current?.contains(t)) return;
       setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setOpen(false); e.stopPropagation(); }
-    };
-    document.addEventListener('mousedown', onClick);
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('mousedown', onClick);
-      document.removeEventListener('keydown', onKey, true);
-    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
   }, [open]);
 
+  // Resolve the effective selection (override → topic provider → global default)
+  // so the button can show the actual model name in use.
+  const effective = useMemo(() => {
+    if (override) return { provider: override.provider, model: override.model };
+    const ready = entries.filter((e) => e.status === 'ready');
+    const pick = (name?: string) => ready.find((e) => e.name === name);
+    const candidate =
+      pick(defaultProviderLabel) ??
+      ready.find((e) => e.isDefault) ??
+      ready[0];
+    if (!candidate || candidate.models.length === 0) return null;
+    return { provider: candidate.name, model: candidate.models[0] };
+  }, [override, entries, defaultProviderLabel]);
+
   const buttonLabel = useMemo(() => {
-    if (override) {
-      const provLabel = PROVIDER_LABELS[override.provider] ?? override.provider;
-      return `${provLabel} · ${override.model}`;
-    }
-    return defaultProviderLabel ?? 'Default';
-  }, [override, defaultProviderLabel]);
+    if (effective) return effective.model;
+    if (override) return override.model;
+    return 'Model';
+  }, [effective, override]);
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return diagnostics.map((d) => {
-      const provLabel = PROVIDER_LABELS[d.name] ?? d.name;
-      const provModels = models[d.name] ?? [];
-      const matchesProv = !q || provLabel.toLowerCase().includes(q);
-      const matchedModels = q
-        ? provModels.filter((m) => m.toLowerCase().includes(q))
-        : provModels;
-      const visibleModels = matchesProv ? provModels : matchedModels;
-      return { diag: d, label: provLabel, models: visibleModels, hasMatch: matchesProv || matchedModels.length > 0 };
-    }).filter((g) => g.hasMatch);
-  }, [diagnostics, models, search]);
+    return entries
+      .filter((e) => e.status === 'ready')
+      .map((e) => {
+        const label = labelFor(e);
+        const matchesProv = !q || label.toLowerCase().includes(q) || e.name.toLowerCase().includes(q);
+        const matchedModels = q
+          ? e.models.filter((m) => m.toLowerCase().includes(q))
+          : e.models;
+        const visibleModels = matchesProv ? e.models : matchedModels;
+        return { entry: e, label, models: visibleModels, hasMatch: matchesProv || matchedModels.length > 0 };
+      })
+      .filter((g) => g.hasMatch);
+  }, [entries, search]);
+
+  // Flat list of selectable rows in render order — drives ↑/↓ keyboard nav.
+  const flatRows = useMemo(() => {
+    const rows: Array<{ provider: string; model: string }> = [];
+    for (const g of filteredGroups) {
+      for (const m of g.models) rows.push({ provider: g.entry.name, model: m });
+    }
+    return rows;
+  }, [filteredGroups]);
+
+  // Reset the highlight whenever the visible list changes (open, type to
+  // search, snapshot push). Clamp into range so React doesn't render an
+  // out-of-bounds highlight.
+  useEffect(() => {
+    setActiveIndex((idx) => {
+      if (flatRows.length === 0) return 0;
+      return Math.max(0, Math.min(idx, flatRows.length - 1));
+    });
+  }, [flatRows.length]);
+  useEffect(() => { setActiveIndex(0); }, [search]);
+  useEffect(() => { if (open) setActiveIndex(0); }, [open]);
+  // Keep the highlighted row in view as the user arrows past the popover edge.
+  useEffect(() => {
+    if (!open) return;
+    rowRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, open]);
 
   const select = (provider: string, model: string) => {
     if (override?.provider === provider && override?.model === model) {
@@ -123,6 +143,8 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     };
   })() : null;
 
+  const noProvidersReady = entries.length > 0 && filteredGroups.length === 0 && search.trim() === '';
+
   return (
     <>
       <button
@@ -130,10 +152,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="provider-model-picker"
-        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+        className={`inline-flex items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors ${
           override
-            ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15'
-            : 'border-app-border bg-app-hover/40 text-app-text-secondary hover:bg-app-hover'
+            ? 'text-primary bg-primary/10 hover:bg-primary/15'
+            : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
         }`}
         title="Provider & model"
       >
@@ -144,7 +166,31 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
       {open && popoverPos && createPortal(
         <div
           ref={popoverRef}
+          data-popover="provider-model-picker"
+          // Keyboard nav lives at the popover root so we get every key —
+          // arrow keys typed inside the search input bubble up to here, but
+          // the popover container itself stays focusable for stray clicks.
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setOpen(false);
+              e.stopPropagation();
+              return;
+            }
+            if (flatRows.length === 0) return;
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setActiveIndex((idx) => (idx + 1) % flatRows.length);
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActiveIndex((idx) => (idx - 1 + flatRows.length) % flatRows.length);
+            } else if (e.key === 'Enter') {
+              const row = flatRows[activeIndex];
+              if (row) { e.preventDefault(); select(row.provider, row.model); }
+            }
+          }}
           className="bg-surface border border-app-border rounded-lg shadow-xl w-[320px] max-h-[70vh] flex flex-col overflow-hidden"
+          data-testid="provider-model-popover"
           style={{
             position: 'fixed',
             bottom: popoverPos.bottom,
@@ -152,7 +198,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             zIndex: 9999,
           }}
         >
-          {/* Header — search */}
+          {/* Header — search + refresh */}
           <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-app-border">
             <Search size={12} className="text-app-text-muted flex-shrink-0" />
             <input
@@ -163,64 +209,97 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               placeholder="Search provider or model"
               className="flex-1 min-w-0 bg-transparent text-[12px] text-app-text placeholder:text-app-text-muted focus:outline-none"
             />
-            {search && (
-              <button onClick={() => setSearch('')} className="text-app-text-muted hover:text-app-text">
+            {search ? (
+              <button
+                onClick={() => setSearch('')}
+                className="text-app-text-muted hover:text-app-text"
+                title="Clear search"
+              >
                 <X size={11} />
+              </button>
+            ) : (
+              <button
+                onClick={() => void refresh()}
+                className="text-app-text-muted hover:text-app-text"
+                title="Refresh provider status"
+              >
+                <RefreshCw size={11} />
               </button>
             )}
           </div>
 
           {/* Provider/model groups */}
           <div className="overflow-y-auto flex-1 py-1">
-            {filteredGroups.length === 0 && (
+            {noProvidersReady && (
+              <div className="px-3 py-6 text-center">
+                <div className="text-[11px] text-app-text-muted mb-2">No providers ready.</div>
+                {onOpenSettings && (
+                  <button
+                    onClick={() => { onOpenSettings(); setOpen(false); }}
+                    className="text-[11px] text-primary hover:underline"
+                  >
+                    Open Settings
+                  </button>
+                )}
+              </div>
+            )}
+            {!noProvidersReady && filteredGroups.length === 0 && (
               <div className="px-3 py-4 text-[11px] text-app-text-muted text-center">No matches.</div>
             )}
-            {filteredGroups.map(({ diag, label, models: provModels }) => (
-              <div key={diag.name} className="py-0.5">
-                <div className="flex items-center gap-1.5 px-2.5 py-1">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_DOT[diag.status]}`} />
-                  <span className="text-[11px] font-semibold text-app-text">{label}</span>
-                  <span className="text-[10px] text-app-text-muted">{diag.status}</span>
-                  {diag.isDefault && (
-                    <span className="ml-auto text-[9px] bg-primary/20 text-primary px-1 rounded">Default</span>
-                  )}
-                </div>
-                {diag.status !== 'ready' && diag.requirements.some((r) => !r.present) && (
-                  <div className="px-5 pb-1 text-[10px] text-app-text-muted italic">
-                    Configure in Settings
+            {(() => {
+              // Reset the row-refs array each render so removed rows don't
+              // hold stale DOM nodes. We assign refs while iterating below.
+              rowRefs.current = [];
+              let cursor = 0;
+              return filteredGroups.map(({ entry, label, models: provModels }) => (
+                <div key={entry.name} className="py-0.5">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1">
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-500" />
+                    <span className="text-[11px] font-semibold text-app-text">{label}</span>
+                    {entry.isDefault && (
+                      <span className="ml-auto text-[9px] bg-primary/20 text-primary px-1 rounded">Default</span>
+                    )}
                   </div>
-                )}
-                {provModels.map((m) => {
-                  const isSelected = override?.provider === diag.name && override?.model === m;
-                  const disabled = diag.status !== 'ready';
-                  return (
-                    <button
-                      key={`${diag.name}:${m}`}
-                      onClick={() => !disabled && select(diag.name, m)}
-                      disabled={disabled}
-                      className={`w-full flex items-center gap-2 px-5 py-1 text-left text-[11px] transition-colors ${
-                        isSelected
-                          ? 'bg-primary/15 text-primary font-medium'
-                          : disabled
-                          ? 'text-app-text-muted cursor-not-allowed opacity-50'
-                          : 'text-app-text-secondary hover:bg-app-hover'
-                      }`}
-                    >
-                      <span className="font-mono">{m}</span>
-                      {isSelected && <span className="ml-auto text-[10px]">✓</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+                  {provModels.map((m) => {
+                    const isSelected = override?.provider === entry.name && override?.model === m;
+                    const rowIdx = cursor++;
+                    const isActive = rowIdx === activeIndex;
+                    return (
+                      <button
+                        key={`${entry.name}:${m}`}
+                        ref={(el) => { rowRefs.current[rowIdx] = el; }}
+                        data-row-index={rowIdx}
+                        data-active={isActive ? 'true' : undefined}
+                        onMouseEnter={() => setActiveIndex(rowIdx)}
+                        onClick={() => select(entry.name, m)}
+                        className={`w-full flex items-center gap-2 px-5 py-1 text-left text-[11px] transition-colors ${
+                          isSelected
+                            ? 'bg-primary/15 text-primary font-medium'
+                            : isActive
+                              ? 'bg-app-hover text-app-text'
+                              : 'text-app-text-secondary hover:bg-app-hover'
+                        }`}
+                      >
+                        <span className="font-mono">{m}</span>
+                        {isSelected && <span className="ml-auto text-[10px]">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
           </div>
 
           {/* Footer */}
           <div className="px-2.5 py-2 border-t border-app-border flex items-center justify-between gap-2">
             <div className="text-[10px] text-app-text-muted truncate">
-              {override
-                ? <button onClick={clearOverride} className="hover:text-app-text underline">Reset to default</button>
-                : `Default: ${defaultProviderLabel ?? '—'}`}
+              {override ? (
+                <button onClick={clearOverride} className="hover:text-app-text underline">Reset to default</button>
+              ) : effective ? (
+                `Default: ${labelFor(entries.find((e) => e.name === effective.provider) ?? { name: effective.provider } as ProviderSnapshotEntry)}`
+              ) : (
+                'No provider configured'
+              )}
             </div>
             {onOpenSettings && (
               <button

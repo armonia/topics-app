@@ -582,20 +582,41 @@ export class ClaudeCodeProvider implements AIProvider {
       return;
     }
 
-    // Assistant content events
-    if (event.type === "assistant" && Array.isArray(event.content) && handler) {
-      for (const block of event.content) {
-        if (block.type === "text" && block.text) {
+    // Assistant content events.
+    // Wire format from `claude --print --output-format stream-json` is:
+    //   { type: "assistant", message: { content: [...blocks] }, ... }
+    // Earlier code read `event.content` directly which is always undefined,
+    // so onTextDelta was never fired → fullContent stayed empty → the chat
+    // route's finalizeStream("done") emitted the "No response received" stub.
+    // Accept both shapes defensively in case a future CLI version flattens it.
+    // Block shapes the Claude CLI emits inside `message.content`. Marked as
+    // discriminated union so the loop below narrows on `type` instead of
+    // riding through with `any`.
+    type AssistantBlock =
+      | { type: "text"; text: string }
+      | { type: "thinking"; thinking: string }
+      | { type: "tool_use"; id?: string; name: string; input: unknown }
+      | { type: "tool_result"; tool_use_id?: string; content: unknown }
+      | { type: string; [k: string]: unknown };
+    const assistantContent: AssistantBlock[] | null =
+      event.type === "assistant"
+        ? (Array.isArray(event.message?.content) ? (event.message.content as AssistantBlock[])
+            : Array.isArray(event.content) ? (event.content as AssistantBlock[])
+            : null)
+        : null;
+    if (assistantContent && handler) {
+      for (const block of assistantContent) {
+        if (block.type === "text" && typeof block.text === "string" && block.text) {
           pp.fullText += block.text;
           handler.onTextDelta(block.text, pp.fullText);
-        } else if (block.type === "thinking" && block.thinking) {
+        } else if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
           handler.onThinkingDelta?.(block.thinking);
         } else if (block.type === "tool_use") {
-          const toolId = block.id ?? crypto.randomUUID();
+          const toolId = (typeof block.id === "string" ? block.id : null) ?? crypto.randomUUID();
           pp.activeToolCalls.add(toolId);
-          handler.onToolStart(toolId, block.name, block.input);
+          handler.onToolStart(toolId, String(block.name ?? ""), block.input as Record<string, unknown> | undefined);
         } else if (block.type === "tool_result") {
-          const toolId = block.tool_use_id ?? "";
+          const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           const resultContent = typeof block.content === "string"
             ? block.content
             : JSON.stringify(block.content);

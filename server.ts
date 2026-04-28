@@ -137,6 +137,26 @@ const processesRouter = createProcessesRouter(ctx);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
+
+// Wire snapshot manager → WS broadcast. Single 100ms debounce coalesces
+// the multiple "loading → ready" transitions a single refresh fires.
+{
+  // Lazy require to keep this block the only load site (avoid stale singletons in --watch mode).
+  const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
+  const snapMgr = getSnapshotManager();
+  let scheduled: ReturnType<typeof setTimeout> | null = null;
+  const SNAPSHOT_BROADCAST_DEBOUNCE_MS = 100;
+  snapMgr.on("change", () => {
+    if (scheduled) return;
+    scheduled = setTimeout(() => {
+      scheduled = null;
+      broadcastToAll({ type: "providers:snapshot", snapshot: snapMgr.getSnapshot() });
+    }, SNAPSHOT_BROADCAST_DEBOUNCE_MS);
+  });
+  // Trigger an initial warm-up so clients connecting at startup get fresh data.
+  void snapMgr.refresh();
+}
+
 // Initialize VAPID keys on startup
 initVapid();
 // Start agent heartbeat checker
@@ -369,6 +389,13 @@ const server = Bun.serve<WSData>({
       ws.send(JSON.stringify({ type: "connected", clientId: ws.data.id }));
       ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
       { const __ui = loadAllUiState(db); ws.send(JSON.stringify({ type: "ui-state:init", data: __ui.data, meta: __ui.meta })); }
+      // Initial provider snapshot — keeps the picker / settings page in sync without an extra HTTP fetch.
+      try {
+        const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+        ws.send(JSON.stringify({ type: "providers:snapshot", snapshot: getSnapshotManager().getSnapshot() }));
+      } catch {
+        // Snapshot manager not loaded yet — initial bootstrap will broadcast once it warms up.
+      }
 
       // Send catch-up for any active streams so new clients can join mid-stream
       const topicsData = loadTopics();

@@ -12,7 +12,12 @@ export interface WSData {
 export interface ToolCall {
   id: string;
   name: string;
-  args: Record<string, any>;
+  /**
+   * Tool arguments as parsed from the provider stream. Keys are field names,
+   * values are arbitrary JSON — consumers JSON.stringify before persistence.
+   * `unknown` over `any` so callers must narrow before use.
+   */
+  args: Record<string, unknown>;
   status?: 'pending' | 'running' | 'success' | 'error';
   result?: string;
   error?: string;
@@ -34,6 +39,17 @@ export interface StoredMessage {
   branchIndex?: number;
   siblingCount?: number;
   activeBranchIndex?: number;
+  // Per-message footer metadata. Populated when a provider reports usage in
+  // its final stream event (claude-code/codex/openclaw). All optional —
+  // older rows render no footer. Mirrors `client/src/types:ChatMessage`.
+  /** Total stream wall-clock duration in milliseconds. */
+  latencyMs?: number;
+  /** Prompt/input tokens reported by the provider. */
+  usagePromptTokens?: number;
+  /** Completion/output tokens reported by the provider. */
+  usageCompletionTokens?: number;
+  /** Best-effort cost in USD cents (`Math.round(usd * 100)`). */
+  costCents?: number;
 }
 
 export interface Topic {
@@ -55,6 +71,8 @@ export interface Topic {
   sortOrder?: number;
   autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
   provider?: string | null;
+  /** Last-used model for this topic. NULL = use the provider's default. */
+  model?: string | null;
   disabledContextSources?: string[];
   assignedAgents?: { id: string; name: string; role: string }[];
 }

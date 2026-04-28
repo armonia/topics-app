@@ -18,25 +18,9 @@ test.describe.serial("Provider/Model picker", () => {
     if (topicId) await deleteTopic(request, topicId);
   });
 
-  test("diagnose endpoint returns ProviderDiagnostic[]", async ({ request }) => {
-    const resp = await request.get("/api/providers/diagnose");
-    expect(resp.ok()).toBeTruthy();
-    const data = await resp.json();
-    expect(Array.isArray(data.providers)).toBe(true);
-    for (const p of data.providers) {
-      expect(p).toHaveProperty("name");
-      expect(p).toHaveProperty("status");
-      expect(["ready", "loading", "error", "unavailable"]).toContain(p.status);
-      expect(Array.isArray(p.requirements)).toBe(true);
-    }
-  });
-
-  test("models endpoint returns provider->models map", async ({ request }) => {
-    const resp = await request.get("/api/providers/models");
-    expect(resp.ok()).toBeTruthy();
-    const data = await resp.json();
-    expect(Array.isArray(data.providers)).toBe(true);
-  });
+  // Provider/model REST shape is covered in `provider-snapshot-sync.spec.ts`
+  // (single source of truth — the picker reads the same payload). We don't
+  // duplicate it here.
 
   test("selecting a provider/model adds it to the chat payload", async ({ page }) => {
     await goToApp(page);
@@ -66,10 +50,12 @@ test.describe.serial("Provider/Model picker", () => {
     await pickerBtn.waitFor({ state: "visible", timeout: 5_000 });
     await pickerBtn.click();
 
-    // Pick the first ENABLED model row. Disabled models (provider not 'ready')
-    // show with `disabled` attribute and grey styling — Playwright's
-    // `:not([disabled])` filter skips them.
-    const enabledModel = page
+    // Pick the first ENABLED model row INSIDE the popover. The picker's button
+    // also shows the resolved model name now (matches the regex), so we scope
+    // the search to the open popover via its data-testid.
+    const popover = page.getByTestId("provider-model-popover");
+    await popover.waitFor({ state: "visible", timeout: 5_000 });
+    const enabledModel = popover
       .locator("button:not([disabled])")
       .filter({ hasText: /^(claude-|gpt-|o\d|openclaw)/ })
       .first();

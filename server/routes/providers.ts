@@ -1,70 +1,19 @@
 import type { AppContext, RouteHandler } from "../types";
-import type { ClaudeProviderConfig, OpenAIProviderConfig, ProviderDiagnostic } from "../providers/types";
+import type { ClaudeProviderConfig, OpenAIProviderConfig } from "../providers/types";
 import {
   listProviders,
   getDefaultProviderName,
   setDefaultProvider,
   registerProvider,
   removeProvider,
-  getProvider,
 } from "../providers";
+import { getSnapshotManager } from "../providers/snapshot-manager";
 
-const DIAGNOSE_TTL_MS = 5 * 60 * 1000; // 5 min cache (Paseo pattern)
-const diagnoseCache = new Map<string, { at: number; result: ProviderDiagnostic }>();
-const diagnoseInflight = new Map<string, Promise<ProviderDiagnostic | null>>();
-const modelsCache = new Map<string, { at: number; models: string[] }>();
-const modelsInflight = new Map<string, Promise<string[]>>();
-const MODELS_TTL_MS = 5 * 60 * 1000;
-
-async function getDiagnostic(name: string, force: boolean): Promise<ProviderDiagnostic | null> {
-  if (!force) {
-    const cached = diagnoseCache.get(name);
-    if (cached && Date.now() - cached.at < DIAGNOSE_TTL_MS) return cached.result;
-    const pending = diagnoseInflight.get(name);
-    if (pending) return pending;
-  }
-  const task = (async () => {
-    let provider;
-    try { provider = getProvider(name); } catch { return null; }
-    if (!provider.diagnose) {
-      return {
-        name,
-        status: provider.connected ? "ready" : "unavailable",
-        requirements: [],
-      } as ProviderDiagnostic;
-    }
-    const result = await provider.diagnose();
-    diagnoseCache.set(name, { at: Date.now(), result });
-    return result;
-  })().finally(() => {
-    diagnoseInflight.delete(name);
-  });
-  diagnoseInflight.set(name, task);
-  return task;
-}
-
-async function getModels(name: string): Promise<string[]> {
-  const cached = modelsCache.get(name);
-  if (cached && Date.now() - cached.at < MODELS_TTL_MS) return cached.models;
-  const pending = modelsInflight.get(name);
-  if (pending) return pending;
-  const task = (async () => {
-    let provider;
-    try { provider = getProvider(name); } catch { return []; }
-    if (!provider.listModels) return [];
-    try {
-      const models = await provider.listModels();
-      modelsCache.set(name, { at: Date.now(), models });
-      return models;
-    } catch {
-      return [];
-    }
-  })().finally(() => {
-    modelsInflight.delete(name);
-  });
-  modelsInflight.set(name, task);
-  return task;
-}
+// Slice 9 removed the per-route `diagnoseCache` / `modelsCache` Maps that the
+// old `/api/providers/diagnose` + `/api/providers/models` endpoints used. The
+// snapshot manager is the single cache now: register/remove/configure call
+// `getSnapshotManager().invalidate(name)` (via providers/index.ts), which
+// re-probes the provider and broadcasts via WS.
 
 export function createProvidersRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
@@ -84,41 +33,22 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
       });
     }
 
-    // GET /api/providers/diagnose — diagnose all providers in parallel
-    if (method === "GET" && pathname === "/api/providers/diagnose") {
-      const force = url.searchParams.get("force") === "1";
-      const all = listProviders();
-      const defaultName = getDefaultProviderName();
-      const results = await Promise.all(
-        all.map(async (p) => {
-          const diag = await getDiagnostic(p.name, force);
-          return diag ? { ...diag, isDefault: p.name === defaultName } : null;
-        }),
-      );
-      return json({ providers: results.filter(Boolean) });
+    // GET /api/providers/snapshot — server-authoritative snapshot.
+    // Returns cached entries immediately; stale rows refresh in background and
+    // push the result via WS (`providers:snapshot`).
+    if (method === "GET" && pathname === "/api/providers/snapshot") {
+      return json(getSnapshotManager().getSnapshot());
     }
 
-    // GET /api/providers/models — list models for each provider that supports listModels()
-    if (method === "GET" && pathname === "/api/providers/models") {
-      const all = listProviders();
-      const results = await Promise.all(
-        all.map(async (p) => ({
-          provider: p.name,
-          models: await getModels(p.name),
-        })),
-      );
-      return json({ providers: results });
-    }
-
-    // GET /api/providers/:name/diagnose — diagnose a single provider
-    const diagnoseMatch = method === "GET" && pathname.match(/^\/api\/providers\/([^/]+)\/diagnose$/);
-    if (diagnoseMatch) {
-      const name = diagnoseMatch[1];
-      const force = url.searchParams.get("force") === "1";
-      const result = await getDiagnostic(name, force);
-      if (!result) return json({ error: `Provider "${name}" not found` }, 404);
-      const defaultName = getDefaultProviderName();
-      return json({ ...result, isDefault: name === defaultName });
+    // POST /api/providers/snapshot/refresh — force refresh.
+    // Body: `{provider?: string}` — when present, refresh just that provider.
+    if (method === "POST" && pathname === "/api/providers/snapshot/refresh") {
+      let parsed: unknown = {};
+      try { parsed = await req.json(); } catch { /* empty body OK */ }
+      const body = (parsed && typeof parsed === "object") ? parsed as Record<string, unknown> : {};
+      const name = typeof body.provider === "string" ? body.provider : undefined;
+      await getSnapshotManager().refresh(name);
+      return json({ ok: true });
     }
 
     // POST /api/providers/openai/configure — configure OpenAI provider at runtime
@@ -136,8 +66,6 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
           maxTokens: maxTokens ? parseInt(String(maxTokens), 10) : undefined,
         };
         const provider = registerProvider(config);
-        diagnoseCache.delete("openai");
-        modelsCache.delete("openai");
         return json({
           ok: true,
           provider: {
@@ -146,8 +74,9 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
             capabilities: [...provider.capabilities],
           },
         });
-      } catch (err: any) {
-        return json({ ok: false, error: err.message }, 500);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ ok: false, error: msg }, 500);
       }
     }
 
@@ -161,8 +90,9 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
         }
         setDefaultProvider(name);
         return json({ ok: true, default: name });
-      } catch (err: any) {
-        return json({ ok: false, error: err.message }, 400);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ ok: false, error: msg }, 400);
       }
     }
 
@@ -181,8 +111,6 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
           maxTokens: maxTokens ? parseInt(String(maxTokens), 10) : undefined,
         };
         const provider = registerProvider(config);
-        diagnoseCache.delete("claude");
-        modelsCache.delete("claude");
         return json({
           ok: true,
           provider: {
@@ -191,8 +119,9 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
             capabilities: [...provider.capabilities],
           },
         });
-      } catch (err: any) {
-        return json({ ok: false, error: err.message }, 500);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ ok: false, error: msg }, 500);
       }
     }
 
@@ -202,11 +131,10 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
       const name = deleteMatch[1];
       try {
         removeProvider(name);
-        diagnoseCache.delete(name);
-        modelsCache.delete(name);
         return json({ ok: true });
-      } catch (err: any) {
-        return json({ ok: false, error: err.message }, 400);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ ok: false, error: msg }, 400);
       }
     }
 

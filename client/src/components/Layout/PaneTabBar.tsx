@@ -444,7 +444,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
 
         return (
           <div
-            key={pane.id}
+            // Use stableKey so the tab DOM survives PANE_ID_REMAP (draft → real
+            // topic). Otherwise React unmounts/remounts on first message
+            // submission and the tab visibly flashes.
+            key={pane.stableKey ?? pane.id}
             data-pane-id={pane.id}
             data-active={isActive ? 'true' : 'false'}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}

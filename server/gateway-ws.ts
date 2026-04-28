@@ -346,12 +346,12 @@ export class GatewayWS {
 export interface ChatStreamHandler {
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
-  onToolStart: (toolCallId: string, name: string, args?: any) => void;
+  onToolStart: (toolCallId: string, name: string, args?: Record<string, unknown>) => void;
   onToolUpdate?: (toolCallId: string, partialResult: string) => void;
   onToolResult: (toolCallId: string, result: string) => void;
-  onDone: (message?: any) => void;
+  onDone: (message?: Record<string, unknown>) => void;
   onError: (error: string) => void;
-  onAborted: (message?: any) => void;
+  onAborted: (message?: Record<string, unknown>) => void;
 }
 
 /** 

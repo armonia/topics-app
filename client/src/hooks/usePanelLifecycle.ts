@@ -643,11 +643,21 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [onWSMessage]);
 
   // ---- 17. Drain queue + reload histories on WS reconnect ----
+  // `prevWsStatus !== 'connected' && current === 'connected'` was ALSO true
+  // for the very first 'connecting' → 'connected' transition on page load,
+  // which made this effect pile a second loadHistory on top of ChatPane's
+  // mount-effect load — the user saw the message list flash to a skeleton
+  // and back as the second fetch's loading=true clobbered the first's
+  // loading=false. Track whether we've ever seen 'connected' so we only
+  // trigger on a real disconnect→reconnect cycle. ChatPane's mount effect
+  // and useTopics' mount effect already handle the cold-start fetch.
   const prevWsStatus = useRef(wsStatus);
+  const everConnected = useRef(false);
   useEffect(() => {
-    if (prevWsStatus.current !== 'connected' && wsStatus === 'connected') {
+    const transitionedToConnected =
+      prevWsStatus.current !== 'connected' && wsStatus === 'connected';
+    if (transitionedToConnected && everConnected.current) {
       drainQueue();
-      // Reload topics on reconnect (moved here from App.tsx in Commit 5)
       loadTopics();
       for (const panelId of openPanels) {
         const topic = topics[panelId];
@@ -656,6 +666,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         }
       }
     }
+    if (wsStatus === 'connected') everConnected.current = true;
     prevWsStatus.current = wsStatus;
   }, [wsStatus, drainQueue, openPanels, topics, loadHistory, loadTopics]);
 

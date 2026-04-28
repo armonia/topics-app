@@ -1,52 +1,38 @@
 import { useEffect, useState } from 'react';
-import { providersApi } from '../lib/api';
+import type { ProvidersSnapshot } from '../types';
+import {
+  getProvidersSnapshot,
+  reloadProvidersSnapshot,
+  subscribeProvidersSnapshot,
+} from '../lib/providersSnapshotStore';
 
-let cached: boolean | null = null;
-let inflight: Promise<boolean> | null = null;
-const subscribers = new Set<(v: boolean) => void>();
-
-async function probe(): Promise<boolean> {
-  if (inflight) return inflight;
-  inflight = (async () => {
-    try {
-      const data = await providersApi.diagnoseAll(false);
-      const oc = (data.providers ?? []).find((p) => p.name === 'openclaw');
-      // "unavailable" = not configured (no GATEWAY_URL/TOKEN). Hide UI.
-      // "ready" / "error" / "loading" = configured (even if currently down) — keep UI.
-      const available = !!oc && oc.status !== 'unavailable';
-      cached = available;
-      subscribers.forEach((cb) => cb(available));
-      return available;
-    } catch {
-      cached = false;
-      return false;
-    } finally {
-      inflight = null;
-    }
-  })();
-  return inflight;
+function fromSnapshot(snap: ProvidersSnapshot | null): boolean {
+  if (!snap) return false;
+  const oc = snap.providers.find((p) => p.name === 'openclaw');
+  // "unavailable" = not configured (no GATEWAY_URL/TOKEN). Hide UI.
+  // "ready" / "error" / "loading" = configured (even if currently down) — keep UI.
+  return !!oc && oc.status !== 'unavailable';
 }
 
 /**
  * Returns whether the OpenClaw provider is configured (regardless of current
  * online state). Used to gate OpenClaw-specific UI surfaces (Agents, Cron Jobs,
  * gateway status bar) so they don't show up in standalone setups.
+ *
+ * Reads from the shared providers snapshot store — same data source as the
+ * picker and Settings — so we don't double-fetch on first paint.
  */
 export function useOpenClawAvailable(): boolean {
-  const [available, setAvailable] = useState<boolean>(cached ?? false);
+  const [available, setAvailable] = useState<boolean>(() => fromSnapshot(getProvidersSnapshot()));
 
   useEffect(() => {
-    if (cached !== null) setAvailable(cached);
-    else probe();
-    const cb = (v: boolean) => setAvailable(v);
-    subscribers.add(cb);
-    return () => { subscribers.delete(cb); };
+    const unsub = subscribeProvidersSnapshot((snap) => setAvailable(fromSnapshot(snap)));
+    return unsub;
   }, []);
 
   return available;
 }
 
 export function refreshOpenClawAvailability(): void {
-  cached = null;
-  void probe();
+  void reloadProvidersSnapshot();
 }

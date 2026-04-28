@@ -36,6 +36,7 @@ import type {
 import {
   createGroupId,
   createPaneId,
+  getAddableTypesForScope,
   getPaneConfig,
   getTerminalSessionFromPaneId,
   PANE_CONFIG,
@@ -206,6 +207,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // here it would resurface as a "Topic not found" pane on every
       // reload — drop it on hydrate.
       if (topicId.startsWith('__') && topicId.endsWith('__')) continue;
+      // Cross-project leak guard: a previous buggy build may have persisted
+      // standalone or foreign-project topics into this project's
+      // openChatTopicIds. Drop them on hydrate so they don't resurface as
+      // ghost tabs every time the project loads. If the topic is missing
+      // from `topics` (still loading or deleted), keep it — useProjectChatSync
+      // will handle reconciliation once topics are populated.
+      const t = topics[topicId];
+      if (t && t.projectPath !== projectPath) continue;
       const id = createPaneId('chat', topicId);
       if (seenIds.has(id)) continue;
       seenIds.add(id);
@@ -505,6 +514,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     (topicId: string) => {
       const topic = topics[topicId];
       if (!topic) return;
+      // Cross-project leak guard: a topic that doesn't belong to THIS project
+      // (standalone topic, or topic of a different project) must NEVER be
+      // injected into this project's inner chat layout. Without this guard,
+      // every project's external-focus effect picks up newly-focused topics
+      // (e.g. after promoteDraft on a standalone draft) and adds them as
+      // chat panes — duplicating the same chat across every open project.
+      if (topic.projectPath !== projectPath) return;
       const paneId = createPaneId('chat', topicId);
       setPanes(prev => {
         if (prev.some(p => p.id === paneId)) return prev;
@@ -520,7 +536,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         ];
       });
     },
-    [topics],
+    [topics, projectPath],
   );
 
   // --- External focus: when focusedPanelId changes, route to chat pane ---
@@ -533,6 +549,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     if (
       focusedPanelId &&
       topics[focusedPanelId] &&
+      topics[focusedPanelId].projectPath === projectPath &&
       focusedPanelId !== lastFocusedPanelRef.current
     ) {
       lastFocusedPanelRef.current = focusedPanelId;
@@ -554,11 +571,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         }
       }
     }
-  }, [focusedPanelId, panes, groups, reopenTopicLocal]);
+  }, [focusedPanelId, topics, projectPath, panes, groups, reopenTopicLocal]);
 
   // --- Pending focus from external navigation ---
   useEffect(() => {
     if (pendingFocusTopicId) {
+      // Same cross-project guard as reopenTopicLocal: don't pull a foreign
+      // topic into this project. Consume the pending request anyway so the
+      // caller (App-level dispatcher) doesn't loop forever.
+      const t = topics[pendingFocusTopicId];
+      if (!t || t.projectPath !== projectPath) {
+        onPendingFocusConsumed?.();
+        return;
+      }
       reopenTopicLocal(pendingFocusTopicId);
       const chatPaneId = createPaneId('chat', pendingFocusTopicId);
       const chatPane = panes.find(p => p.id === chatPaneId);
@@ -578,7 +603,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         }
       }
     }
-  }, [pendingFocusTopicId, panes, groups, onPendingFocusConsumed, reopenTopicLocal]);
+  }, [pendingFocusTopicId, topics, projectPath, panes, groups, onPendingFocusConsumed, reopenTopicLocal]);
 
   // --- Default focused group ---
   useEffect(() => {
@@ -1356,20 +1381,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   }, []);
 
   const availableTypesForGroup = useCallback(
-    (groupType: PaneGroupType, groupId: string): PaneType[] => {
-      const types: PaneType[] = ['browser', 'terminal', 'git', 'board-memory'];
-      if (groupType === 'file') {
-        types.unshift('files');
-      }
+    (_groupType: PaneGroupType, groupId: string): PaneType[] => {
+      // Single source of truth — `addableScopes: ['project']` in PANE_CONFIG.
+      // Previously this list was hardcoded ['browser','terminal','git','board-memory']
+      // (+ 'files' only inside a 'file' group), which drifted from the
+      // standalone tab bar's hardcoded list and made adding a new pane type
+      // require edits in 3 places. The group-level singleton filter below is
+      // still required: PaneConfig.singleton is global, but a project can
+      // legitimately have e.g. one Git pane per group.
       const targetGroup = groups.find(g => g.id === groupId);
       const groupPaneIds = new Set(targetGroup?.paneIds || []);
-      return types.filter(t => {
-        const config = PANE_CONFIG[t];
-        if (!config) return false;
-        if (config.fixed) return false;
-        if (config.singleton && panes.some(p => p.type === t && groupPaneIds.has(p.id))) return false;
-        return true;
-      });
+      const presentInGroup = new Set<PaneType>();
+      for (const p of panes) if (groupPaneIds.has(p.id)) presentInGroup.add(p.type);
+      return getAddableTypesForScope('project', presentInGroup);
     },
     [panes, groups],
   );

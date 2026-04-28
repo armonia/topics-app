@@ -15,6 +15,45 @@ export interface ChatMessage {
 
 // ============ Stream Event Types ============
 
+/**
+ * Tool arguments arrive as JSON-decoded objects from the model.
+ * Always an object (never an array/scalar at the top level), but the inner
+ * fields are arbitrary, so we use `unknown` for the values.
+ */
+export type ToolArgs = Record<string, unknown>;
+
+/**
+ * Token usage attached to a completed turn. Field names mirror what the
+ * providers actually emit (Claude Code uses `inputTokens`/`outputTokens`/
+ * cache fields; Codex uses `input_tokens`/`output_tokens` which the provider
+ * normalizes before passing it here).
+ */
+export interface ProviderUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreation?: number;
+  cacheRead?: number;
+  reasoningTokens?: number;
+}
+
+/**
+ * Trailing payload attached to `done` / `aborted` events.
+ * Providers stuff arbitrary metadata here (token usage, finish_reason, raw
+ * upstream object). The picker/footer code only reads known fields and falls
+ * back gracefully, so the open shape is intentional.
+ */
+export interface ProviderDoneMessage {
+  result?: string;
+  usage?: ProviderUsage;
+  /** End-to-end turn latency in milliseconds. */
+  durationMs?: number;
+  /** Total cost in USD reported by the provider. */
+  costUsd?: number;
+  /** Raw upstream payload — providers may surface their native shape here. */
+  raw?: unknown;
+  [key: string]: unknown;
+}
+
 /** Text chunk from the model */
 export interface TextDeltaEvent {
   type: "text_delta";
@@ -34,7 +73,7 @@ export interface ToolStartEvent {
   type: "tool_start";
   toolCallId: string;
   name: string;
-  args?: any;
+  args?: ToolArgs;
 }
 
 export interface ToolUpdateEvent {
@@ -52,7 +91,7 @@ export interface ToolResultEvent {
 /** Stream completed successfully */
 export interface DoneEvent {
   type: "done";
-  message?: any;
+  message?: ProviderDoneMessage;
 }
 
 /** Stream errored */
@@ -64,7 +103,7 @@ export interface ErrorEvent {
 /** Stream aborted by user/system */
 export interface AbortedEvent {
   type: "aborted";
-  message?: any;
+  message?: ProviderDoneMessage;
 }
 
 export type StreamEvent =
@@ -136,12 +175,12 @@ export interface ProviderDiagnostic {
 export interface StreamHandler {
   onTextDelta: (text: string, fullText: string) => void;
   onThinkingDelta?: (text: string) => void;
-  onToolStart: (toolCallId: string, name: string, args?: any) => void;
+  onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;
   onToolUpdate?: (toolCallId: string, partialResult: string) => void;
   onToolResult: (toolCallId: string, result: string) => void;
-  onDone: (message?: any) => void;
+  onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
-  onAborted?: (message?: any) => void;
+  onAborted?: (message?: ProviderDoneMessage) => void;
 }
 
 // ============ The Provider Interface ============
@@ -209,16 +248,16 @@ export interface AIProvider {
   // --- Session Management (optional) ---
 
   abort?(sessionKey: string, runId?: string): Promise<void>;
-  getHistory?(sessionKey: string, limit?: number): Promise<any>;
+  getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
   resumeSession?(sessionKey: string): Promise<void>;
-  listSessions?(options?: { kinds?: string[]; activeMinutes?: number }): Promise<any>;
+  listSessions?(options?: { kinds?: string[]; activeMinutes?: number }): Promise<unknown>;
   sendToSession?(sessionKey: string, message: string): Promise<void>;
-  getSessionStatus?(sessionKey: string): Promise<any>;
+  getSessionStatus?(sessionKey: string): Promise<unknown>;
 
   // --- Tools RPC (optional, OpenClaw-specific) ---
 
-  invokeTool?(tool: string, args: Record<string, any>): Promise<any>;
+  invokeTool?(tool: string, args: ToolArgs): Promise<unknown>;
 
   // --- Diagnostics ---
 
@@ -234,7 +273,7 @@ export interface AIProvider {
    * Handle a raw provider event and route it to registered handlers.
    * Returns true if the event was handled.
    */
-  routeEvent?(event: any): boolean;
+  routeEvent?(event: unknown): boolean;
 
   /** Subscribe to provider-level events (connect, disconnect, etc.) */
   onConnect?(handler: () => void): void;
@@ -284,3 +323,40 @@ export type ProviderConfig =
   | ClaudeCodeProviderConfig
   | CodexProviderConfig
   | OpenAIProviderConfig;
+
+// ============ Snapshot (server-authoritative state for clients) ============
+
+/**
+ * One row in the provider snapshot. Combines the diagnostic surface (status,
+ * requirements, version) with the model list, so clients have a single
+ * payload to subscribe to.
+ */
+export interface ProviderSnapshotEntry {
+  name: string;
+  /** Pretty label for UI; falls back to `name` when absent. */
+  label?: string;
+  status: ProviderStatus;
+  isDefault: boolean;
+  binaryPath?: string;
+  version?: string;
+  models: string[];
+  requirements: ProviderRequirement[];
+  lastError?: string;
+  /** ISO 8601 timestamp of when this entry was last refreshed. */
+  fetchedAt: string;
+}
+
+/** Full snapshot broadcast over WS / served from REST. */
+export interface ProvidersSnapshot {
+  providers: ProviderSnapshotEntry[];
+  /** Default provider name as resolved server-side; null if none configured. */
+  defaultProvider: string | null;
+  /** ISO 8601 timestamp marking when this snapshot was assembled. */
+  generatedAt: string;
+}
+
+/** Broadcast WS shape for snapshot updates. */
+export interface WSProvidersSnapshotMessage {
+  type: "providers:snapshot";
+  snapshot: ProvidersSnapshot;
+}

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard } from 'lucide-react';
-import type { AppSettings, ProviderDiagnostic, ThemeMode } from '../../types';
+import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
 import { providersApi } from '../../lib/api';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -253,14 +254,14 @@ function ShortcutsSection() {
   );
 }
 
-const STATUS_COLORS: Record<ProviderDiagnostic['status'], string> = {
+const STATUS_COLORS: Record<ProviderStatus, string> = {
   ready: 'bg-green-500',
   loading: 'bg-yellow-500',
   error: 'bg-red-500',
   unavailable: 'bg-gray-400',
 };
 
-const STATUS_LABELS: Record<ProviderDiagnostic['status'], string> = {
+const STATUS_LABELS: Record<ProviderStatus, string> = {
   ready: 'ready',
   loading: 'loading…',
   error: 'error',
@@ -282,50 +283,66 @@ interface TestResult {
 }
 
 function AIProvidersSection() {
-  const [diagnostics, setDiagnostics] = useState<ProviderDiagnostic[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Single subscription point — replaces the per-component fetches the section
+  // used to do. Snapshot updates arrive via WS, so opening Settings in two
+  // windows shows identical state without either window polling.
+  const { snapshot, loading, refresh } = useProvidersSnapshot();
+  const entries: ProviderSnapshotEntry[] = useMemo(
+    () => snapshot?.providers ?? [],
+    [snapshot],
+  );
+
   const [expanded, setExpanded] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, TestResult>>({});
 
-  const fetchAll = async (force = false) => {
-    try {
-      const data = await providersApi.diagnoseAll(force);
-      setDiagnostics(data.providers ?? []);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
+  // When a `test()` is in flight we set `testing = name` and remember the
+  // entry's `fetchedAt` at trigger time. The snapshot pushes a new entry once
+  // the server-side probe finishes; we detect that by comparing `fetchedAt`
+  // and synthesize the user-visible result message. This avoids a parallel
+  // HTTP path — every consumer sees the same snapshot.
+  const testTriggeredAt = useRef<Map<string, string>>(new Map());
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    if (!testing) return;
+    const entry = entries.find((e) => e.name === testing);
+    if (!entry) return;
+    const previousAt = testTriggeredAt.current.get(testing);
+    if (!previousAt || entry.fetchedAt === previousAt) return;
+    // A fresh row landed — derive result from it.
+    const ok = entry.status === 'ready';
+    const message = ok
+      ? `Connected${entry.models.length ? ` · ${entry.models.length} models` : ''}${entry.version ? ` · v${entry.version}` : ''}`
+      : entry.lastError ?? STATUS_LABELS[entry.status];
+    setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
+    testTriggeredAt.current.delete(testing);
+    setTesting(null);
+  }, [entries, testing]);
 
   const setDefault = async (name: string) => {
     try {
       await providersApi.setDefault(name);
-      await fetchAll();
-    } catch {}
+      await refresh();
+    } catch {
+      // ignore — UI still reflects the last good snapshot.
+    }
   };
 
   const test = async (name: string) => {
+    const entry = entries.find((e) => e.name === name);
+    testTriggeredAt.current.set(name, entry?.fetchedAt ?? '');
     setTesting(name);
     try {
-      const result = await providersApi.diagnose(name, true);
-      setDiagnostics((prev) => prev.map((p) => (p.name === name ? result : p)));
-      const ok = result.status === 'ready';
-      const message = ok
-        ? `Connected${result.modelsCount ? ` · ${result.modelsCount} models` : ''}${result.version ? ` · v${result.version}` : ''}`
-        : result.lastError ?? STATUS_LABELS[result.status];
-      setResults((prev) => ({ ...prev, [name]: { ok, message, at: Date.now() } }));
-    } catch (err: any) {
-      setResults((prev) => ({ ...prev, [name]: { ok: false, message: err?.message ?? 'Test failed', at: Date.now() } }));
-    } finally {
+      await refresh(name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Test failed';
+      setResults((prev) => ({ ...prev, [name]: { ok: false, message, at: Date.now() } }));
+      testTriggeredAt.current.delete(name);
       setTesting(null);
     }
   };
 
-  if (loading) {
+  if (loading && entries.length === 0) {
     return (
       <div>
         <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-3">
@@ -345,20 +362,20 @@ function AIProvidersSection() {
       </label>
 
       <div className="space-y-1.5">
-        {diagnostics.map((d) => (
+        {entries.map((entry) => (
           <ProviderCard
-            key={d.name}
-            diag={d}
-            expanded={expanded === d.name}
-            testing={testing === d.name}
-            result={results[d.name]}
-            onToggle={() => setExpanded(expanded === d.name ? null : d.name)}
-            onSetDefault={() => setDefault(d.name)}
-            onTest={() => test(d.name)}
-            onAfterConfigure={() => fetchAll(true)}
+            key={entry.name}
+            entry={entry}
+            expanded={expanded === entry.name}
+            testing={testing === entry.name}
+            result={results[entry.name]}
+            onToggle={() => setExpanded(expanded === entry.name ? null : entry.name)}
+            onSetDefault={() => setDefault(entry.name)}
+            onTest={() => test(entry.name)}
+            onAfterConfigure={() => { void refresh(entry.name); }}
           />
         ))}
-        {diagnostics.length === 0 && (
+        {entries.length === 0 && (
           <div className="text-[12px] text-app-text-muted">No providers registered.</div>
         )}
       </div>
@@ -367,7 +384,7 @@ function AIProvidersSection() {
 }
 
 interface ProviderCardProps {
-  diag: ProviderDiagnostic;
+  entry: ProviderSnapshotEntry;
   expanded: boolean;
   testing: boolean;
   result?: TestResult;
@@ -377,29 +394,44 @@ interface ProviderCardProps {
   onAfterConfigure: () => void;
 }
 
-function ProviderCard({ diag, expanded, testing, result, onToggle, onSetDefault, onTest, onAfterConfigure }: ProviderCardProps) {
-  const label = PROVIDER_LABELS[diag.name] ?? diag.name;
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return '';
+  if (ms < 1500) return 'just now';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+function ProviderCard({ entry, expanded, testing, result, onToggle, onSetDefault, onTest, onAfterConfigure }: ProviderCardProps) {
+  const label = entry.label ?? PROVIDER_LABELS[entry.name] ?? entry.name;
+  const modelsCount = entry.models.length;
   // Test connection only makes sense once requirements are met. When the
   // provider is "not set up" (unavailable), there's nothing to test — the user
   // first needs to satisfy the requirements below.
-  const canTest = diag.status !== 'unavailable';
+  const canTest = entry.status !== 'unavailable';
 
   return (
-    <div className={`rounded-lg border ${diag.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
+    <div className={`rounded-lg border ${entry.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-2 px-3 py-2 text-left"
       >
         {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[diag.status]}`} />
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
         <span className="text-[12px] font-semibold text-app-text">{label}</span>
-        <span className="text-[10px] text-app-text-muted">{STATUS_LABELS[diag.status]}</span>
-        {diag.version && <span className="text-[10px] text-app-text-muted">· v{diag.version}</span>}
-        {diag.modelsCount !== undefined && diag.modelsCount > 0 && (
-          <span className="text-[10px] text-app-text-muted">· {diag.modelsCount} models</span>
+        <span className="text-[10px] text-app-text-muted">{STATUS_LABELS[entry.status]}</span>
+        {entry.version && <span className="text-[10px] text-app-text-muted">· v{entry.version}</span>}
+        {modelsCount > 0 && (
+          <span className="text-[10px] text-app-text-muted">· {modelsCount} models</span>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {diag.isDefault && (
+          {entry.isDefault && (
             <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">Default</span>
           )}
         </div>
@@ -408,7 +440,7 @@ function ProviderCard({ diag, expanded, testing, result, onToggle, onSetDefault,
       {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-app-border space-y-2">
           {/* Action row */}
-          {(canTest || (!diag.isDefault && diag.status === 'ready')) && (
+          {(canTest || (!entry.isDefault && entry.status === 'ready')) && (
             <div className="flex items-center gap-2 flex-wrap">
               {canTest && (
                 <button
@@ -420,7 +452,7 @@ function ProviderCard({ diag, expanded, testing, result, onToggle, onSetDefault,
                   Test connection
                 </button>
               )}
-              {!diag.isDefault && diag.status === 'ready' && (
+              {!entry.isDefault && entry.status === 'ready' && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
                   className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
@@ -438,35 +470,42 @@ function ProviderCard({ diag, expanded, testing, result, onToggle, onSetDefault,
           )}
 
           {/* Binary path */}
-          {diag.binaryPath && (
+          {entry.binaryPath && (
             <div className="text-[11px] text-app-text-muted font-mono break-all">
-              {diag.binaryPath}
+              {entry.binaryPath}
             </div>
           )}
 
           {/* Last error (only when no fresh test result has overridden) */}
-          {diag.lastError && !result && (
+          {entry.lastError && !result && (
             <div className="flex items-start gap-1.5 text-[11px] text-red-500">
               <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
-              <span className="break-words">{diag.lastError}</span>
+              <span className="break-words">{entry.lastError}</span>
             </div>
           )}
 
           {/* Requirements */}
-          {diag.requirements.length > 0 && (
+          {entry.requirements.length > 0 && (
             <div className="space-y-1.5">
-              {diag.requirements.map((req) => (
+              {entry.requirements.map((req) => (
                 <RequirementRow key={req.key} req={req} />
               ))}
             </div>
           )}
 
           {/* Inline configure forms */}
-          {diag.name === 'claude' && diag.requirements.some((r) => r.key === 'ANTHROPIC_API_KEY' && !r.present) && (
+          {entry.name === 'claude' && entry.requirements.some((r) => r.key === 'ANTHROPIC_API_KEY' && !r.present) && (
             <ApiKeyForm provider="claude" placeholder="sk-ant-..." onSaved={onAfterConfigure} />
           )}
-          {diag.name === 'openai' && diag.requirements.some((r) => r.key === 'OPENAI_API_KEY' && !r.present) && (
+          {entry.name === 'openai' && entry.requirements.some((r) => r.key === 'OPENAI_API_KEY' && !r.present) && (
             <ApiKeyForm provider="openai" placeholder="sk-..." onSaved={onAfterConfigure} />
+          )}
+
+          {/* Freshness footer */}
+          {entry.fetchedAt && (
+            <div className="text-[10px] text-app-text-muted pt-1">
+              Updated {relativeTime(entry.fetchedAt)}
+            </div>
           )}
         </div>
       )}

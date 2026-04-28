@@ -22,6 +22,12 @@ export interface SeedMessageOpts {
   id?: string;
   parentId?: string;
   timestamp?: string;
+  // Slice 7 — per-message footer metadata. All optional; null/missing means
+  // the row renders no footer.
+  latencyMs?: number;
+  usagePromptTokens?: number;
+  usageCompletionTokens?: number;
+  costCents?: number;
 }
 
 /** Seed a message directly into the test server's database */

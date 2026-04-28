@@ -38,6 +38,15 @@ export interface Pane {
   id: string;
   type: PaneType;
   /**
+   * Stable identifier that survives PANE_ID_REMAP (draft → real topic
+   * promotion). React tab list keys off this so the DOM element doesn't
+   * unmount mid-flight when the pane id changes — without it the tab
+   * visibly flashes as soon as the user submits the first message in a
+   * draft chat. Set at pane creation and preserved by the remap reducer.
+   * Falls back to `id` for legacy panes that predate this field.
+   */
+  stableKey?: string;
+  /**
    * Display title. Optional because several legacy call sites (e.g.
    * ProjectWindow.buildDefaultGroups, hydration from openPanels) construct
    * panes without an explicit title — the consumer component falls back to

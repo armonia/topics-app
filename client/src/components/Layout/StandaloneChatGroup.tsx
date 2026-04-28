@@ -8,6 +8,7 @@ import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
 import {
   PANE_CONFIG,
+  getAddableTypesForScope,
   isProjectPaneId,
   isBrowserPaneId,
   isTerminalPaneId,
@@ -393,14 +394,15 @@ export function StandaloneChatGroup({
   // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
   if (!activeTopic && !activeIsUtility && !activeIsProject && !activeIsBrowser && !activeIsTerminal && !activeIsSessionViewer) return null;
 
-  // Available pane types for the "+" menu
+  // Single source of truth — `addableScopes: ['standalone']` in PANE_CONFIG.
+  // Previously this was a hardcoded ['browser', 'terminal'] with a bespoke
+  // browser-singleton check; now `getAddableTypesForScope` does both via
+  // `singleton` + `addableScopes` flags and the project tab bar derives
+  // its list the same way (see useProjectLayout.availableTypesForGroup).
   const availableTypes: PaneType[] = (() => {
-    const types: PaneType[] = ['browser', 'terminal'];
-    // Only offer types that aren't already open (singleton check)
-    return types.filter(t => {
-      if (t === 'browser') return !validatedOrderedIds.some(id => isBrowserPaneId(id));
-      return true; // terminal is not singleton — can have multiple
-    });
+    const present = new Set<PaneType>();
+    if (validatedOrderedIds.some(id => isBrowserPaneId(id))) present.add('browser');
+    return getAddableTypesForScope('standalone', present);
   })();
 
   // Tab bar rendered inline in header

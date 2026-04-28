@@ -101,6 +101,11 @@ function sanitizePane(raw: unknown): Pane | null {
     type: raw.type,
     title: typeof raw.title === 'string' ? raw.title : '',
   };
+  // `stableKey` survives PANE_ID_REMAP (draft → real topic promotion) so the
+  // React tab list key doesn't change mid-flight. Strip it from inbound
+  // hydrates would force every promoted pane to re-key on the next sync, which
+  // is exactly the flash we're trying to avoid — whitelist it.
+  if (typeof raw.stableKey === 'string') pane.stableKey = raw.stableKey;
   if (typeof raw.topicId === 'string') pane.topicId = raw.topicId;
   if (typeof raw.projectPath === 'string') pane.projectPath = raw.projectPath;
   if (typeof raw.filePath === 'string') pane.filePath = raw.filePath;

@@ -7,12 +7,31 @@
 import type { PaneType } from '../../../types';
 import { generateUUID } from '../../../utils/uuid';
 
+/**
+ * Where a pane type can be added from via a tab bar's `+` menu.
+ * - 'standalone' = top-level chat group (no project context)
+ * - 'project'    = inside a project window (any group, regardless of group.type)
+ *
+ * Pane types omitted from `addableScopes` (or with an empty array) are NOT
+ * surfaced in any tab bar `+` menu — they get added from the sidebar, command
+ * palette, or programmatically. This is the canonical list. Tab-bar code
+ * MUST derive its menu from this field; do not hardcode arrays at call
+ * sites (the previous version did, and they drifted apart).
+ */
+export type PaneScope = 'standalone' | 'project';
+
 export interface PaneConfig {
   icon: string;
   label: string;
   color: string;
   singleton?: boolean;
   fixed?: boolean;
+  /**
+   * Tab-bar `+` menu scopes. `'chat'` is omitted on purpose — chat creation
+   * uses the dedicated `onNewChat` affordance (top of menu), not the generic
+   * `onAddPane(type)` path. See `getAddableTypesForScope` below.
+   */
+  addableScopes?: readonly PaneScope[];
 }
 
 // Keyed by the authoritative `PaneType` union (state/pane/types.ts), a
@@ -23,21 +42,46 @@ export interface PaneConfig {
 export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   chat:          { icon: 'MessageSquare', label: 'Chat',         color: '#0066ff' },
   file:          { icon: 'FileCode',      label: 'File',         color: '#f59e0b' },
-  files:         { icon: 'FolderTree',    label: 'Files',        color: '#f59e0b', singleton: true },
-  browser:       { icon: 'Globe',         label: 'Browser',      color: '#10b981' },
-  terminal:      { icon: 'Terminal',      label: 'Terminal',     color: '#8b5cf6' },
-  git:           { icon: 'GitBranch',     label: 'Git',          color: '#ef4444', singleton: true },
+  files:         { icon: 'FolderTree',    label: 'Files',        color: '#f59e0b', singleton: true, addableScopes: ['project'] },
+  browser:       { icon: 'Globe',         label: 'Browser',      color: '#10b981', addableScopes: ['standalone', 'project'] },
+  terminal:      { icon: 'Terminal',      label: 'Terminal',     color: '#8b5cf6', addableScopes: ['standalone', 'project'] },
+  git:           { icon: 'GitBranch',     label: 'Git',          color: '#ef4444', singleton: true, addableScopes: ['project'] },
   activity:      { icon: 'Activity',      label: 'Activity',     color: '#06b6d4', singleton: true },
   journal:       { icon: 'BookOpen',      label: 'Journal',      color: '#f97316', singleton: true },
   agents:        { icon: 'Cpu',           label: 'Agents',       color: '#8b5cf6', singleton: true },
   board:         { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true },
-  'board-memory':{ icon: 'Brain',         label: 'Board Memory', color: '#10b981', singleton: true },
+  'board-memory':{ icon: 'Brain',         label: 'Board Memory', color: '#10b981', singleton: true, addableScopes: ['project'] },
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
   'all-boards':  { icon: 'LayoutGrid',   label: 'Board',         color: '#10b981', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
   'session-viewer': { icon: 'Eye',          label: 'Session',       color: '#8b5cf6' },
 };
+
+/**
+ * Canonical list of pane types addable in a given scope, in the order they
+ * should appear in the `+` menu. Excludes `chat` (handled by `onNewChat`),
+ * `fixed` panes, and types the caller has marked as currently-singleton-and-
+ * already-present via `excludeSingletonsPresent`.
+ *
+ * The order respects the iteration order of PANE_CONFIG so adding a new pane
+ * type with `addableScopes` set is the only edit needed to surface it
+ * everywhere — no call-site array maintenance.
+ */
+export function getAddableTypesForScope(
+  scope: PaneScope,
+  excludeSingletonsPresent: ReadonlySet<PaneType> = new Set(),
+): PaneType[] {
+  const out: PaneType[] = [];
+  for (const [type, config] of Object.entries(PANE_CONFIG) as [PaneType, PaneConfig][]) {
+    if (!config) continue;
+    if (config.fixed) continue;
+    if (!config.addableScopes?.includes(scope)) continue;
+    if (config.singleton && excludeSingletonsPresent.has(type)) continue;
+    out.push(type);
+  }
+  return out;
+}
 
 /**
  * Safe lookup for PANE_CONFIG — returns the chat config as a fallback for

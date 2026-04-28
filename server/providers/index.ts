@@ -114,6 +114,8 @@ export function registerProvider(config: ProviderConfig): AIProvider {
   const provider = createProvider(config);
   provider.start();
   _providers.set(provider.name, provider);
+  // Refresh the snapshot row for this provider — fires `change`, drives WS push.
+  void invalidateSnapshot(provider.name);
   return provider;
 }
 
@@ -126,6 +128,20 @@ export function removeProvider(name: string): void {
     if (_defaultName === name) {
       _defaultName = _providers.keys().next().value;
     }
+    void invalidateSnapshot(name);
+  }
+}
+
+/**
+ * Lazy import of the snapshot manager — avoids a circular import at module
+ * load time (snapshot-manager → index → snapshot-manager).
+ */
+function invalidateSnapshot(name: string): void {
+  try {
+    const { getSnapshotManager } = require("./snapshot-manager") as typeof import("./snapshot-manager");
+    getSnapshotManager().invalidate(name);
+  } catch {
+    // Manager not loaded yet — nothing to invalidate.
   }
 }
 
@@ -233,13 +249,23 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
-  // Set default: explicit env, or first available
+  // Set default: explicit env wins; otherwise prefer a CONNECTED provider so
+  // chat routes don't silently dispatch to an offline gateway. Without this
+  // gate, "openclaw" wins backwards-compat priority even when its gateway is
+  // unreachable, and every /api/chat call returns "Gateway unreachable" or an
+  // empty SSE stream — surfaced as "No response received" in the UI.
   const explicit = process.env.AI_PROVIDER?.toLowerCase();
   if (explicit && _providers.has(explicit)) {
     _defaultName = explicit;
   } else if (!_defaultName && _providers.size > 0) {
-    // Prefer openclaw for backwards compat, else first
-    _defaultName = _providers.has("openclaw") ? "openclaw" : _providers.keys().next().value;
+    const connectedName = (name: string) => _providers.get(name)?.connected === true;
+    // Prefer openclaw if it's actually reachable (BC), else first connected, else first registered.
+    if (_providers.has("openclaw") && connectedName("openclaw")) {
+      _defaultName = "openclaw";
+    } else {
+      const firstConnected = [..._providers.entries()].find(([, p]) => p.connected)?.[0];
+      _defaultName = firstConnected ?? _providers.keys().next().value;
+    }
   }
 
   if (started.length === 0) {

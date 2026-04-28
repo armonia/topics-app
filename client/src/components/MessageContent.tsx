@@ -6,7 +6,10 @@ import remarkGfm from 'remark-gfm';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
-import { ThinkingBlock, ToolCallsList, ToolCallBadge, PartialIndicator } from './MessageParts';
+import { ToolCallBadge, PartialIndicator } from './MessageParts';
+import { ToolCallRow } from './Chat/ToolCallRow';
+import { ReasoningRow } from './Chat/ReasoningRow';
+import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
@@ -798,6 +801,11 @@ interface MessageContentProps {
   toolCalls?: import('../types').ToolCall[];
   media?: string[];
   partial?: boolean;
+  // Per-message footer (Slice 7) — all optional. Footer hides when none set.
+  latencyMs?: number | null;
+  usagePromptTokens?: number | null;
+  usageCompletionTokens?: number | null;
+  costCents?: number | null;
   // Plan mode
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
@@ -807,7 +815,7 @@ interface MessageContentProps {
   onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, onPlanApprove, onPlanReject, onOpenSessionViewer, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -878,22 +886,30 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return <AgentSpawnCard sessionKey={spawnMatch[1]} label={spawnMatch[2]} onOpenInPane={onOpenSessionViewer} onMessage={onMessage} />;
   }
 
-  // Assistant message - render thinking, tool calls, content, and media
+  // Assistant message - render reasoning row + tool rows + prose + footer.
+  // The pre-content rows (reasoning + legacy tool calls) form a single
+  // vertical list of inline rows (no boxed cards) so the assistant message
+  // reads top-to-bottom as: what I was thinking → what I did → what I'm
+  // saying → meta. Inline tool calls (with contentOffset) still interleave
+  // inside the prose via renderContentWithInlineTools.
   return (
     <div data-testid="message-content-assistant">
-      {/* Thinking block - always show if present */}
-      {thinking && <ThinkingBlock content={thinking} />}
-
-      {/* Tool calls - split into legacy (no offset) and inline (with offset) */}
       {(() => {
         const legacyTools = toolCalls?.filter(tc => typeof tc.contentOffset !== 'number') ?? [];
         const inlineTools = toolCalls?.filter(tc => typeof tc.contentOffset === 'number') ?? [];
         const hasInline = inlineTools.length > 0;
+        const hasPreContentRows = !!thinking || legacyTools.length > 0;
 
         return (
           <>
-            {/* Legacy tool calls (no contentOffset) shown above content */}
-            {legacyTools.length > 0 && <ToolCallsList toolCalls={legacyTools} />}
+            {hasPreContentRows && (
+              <div className="space-y-0 mb-1.5">
+                {thinking && <ReasoningRow content={thinking} partial={partial} />}
+                {legacyTools.map((tc) => (
+                  <ToolCallRow key={tc.id} toolCall={tc} />
+                ))}
+              </div>
+            )}
 
             {/* Inline typing indicator for empty streaming message */}
             {!cleanText && !thinking && partial && (
@@ -937,6 +953,17 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Streaming indicator - only when content has started */}
       {partial && (cleanText || thinking) && <PartialIndicator />}
+
+      {/* Per-message footer (latency + tokens + cost). Hidden until streaming
+           ends and at least one metric is reported by the provider. */}
+      {!partial && (
+        <MessageMetaFooter
+          latencyMs={latencyMs}
+          promptTokens={usagePromptTokens}
+          completionTokens={usageCompletionTokens}
+          costCents={costCents}
+        />
+      )}
     </div>
   );
 });

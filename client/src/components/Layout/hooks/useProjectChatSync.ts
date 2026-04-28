@@ -174,6 +174,10 @@ export function useProjectChatSync(
 
       const persisted = initialRef.current;
       const openSet = new Set(persisted?.openChatTopicIds || []);
+      // `topicIds` is already filtered by `t.projectPath === projectPath`
+      // (see line 112-122), so iterating it is safe — the only way a foreign
+      // topic enters the chat-pane set is via the seed loop in
+      // useProjectLayout (now guarded) or onServerHydrate below.
       for (const tid of topicIds) {
         if (survivingChatTopicIds.has(tid)) continue;
         if (openSet.has(tid)) {
@@ -274,6 +278,11 @@ export function useProjectChatSync(
           // utility-pane id is never a topic, so don't materialise it
           // as a "Topic not found" stub on cross-device hydrate.
           if (tid.startsWith('__') && tid.endsWith('__')) continue;
+          // Cross-project leak guard: server-hydrate may carry foreign-project
+          // topic ids if a previous buggy build wrote them. Drop them here so
+          // they don't get materialised as ghost tabs in this project.
+          const ftopic = topics[tid];
+          if (ftopic && ftopic.projectPath !== projectPath) continue;
           stubs.push({
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,

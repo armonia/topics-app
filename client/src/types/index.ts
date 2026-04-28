@@ -20,6 +20,12 @@ export interface Topic {
   autonomyLevel?: AutonomyLevel;
   disabledContextSources?: string[];
   provider?: string | null;
+  /**
+   * Last-used model for this topic. Persists across sessions so the picker
+   * remembers your selection; mirrors `server/types.ts:Topic.model`. NULL =
+   * use the provider's default.
+   */
+  model?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
 }
 
@@ -37,7 +43,13 @@ export interface Message {
 export interface ToolCall {
   id: string;
   name: string;
-  args: Record<string, any>;
+  /**
+   * Tool arguments as parsed from the provider stream. Keys are field names,
+   * values are arbitrary JSON — consumers either JSON.stringify or run their
+   * own narrowing. `unknown` instead of `any` so the type system forces
+   * narrowing before use.
+   */
+  args: Record<string, unknown>;
   status?: 'pending' | 'running' | 'success' | 'error';
   result?: string;
   error?: string;
@@ -60,6 +72,17 @@ export interface ChatMessage extends Message {
   branchIndex?: number;           // Index among siblings (0-based)
   siblingCount?: number;          // Total siblings at this branch point
   activeBranchIndex?: number;     // Currently active sibling index
+  // Per-message metadata (footer). Populated for assistant messages when the
+  // upstream provider reports usage/cost; nullable so old rows don't render
+  // a footer. See `server/db/migrations/014-message-meta.sql`.
+  /** Total stream wall-clock duration in milliseconds (server measured). */
+  latencyMs?: number | null;
+  /** Prompt/input tokens reported by the provider. */
+  usagePromptTokens?: number | null;
+  /** Completion/output tokens reported by the provider. */
+  usageCompletionTokens?: number | null;
+  /** Best-effort cost in USD cents. May be null even when token counts exist. */
+  costCents?: number | null;
 }
 
 export interface CreateTopicRequest {
@@ -82,6 +105,8 @@ export interface UpdateTopicRequest {
   projectPath?: string;
   autonomyLevel?: AutonomyLevel;
   provider?: string | null;
+  /** Set to a model id to persist as the topic's last-used model; null clears. */
+  model?: string | null;
   disabledContextSources?: string[];
 }
 
@@ -110,20 +135,29 @@ export interface ProviderRequirement {
   hint?: string;
 }
 
-export interface ProviderDiagnostic {
+/**
+ * One row in the provider snapshot. Combines diagnostic + model list so the
+ * picker, settings page, and any other consumer subscribe to a single shape.
+ * Mirrors `server/providers/types.ts:ProviderSnapshotEntry`.
+ */
+export interface ProviderSnapshotEntry {
   name: string;
+  label?: string;
   status: ProviderStatus;
-  isDefault?: boolean;
+  isDefault: boolean;
   binaryPath?: string;
   version?: string;
-  modelsCount?: number;
+  models: string[];
   requirements: ProviderRequirement[];
   lastError?: string;
+  fetchedAt: string;
 }
 
-export interface ProviderModels {
-  provider: string;
-  models: string[];
+/** Server-authoritative snapshot served via REST and WS. */
+export interface ProvidersSnapshot {
+  providers: ProviderSnapshotEntry[];
+  defaultProvider: string | null;
+  generatedAt: string;
 }
 
 export interface HistoryRequest {
@@ -173,10 +207,56 @@ export interface UnreadData {
   };
 }
 
+/**
+ * Loose WebSocket message base. Most consumers narrow on `msg.type` and read
+ * fields opportunistically; widening the index sig to `any` keeps that
+ * pattern working without forcing every consumer to do explicit casts.
+ *
+ * For new code, prefer the typed variants below (`WSProvidersSnapshotMessage`,
+ * `WSTopicUpdatedMessage`, etc.) and use the `parseTypedWSMessage` helper to
+ * narrow when reading off the wire.
+ *
+ * TODO(types): once all 23 consumers narrow via discriminated union, swap the
+ * index sig to `unknown` and remove this exception. Tracked under Slice 8.
+ */
 export interface WSMessage {
   type: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
+
+/** Typed variants for messages consumed by the new snapshot flow. */
+export interface WSProvidersSnapshotMessage {
+  type: 'providers:snapshot';
+  snapshot: ProvidersSnapshot;
+}
+
+export interface WSTopicUpdatedMessage {
+  type: 'topic:updated';
+  topic: Topic;
+}
+
+export interface WSGatewayStatusMessage {
+  type: 'gateway:status';
+  connected: boolean;
+}
+
+/** Catch-all variant — preserves the loose-shape escape hatch. */
+export interface WSUnknownMessage {
+  type: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+/**
+ * Discriminated union for new code paths. Catch-all kept so unknown types
+ * don't crash the dispatcher; consumers narrow with `if (msg.type === 'X')`.
+ */
+export type TypedWSMessage =
+  | WSProvidersSnapshotMessage
+  | WSTopicUpdatedMessage
+  | WSGatewayStatusMessage
+  | WSUnknownMessage;
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
