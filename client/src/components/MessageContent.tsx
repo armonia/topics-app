@@ -799,6 +799,12 @@ interface MessageContentProps {
   // Enhanced message fields
   thinking?: string;
   toolCalls?: import('../types').ToolCall[];
+  /**
+   * Chronological timeline. When present and non-empty, takes precedence
+   * over the legacy thinking/toolCalls/content bucket rendering — restoring
+   * the actual order in which the model produced each piece of content.
+   */
+  blocks?: import('../types').ContentBlock[];
   media?: string[];
   partial?: boolean;
   // Per-message footer (Slice 7) — all optional. Footer hides when none set.
@@ -815,7 +821,7 @@ interface MessageContentProps {
   onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -886,7 +892,110 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return <AgentSpawnCard sessionKey={spawnMatch[1]} label={spawnMatch[2]} onOpenInPane={onOpenSessionViewer} onMessage={onMessage} />;
   }
 
-  // Assistant message - render reasoning row + tool rows + prose + footer.
+  // Assistant message — render either the chronological blocks timeline
+  // (preferred when present) OR the legacy bucket layout (thinking → tools
+  // → text). The blocks path preserves the actual order the model produced
+  // each piece of content so reasoning that happens *between* tool calls
+  // appears where it occurred, not lifted to the top.
+  if (blocks && blocks.length > 0) {
+    // Group consecutive tool blocks so we can render them as a single
+    // vertical timeline (connected by a left border line) instead of N
+    // unrelated rows. Visually lighter, easier to scan.
+    type Group =
+      | { kind: 'thinking'; idx: number; text: string }
+      | { kind: 'text'; idx: number; text: string }
+      | { kind: 'tools'; startIdx: number; tools: typeof blocks };
+    const groups: Group[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.kind === 'tool') {
+        const last = groups[groups.length - 1];
+        if (last && last.kind === 'tools') {
+          last.tools.push(b);
+        } else {
+          groups.push({ kind: 'tools', startIdx: i, tools: [b] });
+        }
+      } else if (b.kind === 'thinking') {
+        groups.push({ kind: 'thinking', idx: i, text: b.text });
+      } else {
+        groups.push({ kind: 'text', idx: i, text: b.text });
+      }
+    }
+    return (
+      <div data-testid="message-content-assistant">
+        {groups.map((g) => {
+          if (g.kind === 'thinking') {
+            return (
+              <ReasoningRow
+                key={`g-th-${g.idx}`}
+                content={g.text}
+                partial={partial && g.idx === blocks.length - 1}
+              />
+            );
+          }
+          if (g.kind === 'tools') {
+            return (
+              <div
+                key={`g-tools-${g.startIdx}`}
+                className="my-1 pl-2 border-l border-app-border/60 space-y-0"
+              >
+                {g.tools.map((b, j) => (
+                  <ToolCallRow
+                    key={`b-${g.startIdx + j}-${(b as any).toolCall.id}`}
+                    toolCall={(b as any).toolCall}
+                  />
+                ))}
+              </div>
+            );
+          }
+          // text block — close partial markdown tokens while streaming the
+          // last block so half-emitted ``` or ** don't break rendering.
+          const isLastBlock = g.idx === blocks.length - 1;
+          const text = (partial && isLastBlock) ? completePartialMarkdown(g.text) : g.text;
+          if (!text) return null;
+          if (hasDiffBlocks(text)) {
+            return <DiffBlocksWithApplyAll key={`g-tx-${g.idx}`} segments={parseMessageWithDiffs(text)} />;
+          }
+          return (
+            <div key={`g-tx-${g.idx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {text}
+              </ReactMarkdown>
+            </div>
+          );
+        })}
+
+        {/* Streaming dots for empty placeholder messages */}
+        {blocks.length === 0 && partial && (
+          <div className="flex gap-1.5 items-center py-0.5">
+            <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+        )}
+
+        {/* Media — rendered after content blocks */}
+        {allMediaPaths.map((path, i) => (
+          <div key={`m-${i}`} className="mb-2">
+            <MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} />
+          </div>
+        ))}
+
+        {partial && <PartialIndicator />}
+
+        {!partial && (
+          <MessageMetaFooter
+            latencyMs={latencyMs}
+            promptTokens={usagePromptTokens}
+            completionTokens={usageCompletionTokens}
+            costCents={costCents}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Legacy fallback — render reasoning row + tool rows + prose + footer.
   // The pre-content rows (reasoning + legacy tool calls) form a single
   // vertical list of inline rows (no boxed cards) so the assistant message
   // reads top-to-bottom as: what I was thinking → what I did → what I'm
@@ -895,8 +1004,20 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   return (
     <div data-testid="message-content-assistant">
       {(() => {
-        const legacyTools = toolCalls?.filter(tc => typeof tc.contentOffset !== 'number') ?? [];
-        const inlineTools = toolCalls?.filter(tc => typeof tc.contentOffset === 'number') ?? [];
+        // When there's no prose, the inline-tools-with-contentOffset path
+        // would render NOTHING (it only fires inside `cleanText && ...`),
+        // making tool-only assistant messages invisible. Promote inline
+        // tools to legacy pre-content rows in that case so they still
+        // display while we wait for the migration to fully populate
+        // `blocks` on every row.
+        const noProse = !cleanText || cleanText.trim().length === 0;
+        const allTools = toolCalls ?? [];
+        const legacyTools = noProse
+          ? allTools
+          : allTools.filter(tc => typeof tc.contentOffset !== 'number');
+        const inlineTools = noProse
+          ? []
+          : allTools.filter(tc => typeof tc.contentOffset === 'number');
         const hasInline = inlineTools.length > 0;
         const hasPreContentRows = !!thinking || legacyTools.length > 0;
 

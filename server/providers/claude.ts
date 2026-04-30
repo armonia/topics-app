@@ -17,16 +17,37 @@ import type {
   StreamHandler,
 } from "./types";
 
-// Models that support extended thinking (claude-3-7 and later)
-const THINKING_MODELS = /^claude-(3-7|4|sonnet-4|opus-4)/;
+// Model families that support extended thinking. Claude 3.7 + all Claude 4.x.
+const THINKING_MODELS = /^claude-(3-7|sonnet-4|opus-4|haiku-4)/;
 
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
-const DEFAULT_MAX_TOKENS = 8192;
-const DEFAULT_THINKING_BUDGET = 10_000;
+// Models that REQUIRE adaptive thinking (Opus 4.7+ removed budget_tokens entirely).
+// budget_tokens returns 400 on Opus 4.7. On 4.6 it's deprecated but still works.
+// We use adaptive on every 4.6+ alias to match Anthropic's recommended path.
+const ADAPTIVE_THINKING_MODELS = /^claude-(opus-4-(?:6|7)|sonnet-4-6|haiku-4-5)/;
+
+const DEFAULT_MODEL = "claude-sonnet-4-6";
+// Output ceiling. Must always exceed any thinking budget we send (legacy
+// `budget_tokens` < `max_tokens` is a hard API constraint on pre-4.6 models).
+const DEFAULT_MAX_TOKENS = 16384;
+// Legacy fixed budget — only used for pre-4.6 models that don't accept adaptive.
+// Kept strictly below DEFAULT_MAX_TOKENS to avoid the "budget >= max" 400.
+const LEGACY_THINKING_BUDGET = 8000;
+
+// Public model aliases that resolve to actual Anthropic API models. Order
+// matters: the first entry is what the picker shows first when this provider
+// is the default. Sonnet 4.6 leads because it's the recommended balanced choice.
+const KNOWN_MODELS = [
+  "claude-sonnet-4-6",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-haiku-4-5",
+  "claude-sonnet-4-5",
+  "claude-opus-4-5",
+];
 
 export class ClaudeProvider implements AIProvider {
   readonly name = "claude";
-  readonly capabilities: Set<ProviderCapability> = new Set(["streaming", "thinking"]);
+  readonly capabilities: Set<ProviderCapability> = new Set(["streaming", "thinking", "history"]);
 
   private client: Anthropic | null = null;
   private config: ClaudeProviderConfig;
@@ -61,7 +82,7 @@ export class ClaudeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string },
+    options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
     const client = this.requireClient();
     const runId = crypto.randomUUID();
@@ -71,15 +92,24 @@ export class ClaudeProvider implements AIProvider {
     const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
     const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
+    // Build the full message array. Anthropic API is stateless — we MUST
+    // resend the entire conversation history every turn. Without `history`
+    // every call starts a fresh conversation (the long-standing bug).
+    const { system, conversationMessages } = this.splitSystemMessage(options?.history ?? []);
     const params: Anthropic.MessageCreateParams = {
       model,
       max_tokens: maxTokens,
-      messages: [{ role: "user", content: message }],
+      messages: [
+        ...conversationMessages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+        { role: "user", content: message },
+      ],
     };
+    if (system) params.system = system;
 
-    if (this.supportsThinking(model)) {
-      params.thinking = { type: "enabled", budget_tokens: DEFAULT_THINKING_BUDGET };
-    }
+    this.applyThinking(params, model, maxTokens);
 
     let fullText = "";
 
@@ -144,9 +174,7 @@ export class ClaudeProvider implements AIProvider {
       params.system = system;
     }
 
-    if (this.supportsThinking(model)) {
-      params.thinking = { type: "enabled", budget_tokens: DEFAULT_THINKING_BUDGET };
-    }
+    this.applyThinking(params, model, maxTokens);
 
     const anthropicStream = client.messages.stream(params, {
       signal: options?.signal,
@@ -302,12 +330,30 @@ export class ClaudeProvider implements AIProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [
-      "claude-opus-4-7",
-      "claude-sonnet-4-6",
-      "claude-haiku-4-5-20251001",
-      "claude-sonnet-4-20250514",
-    ];
+    // Try to fetch live model list from the API. Filter to chat-capable
+    // Claude models (drop embeddings, etc. — none currently exist but the
+    // filter is cheap insurance). Falls back to the known-good list.
+    if (!this.config.apiKey) return KNOWN_MODELS;
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/models", {
+        headers: {
+          "x-api-key": this.config.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) return KNOWN_MODELS;
+      const data: any = await resp.json();
+      const ids: string[] = Array.isArray(data?.data)
+        ? data.data.map((m: any) => m?.id).filter((id: unknown): id is string => typeof id === "string")
+        : [];
+      // Keep only Claude chat models. The API returns aliases AND date-suffixed
+      // IDs; we surface aliases-only when available so the picker stays clean.
+      const aliases = ids.filter((id) => /^claude-(opus|sonnet|haiku)-\d+(?:-\d+)?$/.test(id));
+      return aliases.length > 0 ? aliases : ids.filter((id) => id.startsWith("claude-"));
+    } catch {
+      return KNOWN_MODELS;
+    }
   }
 
   // --- Internals ---
@@ -319,8 +365,32 @@ export class ClaudeProvider implements AIProvider {
     return this.client;
   }
 
-  private supportsThinking(model: string): boolean {
-    return THINKING_MODELS.test(model);
+  /**
+   * Apply the right thinking config for the requested model.
+   *
+   * - Opus 4.7 / Opus 4.6 / Sonnet 4.6 / Haiku 4.5: adaptive thinking. The
+   *   model decides when and how much to think. `budget_tokens` is removed on
+   *   4.7 and deprecated on 4.6, so adaptive is the only safe default.
+   * - Older Claude 4 / Sonnet 3.7: legacy `enabled` thinking with a fixed
+   *   budget that is always strictly less than `max_tokens` (else 400).
+   * - Anything else: no thinking config (Haiku 3.x etc).
+   */
+  private applyThinking(params: Anthropic.MessageCreateParams, model: string, maxTokens: number): void {
+    if (ADAPTIVE_THINKING_MODELS.test(model)) {
+      params.thinking = { type: "adaptive" } as any;
+      return;
+    }
+    if (THINKING_MODELS.test(model)) {
+      // Cap budget below max_tokens with a comfortable margin — the API
+      // requires strictly less, and we want headroom for the actual response.
+      const budget = Math.min(LEGACY_THINKING_BUDGET, Math.max(1024, Math.floor(maxTokens * 0.5)));
+      if (budget >= maxTokens) {
+        // Pathological config (caller passed maxTokens <= 1024). Skip thinking
+        // rather than error — better to lose reasoning than hard-fail.
+        return;
+      }
+      params.thinking = { type: "enabled", budget_tokens: budget };
+    }
   }
 
   /**

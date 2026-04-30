@@ -24,6 +24,20 @@ export interface ToolCall {
   contentOffset?: number;
 }
 
+/**
+ * One element in a message's chronological content timeline.
+ *
+ * Captures the actual order in which the provider emitted each piece of
+ * content during streaming — text, reasoning, and tool calls all coexist on
+ * the same array, instead of the legacy thinking/content/toolCalls bucket
+ * split that lost ordering. Consecutive same-kind deltas are coalesced into
+ * a single block while streaming.
+ */
+export type ContentBlock =
+  | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
+  | { kind: "tool"; toolCall: ToolCall };
+
 export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
@@ -31,6 +45,12 @@ export interface StoredMessage {
   timestamp: string;
   thinking?: string;
   toolCalls?: ToolCall[];
+  /**
+   * Unified chronological timeline of content blocks. Populated for new
+   * assistant messages produced by the streaming pipeline; absent on legacy
+   * rows (the client falls back to bucket-rendering when missing).
+   */
+  blocks?: ContentBlock[];
   media?: string[];
   partial?: boolean;
   streamedAt?: string;

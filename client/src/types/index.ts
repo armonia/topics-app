@@ -56,6 +56,20 @@ export interface ToolCall {
   contentOffset?: number;
 }
 
+/**
+ * Chronological content block emitted during assistant streaming. The
+ * server captures each text/thinking/tool event from the provider in
+ * arrival order on this array; the renderer iterates it in order so
+ * reasoning that happens *between* tool calls displays where it actually
+ * occurred — instead of being lifted out into a "thinking" header above
+ * everything else (the legacy bucket-rendering bug). See
+ * `server/types.ts:ContentBlock`.
+ */
+export type ContentBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'thinking'; text: string }
+  | { kind: 'tool'; toolCall: ToolCall };
+
 export interface ChatMessage extends Message {
   id: string;
   timestamp: string;
@@ -63,6 +77,13 @@ export interface ChatMessage extends Message {
   // Enhanced message structure
   thinking?: string;              // AI thinking content (collapsible)
   toolCalls?: ToolCall[];         // Tool calls made in this message
+  /**
+   * Chronological timeline of content blocks. Populated during streaming
+   * (built incrementally from WS events) and preserved on history reload.
+   * Older messages may not have this; MessageContent falls back to the
+   * thinking/content/toolCalls buckets in that case.
+   */
+  blocks?: ContentBlock[];
   media?: string[];               // Media file paths
   partial?: boolean;              // True if message is still streaming
   queued?: boolean;               // True if message is queued to send (offline)

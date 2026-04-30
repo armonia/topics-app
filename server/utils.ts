@@ -90,11 +90,13 @@ export function createAppContext(baseDir: string): AppContext {
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
     `),
     updateMessage: db.prepare(`
-      UPDATE messages SET content = $content, thinking = $thinking, tool_calls = $tool_calls, media = $media,
+      UPDATE messages SET content = $content, thinking = $thinking, tool_calls = $tool_calls,
+        blocks = COALESCE($blocks, blocks),
+        media = $media,
         partial = $partial, streamed_at = $streamed_at, plan_status = $plan_status,
         latency_ms = COALESCE($latency_ms, latency_ms),
         usage_prompt_tokens = COALESCE($usage_prompt_tokens, usage_prompt_tokens),
@@ -216,6 +218,12 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.tool_calls) {
       try { msg.toolCalls = JSON.parse(row.tool_calls); } catch {}
     }
+    if (row.blocks) {
+      try {
+        const parsed = JSON.parse(row.blocks);
+        if (Array.isArray(parsed)) msg.blocks = parsed;
+      } catch {}
+    }
     if (row.media) {
       try { msg.media = JSON.parse(row.media); } catch {}
     }
@@ -232,14 +240,16 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // Build the meta param block for insertMessage/updateMessage. Mirrors the
-  // schema in 014-message-meta.sql; passing null means "leave existing value
-  // alone" because updateMessage uses COALESCE on these fields.
+  // schema in 014-message-meta.sql + 015-message-blocks.sql; passing null
+  // means "leave existing value alone" because updateMessage uses COALESCE
+  // on these fields.
   function metaParams(msg: Partial<StoredMessage>) {
     return {
       $latency_ms: msg.latencyMs ?? null,
       $usage_prompt_tokens: msg.usagePromptTokens ?? null,
       $usage_completion_tokens: msg.usageCompletionTokens ?? null,
       $cost_cents: msg.costCents ?? null,
+      $blocks: msg.blocks ? JSON.stringify(msg.blocks) : null,
     };
   }
 

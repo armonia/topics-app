@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, Message, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatRequest, ContentBlock, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
 
 // --- Message cache helpers (localStorage) ---
@@ -207,6 +207,26 @@ export function useChat() {
     });
   }, []);
 
+  // Append a delta or tool call to the message's chronological `blocks`
+  // timeline, coalescing consecutive same-kind text/thinking deltas. Returns
+  // a NEW blocks array so React sees the change. This is the source of
+  // truth for ordering — legacy `content`/`thinking`/`toolCalls` are still
+  // populated alongside for components that haven't migrated yet.
+  const appendBlock = (existing: ContentBlock[] | undefined, block: ContentBlock): ContentBlock[] => {
+    const arr = existing ? existing.slice() : [];
+    const last = arr[arr.length - 1];
+    if (block.kind === 'text' && last?.kind === 'text') {
+      arr[arr.length - 1] = { kind: 'text', text: last.text + block.text };
+      return arr;
+    }
+    if (block.kind === 'thinking' && last?.kind === 'thinking') {
+      arr[arr.length - 1] = { kind: 'thinking', text: last.text + block.text };
+      return arr;
+    }
+    arr.push(block);
+    return arr;
+  };
+
   const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
@@ -216,11 +236,16 @@ export function useChat() {
         const updatedMessages = [...sessionMessages];
         const lastMsg = sessionMessages[lastMessageIndex];
 
+        let nextBlocks = lastMsg.blocks;
+        if (contentDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
+        if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
+
         // Create a new object without mutating the old state reference
         updatedMessages[lastMessageIndex] = {
           ...lastMsg,
           content: contentDelta ? (lastMsg.content || '') + contentDelta : lastMsg.content,
           thinking: thinkingDelta ? (lastMsg.thinking || '') + thinkingDelta : lastMsg.thinking,
+          blocks: nextBlocks,
         };
 
         return {
@@ -237,22 +262,22 @@ export function useChat() {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastMessageIndex = sessionMessages.length - 1;
-      
+
       if (lastMessageIndex >= 0 && sessionMessages[lastMessageIndex].role === 'assistant') {
         const updatedMessages = [...sessionMessages];
         const lastMsg = updatedMessages[lastMessageIndex];
-        
-        if (!lastMsg.toolCalls) lastMsg.toolCalls = [];
-        lastMsg.toolCalls.push(toolCall);
-        
-        updatedMessages[lastMessageIndex] = { ...lastMsg };
-        
+
+        const nextToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls, toolCall] : [toolCall];
+        const nextBlocks = appendBlock(lastMsg.blocks, { kind: 'tool', toolCall });
+
+        updatedMessages[lastMessageIndex] = { ...lastMsg, toolCalls: nextToolCalls, blocks: nextBlocks };
+
         return {
           ...prev,
           [sessionKey]: updatedMessages,
         };
       }
-      
+
       return prev;
     });
   }, []);
@@ -327,11 +352,29 @@ export function useChat() {
             const msgs = [...(prev[sessionKey] || [])];
             for (let i = msgs.length - 1; i >= 0; i--) {
               if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                const tc = msgs[i].toolCalls!.find(t => t.id === event.toolCallId);
-                if (tc) {
-                  tc.status = event.status || 'success';
-                  tc.result = event.result;
-                  msgs[i] = { ...msgs[i] };
+                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
+                if (tcIdx >= 0) {
+                  // Replace the ToolCall with a new instance so React.memo
+                  // on MessageContent sees a real prop change. Mirror the
+                  // change into both the legacy `toolCalls` bucket and the
+                  // chronological `blocks` timeline.
+                  const oldTc = msgs[i].toolCalls![tcIdx];
+                  const newTc: ToolCall = {
+                    ...oldTc,
+                    status: ((event.status as ToolCall['status']) || 'success'),
+                    result: event.result as string | undefined,
+                  };
+                  const nextToolCalls = msgs[i].toolCalls!.slice();
+                  nextToolCalls[tcIdx] = newTc;
+                  let nextBlocks = msgs[i].blocks;
+                  if (nextBlocks) {
+                    nextBlocks = nextBlocks.map(b =>
+                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
+                        ? { kind: 'tool' as const, toolCall: newTc }
+                        : b,
+                    );
+                  }
+                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
                   break;
                 }
               }
@@ -371,7 +414,15 @@ export function useChat() {
           cacheMessages(sessionKey, msgs);
           return prev;
         });
-        updateLastMessage(sessionKey, { partial: false });
+        {
+          const evtAny = event as any;
+          const finalPatch: any = { partial: false };
+          if (typeof evtAny.latencyMs === 'number') finalPatch.latencyMs = evtAny.latencyMs;
+          if (typeof evtAny.usagePromptTokens === 'number') finalPatch.usagePromptTokens = evtAny.usagePromptTokens;
+          if (typeof evtAny.usageCompletionTokens === 'number') finalPatch.usageCompletionTokens = evtAny.usageCompletionTokens;
+          if (typeof evtAny.costCents === 'number') finalPatch.costCents = evtAny.costCents;
+          updateLastMessage(sessionKey, finalPatch);
+        }
         // Auto-send next queued message for this session (if any)
         {
           const queue = streamQueueRef.current[sessionKey];
@@ -622,7 +673,11 @@ export function useChat() {
                 }
               }
 
-              // Handle tool results
+              // Handle tool results — update BOTH the legacy `toolCalls`
+              // bucket and the new `blocks` timeline. Replace the ToolCall
+              // object with a new instance (not just mutate in place) so
+              // React.memo on MessageContent sees a real prop change and
+              // re-renders the row out of its "running" state.
               if (delta?.tool_result) {
                 const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
                 if (trId) {
@@ -630,11 +685,21 @@ export function useChat() {
                     const msgs = [...(prev[sessionKey] || [])];
                     for (let i = msgs.length - 1; i >= 0; i--) {
                       if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
-                        const tc = msgs[i].toolCalls!.find(t => t.id === trId);
-                        if (tc) {
-                          tc.status = trStatus || 'success';
-                          tc.result = trResult;
-                          msgs[i] = { ...msgs[i] };
+                        const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === trId);
+                        if (tcIdx >= 0) {
+                          const oldTc = msgs[i].toolCalls![tcIdx];
+                          const newTc: ToolCall = { ...oldTc, status: trStatus || 'success', result: trResult };
+                          const nextToolCalls = msgs[i].toolCalls!.slice();
+                          nextToolCalls[tcIdx] = newTc;
+                          let nextBlocks = msgs[i].blocks;
+                          if (nextBlocks) {
+                            nextBlocks = nextBlocks.map(b =>
+                              b.kind === 'tool' && b.toolCall.id === trId
+                                ? { kind: 'tool' as const, toolCall: newTc }
+                                : b,
+                            );
+                          }
+                          msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
                           break;
                         }
                       }
@@ -894,19 +959,23 @@ export function useChat() {
       return true;
     } catch (err) {
       console.error('Failed to load history:', err);
-      // Fall back to localStorage cache
+      // Serve cached messages silently when available — the error banner
+      // was firing on every transient load failure (e.g. the first request
+      // racing with WS connect on initial page mount), causing a visible
+      // flash of "Cached messages — may not be current" before the retry
+      // succeeded. Only surface the error when we genuinely have nothing
+      // to show.
       const cached = getCachedMessages(sessionKey);
       if (cached && cached.length > 0) {
         setMessages(prev => ({ ...prev, [sessionKey]: cached }));
         setCachedSessions(prev => new Set([...prev, sessionKey]));
-        setError('Cached messages — may not be current');
       } else {
-        // If we already have messages in memory, keep them
         const existing = messagesRef.current[sessionKey];
         if (existing && existing.length > 0) {
           setCachedSessions(prev => new Set([...prev, sessionKey]));
-          setError('Cached messages — may not be current');
         } else {
+          // Genuinely empty state — show the error so the user knows
+          // something is wrong.
           setError(err instanceof Error ? err.message : 'Failed to load history');
         }
       }

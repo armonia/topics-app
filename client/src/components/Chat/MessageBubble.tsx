@@ -200,6 +200,7 @@ export const MessageBubble = memo(function MessageBubble({
                 role={msg.role}
                 thinking={msg.thinking}
                 toolCalls={msg.toolCalls}
+                blocks={msg.blocks}
                 media={msg.media}
                 partial={msg.partial}
                 latencyMs={msg.latencyMs}

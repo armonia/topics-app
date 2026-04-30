@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import type { AppContext, RouteHandler, ToolCall, Topic } from "../types";
+import type { AppContext, RouteHandler, StoredMessage, ToolCall, Topic } from "../types";
 import { getProvider, getDefaultProvider, type AIProvider, type StreamHandler } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { appendUsageRecord } from "../usage/store";
@@ -1712,6 +1712,48 @@ Wait for the user to approve the plan before executing any changes.` };
           let lastSaveChunk = 0;
           const SAVE_INTERVAL = 10;
           const trackedToolCallIds: string[] = [];
+          // Chronological content timeline. Each event from the provider is
+          // appended in arrival order; consecutive same-kind text/thinking
+          // deltas grow the trailing block, while tool calls always start a
+          // new block. Persisted on finalize so reload preserves ordering.
+          // See server/types.ts:ContentBlock.
+          type Block =
+            | { kind: "text"; text: string }
+            | { kind: "thinking"; text: string }
+            | { kind: "tool"; toolCall: ToolCall };
+          const blocks: Block[] = [];
+          const appendTextBlock = (delta: string) => {
+            if (!delta) return;
+            const last = blocks[blocks.length - 1];
+            if (last && last.kind === "text") last.text += delta;
+            else blocks.push({ kind: "text", text: delta });
+          };
+          const appendThinkingBlock = (delta: string) => {
+            if (!delta) return;
+            const last = blocks[blocks.length - 1];
+            if (last && last.kind === "thinking") last.text += delta;
+            else blocks.push({ kind: "thinking", text: delta });
+          };
+          const appendToolBlock = (tc: ToolCall) => {
+            blocks.push({ kind: "tool", toolCall: tc });
+          };
+          const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
+            for (let i = 0; i < blocks.length; i++) {
+              const b = blocks[i];
+              if (b.kind === "tool" && b.toolCall.id === id) {
+                // Replace the tool block with a fresh object holding a fresh
+                // toolCall ref. Mutating in place looks tempting but breaks
+                // any client-side React.memo that uses shallow prop equality
+                // when we serialize the array — the toolCall ref is what
+                // ToolCallRow keys off of in the legacy bucket too.
+                blocks[i] = {
+                  kind: "tool",
+                  toolCall: { ...b.toolCall, ...patch },
+                };
+                return;
+              }
+            }
+          };
           let topicSwitchDetected = false;
           let switchTargetTopicId: string | null = null;
           // Captured at stream-end if the provider's final message includes
@@ -1782,9 +1824,17 @@ Wait for the user to approve the plan before executing any changes.` };
               }
             }
 
-            // Finalize tool calls
+            // Finalize any tool calls that the provider started but never
+            // emitted a result for (claude-code/openclaw can do this when a
+            // tool is fire-and-forget). Mark them success in BOTH the legacy
+            // tool_calls bucket and the chronological blocks timeline so a
+            // post-stream history reload doesn't show them stuck on
+            // "running". Status string must be one of the client-typed
+            // values ('success' | 'error') — the legacy 'completed' wasn't
+            // recognised by ToolCallRow.
             for (const tcId of trackedToolCallIds) {
-              updateToolCallResult(sessionKey, tcId, 'completed');
+              updateToolCallResult(sessionKey, tcId, 'success');
+              updateBlockTool(tcId, { status: 'success' });
               broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success' });
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
             }
@@ -1793,6 +1843,7 @@ Wait for the user to approve the plan before executing any changes.` };
             updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
+              blocks: blocks.length > 0 ? (blocks as any) : undefined,
               partial: undefined,
               streamedAt: undefined,
               latencyMs,
@@ -1810,7 +1861,16 @@ Wait for the user to approve the plan before executing any changes.` };
 
             if (matchedTopic) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
+              broadcastToAll({
+                type: "stream:end",
+                sessionKey,
+                topicId: matchedTopic?.id,
+                messageId: partialMsg.id,
+                latencyMs,
+                usagePromptTokens,
+                usageCompletionTokens,
+                costCents,
+              } as any);
               updateUnreadCount(matchedTopic.id);
             }
 
@@ -1880,6 +1940,7 @@ Wait for the user to approve the plan before executing any changes.` };
 
               if (newText) {
                 fullContent += newText;
+                appendTextBlock(newText);
 
                 // Strip internal markers before broadcasting to client
                 fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
@@ -1904,13 +1965,24 @@ Wait for the user to approve the plan before executing any changes.` };
               updateStreamContent(sessionKey, fullContent, fullThinking);
               if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) {
                 lastSaveChunk = chunkCount;
-                updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined });
+                // Persist blocks alongside content so a mid-stream
+                // GET /api/history (e.g. another window attaching) sees
+                // the chronological timeline up to this point, not just
+                // the bucket fields. Without this the attaching window
+                // has no blocks until finalize, and falls back to the
+                // legacy bucket render for the duration of the stream.
+                updateLastMessage(sessionKey, {
+                  content: fullContent,
+                  thinking: fullThinking || undefined,
+                  blocks: blocks.length > 0 ? (blocks as any) : undefined,
+                });
               }
             },
 
             onThinkingDelta: (text: string) => {
               resetStreamTimer();
               fullThinking += text;
+              appendThinkingBlock(text);
               broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: text });
               updateStreamContent(sessionKey, fullContent, fullThinking);
             },
@@ -1924,6 +1996,7 @@ Wait for the user to approve the plan before executing any changes.` };
               };
               trackedToolCallIds.push(toolCallId);
               addToolCallToLastMessage(sessionKey, toolCall);
+              appendToolBlock(toolCall);
               broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
 
               // Also send as SSE for the HTTP client
@@ -1956,6 +2029,7 @@ Wait for the user to approve the plan before executing any changes.` };
               resetStreamTimer();
               console.log(`[StreamWS] Tool result: ${toolCallId.slice(0,8)} for ${sessionKey}`);
               updateToolCallResult(sessionKey, toolCallId, result);
+              updateBlockTool(toolCallId, { status: 'success', result });
               broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result });
               // Also send as SSE for the HTTP client
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
@@ -2036,21 +2110,70 @@ Wait for the user to approve the plan before executing any changes.` };
 
           // Send chat via WS
           try {
-            const contextMessages = finalMessages.filter(m => m.role === "system");
-            let userContent = lastUserMsg?.content || messages[messages.length - 1]?.content || "";
-            if (contextMessages.length > 0) {
-              const preamble = contextMessages.map(m => m.content).join("\n\n---\n\n");
-              userContent = `<context>\n${preamble}\n</context>\n\n${userContent}`;
+            const supportsHistory = topicProvider.capabilities.has("history");
+            const lastUser = lastUserMsg?.content || messages[messages.length - 1]?.content || "";
+            let userContent: string;
+            let historyForProvider: { role: string; content: string }[] | undefined;
+
+            if (supportsHistory) {
+              // Stateless provider (claude, openai). Pass the full transcript
+              // EXCEPT the new user message — claude.ts/openai.ts append that
+              // themselves. System messages flow through history natively;
+              // no <context> wrapping needed.
+              historyForProvider = finalMessages.slice(0, -1);
+              userContent = lastUser;
+            } else {
+              // Process/gateway-resident provider (claude-code, codex,
+              // openclaw): keeps its own conversation state. We still inject
+              // any system messages we built up by inlining them in the
+              // user turn — this is the legacy behavior and the only way
+              // to surface SOUL.md, pinned messages, plan-mode, etc.
+              const contextMessages = finalMessages.filter(m => m.role === "system");
+              userContent = lastUser;
+              if (contextMessages.length > 0) {
+                const preamble = contextMessages.map(m => m.content).join("\n\n---\n\n");
+                userContent = `<context>\n${preamble}\n</context>\n\n${userContent}`;
+              }
             }
+
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const result = await topicProvider.sendChat(sessionKey, userContent, handler, overrideModel ? { model: overrideModel } : undefined);
-            // Update handler with the real runId now that we have it
-            topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
-            console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
+            const sendOptions: { model?: string; history?: { role: string; content: string }[] } = {};
+            if (overrideModel) sendOptions.model = overrideModel;
+            if (historyForProvider) sendOptions.history = historyForProvider;
+            // Fire-and-forget: kick off sendChat WITHOUT awaiting so the
+            // Response can be returned immediately. The provider's stream
+            // for-await loop drives handler callbacks → writeSSE → flushes
+            // deltas live to the client. Awaiting here would buffer the
+            // whole stream into the TransformStream and release it all at
+            // once when the Response is finally returned.
+            topicProvider.sendChat(
+              sessionKey,
+              userContent,
+              handler,
+              Object.keys(sendOptions).length > 0 ? sendOptions as any : undefined,
+            ).then((result) => {
+              topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
+              console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
+            }).catch(async (err: any) => {
+              console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
+              if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
+              topicProvider.unregisterStreamHandler?.(sessionKey);
+              endStream(sessionKey);
+              const errorMsg = `⚠️ Failed to send message: ${err.message}`;
+              updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
+              if (matchedTopic) {
+                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
+                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+                updateUnreadCount(matchedTopic.id);
+              }
+              await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
+              await writeSSE("[DONE]");
+              await closeClient();
+            });
           } catch (err: any) {
-            console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
+            console.error(`[StreamWS] sync setup error for ${sessionKey}:`, err);
             if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
             topicProvider.unregisterStreamHandler?.(sessionKey);
             endStream(sessionKey);
@@ -2064,11 +2187,16 @@ Wait for the user to approve the plan before executing any changes.` };
             await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
             await writeSSE("[DONE]");
             await closeClient();
-            return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+            return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" } });
           }
 
-          // Return SSE response — events will be pushed by the handler
-          return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+          // Return SSE response — events will be pushed by the handler.
+          // `no-transform` + `X-Accel-Buffering: no` tell every proxy in
+          // the chain (vite-dev, electron, nginx) NOT to coalesce the
+          // body into chunks of their own. Without these the user sees
+          // the whole message arrive at once on stream-end instead of
+          // progressive deltas.
+          return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" } });
 
         } catch (err: any) {
           console.error(`[StreamWS] Unexpected error for ${sessionKey}:`, err);
@@ -2452,15 +2580,27 @@ Wait for the user to approve the plan before executing any changes.` };
 
         const localMsgs = loadLocalMessages(sessionKey);
         const activeStream = isStreaming(sessionKey);
+        // A message is "real" if it has any of: trimmed text content,
+        // recorded tool calls, or a populated chronological blocks
+        // timeline. Messages with tools-only-no-text were getting nuked
+        // by the cleanup pass below — when a stream crashed mid-flight or
+        // produced only tool calls (no prose), the message got DELETE'd
+        // on the next /api/history request and the user lost their
+        // tools on refresh.
+        const isRealMessage = (m: StoredMessage) =>
+          (m.content && m.content.trim().length > 0) ||
+          (m.toolCalls && m.toolCalls.length > 0) ||
+          (m.blocks && m.blocks.length > 0);
         // When streaming, keep ALL messages (including empty partials) — filtering them deletes from disk
         const completeMsgs = activeStream
           ? localMsgs
-          : localMsgs.filter(m => !m.partial || (m.content && m.content.trim()));
+          : localMsgs.filter(m => !m.partial || isRealMessage(m));
 
         // Clean up stale messages surgically (avoid saveLocalMessages which destroys branch tree)
         if (!activeStream) {
-          // Delete empty partial messages — re-parent children first to avoid FK constraint
-          const removedIds = localMsgs.filter(m => m.partial && !(m.content && m.content.trim())).map(m => m.id);
+          // Delete empty partial messages — re-parent children first to avoid FK constraint.
+          // Preserve messages with tools/blocks even when text is empty.
+          const removedIds = localMsgs.filter(m => m.partial && !isRealMessage(m)).map(m => m.id);
           for (const id of removedIds) {
             const parentRow = ctx.db.prepare(`SELECT parent_id FROM messages WHERE id = ?`).get(id) as any;
             const parentId = parentRow?.parent_id || null;

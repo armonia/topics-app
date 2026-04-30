@@ -37,7 +37,7 @@ function sanitizeUpstreamError(status: number): string {
 
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
-  readonly capabilities: Set<ProviderCapability> = new Set(["streaming"]);
+  readonly capabilities: Set<ProviderCapability> = new Set(["streaming", "history"]);
 
   private config: OpenAIProviderConfig;
   private active = new Map<string, AbortController>();
@@ -68,7 +68,7 @@ export class OpenAIProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string },
+    options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
     if (!this.config.apiKey) {
       handler.onError("OPENAI_API_KEY not configured");
@@ -82,6 +82,15 @@ export class OpenAIProvider implements AIProvider {
     const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
     const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
+    // Stateless API — must resend full conversation every turn. `history`
+    // contains every prior turn (system + user + assistant); we append the
+    // new user message at the end.
+    const history = options?.history ?? [];
+    const apiMessages = [
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content: message },
+    ];
+
     let fullText = "";
 
     try {
@@ -93,7 +102,7 @@ export class OpenAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: message }],
+          messages: apiMessages,
           max_tokens: maxTokens,
           stream: true,
         }),

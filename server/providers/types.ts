@@ -134,7 +134,11 @@ export type ProviderCapability =
   | "thinking"       // extended thinking / reasoning visibility
   | "sessions"       // session management (pause, resume, history)
   | "abort"          // can abort an in-progress stream
-  | "context";       // injects external context (OpenClaw SOUL.md, etc.)
+  | "context"        // injects external context (OpenClaw SOUL.md, etc.)
+  | "history";       // accepts options.history on sendChat (stateless providers
+                     // that need the full transcript every turn — claude, openai).
+                     // Providers without this flag manage history internally
+                     // (process-resident CLI, gateway-side session, etc.).
 
 // ============ Status & Diagnostics ============
 
@@ -216,7 +220,17 @@ export interface AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string },
+    options?: {
+      model?: string;
+      /**
+       * Prior conversation turns (excluding the new user message). Only
+       * consumed by providers that declare the "history" capability —
+       * stateless backends like the Anthropic and OpenAI APIs need the
+       * full transcript every turn, while CLI/gateway providers ignore it
+       * because they hold session state themselves.
+       */
+      history?: ChatMessage[];
+    },
   ): Promise<{ runId?: string }>;
 
   /**
