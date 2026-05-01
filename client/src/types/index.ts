@@ -314,6 +314,18 @@ export interface WSStreamEndMessage {
   sessionKey: string;
   messageId?: string;
   topicId?: string;
+  /** Wall-clock duration of the request in ms. Persisted on the message
+   *  footer (`<duration>s · <tokens> · $<cost>`). Always present on the
+   *  WS-streaming path; absent on the legacy `topic:user_abort` broadcast. */
+  latencyMs?: number;
+  /** Provider-reported prompt token count for the turn that just completed. */
+  usagePromptTokens?: number;
+  /** Provider-reported completion token count for the turn that just completed. */
+  usageCompletionTokens?: number;
+  /** Cost in cents (USD). Computed via `calculateCost` from prompt+completion. */
+  costCents?: number;
+  /** Free-form reason carried on non-success terminations (e.g. `user_abort`). */
+  reason?: string;
 }
 
 export interface WSMessageNewMessage {

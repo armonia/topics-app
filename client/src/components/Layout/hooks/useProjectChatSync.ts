@@ -111,6 +111,12 @@ export function useProjectChatSync(
   // Track previous topicIds set so we can detect "just-arrived" topics
   // (e.g. created in another window via WS) and surface them as chat panes
   // without re-opening every closed tab on every render.
+  //
+  // Initial value is empty on purpose: the first effect run is intercepted
+  // by the `!initialChatsSyncedRef.current` branch below (first-sync path)
+  // BEFORE the delta-add branch can fire. Once first-sync sets the gate and
+  // populates `prevTopicIdsSetRef` at the end of that run, subsequent runs
+  // see the prior snapshot and only treat genuinely-new ids as additions.
   const prevTopicIdsSetRef = useRef<Set<string>>(new Set());
 
   // --- topicIds: sorted list of topics belonging to this project ---

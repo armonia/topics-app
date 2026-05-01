@@ -415,12 +415,15 @@ export function useChat() {
           return prev;
         });
         {
-          const evtAny = event as any;
-          const finalPatch: any = { partial: false };
-          if (typeof evtAny.latencyMs === 'number') finalPatch.latencyMs = evtAny.latencyMs;
-          if (typeof evtAny.usagePromptTokens === 'number') finalPatch.usagePromptTokens = evtAny.usagePromptTokens;
-          if (typeof evtAny.usageCompletionTokens === 'number') finalPatch.usageCompletionTokens = evtAny.usageCompletionTokens;
-          if (typeof evtAny.costCents === 'number') finalPatch.costCents = evtAny.costCents;
+          // Persist latency / token usage / cost from the stream:end payload
+          // onto the last message so the footer can render them. All four
+          // fields are optional on `WSStreamEndMessage` — only patch the
+          // ones the server actually included on this turn.
+          const finalPatch: Partial<ChatMessage> = { partial: false };
+          if (typeof event.latencyMs === 'number') finalPatch.latencyMs = event.latencyMs;
+          if (typeof event.usagePromptTokens === 'number') finalPatch.usagePromptTokens = event.usagePromptTokens;
+          if (typeof event.usageCompletionTokens === 'number') finalPatch.usageCompletionTokens = event.usageCompletionTokens;
+          if (typeof event.costCents === 'number') finalPatch.costCents = event.costCents;
           updateLastMessage(sessionKey, finalPatch);
         }
         // Auto-send next queued message for this session (if any)

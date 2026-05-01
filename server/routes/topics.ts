@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import type { AppContext, RouteHandler, StoredMessage, ToolCall, Topic } from "../types";
-import { getProvider, getDefaultProvider, type AIProvider, type StreamHandler } from "../providers";
+import type { AppContext, ContentBlock, RouteHandler, StoredMessage, ToolCall, Topic } from "../types";
+import { getProvider, getDefaultProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
@@ -1716,12 +1716,9 @@ Wait for the user to approve the plan before executing any changes.` };
           // appended in arrival order; consecutive same-kind text/thinking
           // deltas grow the trailing block, while tool calls always start a
           // new block. Persisted on finalize so reload preserves ordering.
-          // See server/types.ts:ContentBlock.
-          type Block =
-            | { kind: "text"; text: string }
-            | { kind: "thinking"; text: string }
-            | { kind: "tool"; toolCall: ToolCall };
-          const blocks: Block[] = [];
+          // See `server/types.ts:ContentBlock` — same shape lives on
+          // `StoredMessage.blocks` and (mirror-typed) on the client.
+          const blocks: ContentBlock[] = [];
           const appendTextBlock = (delta: string) => {
             if (!delta) return;
             const last = blocks[blocks.length - 1];
@@ -1843,7 +1840,7 @@ Wait for the user to approve the plan before executing any changes.` };
             updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
-              blocks: blocks.length > 0 ? (blocks as any) : undefined,
+              blocks: blocks.length > 0 ? blocks : undefined,
               partial: undefined,
               streamedAt: undefined,
               latencyMs,
@@ -1870,7 +1867,7 @@ Wait for the user to approve the plan before executing any changes.` };
                 usagePromptTokens,
                 usageCompletionTokens,
                 costCents,
-              } as any);
+              });
               updateUnreadCount(matchedTopic.id);
             }
 
@@ -1974,7 +1971,7 @@ Wait for the user to approve the plan before executing any changes.` };
                 updateLastMessage(sessionKey, {
                   content: fullContent,
                   thinking: fullThinking || undefined,
-                  blocks: blocks.length > 0 ? (blocks as any) : undefined,
+                  blocks: blocks.length > 0 ? blocks : undefined,
                 });
               }
             },
@@ -2113,14 +2110,25 @@ Wait for the user to approve the plan before executing any changes.` };
             const supportsHistory = topicProvider.capabilities.has("history");
             const lastUser = lastUserMsg?.content || messages[messages.length - 1]?.content || "";
             let userContent: string;
-            let historyForProvider: { role: string; content: string }[] | undefined;
+            let historyForProvider: ChatMessage[] | undefined;
 
             if (supportsHistory) {
               // Stateless provider (claude, openai). Pass the full transcript
               // EXCEPT the new user message — claude.ts/openai.ts append that
               // themselves. System messages flow through history natively;
               // no <context> wrapping needed.
-              historyForProvider = finalMessages.slice(0, -1);
+              //
+              // `finalMessages` carries `role: string` (POST body is unvalidated).
+              // Narrow to ChatMessage["role"] so the provider interface stays
+              // honest — anything not in the canonical 3-tuple is collapsed
+              // to "user" rather than crashing the provider with a 400.
+              historyForProvider = finalMessages.slice(0, -1).map((m) => ({
+                role:
+                  m.role === "system" || m.role === "assistant" || m.role === "user"
+                    ? m.role
+                    : "user",
+                content: m.content,
+              }));
               userContent = lastUser;
             } else {
               // Process/gateway-resident provider (claude-code, codex,
@@ -2139,7 +2147,7 @@ Wait for the user to approve the plan before executing any changes.` };
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: { role: string; content: string }[] } = {};
+            const sendOptions: { model?: string; history?: ChatMessage[] } = {};
             if (overrideModel) sendOptions.model = overrideModel;
             if (historyForProvider) sendOptions.history = historyForProvider;
             // Fire-and-forget: kick off sendChat WITHOUT awaiting so the
@@ -2152,7 +2160,7 @@ Wait for the user to approve the plan before executing any changes.` };
               sessionKey,
               userContent,
               handler,
-              Object.keys(sendOptions).length > 0 ? sendOptions as any : undefined,
+              Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
             ).then((result) => {
               topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
@@ -2263,9 +2271,15 @@ Wait for the user to approve the plan before executing any changes.` };
                 totalTokens: inputTokens + outputTokens, costUsd: calculateCost(model, inputTokens, outputTokens),
               }).catch(err => console.warn("[Usage] Failed to record usage:", err));
             }
+            // Only broadcast message:new when we actually persisted the
+            // assistant turn — otherwise receivers would see a row with no
+            // messageId AND no content (current dedupe falls back to
+            // last-of-role/content matching, which would silently dedupe
+            // against an unrelated previous message). Empty completions are
+            // recoverable on next turn; a phantom broadcast is not.
             const storedJsonAssistant = content ? appendLocalMessage(sessionKey, "assistant", content) : null;
-            if (matchedTopic) {
-              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant?.id, content, preview: content.slice(0, 100) });
+            if (matchedTopic && storedJsonAssistant) {
+              broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant.id, content, preview: content.slice(0, 100) });
               updateUnreadCount(matchedTopic.id);
             }
             if (matchedTopic && !matchedTopic.projectPath) setTimeout(() => autoBindProject(matchedTopic!), 100);
