@@ -440,6 +440,21 @@ export interface WSDashboardUpdatedMessage {
   type: 'dashboard:updated' | 'cron:updated';
 }
 
+// --- Project + Worktree (Phase A · migrations 016-018) ----------------------
+export interface WSProjectMessage {
+  type: 'project:new' | 'project:updated' | 'project:archived' | 'project:deleted';
+  /** Full row on new/updated/archived; `{ id }` on deleted. */
+  project: Partial<Project> & { id: string };
+  payload_version?: 1;
+}
+
+export interface WSWorktreeMessage {
+  type: 'worktree:new' | 'worktree:updated' | 'worktree:deleted';
+  /** Full row on new/updated; `{ id }` on deleted. */
+  worktree: Partial<Worktree> & { id: string };
+  payload_version?: 1;
+}
+
 // --- Catch-all ---------------------------------------------------------------
 /**
  * Fallback for message types not (yet) listed above. Keeps the dispatcher
@@ -473,6 +488,8 @@ export type WSMessage =
   | WSUnreadUpdatedMessage
   | WSTaskMessage
   | WSDashboardUpdatedMessage
+  | WSProjectMessage
+  | WSWorktreeMessage
   | WSUnknownMessage;
 
 /** @deprecated alias retained while consumers migrate. Use `WSMessage`. */
