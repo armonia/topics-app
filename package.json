@@ -23,6 +23,8 @@
     "prod:electron": "bash scripts/start-electron-prod.sh",
     "build:client": "cd client && bun run build",
     "build:electron": "cd electron-app && npm run build",
+    "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
+    "test:cli": "bun test tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
     "test": "npx playwright test",
