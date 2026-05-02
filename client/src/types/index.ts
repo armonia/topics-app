@@ -26,7 +26,44 @@ export interface Topic {
    * use the provider's default.
    */
   model?: string | null;
+  /**
+   * Phase A · TOPIC-WT-01: optional binding to a Worktree. NULL = legacy
+   * behaviour (chat/tools operate inside `projectPath`). When set, the
+   * server scopes operations to the worktree's `absPath`. Mirrors
+   * `server/types.ts:Topic.worktreeId`.
+   */
+  worktreeId?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
+}
+
+/** First-class Project entity (Phase A · migration 016). Mirrors server/types.ts:Project. */
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  path: string;
+  color?: string | null;
+  icon?: string | null;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** First-class Worktree entity (Phase A · migration 017). Mirrors server/types.ts:Worktree. */
+export interface Worktree {
+  id: string;
+  projectId: string;
+  name: string;
+  branchName: string | null;
+  baseRef: string | null;
+  mode: 'branch' | 'reuse' | 'detached';
+  absPath: string;
+  isPushed: boolean;
+  branchRenamed: boolean;
+  status: 'pending' | 'ready' | 'error';
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TopicsData {
