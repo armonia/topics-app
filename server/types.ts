@@ -210,6 +210,8 @@ export interface AppContext {
   projectStore: import("./services/project-store").ProjectStore;
   worktreeStore: import("./services/worktree-store").WorktreeStore;
   worktreeManager: import("./services/worktree-manager").WorktreeManager;
+  // Multi-machine (Phase D · added at migration 020-021)
+  machineStore: import("./services/machine-store").MachineStore;
 
   // Paths
   PORT: number;

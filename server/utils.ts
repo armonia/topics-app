@@ -12,6 +12,7 @@ import { maybeSendPush } from "./push-triggers";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
+import { createMachineStore } from "./services/machine-store";
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
@@ -320,6 +321,8 @@ export function createAppContext(baseDir: string): AppContext {
     { broadcastToAll } as AppContext,
     { projectStore, worktreeStore },
   );
+  // Phase D — machines (heartbeat ticker is wired in server.ts).
+  const machineStore = createMachineStore(db, baseDir);
 
   // --- Atomic write (kept for backward compat with non-DB file writes) ---
   function atomicWriteJSON(filepath: string, data: object): void {
@@ -1026,6 +1029,7 @@ export function createAppContext(baseDir: string): AppContext {
   return {
     db,
     projectStore, worktreeStore, worktreeManager,
+    machineStore,
     PORT, GATEWAY_URL,
     get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
     refreshGatewayToken,

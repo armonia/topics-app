@@ -20,6 +20,7 @@ import type {
   ProviderSnapshotEntry,
   Project,
   Worktree,
+  Machine,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1456,6 +1457,21 @@ export const projectsApi = {
   },
   async delete(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' });
+  },
+};
+
+export const machinesApi = {
+  async list(): Promise<{ machines: Machine[] }> {
+    return request<{ machines: Machine[] }>('/machines');
+  },
+  async get(id: string): Promise<Machine> {
+    return request<Machine>(`/machines/${id}`);
+  },
+  async rename(id: string, name: string): Promise<Machine> {
+    return request<Machine>(`/machines/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  },
+  async delete(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/machines/${id}`, { method: 'DELETE' });
   },
 };
 

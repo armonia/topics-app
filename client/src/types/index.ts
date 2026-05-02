@@ -56,6 +56,22 @@ export interface Project {
   updatedAt: string;
 }
 
+/** First-class Machine entity (Phase D · migration 020). Mirrors server/services/machine-store.ts:Machine. */
+export interface Machine {
+  id: string;
+  name: string;
+  hostname: string;
+  arch: string;
+  platform: string;
+  daemonVersion: string;
+  status: 'online' | 'offline';
+  lastHeartbeatAt: string;
+  lastSeenAt: string;
+  acknowledgedWarnings: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** First-class Worktree entity (Phase A · migration 017). Mirrors server/types.ts:Worktree. */
 export interface Worktree {
   id: string;
@@ -466,6 +482,12 @@ export interface WSWorktreeMessage {
   payload_version?: 1;
 }
 
+export interface WSMachineMessage {
+  type: 'machine:upserted' | 'machine:updated' | 'machine:deleted';
+  machine: Partial<Machine> & { id: string };
+  payload_version?: 1;
+}
+
 // --- Catch-all ---------------------------------------------------------------
 /**
  * Fallback for message types not (yet) listed above. Keeps the dispatcher
@@ -501,6 +523,7 @@ export type WSMessage =
   | WSDashboardUpdatedMessage
   | WSProjectMessage
   | WSWorktreeMessage
+  | WSMachineMessage
   | WSUnknownMessage;
 
 /** @deprecated alias retained while consumers migrate. Use `WSMessage`. */

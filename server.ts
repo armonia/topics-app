@@ -41,6 +41,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
+import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
@@ -145,6 +146,27 @@ const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx);
+const machinesRouter = createMachinesRouter(ctx);
+
+// Phase D — heartbeat ticker. Upserts the local machine row every 30 s
+// and flips other machines that haven't checked in for 5 minutes to
+// `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const STALE_THRESHOLD_MS = 5 * 60_000;
+function tickHeartbeat() {
+  try {
+    const local = ctx.machineStore.upsertLocal();
+    ctx.broadcastToAll({ type: "machine:upserted", machine: local, payload_version: 1 });
+    const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
+    for (const m of flipped) {
+      ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });
+    }
+  } catch (err) {
+    console.warn("[Heartbeat] tick failed:", err);
+  }
+}
+tickHeartbeat();
+const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
 
 // Wire snapshot manager → WS broadcast. Single 100ms debounce coalesces
 // the multiple "loading → ready" transitions a single refresh fires.
@@ -396,6 +418,7 @@ const server = Bun.serve<WSData>({
         || await topicsRouter(req, url, pathname, method)
         || await projectsRouter(req, url, pathname, method)
         || await worktreesRouter(req, url, pathname, method)
+        || await machinesRouter(req, url, pathname, method)
         || await filesRouter(req, url, pathname, method)
         || await browserRouter(req, url, pathname, method)
         || await cronRouter(req, url, pathname, method)
@@ -533,6 +556,7 @@ console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonStat
 // Graceful shutdown
 async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
+  clearInterval(heartbeatTimer);
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();
   closeDatabase();
