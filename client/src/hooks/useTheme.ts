@@ -21,6 +21,13 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     const effective = getEffectiveTheme(themeMode);
     setEffectiveTheme(effective);
     document.documentElement.classList.toggle('dark', effective === 'dark');
+    // Phase F · 3rd no-flash layer: sync the resolved theme into the
+    // Electron native chrome so the title bar / vibrancy material match
+    // without flicker. No-op outside Electron.
+    const electronTheme = (window as any).electronAPI?.theme;
+    if (electronTheme && typeof electronTheme.setResolved === 'function') {
+      electronTheme.setResolved(effective).catch(() => {});
+    }
   }, [themeMode]);
 
   // Listen for system theme changes

@@ -1637,6 +1637,159 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 // Enable remote debugging for the whole app
 app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT));
 
+// ─── Phase F · No-flash boot (3rd layer: native chrome theme sync) ─────────
+// Layer 1 (theme-init script) and 2 (critical CSS) already live in
+// client/index.html. The 3rd layer hooks the renderer's resolved theme
+// up to nativeTheme.themeSource so the macOS title bar / vibrancy
+// material match without a flash on toggle.
+ipcMain.handle('theme:set-resolved', async (_evt, resolved: 'light' | 'dark') => {
+  try {
+    const { nativeTheme } = await import('electron');
+    if (resolved === 'light' || resolved === 'dark') {
+      nativeTheme.themeSource = resolved;
+      return { ok: true };
+    }
+    return { ok: false, error: 'invalid theme' };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// ─── Phase F · Notifications scoped + rate-limit ───────────────────────────
+// Two trigger types only: agent_completed and permission_requested.
+// Window: 5 notifications in 10 seconds; suppressed entirely when the
+// main window is focused (the user is already looking at it).
+const NOTIF_WINDOW_MS = 10_000;
+const NOTIF_LIMIT = 5;
+const notifTimes: number[] = [];
+
+function shouldSuppressNotification(): boolean {
+  // Suppress when the main window is focused — caller is staring at it.
+  const focused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused());
+  if (focused) return true;
+  // Sliding-window rate limit.
+  const now = Date.now();
+  while (notifTimes.length > 0 && now - notifTimes[0] > NOTIF_WINDOW_MS) {
+    notifTimes.shift();
+  }
+  if (notifTimes.length >= NOTIF_LIMIT) return true;
+  notifTimes.push(now);
+  return false;
+}
+
+ipcMain.handle('notification:show-scoped', async (_evt, payload: {
+  trigger: 'agent_completed' | 'permission_requested';
+  title?: string;
+  body: string;
+  topicId?: string;
+}) => {
+  if (shouldSuppressNotification()) {
+    return { ok: false, reason: 'suppressed' };
+  }
+  const { Notification: ElectronNotification } = await import('electron');
+  if (!ElectronNotification.isSupported()) {
+    return { ok: false, reason: 'not-supported' };
+  }
+  const defaults = {
+    agent_completed: 'Agent completed',
+    permission_requested: 'Permission requested',
+  } as const;
+  const title = payload.title ?? defaults[payload.trigger];
+  const notif = new ElectronNotification({
+    title: title.slice(0, 256),
+    body: (payload.body || '').slice(0, 1024),
+    silent: false,
+  });
+  notif.on('click', () => {
+    // Bring the main window to front; renderer can listen for the
+    // existing 'navigate' channel if topicId is provided.
+    const main = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+    if (main) {
+      if (main.isMinimized()) main.restore();
+      main.focus();
+      if (payload.topicId) {
+        main.webContents.send('navigate-to-topic', payload.topicId);
+      }
+    }
+  });
+  notif.show();
+  return { ok: true };
+});
+
+// ─── Phase F · Caffeinate mode (macOS) ─────────────────────────────────────
+// Three states: 'off', 'power' (only while on AC), 'always'.
+// Implementation: spawn `caffeinate` subprocess; state cached in module
+// scope. The renderer polls `caffeinate:get-mode` for the badge.
+type CaffeinateMode = 'off' | 'power' | 'always';
+let caffeinateMode: CaffeinateMode = 'off';
+let caffeinateProc: { kill: () => void } | null = null;
+let caffeinateLastReleaseReason: string | null = null;
+
+async function setCaffeinate(mode: CaffeinateMode): Promise<void> {
+  if (process.platform !== 'darwin') {
+    caffeinateMode = 'off';
+    return;
+  }
+  // Always kill any previous process — we're switching modes.
+  if (caffeinateProc) {
+    try { caffeinateProc.kill(); } catch {}
+    caffeinateProc = null;
+  }
+  caffeinateMode = mode;
+  if (mode === 'off') return;
+  // Flags: -d display, -i system idle, -m disk idle, -s only on AC
+  // Always: -dim. Power: -dimu (only while on AC, plug-out exits via 'died' event below).
+  const args = mode === 'power' ? ['-dimu'] : ['-dim'];
+  const { spawn } = await import('child_process');
+  const proc = spawn('/usr/bin/caffeinate', args, { stdio: 'ignore', detached: false });
+  caffeinateProc = proc;
+  proc.on('exit', () => {
+    if (caffeinateProc === proc) {
+      caffeinateProc = null;
+      // Surface a release reason if the user was in 'always' or 'power' and
+      // the process exited unexpectedly. The reason copy mirrors the
+      // reference desktop client we studied.
+      if (caffeinateMode !== 'off') {
+        caffeinateLastReleaseReason =
+          mode === 'power' ? 'AC power disconnected' : 'caffeinate process exited';
+        caffeinateMode = 'off';
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('caffeinate:released', {
+              reason: caffeinateLastReleaseReason,
+            });
+          }
+        }
+      }
+    }
+  });
+}
+
+ipcMain.handle('caffeinate:set-mode', async (_evt, mode: CaffeinateMode) => {
+  if (mode !== 'off' && mode !== 'power' && mode !== 'always') {
+    return { ok: false, error: 'invalid mode' };
+  }
+  try {
+    await setCaffeinate(mode);
+    return { ok: true, mode: caffeinateMode };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('caffeinate:get-mode', () => ({
+  mode: caffeinateMode,
+  lastReleaseReason: caffeinateLastReleaseReason,
+}));
+
+// Clean up on quit.
+app.on('before-quit', () => {
+  if (caffeinateProc) {
+    try { caffeinateProc.kill(); } catch {}
+    caffeinateProc = null;
+  }
+});
+
 // ─── Phase E · Auto-update (electron-updater) ──────────────────────────────
 // Lazy-import inside handlers so dev (where the dep may not yet be installed
 // or the file is being type-checked without the module) doesn't crash.

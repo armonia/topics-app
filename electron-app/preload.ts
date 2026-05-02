@@ -82,6 +82,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // Phase F — UX polish
+  theme: {
+    setResolved: (resolved: 'light' | 'dark') => ipcRenderer.invoke('theme:set-resolved', resolved),
+  },
+  notification: {
+    showScoped: (payload: {
+      trigger: 'agent_completed' | 'permission_requested';
+      title?: string;
+      body: string;
+      topicId?: string;
+    }) => ipcRenderer.invoke('notification:show-scoped', payload),
+  },
+  caffeinate: {
+    setMode: (mode: 'off' | 'power' | 'always') => ipcRenderer.invoke('caffeinate:set-mode', mode),
+    getMode: () => ipcRenderer.invoke('caffeinate:get-mode'),
+    onReleased: (handler: (info: { reason: string }) => void) => {
+      const listener = (_evt: unknown, info: any) => handler(info);
+      ipcRenderer.on('caffeinate:released', listener);
+      return () => ipcRenderer.removeListener('caffeinate:released', listener);
+    },
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
