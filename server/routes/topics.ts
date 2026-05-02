@@ -102,12 +102,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
-    resolveProjectPath, findNewMediaFiles, updateLastMessageWithMedia,
+    resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,
     getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage,
     switchActiveBranch, getSiblingMessages, loadActiveThread,
     activeStreams,
+    worktreeStore,
   } = ctx;
 
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
@@ -379,10 +380,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (browserUrl.startsWith("file:///")) {
         browserUrl = `http://localhost:${process.env.PORT || 3333}/preview/${browserUrl.slice(8)}`;
       } else if (!browserUrl.startsWith("http")) {
-        if (topic.projectPath) {
-          const projectDir = resolveProjectPath(topic.projectPath);
-          if (projectDir) browserUrl = `http://localhost:${process.env.PORT || 3333}/preview${join(projectDir, browserUrl)}`;
-        }
+        // Phase A: prefer worktree.absPath when topic is bound to a ready
+        // worktree; fall back to legacy projectPath for unbound topics.
+        const projectDir = resolveTopicCwd(topic);
+        if (projectDir) browserUrl = `http://localhost:${process.env.PORT || 3333}/preview${join(projectDir, browserUrl)}`;
       }
       console.log(`[Browser] Auto-navigate via marker: ${browserUrl}`);
       broadcastToAll({ type: "browser:navigate", topicId: topic.id, url: browserUrl });
@@ -644,8 +645,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           finalMessages.splice(insertIdx, 0, { role: "system", content: `Context files for this topic:\n\n${contextParts.join("\n\n")}` });
         }
       }
-      if (matchedTopic.projectPath) {
-        const projectDir = resolveProjectPath(matchedTopic.projectPath);
+      // Phase A: prefer the bound worktree's directory for template auto-
+      // loading (CLAUDE.md, README.md, …). Falls back to projectPath for
+      // unbound (legacy) topics. The system-message label still cites the
+      // project's logical path so the agent's mental model stays project-
+      // centric, not worktree-centric.
+      {
+        const projectDir = resolveTopicCwd(matchedTopic);
+        const projectLabel = matchedTopic.projectPath || projectDir || null;
         if (projectDir && existsSync(projectDir)) {
           const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
           const templateParts: string[] = [];
@@ -659,10 +666,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
               try { templateParts.push(`--- Project file: ${name} ---\n${readFileSync(filePath, "utf-8")}`); } catch {}
             }
           }
-          if (templateParts.length > 0) {
+          if (templateParts.length > 0 && projectLabel) {
             const insertIdx = finalMessages.findIndex(m => m.role !== "system");
             finalMessages.splice(insertIdx >= 0 ? insertIdx : finalMessages.length, 0, {
-              role: "system", content: `Project context files (from ${matchedTopic.projectPath}):\n\n${templateParts.join("\n\n")}`,
+              role: "system", content: `Project context files (from ${projectLabel}):\n\n${templateParts.join("\n\n")}`,
             });
           }
         }
@@ -896,6 +903,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (body.projectPath) {
         (topic as any).projectPath = body.projectPath;
       }
+      // Optional binding to a Worktree (Phase A · TOPIC-WT-01).
+      // Validate the FK before persistence — the DB-level FK would also
+      // reject the insert, but a friendly 400 is nicer than a 500.
+      if (body.worktreeId !== undefined && body.worktreeId !== null) {
+        const wt = worktreeStore.get(body.worktreeId);
+        if (!wt) return json({ error: "worktreeId not found" }, 400);
+        topic.worktreeId = body.worktreeId;
+      }
 
       data.topics[id] = topic;
       topic.sessionKey = "topic:" + id.slice(0, 8);
@@ -948,6 +963,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (body.provider !== undefined) topic.provider = body.provider || null;
         if (body.model !== undefined) topic.model = body.model || null;
         if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
+        // worktreeId update (Phase A · TOPIC-WT-01). NULL = clear binding.
+        if (body.worktreeId !== undefined) {
+          if (body.worktreeId === null) {
+            topic.worktreeId = null;
+          } else {
+            const wt = worktreeStore.get(body.worktreeId);
+            if (!wt) return json({ error: "worktreeId not found" }, 400);
+            topic.worktreeId = body.worktreeId;
+          }
+        }
         topic.updatedAt = new Date().toISOString();
         saveTopics(data);
         broadcastToAll({ type: "topic:updated", topic });
@@ -1516,10 +1541,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             finalMessages.splice(insertIdx, 0, contextMsg);
           }
         }
-        if (matchedTopic.projectPath) {
-          const projectDir = resolveProjectPath(matchedTopic.projectPath);
+        // Phase A: prefer worktree.absPath; fall back to projectPath. The
+        // user-facing label still references the project (so the agent
+        // talks about the project, not the worktree directory).
+        {
+          const projectDir = resolveTopicCwd(matchedTopic);
           if (projectDir && existsSync(projectDir)) {
-            const projectName = projectDir.split("/").pop() || matchedTopic.projectPath;
+            const projectName = (matchedTopic.projectPath || projectDir).split("/").pop() || matchedTopic.projectPath || projectDir;
             const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
             const templateParts: string[] = [];
             for (const name of TEMPLATE_FILES) {
@@ -1538,8 +1566,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
               }
             }
 
-            // Always inject project awareness (even without template files)
-            let projectContext = `You are working in the project "${projectName}" at ${matchedTopic.projectPath}.`;
+            // Always inject project awareness (even without template files).
+            // Use projectPath as the user-facing label when present; fall
+            // back to projectDir (which equals the worktree absPath when
+            // bound, the project path otherwise).
+            const projectLabelPath = matchedTopic.projectPath || projectDir;
+            let projectContext = `You are working in the project "${projectName}" at ${projectLabelPath}.`;
             if (templateParts.length > 0) {
               projectContext += `\n\nProject context files:\n\n${templateParts.join("\n\n")}`;
             } else {

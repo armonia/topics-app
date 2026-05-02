@@ -255,6 +255,13 @@ export interface AppContext {
   slugify: (name: string) => string;
   resolveSafePath: (inputPath: string, allowedBases?: string[]) => string | null;
   resolveProjectPath: (inputPath: string) => string | null;
+  /**
+   * Resolve the working directory for a topic, honouring `topic.worktreeId`.
+   * When the worktree is ready the worktree's `absPath` is returned;
+   * otherwise falls back to `resolveProjectPath(topic.projectPath)`.
+   * See `server/utils.ts:resolveTopicCwd` for the full precedence rule.
+   */
+  resolveTopicCwd: (topic: import("./types").Topic | null | undefined) => string | null;
   getMimeType: (filepath: string) => string;
   isPathAllowed: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => string[];
