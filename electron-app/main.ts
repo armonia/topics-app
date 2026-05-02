@@ -1636,3 +1636,88 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 
 // Enable remote debugging for the whole app
 app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT));
+
+// ─── Phase E · Auto-update (electron-updater) ──────────────────────────────
+// Lazy-import inside handlers so dev (where the dep may not yet be installed
+// or the file is being type-checked without the module) doesn't crash.
+type UpdaterState =
+  | 'idle'
+  | 'checking'
+  | 'update-available'
+  | 'downloading'
+  | 'ready'
+  | 'error';
+
+let updaterReady = false;
+let lastUpdaterStatus: { state: UpdaterState; progress?: number; error?: string } = { state: 'idle' };
+const RETRY_BACKOFF_MS = [30_000, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+
+function broadcastUpdaterStatus(status: typeof lastUpdaterStatus) {
+  lastUpdaterStatus = status;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('updater:status', status);
+    }
+  }
+}
+
+async function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    // electron-updater is a no-op in dev builds; we keep the IPC surface
+    // alive so the renderer can still call it without crashing.
+    return;
+  }
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('checking-for-update', () => broadcastUpdaterStatus({ state: 'checking' }));
+    autoUpdater.on('update-available', () => broadcastUpdaterStatus({ state: 'update-available' }));
+    autoUpdater.on('update-not-available', () => broadcastUpdaterStatus({ state: 'idle' }));
+    autoUpdater.on('download-progress', (p: { percent?: number }) =>
+      broadcastUpdaterStatus({ state: 'downloading', progress: p?.percent }));
+    autoUpdater.on('update-downloaded', () => broadcastUpdaterStatus({ state: 'ready' }));
+    autoUpdater.on('error', (err: Error) =>
+      broadcastUpdaterStatus({ state: 'error', error: err?.message || String(err) }));
+
+    updaterReady = true;
+
+    // Background check + retry backoff. We don't `throw` from the chain —
+    // electron-updater emits 'error' which we already capture.
+    let attempt = 0;
+    const tryCheck = () => {
+      autoUpdater.checkForUpdates().catch(() => {});
+      const next = RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)];
+      attempt++;
+      setTimeout(tryCheck, next);
+    };
+    setTimeout(tryCheck, 10_000); // first check 10 s after startup
+  } catch (err) {
+    console.warn('[Updater] electron-updater unavailable:', err);
+  }
+}
+setupAutoUpdater();
+
+ipcMain.handle('updater:check-for-updates', async () => {
+  if (!updaterReady) return { ok: false, reason: 'not-ready' };
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('updater:status', async () => lastUpdaterStatus);
+
+ipcMain.handle('updater:quit-and-install', async () => {
+  if (!updaterReady) return { ok: false, reason: 'not-ready' };
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    autoUpdater.quitAndInstall(false /* isSilent */, true /* isForceRunAfter */);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message || String(err) };
+  }
+});

@@ -70,6 +70,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status: () => ipcRenderer.invoke('daemon:status'),
   },
 
+  // Phase E — auto-updater
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke('updater:check-for-updates'),
+    status: () => ipcRenderer.invoke('updater:status'),
+    quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
+    onStatus: (handler: (status: { state: string; progress?: number; error?: string }) => void) => {
+      const listener = (_evt: unknown, status: any) => handler(status);
+      ipcRenderer.on('updater:status', listener);
+      return () => ipcRenderer.removeListener('updater:status', listener);
+    },
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
