@@ -93,8 +93,77 @@ export interface Topic {
   provider?: string | null;
   /** Last-used model for this topic. NULL = use the provider's default. */
   model?: string | null;
+  /**
+   * Optional binding to a Worktree (a specific git working copy of a Project).
+   * NULL = legacy/default behaviour: chat, tools, and slash commands operate
+   * inside `projectPath`. NON-NULL = operations are scoped to the worktree's
+   * `absPath` instead. ON DELETE SET NULL — deleting the worktree gracefully
+   * degrades the topic back to its `projectPath`. See migration 018.
+   */
+  worktreeId?: string | null;
   disabledContextSources?: string[];
   assignedAgents?: { id: string; name: string; role: string }[];
+}
+
+/**
+ * First-class Project entity (migration 016).
+ *
+ * Optional canonical record for any project that the user wants to register.
+ * Legacy code paths that key off `topics.project_path` / `tasks.project_id`
+ * strings continue to work without a corresponding `Project` row — auto-
+ * creation only happens on explicit user action.
+ */
+export interface Project {
+  id: string;
+  name: string;
+  /** Lowercase, hyphenated identifier — UNIQUE. Used in `~/.topics/worktrees/<slug>/`. */
+  slug: string;
+  /** Absolute filesystem path to the project's primary working directory. */
+  path: string;
+  color?: string | null;
+  icon?: string | null;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * First-class Worktree entity (migration 017).
+ *
+ * Each row is a checked-out git working copy of a Project at a specific
+ * branch (or detached HEAD). Disk layout: `~/.topics/worktrees/<project-
+ * slug>/<worktree-name>/` (configurable via env `TOPICS_WORKTREES_DIR`).
+ *
+ * The `mode` enum tracks how the worktree was created so deletion knows
+ * whether it owns the underlying git branch:
+ *   - `branch`:   we created a fresh branch off `baseRef`; delete on row deletion
+ *   - `reuse`:    we attached to an existing branch; do NOT delete on row deletion
+ *   - `detached`: detached HEAD at a ref; `branchName` is null
+ *
+ * The `status` enum is the materialisation state, exposed in the WS broadcast
+ * so the UI can show a loader while the on-disk worktree is being built.
+ */
+export interface Worktree {
+  id: string;
+  projectId: string;
+  /** Display name. Default auto-generated `<adjective>-<noun>` from the naming generator. UNIQUE per project. */
+  name: string;
+  /** Git branch name. Null only when `mode === 'detached'`. */
+  branchName: string | null;
+  /** Base ref the branch was forked from (e.g. `main`). Null for `detached`. */
+  baseRef: string | null;
+  mode: 'branch' | 'reuse' | 'detached';
+  /** Absolute filesystem path of the checked-out working tree. UNIQUE globally. */
+  absPath: string;
+  /** Whether the working branch has been pushed to a remote (set by the watcher). */
+  isPushed: boolean;
+  /** True once the user explicitly renames the underlying git branch (later phase). */
+  branchRenamed: boolean;
+  status: 'pending' | 'ready' | 'error';
+  /** Captured stderr / message when `status === 'error'`. */
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TopicsData {
