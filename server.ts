@@ -35,6 +35,8 @@ import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
+import { createProjectsRouter } from "./server/routes/projects";
+import { createWorktreesRouter } from "./server/routes/worktrees";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
@@ -137,6 +139,8 @@ const processesRouter = createProcessesRouter(ctx);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
+const projectsRouter = createProjectsRouter(ctx);
+const worktreesRouter = createWorktreesRouter(ctx);
 
 // Wire snapshot manager → WS broadcast. Single 100ms debounce coalesces
 // the multiple "loading → ready" transitions a single refresh fires.
@@ -340,6 +344,8 @@ const server = Bun.serve<WSData>({
     if (isApiRequest) {
       const response = await agentApiRouter(req, url, pathname, method)
         || await topicsRouter(req, url, pathname, method)
+        || await projectsRouter(req, url, pathname, method)
+        || await worktreesRouter(req, url, pathname, method)
         || await filesRouter(req, url, pathname, method)
         || await browserRouter(req, url, pathname, method)
         || await cronRouter(req, url, pathname, method)
