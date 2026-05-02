@@ -33,6 +33,13 @@ export interface Topic {
    * `server/types.ts:Topic.worktreeId`.
    */
   worktreeId?: string | null;
+  /**
+   * Phase C · TOPIC-IM-01: one-shot initial message queued at create
+   * time. The renderer reads this on first session open, dispatches it
+   * as the user's first prompt, then PATCHes it back to null. Mirrors
+   * `server/types.ts:Topic.initialMessage`.
+   */
+  initialMessage?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
 }
 
@@ -152,6 +159,8 @@ export interface CreateTopicRequest {
   projectPath?: string;
   /** Phase A · TOPIC-WT-01. Optional binding to a Worktree. */
   worktreeId?: string | null;
+  /** Phase C · TOPIC-IM-01. Optional one-shot initial message. */
+  initialMessage?: string;
 }
 
 export interface UpdateTopicRequest {
@@ -170,6 +179,8 @@ export interface UpdateTopicRequest {
   disabledContextSources?: string[];
   /** Phase A · TOPIC-WT-01. Pass `null` to clear the binding. */
   worktreeId?: string | null;
+  /** Phase C · TOPIC-IM-01. Pass `null` (or "") to clear after dispatch. */
+  initialMessage?: string | null;
 }
 
 export interface LinkTopicRequest {

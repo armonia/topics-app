@@ -101,6 +101,12 @@ export interface Topic {
    * degrades the topic back to its `projectPath`. See migration 018.
    */
   worktreeId?: string | null;
+  /**
+   * Phase C · one-shot initial message. When non-null, the renderer
+   * auto-dispatches it on first session open then PATCHes back to null.
+   * Mirrors `client/src/types:Topic.initialMessage`.
+   */
+  initialMessage?: string | null;
   disabledContextSources?: string[];
   assignedAgents?: { id: string; name: string; role: string }[];
 }

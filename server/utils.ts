@@ -69,8 +69,8 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
 
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, worktree_id, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $worktree_id, $archived, $created_at, $updated_at)
+      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, worktree_id, initial_message, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
     `),
     deleteTopic: db.prepare(`DELETE FROM topics WHERE id = ?`),
 
@@ -144,6 +144,8 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.model) topic.model = row.model;
     // worktree_id (Phase A · migration 018). Optional FK; legacy rows are NULL.
     if (row.worktree_id) topic.worktreeId = row.worktree_id;
+    // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
+    if (row.initial_message) topic.initialMessage = row.initial_message;
 
     const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -183,6 +185,9 @@ export function createAppContext(baseDir: string): AppContext {
       // worktree_id (Phase A · migration 018). NULL = no binding; FK
       // ON DELETE SET NULL on the column ensures graceful degrade.
       $worktree_id: topic.worktreeId || null,
+      // initial_message (Phase C · migration 019). One-shot — the renderer
+      // PATCHes back to null after dispatching it.
+      $initial_message: topic.initialMessage || null,
       $archived: topic.archived ? 1 : 0,
       $created_at: topic.createdAt,
       $updated_at: topic.updatedAt,

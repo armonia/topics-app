@@ -74,6 +74,9 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
   const [newWtName, setNewWtName] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Phase C · TOPIC-IM-01: optional one-shot initial message persisted
+  // at create time. The renderer auto-dispatches on first session open.
+  const [initialMessage, setInitialMessage] = useState<string>('');
 
   // The hook keeps the worktree list live via WS; project-scoped when we
   // know the project, no-op when we don't.
@@ -89,6 +92,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
       setShowTemplates(true);
       setSubmitError(null);
       setSubmitting(false);
+      setInitialMessage('');
       setWtMode('default');
       setPickedWorktreeId('');
       setNewWtMode('branch');
@@ -161,6 +165,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
       }
       // wtMode === 'default' → worktreeId stays undefined → legacy behaviour.
 
+      const trimmedInitial = initialMessage.trim();
       const data: CreateTopicRequest = {
         name: finalName,
         icon: selectedTemplate?.icon || DEFAULT_TOPIC_ICON,
@@ -168,6 +173,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
         systemPrompt: selectedTemplate?.systemPrompt,
         projectPath,
         worktreeId,
+        initialMessage: trimmedInitial.length > 0 ? trimmedInitial : undefined,
       };
       const topic = await onCreate(data);
       if (topic) onClose();
@@ -409,6 +415,25 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
               </div>
             </div>
           )}
+
+          {/* Phase C · TOPIC-IM-01: optional one-shot initial message */}
+          <div>
+            <label className="block text-[13px] font-medium text-app-text mb-1.5">
+              Initial message <span className="text-app-text-muted font-normal">(optional)</span>
+            </label>
+            <p className="text-[11px] text-app-text-muted mb-2">
+              Type your first prompt now. It will be queued and delivered as soon as the agent connects, so you don't have to wait.
+            </p>
+            <textarea
+              value={initialMessage}
+              onChange={(e) => setInitialMessage(e.target.value)}
+              placeholder="What do you want the agent to do first?"
+              rows={3}
+              maxLength={8000}
+              disabled={submitting}
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y disabled:opacity-60"
+            />
+          </div>
 
           {submitError && (
             <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-red-500/40 bg-red-500/10 text-[12px] text-red-600 dark:text-red-400">

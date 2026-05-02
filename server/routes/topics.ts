@@ -911,6 +911,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!wt) return json({ error: "worktreeId not found" }, 400);
         topic.worktreeId = body.worktreeId;
       }
+      // Phase C · TOPIC-IM-01: optional one-shot initial message.
+      // Validation: ≤ 8000 chars, control-char strip. Empty string normalises
+      // to null so callers can send "" without persisting useless rows.
+      if (body.initialMessage !== undefined && body.initialMessage !== null) {
+        const cleaned = String(body.initialMessage).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
+        if (cleaned.length > 8000) return json({ error: "initialMessage too long (max 8000)" }, 400);
+        if (cleaned.length > 0) topic.initialMessage = cleaned;
+      }
 
       data.topics[id] = topic;
       topic.sessionKey = "topic:" + id.slice(0, 8);
@@ -971,6 +979,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             const wt = worktreeStore.get(body.worktreeId);
             if (!wt) return json({ error: "worktreeId not found" }, 400);
             topic.worktreeId = body.worktreeId;
+          }
+        }
+        // Phase C · TOPIC-IM-01. NULL = clear (renderer PATCHes after dispatch).
+        if (body.initialMessage !== undefined) {
+          if (body.initialMessage === null || body.initialMessage === "") {
+            topic.initialMessage = null;
+          } else {
+            const cleaned = String(body.initialMessage).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
+            if (cleaned.length > 8000) return json({ error: "initialMessage too long (max 8000)" }, 400);
+            topic.initialMessage = cleaned;
           }
         }
         topic.updatedAt = new Date().toISOString();
