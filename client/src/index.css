@@ -24,6 +24,45 @@
 
 /* Font stack */
 :root {
+  /* ─── Phase G · 3-layer token system ─────────────────────────────────
+   * Three parallel scales adopted from the reference desktop client we
+   * studied: standard tokens (already below), `--dashboard-*` for chat/
+   * IDE chrome, `--sidebar-*` (with `/ .7` translucent variants for
+   * vibrancy). Topics keeps its own brand colour — gold is NOT copied.
+   *
+   * Single radius token + 3-step calc ladder for component sizing.
+   */
+  --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-xs: calc(var(--radius) - 4px);
+
+  /* Dashboard layer — chat / main-pane chrome (light defaults) */
+  --dashboard-bg-primary: hsl(0 0% 100%);
+  --dashboard-surface-light: hsl(0 0% 98%);
+  --dashboard-surface-dark: hsl(0 0% 96%);
+  --dashboard-input-surface: hsl(60 20% 99%);
+  --dashboard-border: hsl(0 0% 0% / 0.12);
+  --dashboard-text-primary: hsl(0 0% 0%);
+  --dashboard-text-secondary: hsl(0 0% 15%);
+  --dashboard-text-muted: hsl(0 0% 35%);
+
+  /* Sidebar layer — its own scoped scale */
+  --sidebar-bg: hsl(0 0% 96%);
+  --sidebar-foreground: hsl(240 5% 26%);
+  --sidebar-border: hsl(0 0% 0% / 0.1);
+  --sidebar-search: hsl(0 0% 91%);
+  --sidebar-hover: hsl(0 0% 0% / 0.04);
+  --sidebar-selected: hsl(0 0% 0% / 0.08);
+  --sidebar-footer-bg: hsl(0 0% 94%);
+  --sidebar-tree-line: hsl(0 0% 75%);
+  --sidebar-primary: hsl(240 6% 10%);
+  --sidebar-ring: hsl(217 91% 60%);
+
+  /* Functional / status */
+  --color-functional-positive: hsl(142 72% 29%);
+  --color-functional-warning: hsl(32 95% 44%);
+  --color-functional-negative: hsl(0 84% 60%);
+
   --primary: #0066ff;
   --primary-hover: #0052cc;
   --primary-light: rgba(0,102,255,0.1);
@@ -902,5 +941,60 @@ input[type="range"]::-webkit-slider-thumb {
   .chat-messages-container {
     max-width: 800px;
     margin: 0 auto;
+  }
+}
+
+/* ─── Phase G · animation set ────────────────────────────────────────────
+ * Three keyframes from the reference desktop client we studied:
+ *   · `dot-pulse`           — three-dot "thinking" indicator
+ *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
+ *   · `timeline-blur-out`   — exit (faster, 80ms)
+ * Plus three Material easing curves.
+ */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@keyframes timeline-blur-in {
+  0% { opacity: 0; filter: blur(24px); transform: scale(0.97); }
+  100% { opacity: 1; filter: blur(0); transform: scale(1); }
+}
+
+@keyframes timeline-blur-out {
+  0% { opacity: 1; filter: blur(0); transform: scale(1); }
+  100% { opacity: 0; filter: blur(24px); transform: scale(0.97); }
+}
+
+.animate-dot-pulse { animation: dot-pulse 1.2s ease-in-out infinite; }
+.animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
+.animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
+
+/* Material easing curves as CSS custom properties so components can opt in
+ * without re-deriving them. */
+:root {
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* `scrollbar-auto-hide` — desktop polish: scrollbars only paint on hover/focus */
+@utility scrollbar-auto-hide {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  &:hover, &:focus, &:focus-within {
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+  }
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 4px;
+    transition: background 150ms;
+  }
+  &:hover::-webkit-scrollbar-thumb,
+  &:focus::-webkit-scrollbar-thumb,
+  &:focus-within::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
   }
 }

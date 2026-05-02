@@ -145,6 +145,7 @@ function generateTabId(): string {
 
 function createWindow(): void {
   console.log('[Topics Electron] Creating main window...');
+  const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -152,7 +153,11 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
-    backgroundColor: '#1a1a1a',
+    // Phase G: vibrancy material on macOS so the chrome can layer over
+    // a translucent background. Renderer tokens with `/ .7` alpha
+    // surface the material through.
+    ...(isMac ? { vibrancy: 'sidebar' as const, visualEffectState: 'active' as const } : {}),
+    backgroundColor: isMac ? '#00000000' : '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -162,6 +167,25 @@ function createWindow(): void {
     },
     show: false,
   });
+
+  // Phase G · re-pin the traffic-light position on every relevant
+  // window event so it doesn't drift on full-screen / restore /
+  // resize. The reference desktop client we studied does this on 10+
+  // events; we cover the same set.
+  if (isMac && mainWindow) {
+    const repin = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try { mainWindow.setWindowButtonPosition?.({ x: 12, y: 12 }); } catch {}
+    };
+    const events = [
+      'enter-full-screen', 'leave-full-screen',
+      'maximize', 'unmaximize', 'restore', 'show', 'focus', 'resize',
+    ] as const;
+    for (const evt of events) mainWindow.on(evt as any, repin);
+    mainWindow.webContents.on('did-finish-load', repin);
+    mainWindow.webContents.on('did-navigate-in-page', repin);
+    mainWindow.webContents.on('dom-ready', repin);
+  }
 
   // Intercept navigation: allow localhost, open external URLs in system browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
