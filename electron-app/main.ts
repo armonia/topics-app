@@ -1155,6 +1155,156 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   return result.filePaths[0];
 });
 
+// ─── Phase B · DAEMON-03 — LaunchAgent management (macOS) ──────────────────
+const DAEMON_LABEL = 'com.armonia.topics-daemon';
+const TOPICS_HOME_DIR = path.join(process.env.HOME || '', '.topics');
+const PLIST_PATH = path.join(process.env.HOME || '', 'Library', 'LaunchAgents', `${DAEMON_LABEL}.plist`);
+
+function buildDaemonPlist(serverDir: string, bunPath: string): string {
+  const logsPath = path.join(TOPICS_HOME_DIR, 'logs', 'daemon.log');
+  // Hand-rolled XML keeps the dep tree small and the output diff-friendly.
+  // We escape *paths* (the only externally-influenced field) by relying on
+  // the fact that we control them server-side: serverDir comes from
+  // app.getAppPath(), bunPath from `which bun`.
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${DAEMON_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${bunPath}</string>
+    <string>run</string>
+    <string>${path.join(serverDir, 'server.ts')}</string>
+  </array>
+  <key>WorkingDirectory</key><string>${serverDir}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>Crashed</key><true/>
+  </dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>${logsPath}</string>
+  <key>StandardErrorPath</key><string>${logsPath}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key><string>production</string>
+    <key>HOME</key><string>${process.env.HOME || ''}</string>
+    <key>PATH</key><string>${path.dirname(bunPath)}:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+`;
+}
+
+async function findBunPath(): Promise<string> {
+  const { execFile: execFileCb } = await import('child_process');
+  return await new Promise<string>((resolve, reject) => {
+    execFileCb('/usr/bin/which', ['bun'], (err, stdout) => {
+      if (err) return reject(err);
+      const bun = stdout.trim();
+      if (!bun) return reject(new Error('bun not found on PATH'));
+      resolve(bun);
+    });
+  });
+}
+
+async function launchctl(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+  // execFile with explicit argv prevents shell injection — the user
+  // never controls these args.
+  const { execFile: execFileCb } = await import('child_process');
+  return await new Promise((resolve) => {
+    execFileCb('/bin/launchctl', args, (err, stdout, stderr) => {
+      resolve({
+        stdout: stdout?.toString() || '',
+        stderr: stderr?.toString() || '',
+        code: err && (err as any).code != null ? (err as any).code : err ? 1 : 0,
+      });
+    });
+  });
+}
+
+ipcMain.handle('daemon:install-launchagent', async () => {
+  if (process.platform !== 'darwin') {
+    return { ok: false, error: 'LaunchAgent is macOS-only' };
+  }
+  try {
+    fs.mkdirSync(path.dirname(PLIST_PATH), { recursive: true });
+    fs.mkdirSync(path.join(TOPICS_HOME_DIR, 'logs'), { recursive: true });
+    const bunPath = await findBunPath();
+    // The Electron app is launched from inside the Topics repo; resolve
+    // the server.ts location off the resourcesPath in production builds
+    // and __dirname during dev.
+    const serverDir =
+      app.isPackaged
+        ? path.resolve(process.resourcesPath, 'server')
+        : path.resolve(__dirname, '..', '..');
+    fs.writeFileSync(PLIST_PATH, buildDaemonPlist(serverDir, bunPath), { mode: 0o644 });
+    const uid = process.getuid?.() ?? 0;
+    const result = await launchctl(['bootstrap', `gui/${uid}`, PLIST_PATH]);
+    if (result.code !== 0 && !result.stderr.includes('already')) {
+      return { ok: false, error: `launchctl bootstrap failed: ${result.stderr.trim()}` };
+    }
+    return { ok: true, plistPath: PLIST_PATH };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('daemon:uninstall-launchagent', async () => {
+  if (process.platform !== 'darwin') {
+    return { ok: false, error: 'LaunchAgent is macOS-only' };
+  }
+  try {
+    const uid = process.getuid?.() ?? 0;
+    // bootout is forgiving: if the agent isn't loaded it returns non-zero
+    // but it's harmless. We still try to delete the plist so the user
+    // ends up in a clean state either way.
+    await launchctl(['bootout', `gui/${uid}/${DAEMON_LABEL}`]);
+    if (fs.existsSync(PLIST_PATH)) fs.unlinkSync(PLIST_PATH);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('daemon:status', async () => {
+  // Read the daemon-state.json + ping /__daemon/healthz with the token.
+  const launchAgentInstalled =
+    process.platform === 'darwin' && fs.existsSync(PLIST_PATH);
+  const statePath = path.join(TOPICS_HOME_DIR, 'daemon-state.json');
+  if (!fs.existsSync(statePath)) {
+    return { running: false, launchAgentInstalled };
+  }
+  let state: { pid: number; port: number; token: string; startedAt: string } | null = null;
+  try {
+    state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+  } catch {
+    return { running: false, launchAgentInstalled };
+  }
+  if (!state) return { running: false, launchAgentInstalled };
+  try {
+    const res = await fetch(`http://127.0.0.1:${state.port}/__daemon/healthz`, {
+      headers: { authorization: `Bearer ${state.token}` },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { pid: number; uptime_ms: number };
+      return {
+        running: true,
+        pid: body.pid,
+        uptimeMs: body.uptime_ms,
+        port: state.port,
+        launchAgentInstalled,
+      };
+    }
+  } catch {
+    /* daemon not actually running — state file is stale */
+  }
+  return { running: false, launchAgentInstalled, pidHint: state.pid };
+});
+
 // --- Detached Windows ---
 ipcMain.handle('window:detach', async (_event, topicId: string) => {
   const url = `${SERVER_URL}?topic=${topicId}`;

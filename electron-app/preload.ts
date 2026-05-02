@@ -63,6 +63,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAlwaysOnTop: () => ipcRenderer.invoke('app:get-always-on-top'),
   },
 
+  // Phase B · DAEMON-03 — daemon lifecycle management (macOS)
+  daemon: {
+    install: () => ipcRenderer.invoke('daemon:install-launchagent'),
+    uninstall: () => ipcRenderer.invoke('daemon:uninstall-launchagent'),
+    status: () => ipcRenderer.invoke('daemon:status'),
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
