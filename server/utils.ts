@@ -9,6 +9,9 @@ import type {
 } from "./types";
 import { initDatabase } from "./db";
 import { maybeSendPush } from "./push-triggers";
+import { createProjectStore } from "./services/project-store";
+import { createWorktreeStore } from "./services/worktree-store";
+import { createWorktreeManager } from "./services/worktree-manager";
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
@@ -295,6 +298,18 @@ export function createAppContext(baseDir: string): AppContext {
     }
     return false;
   }
+
+  // --- Project + Worktree domain (Phase A · migrations 016-018) ---
+  // Stores are pure SQL helpers, instantiated against the singleton db.
+  // The manager is the only stateful dependency: it closes over broadcastToAll
+  // (declared above) so it can fire `worktree:updated` envelopes when the
+  // async git materialise step transitions a row from `pending` → `ready|error`.
+  const projectStore = createProjectStore(db);
+  const worktreeStore = createWorktreeStore(db);
+  const worktreeManager = createWorktreeManager(
+    { broadcastToAll } as AppContext,
+    { projectStore, worktreeStore },
+  );
 
   // --- Atomic write (kept for backward compat with non-DB file writes) ---
   function atomicWriteJSON(filepath: string, data: object): void {
@@ -975,6 +990,7 @@ export function createAppContext(baseDir: string): AppContext {
 
   return {
     db,
+    projectStore, worktreeStore, worktreeManager,
     PORT, GATEWAY_URL,
     get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
     refreshGatewayToken,

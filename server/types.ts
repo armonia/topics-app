@@ -200,6 +200,11 @@ export interface AppContext {
   // Database
   db: Database;
 
+  // Project + Worktree domain (Phase A · added at migration 016-018)
+  projectStore: import("./services/project-store").ProjectStore;
+  worktreeStore: import("./services/worktree-store").WorktreeStore;
+  worktreeManager: import("./services/worktree-manager").WorktreeManager;
+
   // Paths
   PORT: number;
   GATEWAY_URL: string;
