@@ -734,6 +734,7 @@ function App() {
             onClose={() => setShowNewTopic(false)}
             onCreate={handleCreateTopic}
             projectPath={showNewTopic ? showNewTopic.projectPath : undefined}
+            onMessage={onWSMessage}
           />
         </Suspense>
       )}

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
-import type { CreateTopicRequest, TopicTemplate } from '../../types';
+import { X, Loader2, AlertCircle } from 'lucide-react';
+import type { CreateTopicRequest, TopicTemplate, Project, Worktree, WSMessage } from '../../types';
 import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
+import { projectsApi, worktreesApi } from '../../lib/api';
+import { useWorktrees } from '../../hooks/useWorktrees';
 
 const TEMPLATES: TopicTemplate[] = [
   {
@@ -34,39 +36,146 @@ const TEMPLATES: TopicTemplate[] = [
   },
 ];
 
+/**
+ * Phase A · TOPIC-WT-01 — Worktree picker mode.
+ *
+ *   default       — "Use project path directly" (legacy / backward-compat)
+ *   pick-existing — choose a ready worktree from the list
+ *   create-new    — request a new worktree, wait for materialise, then bind
+ */
+type WorktreeMode = 'default' | 'pick-existing' | 'create-new';
+
 interface NewTopicModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (data: CreateTopicRequest) => Promise<any>;
   projectPath?: string;
+  /**
+   * Pass `useWebSocket().onMessage` for live worktree status updates.
+   * Optional — without it the picker still works, but the
+   * `pending → ready` flip during create-new requires a manual refresh
+   * (currently handled by the hook's polling fallback once added).
+   */
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
-export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTopicModalProps) {
+export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessage }: NewTopicModalProps) {
   const [name, setName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<TopicTemplate | null>(null);
   const [showTemplates, setShowTemplates] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // ── Phase A: Worktree picker state ──────────────────────────────────────
+  const [project, setProject] = useState<Project | null>(null);
+  const [wtMode, setWtMode] = useState<WorktreeMode>('default');
+  const [pickedWorktreeId, setPickedWorktreeId] = useState<string>('');
+  const [newWtMode, setNewWtMode] = useState<'branch' | 'reuse' | 'detached'>('branch');
+  const [newWtBaseRef, setNewWtBaseRef] = useState<string>('main');
+  const [newWtName, setNewWtName] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // The hook keeps the worktree list live via WS; project-scoped when we
+  // know the project, no-op when we don't.
+  const { worktrees, ready: readyWorktrees, byId: worktreeById } = useWorktrees({
+    projectId: project?.id,
+    onMessage,
+  });
 
   useEffect(() => {
     if (isOpen) {
       setName('');
       setSelectedTemplate(null);
       setShowTemplates(true);
+      setSubmitError(null);
+      setSubmitting(false);
+      setWtMode('default');
+      setPickedWorktreeId('');
+      setNewWtMode('branch');
+      setNewWtBaseRef('main');
+      setNewWtName('');
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
 
+  // Resolve the Project record for the projectPath (if any). When a row
+  // exists we surface the worktree picker; otherwise the modal behaves
+  // exactly like the pre-Phase-A version.
+  useEffect(() => {
+    let cancelled = false;
+    setProject(null);
+    if (!isOpen || !projectPath) return;
+    projectsApi
+      .byPath(projectPath)
+      .then((p) => { if (!cancelled) setProject(p); })
+      .catch(() => { /* swallow — picker just stays hidden */ });
+    return () => { cancelled = true; };
+  }, [isOpen, projectPath]);
+
+  /**
+   * Wait for a freshly-created worktree to flip out of `pending`. The
+   * hook already folds in the `worktree:updated` envelope; we just poll
+   * its derived state up to `timeoutMs`.
+   */
+  function waitForReady(id: string, timeoutMs = 15_000): Promise<Worktree> {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const tick = () => {
+        const wt = worktreeById(id);
+        if (wt && wt.status === 'ready') { resolve(wt); return; }
+        if (wt && wt.status === 'error') { reject(new Error(wt.errorMessage || 'Worktree creation failed')); return; }
+        if (Date.now() - start >= timeoutMs) {
+          reject(new Error('Worktree creation timed out'));
+          return;
+        }
+        setTimeout(tick, 200);
+      };
+      tick();
+    });
+  }
+
   const handleCreate = async () => {
+    if (submitting) return;
+    setSubmitError(null);
     const finalName = name.trim() || selectedTemplate?.name || 'New Chat';
-    const data: CreateTopicRequest = {
-      name: finalName,
-      icon: selectedTemplate?.icon || DEFAULT_TOPIC_ICON,
-      color: selectedTemplate?.color || '#0066ff',
-      systemPrompt: selectedTemplate?.systemPrompt,
-      projectPath,
-    };
-    const topic = await onCreate(data);
-    if (topic) onClose();
+
+    let worktreeId: string | undefined;
+    try {
+      if (project && wtMode === 'pick-existing') {
+        if (!pickedWorktreeId) {
+          setSubmitError('Pick a worktree to bind, or switch to "Use project path directly".');
+          return;
+        }
+        worktreeId = pickedWorktreeId;
+      } else if (project && wtMode === 'create-new') {
+        setSubmitting(true);
+        const baseRef = newWtBaseRef.trim() || 'main';
+        const created = await worktreesApi.create({
+          project_id: project.id,
+          mode: newWtMode,
+          base_ref: baseRef,
+          name: newWtName.trim() || undefined,
+        });
+        const ready = await waitForReady(created.id);
+        worktreeId = ready.id;
+      }
+      // wtMode === 'default' → worktreeId stays undefined → legacy behaviour.
+
+      const data: CreateTopicRequest = {
+        name: finalName,
+        icon: selectedTemplate?.icon || DEFAULT_TOPIC_ICON,
+        color: selectedTemplate?.color || '#0066ff',
+        systemPrompt: selectedTemplate?.systemPrompt,
+        projectPath,
+        worktreeId,
+      };
+      const topic = await onCreate(data);
+      if (topic) onClose();
+    } catch (err: any) {
+      setSubmitError(err?.message ?? 'Failed to create topic');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSelectTemplate = (template: TopicTemplate) => {
@@ -76,6 +185,9 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
   };
 
   if (!isOpen) return null;
+
+  const showPicker = !!project;
+  const hasReadyWorktrees = readyWorktrees.length > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="presentation">
@@ -107,11 +219,12 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
               value={name}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') handleCreate();
+                if (e.key === 'Enter' && !submitting) handleCreate();
                 if (e.key === 'Escape') onClose();
               }}
               placeholder="Enter topic name..."
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+              disabled={submitting}
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors disabled:opacity-60"
             />
           </div>
 
@@ -163,24 +276,168 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath }: NewTop
               <p className="text-[11px] text-app-text-muted">{selectedTemplate.description}</p>
             </div>
           )}
+
+          {/* Phase A · Worktree picker (conditional on a known Project) */}
+          {showPicker && (
+            <div className="border-t border-app-border-light pt-4">
+              <label className="block text-[13px] font-medium text-app-text mb-2">
+                Working tree for this topic
+              </label>
+              <p className="text-[11px] text-app-text-muted mb-2">
+                Topics bound to a worktree run inside an isolated branch. Default keeps the legacy behaviour: the topic uses the project's main directory.
+              </p>
+              <div className="space-y-2">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="wtMode"
+                    value="default"
+                    checked={wtMode === 'default'}
+                    onChange={() => setWtMode('default')}
+                    disabled={submitting}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[12px] text-app-text">Use project path directly</span>
+                </label>
+                <label className={`flex items-start gap-2 ${hasReadyWorktrees ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}>
+                  <input
+                    type="radio"
+                    name="wtMode"
+                    value="pick-existing"
+                    checked={wtMode === 'pick-existing'}
+                    onChange={() => setWtMode('pick-existing')}
+                    disabled={submitting || !hasReadyWorktrees}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[12px] text-app-text">
+                    Pick existing worktree
+                    {!hasReadyWorktrees && (
+                      <span className="ml-2 text-app-text-muted">(none ready)</span>
+                    )}
+                  </span>
+                </label>
+                {wtMode === 'pick-existing' && hasReadyWorktrees && (
+                  <select
+                    value={pickedWorktreeId}
+                    onChange={e => setPickedWorktreeId(e.target.value)}
+                    disabled={submitting}
+                    className="w-full ml-5 px-2 py-1.5 text-[12px] border border-app-border-light rounded-md bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="">Choose…</option>
+                    {readyWorktrees.map(wt => (
+                      <option key={wt.id} value={wt.id}>
+                        {wt.name}{wt.branchName ? ` · ${wt.branchName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="wtMode"
+                    value="create-new"
+                    checked={wtMode === 'create-new'}
+                    onChange={() => setWtMode('create-new')}
+                    disabled={submitting}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[12px] text-app-text">Create new worktree</span>
+                </label>
+                {wtMode === 'create-new' && (
+                  <div className="ml-5 space-y-2 p-2 rounded-md border border-app-border-light bg-app-hover/40">
+                    <div className="flex gap-2">
+                      <label className="flex items-center gap-1.5 text-[11px] text-app-text">
+                        <input
+                          type="radio"
+                          name="newWtMode"
+                          checked={newWtMode === 'branch'}
+                          onChange={() => setNewWtMode('branch')}
+                          disabled={submitting}
+                        />
+                        new branch
+                      </label>
+                      <label className="flex items-center gap-1.5 text-[11px] text-app-text">
+                        <input
+                          type="radio"
+                          name="newWtMode"
+                          checked={newWtMode === 'reuse'}
+                          onChange={() => setNewWtMode('reuse')}
+                          disabled={submitting}
+                        />
+                        reuse branch
+                      </label>
+                      <label className="flex items-center gap-1.5 text-[11px] text-app-text">
+                        <input
+                          type="radio"
+                          name="newWtMode"
+                          checked={newWtMode === 'detached'}
+                          onChange={() => setNewWtMode('detached')}
+                          disabled={submitting}
+                        />
+                        detached
+                      </label>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-app-text-muted mb-0.5">
+                        {newWtMode === 'branch' ? 'Base ref' : newWtMode === 'reuse' ? 'Existing branch' : 'Ref'}
+                      </label>
+                      <input
+                        type="text"
+                        value={newWtBaseRef}
+                        onChange={e => setNewWtBaseRef(e.target.value)}
+                        placeholder="main"
+                        disabled={submitting}
+                        className="w-full px-2 py-1 text-[12px] border border-app-border-light rounded-md bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-app-text-muted mb-0.5">
+                        Name <span className="text-app-text-muted">(auto-generated when blank)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newWtName}
+                        onChange={e => setNewWtName(e.target.value)}
+                        placeholder="lyrical-cobra"
+                        disabled={submitting}
+                        pattern="[a-z][a-z0-9-]*"
+                        className="w-full px-2 py-1 text-[12px] border border-app-border-light rounded-md bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {submitError && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-red-500/40 bg-red-500/10 text-[12px] text-red-600 dark:text-red-400">
+              <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+              <span>{submitError}</span>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-app-border">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-[13px] text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
+            disabled={submitting}
+            className="px-4 py-2 text-[13px] text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleCreate}
-            disabled={!name.trim() && !selectedTemplate}
-            className="px-4 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover disabled:bg-app-disabled disabled:text-app-text-muted transition-colors"
+            disabled={(!name.trim() && !selectedTemplate) || submitting}
+            className="inline-flex items-center gap-2 px-4 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover disabled:bg-app-disabled disabled:text-app-text-muted transition-colors"
           >
-            Create Topic
+            {submitting && <Loader2 size={13} className="animate-spin" />}
+            {submitting && wtMode === 'create-new' ? 'Setting up worktree…' : 'Create Topic'}
           </button>
         </div>
+        {/* Avoid unused-warning when worktrees is consumed only via byId */}
+        <span className="hidden" data-worktree-count={worktrees.length} />
       </div>
     </div>
   );

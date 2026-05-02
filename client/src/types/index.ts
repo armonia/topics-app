@@ -150,6 +150,8 @@ export interface CreateTopicRequest {
   icon?: string;
   systemPrompt?: string;
   projectPath?: string;
+  /** Phase A · TOPIC-WT-01. Optional binding to a Worktree. */
+  worktreeId?: string | null;
 }
 
 export interface UpdateTopicRequest {
@@ -166,6 +168,8 @@ export interface UpdateTopicRequest {
   /** Set to a model id to persist as the topic's last-used model; null clears. */
   model?: string | null;
   disabledContextSources?: string[];
+  /** Phase A · TOPIC-WT-01. Pass `null` to clear the binding. */
+  worktreeId?: string | null;
 }
 
 export interface LinkTopicRequest {
