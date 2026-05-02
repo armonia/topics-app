@@ -455,12 +455,41 @@ export interface WSUnreadUpdatedMessage {
 }
 
 // --- Boards ------------------------------------------------------------------
+// `BoardTask` lives in lib/api.ts; we use a `import type` cycle to avoid a
+// runtime cycle. Consumers that narrow on `msg.type === 'task:created'`
+// then read `msg.task.id`, `...msg.task`, etc.
+import type { BoardTask, Approval, BoardMemory } from '../lib/api';
+
 export interface WSTaskMessage {
   type: 'task:created' | 'task:updated' | 'task:moved' | 'task:deleted'
        | 'task:archived' | 'task:unarchived';
   projectId: string;
-  task?: unknown;
+  task?: BoardTask;
   taskId?: string;
+}
+
+export interface WSApprovalMessage {
+  type: 'approval:created' | 'approval:resolved';
+  projectId: string;
+  approval?: Approval;
+  approvalId?: string;
+}
+
+export interface WSBoardMemoryMessage {
+  type: 'board-memory:created' | 'board-memory:updated' | 'board-memory:deleted';
+  projectId: string;
+  memory?: BoardMemory;
+  memoryId?: string;
+}
+
+export interface WSAgentNudgeMessage {
+  type: 'agent:nudge';
+  agentId: string;
+  agentName: string;
+  message: string;
+  taskId: string | null;
+  projectId: string;
+  timestamp: number;
 }
 
 export interface WSDashboardUpdatedMessage {
@@ -520,11 +549,22 @@ export type WSMessage =
   | WSTerminalSessionsMessage
   | WSUnreadUpdatedMessage
   | WSTaskMessage
+  | WSApprovalMessage
+  | WSBoardMemoryMessage
+  | WSAgentNudgeMessage
   | WSDashboardUpdatedMessage
   | WSProjectMessage
   | WSWorktreeMessage
   | WSMachineMessage
   | WSUnknownMessage;
+// `WSUnknownMessage` is the catch-all — its `type: string` field WIDENS
+// `WSMessage['type']` to `string`, which means literal-narrowing
+// (`if (msg.type === 'task:created')`) won't tighten msg's static type.
+// This was the contract before Phase A and the consumers we don't own
+// (useBoard.ts, useChat.ts, …) still assume the wider shape. The new
+// typed members above (WSProjectMessage, WSWorktreeMessage, …) are
+// usable by their own consumers via discriminant checks; existing
+// consumers are unaffected.
 
 /** @deprecated alias retained while consumers migrate. Use `WSMessage`. */
 export type TypedWSMessage = WSMessage;
