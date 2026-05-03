@@ -3,7 +3,7 @@
 # Starts the Bun server + client watcher, waits for it to be ready, then launches Electron
 set -e
 
-APP_DIR="/Users/user/.openclaw/workspace/topics-app"
+APP_DIR="/Users/user/Projects/topics-app"
 LOCKFILE="/tmp/topics-electron-prod.lock"
 cd "$APP_DIR"
 

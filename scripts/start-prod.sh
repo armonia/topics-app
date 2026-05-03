@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start prod server with auto-reload for both server and client
-cd /Users/user/.openclaw/workspace/topics-app
+cd /Users/user/Projects/topics-app
 
 # Initial client build
 (cd client && npx vite build 2>&1 | tail -3)
@@ -71,4 +71,4 @@ is_git_op_in_progress() {
 
 # Start server with watch mode (ignore client/public to avoid restart on client rebuild)
 # Use wait-based approach so the shell stays alive and can clean up children on exit
-/Users/user/.bun/bin/bun --watch --watch-ignore='public/**' --watch-ignore='client/**' --watch-ignore='uploads/**' run /Users/user/.openclaw/workspace/topics-app/server.ts
+/Users/user/.bun/bin/bun --watch --watch-ignore='public/**' --watch-ignore='client/**' --watch-ignore='uploads/**' run /Users/user/Projects/topics-app/server.ts

@@ -17,7 +17,7 @@ describe("Phase D · multi-machine", () => {
 
   test("upsertLocal is idempotent: insert on first call, refresh on subsequent", async () => {
     const { createAppContext } = await import("../../server/utils");
-    const ctx = createAppContext("/Users/user/.openclaw/workspace/topics-app-phase-a");
+    const ctx = createAppContext("/Users/user/Projects/topics-app");
     const first = ctx.machineStore.upsertLocal();
     const second = ctx.machineStore.upsertLocal();
     expect(second.id).toBe(first.id);
@@ -31,7 +31,7 @@ describe("Phase D · multi-machine", () => {
   test("rename via PATCH and FK SET NULL on delete", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createMachinesRouter } = await import("../../server/routes/machines");
-    const ctx = createAppContext("/Users/user/.openclaw/workspace/topics-app-phase-a");
+    const ctx = createAppContext("/Users/user/Projects/topics-app");
     (ctx as any).broadcastToAll = () => {};
     const m = ctx.machineStore.upsertLocal();
 
@@ -86,7 +86,7 @@ describe("Phase D · multi-machine", () => {
 
   test("markStaleOffline flips machines older than threshold", async () => {
     const { createAppContext } = await import("../../server/utils");
-    const ctx = createAppContext("/Users/user/.openclaw/workspace/topics-app-phase-a");
+    const ctx = createAppContext("/Users/user/Projects/topics-app");
     const local = ctx.machineStore.upsertLocal();
 
     // Insert a fake remote machine with old heartbeat.

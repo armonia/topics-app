@@ -7,10 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/user/.openclaw/workspace/topics-app/scripts/start-electron-prod.sh</string>
+        <string>/Users/user/Projects/topics-app/scripts/start-electron-prod.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/.openclaw/workspace/topics-app</string>
+    <string>/Users/user/Projects/topics-app</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PORT</key>

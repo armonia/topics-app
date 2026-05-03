@@ -465,8 +465,8 @@ test.describe("Context, Memory & Settings", () => {
     // Set contextFiles on the topic (use real files that exist on disk)
     await patchTopic(request, topic.id, {
       contextFiles: [
-        "/Users/user/.openclaw/workspace/topics-app/CLAUDE.md",
-        "/Users/user/.openclaw/workspace/topics-app/README.md",
+        "/Users/user/Projects/topics-app/CLAUDE.md",
+        "/Users/user/Projects/topics-app/README.md",
       ],
     });
 

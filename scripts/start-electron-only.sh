@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch ONLY Electron (assumes server already running on :3333)
 set -e
-APP_DIR="/Users/user/.openclaw/workspace/topics-app"
+APP_DIR="/Users/user/Projects/topics-app"
 cd "$APP_DIR"
 
 export NODE_ENV=production
