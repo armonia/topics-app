@@ -18,6 +18,7 @@ import { usePaneStore, type PaneStore } from '../store';
 import { selectSyncableSnapshot } from '../selectors';
 import { rememberLocalAck } from './selfEcho';
 import { getTabId } from './syncCrossTab';
+import { hasReceivedServerHydrate } from './serverHydrated';
 
 const REMOTE_KEY = 'pane-store-v2';
 const DEBOUNCE_MS = 500;
@@ -220,6 +221,26 @@ export function initServerSync(): void {
     () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        // ── Hydrate guard (post-mortem fix) ──────────────────────────────
+        // Don't push our snapshot until the server has hydrated us. Without
+        // this guard, an `OPEN_PANE` / `FOCUS_PANE` dispatched in the first
+        // ~500 ms after mount (e.g. from a saved hash route or restored
+        // tab) bumps `lastSeq`, and after DEBOUNCE_MS we'd PUT a default
+        // `openChatTopicIds: []` snapshot that the server's LWW accepts —
+        // wiping the user's open tabs. This bug was discovered after the
+        // Phase A→H merge: a 30-file fswatch storm reloaded Electron
+        // ~30 times, and each reload's pre-hydrate PUT raced to clobber
+        // pane-store-v2 server-side.
+        //
+        // Once the first `ui-state:init` lands `markServerHydrated()` flips
+        // and stays flipped for the rest of the session, so this is a
+        // boot-time check only — there is no perpetual gating on PUTs.
+        if (!hasReceivedServerHydrate()) {
+          // Re-arm: try again next time lastSeq changes. By then the WS
+          // init should have arrived (or the GET fallback inside
+          // bootstrap will have fired markServerHydrated).
+          return;
+        }
         // selectSyncableSnapshot excludes focusedPaneId and pane.scrollOffset —
         // device-local fields never cross the network per CONTEXT.md.
         const state = usePaneStore.getState();
