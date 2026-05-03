@@ -7,6 +7,9 @@ import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError,
 } from "./server/services/daemon-state";
+import {
+  startUiStateBackupTicker, snapshotUiStateNow,
+} from "./server/services/ui-state-backup";
 import { createTopicsRouter } from "./server/routes/topics";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
@@ -167,6 +170,17 @@ function tickHeartbeat() {
 }
 tickHeartbeat();
 const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+// Periodic ui_state backup — defence-in-depth against accidental wipes.
+// Snapshot once at startup so any pre-restart state is preserved on disk
+// before any client PUT can overwrite it; then the ticker takes over.
+try {
+  snapshotUiStateNow(ctx.db);
+  console.log(`[UiStateBackup] initial snapshot written → ~/.topics/ui-state-backups/`);
+} catch (err) {
+  console.warn("[UiStateBackup] initial snapshot failed:", err);
+}
+const stopUiStateBackup = startUiStateBackupTicker(ctx.db);
 
 // Wire snapshot manager → WS broadcast. Single 100ms debounce coalesces
 // the multiple "loading → ready" transitions a single refresh fires.
@@ -557,6 +571,7 @@ console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonStat
 async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
+  stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();
   closeDatabase();
