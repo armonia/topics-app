@@ -10,6 +10,7 @@ import {
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
 } from "./server/services/ui-state-backup";
+import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { createTopicsRouter } from "./server/routes/topics";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
@@ -79,6 +80,31 @@ try {
 } catch (err: any) {
   console.error(`[Startup] ${err?.message ?? err}`);
   process.exit(1);
+}
+
+// Boot-time orphan cleanup (post-mortem from May-3 sidebar-flash incident).
+// A topic UUID with `project_path` set must render as a project pane, not a
+// standalone topic-pane. If any such UUID remains in `ui_state` (pane-store-v2,
+// project-layout-*, openChatTopicIds, …) the renderer's `usePanelLifecycle`
+// Effect 7 will refuse to keep it open while the WS hydrate keeps re-applying
+// it from the server — a ~750 Hz ping-pong that visually flashes the sidebar
+// tree.  The renderer-side fix (PURGE_ORPHAN_PANE dispatch) is the *primary*
+// defence; this is the boot-time backstop that auto-corrects any DB left in a
+// corrupt state by an older renderer build.  Idempotent — no-op when clean.
+try {
+  const report = purgeOrphanTopicRefs(db);
+  if (report.rowsAffected > 0) {
+    console.log(
+      `[Startup] ui_state orphan cleanup: rewrote ${report.rowsAffected} row(s), stripped ${report.refsRemoved} orphan ref(s)`,
+      report.perKey,
+    );
+  } else {
+    console.log("[Startup] ui_state orphan cleanup: clean (no orphans found)");
+  }
+} catch (err) {
+  // Non-fatal: log loudly but don't abort boot — the runtime guard in
+  // PURGE_ORPHAN_PANE will still catch any orphan that slips through.
+  console.error("[Startup] ui_state orphan cleanup failed:", err);
 }
 
 // Init AI provider (wraps gateway for openclaw, or uses Anthropic SDK for standalone)

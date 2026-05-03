@@ -599,4 +599,130 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
     expect(state.groups["g1"].paneIds).toEqual(["p1"]);
     expect(state.groups["g2"].paneIds).toEqual(["p2"]);
   });
+
+  // -------------------------------------------------------------------------
+  // PURGE_ORPHAN_PANE — post-mortem from May-3 sidebar-flash incident.
+  // Effect 7 in usePanelLifecycle dispatches this when it detects a topic
+  // id with `projectPath` set that was opened as a standalone pane. Differs
+  // from CLOSE_PANE: no closedStack push (UNDO would re-create the orphan).
+  // -------------------------------------------------------------------------
+
+  test("PURGE_ORPHAN_PANE removes the pane and does NOT push to closedStack", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "topic-orphan", type: "chat", topicId: "t1", groupId: "g1" },
+    });
+    expect(state.panes["topic-orphan"]).toBeDefined();
+    expect(state.groups["g1"].paneIds).toEqual(["topic-orphan"]);
+
+    paneReducer(state, {
+      type: "PURGE_ORPHAN_PANE",
+      payload: { id: "topic-orphan" },
+    });
+
+    expect(state.panes["topic-orphan"]).toBeUndefined();
+    expect(state.groups["g1"]).toBeUndefined(); // ghost group cleaned
+    expect(state.closedStack.length).toBe(0); // ← key invariant
+  });
+
+  test("PURGE_ORPHAN_PANE removes id from EVERY group's paneIds", () => {
+    const state = blankState();
+    // Seed two groups that both reference the same orphan id (unlikely
+    // in practice but the reducer should be idempotent across groups).
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "orphan", type: "chat", groupId: "g1" },
+    });
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "keep", type: "chat", groupId: "g2" },
+    });
+    // Manually inject the orphan id into g2.paneIds (simulates a corrupted
+    // hydrate where the same pane id appears in multiple groups).
+    state.groups["g2"].paneIds.push("orphan");
+
+    paneReducer(state, {
+      type: "PURGE_ORPHAN_PANE",
+      payload: { id: "orphan" },
+    });
+
+    expect(state.groups["g1"]).toBeUndefined(); // emptied → cleaned
+    expect(state.groups["g2"].paneIds).toEqual(["keep"]); // orphan removed
+    expect(state.panes["orphan"]).toBeUndefined();
+  });
+
+  test("PURGE_ORPHAN_PANE strips the orphan from project-layout panes/tabOrder/focusedPaneId", () => {
+    const state = blankState();
+    state.projects["/proj"] = {
+      projectPath: "/proj",
+      groups: [
+        {
+          id: "pgroup1",
+          paneIds: ["orphan", "keep"],
+          splitRatio: 0.5,
+          splitAxis: "horizontal",
+        },
+      ],
+      panes: {
+        orphan: { id: "orphan", type: "chat", title: "" },
+        keep: { id: "keep", type: "chat", title: "" },
+      },
+      groupOrder: ["pgroup1"],
+      tabOrder: ["orphan", "keep"],
+      focusedPaneId: "orphan",
+      lastOpenedAt: 0,
+    };
+    // Also seed the top-level so the reducer doesn't bail at the wasInState guard.
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "orphan", type: "chat", groupId: "g1" },
+    });
+
+    paneReducer(state, {
+      type: "PURGE_ORPHAN_PANE",
+      payload: { id: "orphan" },
+    });
+
+    const layout = state.projects["/proj"];
+    expect(layout.panes["orphan"]).toBeUndefined();
+    expect(layout.panes["keep"]).toBeDefined();
+    expect(layout.groups[0].paneIds).toEqual(["keep"]);
+    expect(layout.tabOrder).toEqual(["keep"]);
+    expect(layout.focusedPaneId).toBeNull();
+  });
+
+  test("PURGE_ORPHAN_PANE on unknown id is a no-op (idempotent)", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "keep", type: "chat", groupId: "g1" },
+    });
+    const beforePanes = { ...state.panes };
+    const beforeGroupIds = [...state.groups["g1"].paneIds];
+
+    paneReducer(state, {
+      type: "PURGE_ORPHAN_PANE",
+      payload: { id: "does-not-exist" },
+    });
+
+    expect(state.panes).toEqual(beforePanes);
+    expect(state.groups["g1"].paneIds).toEqual(beforeGroupIds);
+  });
+
+  test("PURGE_ORPHAN_PANE clears focusedPaneId if the orphan was focused", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "orphan", type: "chat", groupId: "g1" },
+    });
+    state.focusedPaneId = "orphan";
+
+    paneReducer(state, {
+      type: "PURGE_ORPHAN_PANE",
+      payload: { id: "orphan" },
+    });
+
+    expect(state.focusedPaneId).toBeNull();
+  });
 });

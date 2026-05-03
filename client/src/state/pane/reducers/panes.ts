@@ -239,6 +239,45 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       state.closedStack = [];
       break;
     }
+    case 'PURGE_ORPHAN_PANE': {
+      // Remove an orphan pane id from `panes` AND every `groups[*].paneIds`,
+      // without touching the closedStack. See PaneAction docstring on
+      // PURGE_ORPHAN_PANE for the rationale (closedStack would re-introduce
+      // the orphan via UNDO_CLOSE → Effect 7 → ping-pong loop).
+      const { id } = action.payload;
+      const wasInState =
+        Boolean(state.panes[id]) ||
+        Object.values(state.groups).some((g) => g.paneIds.includes(id));
+      if (!wasInState) break;
+      delete state.panes[id];
+      for (const [gid, group] of Object.entries(state.groups)) {
+        const idx = group.paneIds.indexOf(id);
+        if (idx >= 0) group.paneIds.splice(idx, 1);
+        // Mirror the OPEN_PANE / CLOSE_PANE healing branch: a non-default
+        // group that just emptied is a ghost — drop it from groups +
+        // groupOrder so the UI doesn't keep an empty tab-bar slot.
+        if (group.paneIds.length === 0 && gid !== 'group:default') {
+          delete state.groups[gid];
+          const orderIdx = state.groupOrder.indexOf(gid);
+          if (orderIdx >= 0) state.groupOrder.splice(orderIdx, 1);
+        }
+      }
+      // Also strip the orphan from any project layout that referenced it
+      // (project-layout-* persist `panes` + `groupOrder` + `tabOrder` +
+      // `focusedPaneId`, all of which can carry the orphan id).
+      for (const layout of Object.values(state.projects)) {
+        if (layout.panes[id]) delete layout.panes[id];
+        for (const g of layout.groups) {
+          const i = g.paneIds.indexOf(id);
+          if (i >= 0) g.paneIds.splice(i, 1);
+        }
+        const tabIdx = layout.tabOrder.indexOf(id);
+        if (tabIdx >= 0) layout.tabOrder.splice(tabIdx, 1);
+        if (layout.focusedPaneId === id) layout.focusedPaneId = null;
+      }
+      if (state.focusedPaneId === id) state.focusedPaneId = null;
+      break;
+    }
     case 'PANE_ID_REMAP': {
       const { from, to, updates } = action.payload;
       if (!state.panes[from]) break;

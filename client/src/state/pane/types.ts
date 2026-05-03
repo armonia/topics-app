@@ -148,6 +148,23 @@ export type PaneAction =
     }
   | { type: 'PANE_ID_REMAP'; payload: { from: string; to: string; updates?: Partial<Pane> } }
   | { type: 'CLEAR_CLOSED_RECORD'; payload: { id: string } }
-  | { type: 'CLEAR_CLOSED_STACK' };
+  | { type: 'CLEAR_CLOSED_STACK' }
+  /**
+   * Surgically remove a pane from the store WITHOUT pushing it onto the
+   * closedStack. Used by `usePanelLifecycle` Effect 7 when it detects an
+   * orphan id (a topic with `project_path` set that was somehow opened as
+   * a standalone pane). UNDO_CLOSE on a record like that would re-create
+   * the orphan immediately and re-trigger Effect 7 → ping-pong.
+   *
+   * Differs from CLOSE_PANE on three points:
+   *   1. No closedStack push (no undoable history for a corrupted state).
+   *   2. Removes the pane id from EVERY group's paneIds (defensive — Effect 7
+   *      can't always know which group hosts the orphan).
+   *   3. No groupId/groupIndex required in payload (the caller usually
+   *      doesn't have it for a state that was filtered out of the React view).
+   *
+   * Idempotent: if the id is unknown, the reducer is a no-op.
+   */
+  | { type: 'PURGE_ORPHAN_PANE'; payload: { id: string } };
 
 export const CLOSED_STACK_MAX = 50;
