@@ -385,6 +385,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (!panelsChanged && !topicsChanged) return;
 
       const projectPanesToAdd: string[] = [];
+      // Post-mortem (May 3 sidebar-flash): a topic with `projectPath` that
+      // somehow ended up in openPanels must NOT just be filtered out of
+      // React state — the same id is still in pane-store-v2.panes/groups
+      // and ui_state, and the next WS hydrate re-applies it, producing a
+      // ~750 Hz Effect 7 ↔ HYDRATE ping-pong. We accumulate the orphan
+      // ids here and dispatch PURGE_ORPHAN_PANE for each one AFTER the
+      // setOpenPanels call below — so the removal lands in the store and
+      // the outbound sync clears ui_state on the server too.
+      const orphanTopicIdsToPurge: string[] = [];
       const validPanels = openPanels.filter(id => {
         if (isKnownPanePrefix(id)) return true;
         const topic = topics[id];
@@ -393,6 +402,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (topic.projectPath) {
           const paneId = createPaneId('project', topic.projectPath);
           if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
+          if (!orphanTopicIdsToPurge.includes(id)) orphanTopicIdsToPurge.push(id);
           return false;
         }
         return true;
@@ -404,6 +414,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (changed) {
         prevOpenPanelsForValidation.current = validPanels;
         setOpenPanels(validPanels);
+        // Drain the orphan list into the pane store so this corruption
+        // doesn't bounce back through the next hydrate. Dispatched after
+        // setOpenPanels so the React state and store state converge in
+        // the same frame (Effect B then sees a clean openPanels and the
+        // store already free of the orphan — no spurious REORDER_PANES).
+        if (orphanTopicIdsToPurge.length > 0) {
+          const dispatch = usePaneStore.getState().dispatch;
+          for (const orphanId of orphanTopicIdsToPurge) {
+            dispatch({ type: 'PURGE_ORPHAN_PANE', payload: { id: orphanId } });
+          }
+        }
         if (focusedPanelId && !validPanels.includes(focusedPanelId) && !isBrowserPaneId(focusedPanelId)) {
           const movedTopic = topics[focusedPanelId];
           if (movedTopic?.projectPath) {

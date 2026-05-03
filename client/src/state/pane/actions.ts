@@ -57,3 +57,14 @@ export const clearClosedRecord = (id: string): PaneAction => ({
 });
 
 export const clearClosedStack = (): PaneAction => ({ type: 'CLEAR_CLOSED_STACK' });
+
+/**
+ * Remove an orphan pane id (topic-with-projectPath that was opened as a
+ * standalone pane) from `panes` + every group's `paneIds`. Skips the
+ * closedStack so the corruption is not undoable. See the PURGE_ORPHAN_PANE
+ * docstring in `types.ts` for the post-mortem context.
+ */
+export const purgeOrphanPane = (id: string): PaneAction => ({
+  type: 'PURGE_ORPHAN_PANE',
+  payload: { id },
+});
