@@ -33,6 +33,40 @@ export default {
         'app-code-bg': 'var(--bg-code)',
         'app-spinner': 'var(--spinner-track)',
         'app-disabled': 'var(--disabled-bg)',
+
+        // Phase G · 3-layer token system. Components can opt in
+        // incrementally — `--app-*` classes still work alongside.
+        'dashboard-bg': 'hsl(var(--dashboard-bg-primary))',
+        'dashboard-surface-light': 'hsl(var(--dashboard-surface-light))',
+        'dashboard-surface-dark': 'hsl(var(--dashboard-surface-dark))',
+        'dashboard-input': 'hsl(var(--dashboard-input-surface))',
+        'dashboard-border': 'hsl(var(--dashboard-border))',
+        'dashboard-text': 'hsl(var(--dashboard-text-primary))',
+        'dashboard-text-secondary': 'hsl(var(--dashboard-text-secondary))',
+        'dashboard-text-muted': 'hsl(var(--dashboard-text-muted))',
+
+        'sidebar-bg': 'hsl(var(--sidebar-bg))',
+        'sidebar-fg': 'hsl(var(--sidebar-foreground))',
+        'sidebar-border-token': 'hsl(var(--sidebar-border))',
+        'sidebar-search-bg': 'hsl(var(--sidebar-search))',
+        'sidebar-hover-bg': 'hsl(var(--sidebar-hover))',
+        'sidebar-selected-bg': 'hsl(var(--sidebar-selected))',
+        'sidebar-footer-bg': 'hsl(var(--sidebar-footer-bg))',
+        'sidebar-tree-line': 'hsl(var(--sidebar-tree-line))',
+
+        'functional-positive': 'hsl(var(--color-functional-positive))',
+        'functional-warning': 'hsl(var(--color-functional-warning))',
+        'functional-negative': 'hsl(var(--color-functional-negative))',
+      },
+      borderRadius: {
+        DEFAULT: 'var(--radius)',
+        sm: 'var(--radius-sm)',
+        xs: 'var(--radius-xs)',
+      },
+      transitionTimingFunction: {
+        'standard': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        'decelerate': 'cubic-bezier(0, 0, 0.2, 1)',
+        'accelerate': 'cubic-bezier(0.4, 0, 1, 1)',
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],

@@ -63,6 +63,47 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAlwaysOnTop: () => ipcRenderer.invoke('app:get-always-on-top'),
   },
 
+  // Phase B · DAEMON-03 — daemon lifecycle management (macOS)
+  daemon: {
+    install: () => ipcRenderer.invoke('daemon:install-launchagent'),
+    uninstall: () => ipcRenderer.invoke('daemon:uninstall-launchagent'),
+    status: () => ipcRenderer.invoke('daemon:status'),
+  },
+
+  // Phase E — auto-updater
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke('updater:check-for-updates'),
+    status: () => ipcRenderer.invoke('updater:status'),
+    quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
+    onStatus: (handler: (status: { state: string; progress?: number; error?: string }) => void) => {
+      const listener = (_evt: unknown, status: any) => handler(status);
+      ipcRenderer.on('updater:status', listener);
+      return () => ipcRenderer.removeListener('updater:status', listener);
+    },
+  },
+
+  // Phase F — UX polish
+  theme: {
+    setResolved: (resolved: 'light' | 'dark') => ipcRenderer.invoke('theme:set-resolved', resolved),
+  },
+  notification: {
+    showScoped: (payload: {
+      trigger: 'agent_completed' | 'permission_requested';
+      title?: string;
+      body: string;
+      topicId?: string;
+    }) => ipcRenderer.invoke('notification:show-scoped', payload),
+  },
+  caffeinate: {
+    setMode: (mode: 'off' | 'power' | 'always') => ipcRenderer.invoke('caffeinate:set-mode', mode),
+    getMode: () => ipcRenderer.invoke('caffeinate:get-mode'),
+    onReleased: (handler: (info: { reason: string }) => void) => {
+      const listener = (_evt: unknown, info: any) => handler(info);
+      ipcRenderer.on('caffeinate:released', listener);
+      return () => ipcRenderer.removeListener('caffeinate:released', listener);
+    },
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 

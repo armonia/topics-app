@@ -9,6 +9,10 @@ import type {
 } from "./types";
 import { initDatabase } from "./db";
 import { maybeSendPush } from "./push-triggers";
+import { createProjectStore } from "./services/project-store";
+import { createWorktreeStore } from "./services/worktree-store";
+import { createWorktreeManager } from "./services/worktree-manager";
+import { createMachineStore } from "./services/machine-store";
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
@@ -66,8 +70,8 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
 
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $archived, $created_at, $updated_at)
+      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, worktree_id, initial_message, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
     `),
     deleteTopic: db.prepare(`DELETE FROM topics WHERE id = ?`),
 
@@ -139,6 +143,10 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.autonomy_level && row.autonomy_level !== 'ask') topic.autonomyLevel = row.autonomy_level;
     if (row.provider) topic.provider = row.provider;
     if (row.model) topic.model = row.model;
+    // worktree_id (Phase A · migration 018). Optional FK; legacy rows are NULL.
+    if (row.worktree_id) topic.worktreeId = row.worktree_id;
+    // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
+    if (row.initial_message) topic.initialMessage = row.initial_message;
 
     const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -175,6 +183,12 @@ export function createAppContext(baseDir: string): AppContext {
       $autonomy_level: topic.autonomyLevel || 'ask',
       $provider: topic.provider || null,
       $model: topic.model || null,
+      // worktree_id (Phase A · migration 018). NULL = no binding; FK
+      // ON DELETE SET NULL on the column ensures graceful degrade.
+      $worktree_id: topic.worktreeId || null,
+      // initial_message (Phase C · migration 019). One-shot — the renderer
+      // PATCHes back to null after dispatching it.
+      $initial_message: topic.initialMessage || null,
       $archived: topic.archived ? 1 : 0,
       $created_at: topic.createdAt,
       $updated_at: topic.updatedAt,
@@ -295,6 +309,20 @@ export function createAppContext(baseDir: string): AppContext {
     }
     return false;
   }
+
+  // --- Project + Worktree domain (Phase A · migrations 016-018) ---
+  // Stores are pure SQL helpers, instantiated against the singleton db.
+  // The manager is the only stateful dependency: it closes over broadcastToAll
+  // (declared above) so it can fire `worktree:updated` envelopes when the
+  // async git materialise step transitions a row from `pending` → `ready|error`.
+  const projectStore = createProjectStore(db);
+  const worktreeStore = createWorktreeStore(db);
+  const worktreeManager = createWorktreeManager(
+    { broadcastToAll } as AppContext,
+    { projectStore, worktreeStore },
+  );
+  // Phase D — machines (heartbeat ticker is wired in server.ts).
+  const machineStore = createMachineStore(db, baseDir);
 
   // --- Atomic write (kept for backward compat with non-DB file writes) ---
   function atomicWriteJSON(filepath: string, data: object): void {
@@ -766,6 +794,31 @@ export function createAppContext(baseDir: string): AppContext {
     return resolve(expanded);
   }
 
+  /**
+   * Resolve the working directory for a topic — Phase A · TOPIC-WT-01 §4.
+   *
+   * Precedence:
+   *   1. If topic is bound to a Worktree (worktreeId NOT NULL) AND that
+   *      worktree exists AND its status is `ready`, return the worktree's
+   *      absPath. This is what slash commands, browser preview, and
+   *      template loading scope to when the topic is worktree-bound.
+   *   2. Otherwise fall back to `resolveProjectPath(topic.projectPath)` —
+   *      identical to the pre-Phase-A behaviour for unbound (legacy) topics.
+   *   3. If neither is set, return null (caller decides what to do).
+   *
+   * Pending or errored worktrees fall through to the projectPath fallback
+   * so the user is never blocked from chatting while git is still working.
+   */
+  function resolveTopicCwd(topic: Topic | null | undefined): string | null {
+    if (!topic) return null;
+    if (topic.worktreeId) {
+      const wt = worktreeStore.get(topic.worktreeId);
+      if (wt && wt.status === "ready") return wt.absPath;
+      // pending / error / missing → fall through to projectPath
+    }
+    return topic.projectPath ? resolveProjectPath(topic.projectPath) : null;
+  }
+
   // --- Media helpers (unchanged) ---
   const ALLOWED_MEDIA_BASES = [
     `${OPENCLAW_DIR}/media/`,
@@ -975,6 +1028,8 @@ export function createAppContext(baseDir: string): AppContext {
 
   return {
     db,
+    projectStore, worktreeStore, worktreeManager,
+    machineStore,
     PORT, GATEWAY_URL,
     get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
     refreshGatewayToken,
@@ -988,7 +1043,7 @@ export function createAppContext(baseDir: string): AppContext {
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
-    resolveSafePath, resolveProjectPath, getMimeType, isPathAllowed,
+    resolveSafePath, resolveProjectPath, resolveTopicCwd, getMimeType, isPathAllowed,
     findNewMediaFiles, updateLastMessageWithMedia, atomicWriteJSON, logRequest,
     searchTranscripts, getMessagesPath,
     ALLOWED_UPLOAD_MIMES,

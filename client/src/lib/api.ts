@@ -18,6 +18,9 @@ import type {
   GitLogEntry,
   ProvidersSnapshot,
   ProviderSnapshotEntry,
+  Project,
+  Worktree,
+  Machine,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1412,6 +1415,95 @@ export const globalBoardApi = {
     if (filters?.status) params.set('status', filters.status);
     const qs = params.toString();
     return request<{ tasks: BoardTask[] }>(`/boards/tasks${qs ? '?' + qs : ''}`);
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase A — Project + Worktree domain (migrations 016-018)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const projectsApi = {
+  async list(opts?: { archived?: boolean }): Promise<{ projects: Project[] }> {
+    const qs = opts?.archived !== undefined ? `?archived=${opts.archived}` : '';
+    return request<{ projects: Project[] }>(`/projects${qs}`);
+  },
+  async byPath(path: string): Promise<Project | null> {
+    // Server returns 200 with body=null on miss (lookup-or-null contract).
+    return request<Project | null>(`/projects?path=${encodeURIComponent(path)}`);
+  },
+  async get(id: string): Promise<Project> {
+    return request<Project>(`/projects/${id}`);
+  },
+  async create(data: {
+    name: string;
+    path: string;
+    slug?: string;
+    color?: string | null;
+    icon?: string | null;
+  }): Promise<Project> {
+    return request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) });
+  },
+  async update(
+    id: string,
+    patch: { name?: string; color?: string | null; icon?: string | null },
+  ): Promise<Project> {
+    return request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  async archive(id: string): Promise<Project> {
+    return request<Project>(`/projects/${id}/archive`, { method: 'POST' });
+  },
+  async restore(id: string): Promise<Project> {
+    return request<Project>(`/projects/${id}/restore`, { method: 'POST' });
+  },
+  async delete(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' });
+  },
+};
+
+export const machinesApi = {
+  async list(): Promise<{ machines: Machine[] }> {
+    return request<{ machines: Machine[] }>('/machines');
+  },
+  async get(id: string): Promise<Machine> {
+    return request<Machine>(`/machines/${id}`);
+  },
+  async rename(id: string, name: string): Promise<Machine> {
+    return request<Machine>(`/machines/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  },
+  async delete(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/machines/${id}`, { method: 'DELETE' });
+  },
+};
+
+export const worktreesApi = {
+  async list(filters?: {
+    projectId?: string;
+    status?: 'pending' | 'ready' | 'error';
+  }): Promise<{ worktrees: Worktree[] }> {
+    const params = new URLSearchParams();
+    if (filters?.projectId) params.set('project_id', filters.projectId);
+    if (filters?.status) params.set('status', filters.status);
+    const qs = params.toString();
+    return request<{ worktrees: Worktree[] }>(`/worktrees${qs ? '?' + qs : ''}`);
+  },
+  async get(id: string): Promise<Worktree> {
+    return request<Worktree>(`/worktrees/${id}`);
+  },
+  async create(data: {
+    project_id: string;
+    mode: 'branch' | 'reuse' | 'detached';
+    base_ref: string;
+    name?: string;
+  }): Promise<Worktree> {
+    // Returns 202 with the row in `pending` status; the UI listens for
+    // `worktree:updated` over WS to flip to `ready` or `error`.
+    return request<Worktree>('/worktrees', { method: 'POST', body: JSON.stringify(data) });
+  },
+  async rename(id: string, name: string): Promise<Worktree> {
+    return request<Worktree>(`/worktrees/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  },
+  async delete(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/worktrees/${id}`, { method: 'DELETE' });
   },
 };
 

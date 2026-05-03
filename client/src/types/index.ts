@@ -26,7 +26,67 @@ export interface Topic {
    * use the provider's default.
    */
   model?: string | null;
+  /**
+   * Phase A · TOPIC-WT-01: optional binding to a Worktree. NULL = legacy
+   * behaviour (chat/tools operate inside `projectPath`). When set, the
+   * server scopes operations to the worktree's `absPath`. Mirrors
+   * `server/types.ts:Topic.worktreeId`.
+   */
+  worktreeId?: string | null;
+  /**
+   * Phase C · TOPIC-IM-01: one-shot initial message queued at create
+   * time. The renderer reads this on first session open, dispatches it
+   * as the user's first prompt, then PATCHes it back to null. Mirrors
+   * `server/types.ts:Topic.initialMessage`.
+   */
+  initialMessage?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
+}
+
+/** First-class Project entity (Phase A · migration 016). Mirrors server/types.ts:Project. */
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  path: string;
+  color?: string | null;
+  icon?: string | null;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** First-class Machine entity (Phase D · migration 020). Mirrors server/services/machine-store.ts:Machine. */
+export interface Machine {
+  id: string;
+  name: string;
+  hostname: string;
+  arch: string;
+  platform: string;
+  daemonVersion: string;
+  status: 'online' | 'offline';
+  lastHeartbeatAt: string;
+  lastSeenAt: string;
+  acknowledgedWarnings: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** First-class Worktree entity (Phase A · migration 017). Mirrors server/types.ts:Worktree. */
+export interface Worktree {
+  id: string;
+  projectId: string;
+  name: string;
+  branchName: string | null;
+  baseRef: string | null;
+  mode: 'branch' | 'reuse' | 'detached';
+  absPath: string;
+  isPushed: boolean;
+  branchRenamed: boolean;
+  status: 'pending' | 'ready' | 'error';
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TopicsData {
@@ -113,6 +173,10 @@ export interface CreateTopicRequest {
   icon?: string;
   systemPrompt?: string;
   projectPath?: string;
+  /** Phase A · TOPIC-WT-01. Optional binding to a Worktree. */
+  worktreeId?: string | null;
+  /** Phase C · TOPIC-IM-01. Optional one-shot initial message. */
+  initialMessage?: string;
 }
 
 export interface UpdateTopicRequest {
@@ -129,6 +193,10 @@ export interface UpdateTopicRequest {
   /** Set to a model id to persist as the topic's last-used model; null clears. */
   model?: string | null;
   disabledContextSources?: string[];
+  /** Phase A · TOPIC-WT-01. Pass `null` to clear the binding. */
+  worktreeId?: string | null;
+  /** Phase C · TOPIC-IM-01. Pass `null` (or "") to clear after dispatch. */
+  initialMessage?: string | null;
 }
 
 export interface LinkTopicRequest {
@@ -387,16 +455,66 @@ export interface WSUnreadUpdatedMessage {
 }
 
 // --- Boards ------------------------------------------------------------------
+// `BoardTask` lives in lib/api.ts; we use a `import type` cycle to avoid a
+// runtime cycle. Consumers that narrow on `msg.type === 'task:created'`
+// then read `msg.task.id`, `...msg.task`, etc.
+import type { BoardTask, Approval, BoardMemory } from '../lib/api';
+
 export interface WSTaskMessage {
   type: 'task:created' | 'task:updated' | 'task:moved' | 'task:deleted'
        | 'task:archived' | 'task:unarchived';
   projectId: string;
-  task?: unknown;
+  task?: BoardTask;
   taskId?: string;
+}
+
+export interface WSApprovalMessage {
+  type: 'approval:created' | 'approval:resolved';
+  projectId: string;
+  approval?: Approval;
+  approvalId?: string;
+}
+
+export interface WSBoardMemoryMessage {
+  type: 'board-memory:created' | 'board-memory:updated' | 'board-memory:deleted';
+  projectId: string;
+  memory?: BoardMemory;
+  memoryId?: string;
+}
+
+export interface WSAgentNudgeMessage {
+  type: 'agent:nudge';
+  agentId: string;
+  agentName: string;
+  message: string;
+  taskId: string | null;
+  projectId: string;
+  timestamp: number;
 }
 
 export interface WSDashboardUpdatedMessage {
   type: 'dashboard:updated' | 'cron:updated';
+}
+
+// --- Project + Worktree (Phase A · migrations 016-018) ----------------------
+export interface WSProjectMessage {
+  type: 'project:new' | 'project:updated' | 'project:archived' | 'project:deleted';
+  /** Full row on new/updated/archived; `{ id }` on deleted. */
+  project: Partial<Project> & { id: string };
+  payload_version?: 1;
+}
+
+export interface WSWorktreeMessage {
+  type: 'worktree:new' | 'worktree:updated' | 'worktree:deleted';
+  /** Full row on new/updated; `{ id }` on deleted. */
+  worktree: Partial<Worktree> & { id: string };
+  payload_version?: 1;
+}
+
+export interface WSMachineMessage {
+  type: 'machine:upserted' | 'machine:updated' | 'machine:deleted';
+  machine: Partial<Machine> & { id: string };
+  payload_version?: 1;
 }
 
 // --- Catch-all ---------------------------------------------------------------
@@ -431,8 +549,22 @@ export type WSMessage =
   | WSTerminalSessionsMessage
   | WSUnreadUpdatedMessage
   | WSTaskMessage
+  | WSApprovalMessage
+  | WSBoardMemoryMessage
+  | WSAgentNudgeMessage
   | WSDashboardUpdatedMessage
+  | WSProjectMessage
+  | WSWorktreeMessage
+  | WSMachineMessage
   | WSUnknownMessage;
+// `WSUnknownMessage` is the catch-all — its `type: string` field WIDENS
+// `WSMessage['type']` to `string`, which means literal-narrowing
+// (`if (msg.type === 'task:created')`) won't tighten msg's static type.
+// This was the contract before Phase A and the consumers we don't own
+// (useBoard.ts, useChat.ts, …) still assume the wider shape. The new
+// typed members above (WSProjectMessage, WSWorktreeMessage, …) are
+// usable by their own consumers via discriminant checks; existing
+// consumers are unaffected.
 
 /** @deprecated alias retained while consumers migrate. Use `WSMessage`. */
 export type TypedWSMessage = WSMessage;

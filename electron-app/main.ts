@@ -145,6 +145,7 @@ function generateTabId(): string {
 
 function createWindow(): void {
   console.log('[Topics Electron] Creating main window...');
+  const isMac = process.platform === 'darwin';
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -152,7 +153,11 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
-    backgroundColor: '#1a1a1a',
+    // Phase G: vibrancy material on macOS so the chrome can layer over
+    // a translucent background. Renderer tokens with `/ .7` alpha
+    // surface the material through.
+    ...(isMac ? { vibrancy: 'sidebar' as const, visualEffectState: 'active' as const } : {}),
+    backgroundColor: isMac ? '#00000000' : '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -162,6 +167,25 @@ function createWindow(): void {
     },
     show: false,
   });
+
+  // Phase G · re-pin the traffic-light position on every relevant
+  // window event so it doesn't drift on full-screen / restore /
+  // resize. The reference desktop client we studied does this on 10+
+  // events; we cover the same set.
+  if (isMac && mainWindow) {
+    const repin = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try { mainWindow.setWindowButtonPosition?.({ x: 12, y: 12 }); } catch {}
+    };
+    const events = [
+      'enter-full-screen', 'leave-full-screen',
+      'maximize', 'unmaximize', 'restore', 'show', 'focus', 'resize',
+    ] as const;
+    for (const evt of events) mainWindow.on(evt as any, repin);
+    mainWindow.webContents.on('did-finish-load', repin);
+    mainWindow.webContents.on('did-navigate-in-page', repin);
+    mainWindow.webContents.on('dom-ready', repin);
+  }
 
   // Intercept navigation: allow localhost, open external URLs in system browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -1155,6 +1179,156 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   return result.filePaths[0];
 });
 
+// ─── Phase B · DAEMON-03 — LaunchAgent management (macOS) ──────────────────
+const DAEMON_LABEL = 'com.armonia.topics-daemon';
+const TOPICS_HOME_DIR = path.join(process.env.HOME || '', '.topics');
+const PLIST_PATH = path.join(process.env.HOME || '', 'Library', 'LaunchAgents', `${DAEMON_LABEL}.plist`);
+
+function buildDaemonPlist(serverDir: string, bunPath: string): string {
+  const logsPath = path.join(TOPICS_HOME_DIR, 'logs', 'daemon.log');
+  // Hand-rolled XML keeps the dep tree small and the output diff-friendly.
+  // We escape *paths* (the only externally-influenced field) by relying on
+  // the fact that we control them server-side: serverDir comes from
+  // app.getAppPath(), bunPath from `which bun`.
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${DAEMON_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${bunPath}</string>
+    <string>run</string>
+    <string>${path.join(serverDir, 'server.ts')}</string>
+  </array>
+  <key>WorkingDirectory</key><string>${serverDir}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+    <key>Crashed</key><true/>
+  </dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>${logsPath}</string>
+  <key>StandardErrorPath</key><string>${logsPath}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key><string>production</string>
+    <key>HOME</key><string>${process.env.HOME || ''}</string>
+    <key>PATH</key><string>${path.dirname(bunPath)}:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+`;
+}
+
+async function findBunPath(): Promise<string> {
+  const { execFile: execFileCb } = await import('child_process');
+  return await new Promise<string>((resolve, reject) => {
+    execFileCb('/usr/bin/which', ['bun'], (err, stdout) => {
+      if (err) return reject(err);
+      const bun = stdout.trim();
+      if (!bun) return reject(new Error('bun not found on PATH'));
+      resolve(bun);
+    });
+  });
+}
+
+async function launchctl(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+  // execFile with explicit argv prevents shell injection — the user
+  // never controls these args.
+  const { execFile: execFileCb } = await import('child_process');
+  return await new Promise((resolve) => {
+    execFileCb('/bin/launchctl', args, (err, stdout, stderr) => {
+      resolve({
+        stdout: stdout?.toString() || '',
+        stderr: stderr?.toString() || '',
+        code: err && (err as any).code != null ? (err as any).code : err ? 1 : 0,
+      });
+    });
+  });
+}
+
+ipcMain.handle('daemon:install-launchagent', async () => {
+  if (process.platform !== 'darwin') {
+    return { ok: false, error: 'LaunchAgent is macOS-only' };
+  }
+  try {
+    fs.mkdirSync(path.dirname(PLIST_PATH), { recursive: true });
+    fs.mkdirSync(path.join(TOPICS_HOME_DIR, 'logs'), { recursive: true });
+    const bunPath = await findBunPath();
+    // The Electron app is launched from inside the Topics repo; resolve
+    // the server.ts location off the resourcesPath in production builds
+    // and __dirname during dev.
+    const serverDir =
+      app.isPackaged
+        ? path.resolve(process.resourcesPath, 'server')
+        : path.resolve(__dirname, '..', '..');
+    fs.writeFileSync(PLIST_PATH, buildDaemonPlist(serverDir, bunPath), { mode: 0o644 });
+    const uid = process.getuid?.() ?? 0;
+    const result = await launchctl(['bootstrap', `gui/${uid}`, PLIST_PATH]);
+    if (result.code !== 0 && !result.stderr.includes('already')) {
+      return { ok: false, error: `launchctl bootstrap failed: ${result.stderr.trim()}` };
+    }
+    return { ok: true, plistPath: PLIST_PATH };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('daemon:uninstall-launchagent', async () => {
+  if (process.platform !== 'darwin') {
+    return { ok: false, error: 'LaunchAgent is macOS-only' };
+  }
+  try {
+    const uid = process.getuid?.() ?? 0;
+    // bootout is forgiving: if the agent isn't loaded it returns non-zero
+    // but it's harmless. We still try to delete the plist so the user
+    // ends up in a clean state either way.
+    await launchctl(['bootout', `gui/${uid}/${DAEMON_LABEL}`]);
+    if (fs.existsSync(PLIST_PATH)) fs.unlinkSync(PLIST_PATH);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('daemon:status', async () => {
+  // Read the daemon-state.json + ping /__daemon/healthz with the token.
+  const launchAgentInstalled =
+    process.platform === 'darwin' && fs.existsSync(PLIST_PATH);
+  const statePath = path.join(TOPICS_HOME_DIR, 'daemon-state.json');
+  if (!fs.existsSync(statePath)) {
+    return { running: false, launchAgentInstalled };
+  }
+  let state: { pid: number; port: number; token: string; startedAt: string } | null = null;
+  try {
+    state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+  } catch {
+    return { running: false, launchAgentInstalled };
+  }
+  if (!state) return { running: false, launchAgentInstalled };
+  try {
+    const res = await fetch(`http://127.0.0.1:${state.port}/__daemon/healthz`, {
+      headers: { authorization: `Bearer ${state.token}` },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { pid: number; uptime_ms: number };
+      return {
+        running: true,
+        pid: body.pid,
+        uptimeMs: body.uptime_ms,
+        port: state.port,
+        launchAgentInstalled,
+      };
+    }
+  } catch {
+    /* daemon not actually running — state file is stale */
+  }
+  return { running: false, launchAgentInstalled, pidHint: state.pid };
+});
+
 // --- Detached Windows ---
 ipcMain.handle('window:detach', async (_event, topicId: string) => {
   const url = `${SERVER_URL}?topic=${topicId}`;
@@ -1486,3 +1660,241 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 
 // Enable remote debugging for the whole app
 app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT));
+
+// ─── Phase F · No-flash boot (3rd layer: native chrome theme sync) ─────────
+// Layer 1 (theme-init script) and 2 (critical CSS) already live in
+// client/index.html. The 3rd layer hooks the renderer's resolved theme
+// up to nativeTheme.themeSource so the macOS title bar / vibrancy
+// material match without a flash on toggle.
+ipcMain.handle('theme:set-resolved', async (_evt, resolved: 'light' | 'dark') => {
+  try {
+    const { nativeTheme } = await import('electron');
+    if (resolved === 'light' || resolved === 'dark') {
+      nativeTheme.themeSource = resolved;
+      return { ok: true };
+    }
+    return { ok: false, error: 'invalid theme' };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+// ─── Phase F · Notifications scoped + rate-limit ───────────────────────────
+// Two trigger types only: agent_completed and permission_requested.
+// Window: 5 notifications in 10 seconds; suppressed entirely when the
+// main window is focused (the user is already looking at it).
+const NOTIF_WINDOW_MS = 10_000;
+const NOTIF_LIMIT = 5;
+const notifTimes: number[] = [];
+
+function shouldSuppressNotification(): boolean {
+  // Suppress when the main window is focused — caller is staring at it.
+  const focused = BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused());
+  if (focused) return true;
+  // Sliding-window rate limit.
+  const now = Date.now();
+  while (notifTimes.length > 0 && now - notifTimes[0] > NOTIF_WINDOW_MS) {
+    notifTimes.shift();
+  }
+  if (notifTimes.length >= NOTIF_LIMIT) return true;
+  notifTimes.push(now);
+  return false;
+}
+
+ipcMain.handle('notification:show-scoped', async (_evt, payload: {
+  trigger: 'agent_completed' | 'permission_requested';
+  title?: string;
+  body: string;
+  topicId?: string;
+}) => {
+  if (shouldSuppressNotification()) {
+    return { ok: false, reason: 'suppressed' };
+  }
+  const { Notification: ElectronNotification } = await import('electron');
+  if (!ElectronNotification.isSupported()) {
+    return { ok: false, reason: 'not-supported' };
+  }
+  const defaults = {
+    agent_completed: 'Agent completed',
+    permission_requested: 'Permission requested',
+  } as const;
+  const title = payload.title ?? defaults[payload.trigger];
+  const notif = new ElectronNotification({
+    title: title.slice(0, 256),
+    body: (payload.body || '').slice(0, 1024),
+    silent: false,
+  });
+  notif.on('click', () => {
+    // Bring the main window to front; renderer can listen for the
+    // existing 'navigate' channel if topicId is provided.
+    const main = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+    if (main) {
+      if (main.isMinimized()) main.restore();
+      main.focus();
+      if (payload.topicId) {
+        main.webContents.send('navigate-to-topic', payload.topicId);
+      }
+    }
+  });
+  notif.show();
+  return { ok: true };
+});
+
+// ─── Phase F · Caffeinate mode (macOS) ─────────────────────────────────────
+// Three states: 'off', 'power' (only while on AC), 'always'.
+// Implementation: spawn `caffeinate` subprocess; state cached in module
+// scope. The renderer polls `caffeinate:get-mode` for the badge.
+type CaffeinateMode = 'off' | 'power' | 'always';
+let caffeinateMode: CaffeinateMode = 'off';
+let caffeinateProc: { kill: () => void } | null = null;
+let caffeinateLastReleaseReason: string | null = null;
+
+async function setCaffeinate(mode: CaffeinateMode): Promise<void> {
+  if (process.platform !== 'darwin') {
+    caffeinateMode = 'off';
+    return;
+  }
+  // Always kill any previous process — we're switching modes.
+  if (caffeinateProc) {
+    try { caffeinateProc.kill(); } catch {}
+    caffeinateProc = null;
+  }
+  caffeinateMode = mode;
+  if (mode === 'off') return;
+  // Flags: -d display, -i system idle, -m disk idle, -s only on AC
+  // Always: -dim. Power: -dimu (only while on AC, plug-out exits via 'died' event below).
+  const args = mode === 'power' ? ['-dimu'] : ['-dim'];
+  const { spawn } = await import('child_process');
+  const proc = spawn('/usr/bin/caffeinate', args, { stdio: 'ignore', detached: false });
+  caffeinateProc = proc;
+  proc.on('exit', () => {
+    if (caffeinateProc === proc) {
+      caffeinateProc = null;
+      // Surface a release reason if the user was in 'always' or 'power' and
+      // the process exited unexpectedly. The reason copy mirrors the
+      // reference desktop client we studied.
+      if (caffeinateMode !== 'off') {
+        caffeinateLastReleaseReason =
+          mode === 'power' ? 'AC power disconnected' : 'caffeinate process exited';
+        caffeinateMode = 'off';
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('caffeinate:released', {
+              reason: caffeinateLastReleaseReason,
+            });
+          }
+        }
+      }
+    }
+  });
+}
+
+ipcMain.handle('caffeinate:set-mode', async (_evt, mode: CaffeinateMode) => {
+  if (mode !== 'off' && mode !== 'power' && mode !== 'always') {
+    return { ok: false, error: 'invalid mode' };
+  }
+  try {
+    await setCaffeinate(mode);
+    return { ok: true, mode: caffeinateMode };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('caffeinate:get-mode', () => ({
+  mode: caffeinateMode,
+  lastReleaseReason: caffeinateLastReleaseReason,
+}));
+
+// Clean up on quit.
+app.on('before-quit', () => {
+  if (caffeinateProc) {
+    try { caffeinateProc.kill(); } catch {}
+    caffeinateProc = null;
+  }
+});
+
+// ─── Phase E · Auto-update (electron-updater) ──────────────────────────────
+// Lazy-import inside handlers so dev (where the dep may not yet be installed
+// or the file is being type-checked without the module) doesn't crash.
+type UpdaterState =
+  | 'idle'
+  | 'checking'
+  | 'update-available'
+  | 'downloading'
+  | 'ready'
+  | 'error';
+
+let updaterReady = false;
+let lastUpdaterStatus: { state: UpdaterState; progress?: number; error?: string } = { state: 'idle' };
+const RETRY_BACKOFF_MS = [30_000, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+
+function broadcastUpdaterStatus(status: typeof lastUpdaterStatus) {
+  lastUpdaterStatus = status;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('updater:status', status);
+    }
+  }
+}
+
+async function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    // electron-updater is a no-op in dev builds; we keep the IPC surface
+    // alive so the renderer can still call it without crashing.
+    return;
+  }
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('checking-for-update', () => broadcastUpdaterStatus({ state: 'checking' }));
+    autoUpdater.on('update-available', () => broadcastUpdaterStatus({ state: 'update-available' }));
+    autoUpdater.on('update-not-available', () => broadcastUpdaterStatus({ state: 'idle' }));
+    autoUpdater.on('download-progress', (p: { percent?: number }) =>
+      broadcastUpdaterStatus({ state: 'downloading', progress: p?.percent }));
+    autoUpdater.on('update-downloaded', () => broadcastUpdaterStatus({ state: 'ready' }));
+    autoUpdater.on('error', (err: Error) =>
+      broadcastUpdaterStatus({ state: 'error', error: err?.message || String(err) }));
+
+    updaterReady = true;
+
+    // Background check + retry backoff. We don't `throw` from the chain —
+    // electron-updater emits 'error' which we already capture.
+    let attempt = 0;
+    const tryCheck = () => {
+      autoUpdater.checkForUpdates().catch(() => {});
+      const next = RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)];
+      attempt++;
+      setTimeout(tryCheck, next);
+    };
+    setTimeout(tryCheck, 10_000); // first check 10 s after startup
+  } catch (err) {
+    console.warn('[Updater] electron-updater unavailable:', err);
+  }
+}
+setupAutoUpdater();
+
+ipcMain.handle('updater:check-for-updates', async () => {
+  if (!updaterReady) return { ok: false, reason: 'not-ready' };
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('updater:status', async () => lastUpdaterStatus);
+
+ipcMain.handle('updater:quit-and-install', async () => {
+  if (!updaterReady) return { ok: false, reason: 'not-ready' };
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    autoUpdater.quitAndInstall(false /* isSilent */, true /* isForceRunAfter */);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message || String(err) };
+  }
+});

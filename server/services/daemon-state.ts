@@ -1,0 +1,195 @@
+/**
+ * Daemon state service — Phase B · DAEMON-01.
+ *
+ * Owns the canonical lifecycle artefacts the OS sees for a running
+ * Topics server:
+ *
+ *   ~/.topics/daemon-process.lock   { pid, acquiredAt }
+ *   ~/.topics/daemon-state.json     { pid, port, token, startedAt }
+ *
+ * Both files are written via atomic .tmp + rename so a crashed write
+ * never leaves a half-file. The lock detects stale pids via
+ * `process.kill(pid, 0)`, mirroring the daemon implementation in the
+ * reference desktop client we studied.
+ *
+ * The token is the only secret; it's 32 random bytes hex-encoded and
+ * lives in the (mode 0600) state file. Electron reads it to make
+ * `Authorization: Bearer …` calls against the server's `/__daemon/*`
+ * control endpoints.
+ *
+ * No `child_process` here — this is pure fs + crypto.
+ */
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
+  chmodSync,
+} from "node:fs";
+import { randomBytes } from "node:crypto";
+
+export interface DaemonState {
+  pid: number;
+  port: number;
+  /** 32 random bytes, hex-encoded. Bearer-token for /__daemon/* */
+  token: string;
+  /** ISO timestamp. */
+  startedAt: string;
+}
+
+interface LockFile {
+  pid: number;
+  acquiredAt: string;
+}
+
+export class StaleLockError extends Error {
+  constructor(public readonly stalePid: number) {
+    super(`Daemon process-lock points at dead pid ${stalePid} — recovering.`);
+    this.name = "StaleLockError";
+  }
+}
+
+export class LiveLockError extends Error {
+  constructor(public readonly livePid: number) {
+    super(`Another Topics server is already running (pid ${livePid}).`);
+    this.name = "LiveLockError";
+  }
+}
+
+export function topicsHome(): string {
+  return process.env.TOPICS_HOME || join(homedir(), ".topics");
+}
+
+function statePath() { return join(topicsHome(), "daemon-state.json"); }
+function lockPath()  { return join(topicsHome(), "daemon-process.lock"); }
+function logsDir()   { return join(topicsHome(), "logs"); }
+
+function ensureHomeDir(): void {
+  mkdirSync(topicsHome(), { recursive: true });
+  mkdirSync(logsDir(), { recursive: true });
+}
+
+/**
+ * Write `data` to `path` atomically: write to `<path>.<pid>.<ts>.tmp`
+ * then rename. Caller is responsible for removing the file at exit.
+ *
+ * @param mode permission bits applied AFTER rename so a sneaky reader
+ *             can't observe the file at world-readable mode briefly.
+ */
+function atomicWrite(path: string, data: string, mode = 0o644): void {
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(tmp, data, { mode });
+    chmodSync(tmp, mode);
+    renameSync(tmp, path);
+  } catch (err) {
+    try { unlinkSync(tmp); } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Try to read the lock file. Returns null if missing or unparseable.
+ */
+function readLock(): LockFile | null {
+  try {
+    const raw = readFileSync(lockPath(), "utf-8");
+    const obj = JSON.parse(raw);
+    if (typeof obj?.pid === "number" && typeof obj?.acquiredAt === "string") {
+      return obj;
+    }
+  } catch { /* missing or corrupt — treat as no lock */ }
+  return null;
+}
+
+/**
+ * `process.kill(pid, 0)` is the POSIX idiom for "is this pid alive?".
+ * Returns true on success, false on ESRCH (pid is dead). Throws on
+ * EPERM (the pid exists but we lack permission — we treat as "alive"
+ * to be safe).
+ */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    if (err?.code === "ESRCH") return false;
+    if (err?.code === "EPERM") return true;
+    return false;
+  }
+}
+
+/**
+ * Acquire the singleton lock. Returns the freshly-written lock object.
+ *
+ * @throws LiveLockError if another live process holds the lock.
+ *         StaleLockError is *not* thrown — stale locks are recovered
+ *         transparently and a structured log line is emitted.
+ */
+export function acquireLock(): LockFile {
+  ensureHomeDir();
+  const existing = readLock();
+  if (existing && existing.pid !== process.pid) {
+    if (pidAlive(existing.pid)) {
+      throw new LiveLockError(existing.pid);
+    }
+    console.log(
+      `[Daemon] stale lock recovered (dead pid ${existing.pid}, acquiredAt ${existing.acquiredAt})`,
+    );
+  }
+  const lock: LockFile = { pid: process.pid, acquiredAt: new Date().toISOString() };
+  atomicWrite(lockPath(), JSON.stringify(lock), 0o600);
+  return lock;
+}
+
+/**
+ * Write the state file. Caller passes `port` (from the actual Bun.serve
+ * listener) and we generate the bearer token here so it never leaks
+ * into a wider scope than necessary.
+ */
+export function writeState(port: number): DaemonState {
+  ensureHomeDir();
+  const state: DaemonState = {
+    pid: process.pid,
+    port,
+    token: randomBytes(32).toString("hex"),
+    startedAt: new Date().toISOString(),
+  };
+  atomicWrite(statePath(), JSON.stringify(state), 0o600);
+  return state;
+}
+
+/**
+ * Read the state file. Returns null if missing or unparseable.
+ */
+export function readState(): DaemonState | null {
+  try {
+    const raw = readFileSync(statePath(), "utf-8");
+    const obj = JSON.parse(raw);
+    if (
+      typeof obj?.pid === "number" &&
+      typeof obj?.port === "number" &&
+      typeof obj?.token === "string" &&
+      obj.token.length === 64 &&
+      typeof obj?.startedAt === "string"
+    ) {
+      return obj;
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Best-effort cleanup. Called from the SIGINT/SIGTERM handler.
+ * Idempotent: silently no-ops if files are already gone.
+ */
+export function releaseLock(): void {
+  try { unlinkSync(lockPath()); } catch {}
+  try { unlinkSync(statePath()); } catch {}
+}
+
+/**
+ * Convenience for downstream code (e.g. /__daemon/healthz handler).
+ */
+export function uptimeMsSince(startedAt: string): number {
+  return Math.max(0, Date.now() - Date.parse(startedAt));
+}

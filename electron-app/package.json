@@ -11,6 +11,7 @@
     "dev": "npm run build:ts && electronmon dist/main.js"
   },
   "dependencies": {
+    "electron-updater": "^6.3.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -29,8 +30,15 @@
       "icon": "icon.icns",
       "target": [
         "dmg",
+        "zip",
         "dir"
       ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "armonia",
+      "repo": "topics-app",
+      "releaseType": "release"
     },
     "files": [
       "dist/main.js",

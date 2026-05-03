@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, FolderOpen } from 'lucide-react';
-import type { Topic, UpdateTopicRequest, AutonomyLevel } from '../../types';
+import { X, FolderOpen, GitBranch } from 'lucide-react';
+import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
 import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
+import { worktreesApi } from '../../lib/api';
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -31,6 +32,21 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [saved, setSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
+  const [worktree, setWorktree] = useState<Worktree | null>(null);
+
+  // Fetch the bound worktree once per (re)open. The section is hidden
+  // entirely when topic.worktreeId is null/unset, so legacy topics see
+  // exactly the same UI as before this change.
+  useEffect(() => {
+    let cancelled = false;
+    setWorktree(null);
+    if (!isOpen || !topic.worktreeId) return;
+    worktreesApi.get(topic.worktreeId)
+      .then((wt) => { if (!cancelled) setWorktree(wt); })
+      .catch(() => { /* swallow — leave the section hidden if it 404s */ });
+    return () => { cancelled = true; };
+  }, [isOpen, topic.worktreeId]);
 
   useEffect(() => {
     setProjectPath(topic.projectPath || '');
@@ -239,6 +255,49 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               ))}
             </div>
           </div>
+
+          {/* Phase A · TOPIC-WT-03: Worktree (read-only) */}
+          {worktree && (
+            <div>
+              <label className="block text-[13px] font-medium text-app-text mb-2">
+                <span className="flex items-center gap-1.5">
+                  <GitBranch size={14} />
+                  Worktree
+                </span>
+              </label>
+              <p className="text-[11px] text-app-text-muted mb-2">
+                Topic operations run inside this worktree's isolated branch. To unbind the topic, delete the worktree from the workspace view (the topic falls back to the project path automatically).
+              </p>
+              <dl className="text-[12px] grid grid-cols-[7rem_1fr] gap-y-1 px-3 py-2 rounded-lg border border-app-border-light bg-app-hover/40">
+                <dt className="text-app-text-muted">Name</dt>
+                <dd className="text-app-text font-medium">{worktree.name}</dd>
+                {worktree.branchName && (
+                  <>
+                    <dt className="text-app-text-muted">Branch</dt>
+                    <dd className="text-app-text font-mono text-[11px]">{worktree.branchName}</dd>
+                  </>
+                )}
+                {worktree.baseRef && (
+                  <>
+                    <dt className="text-app-text-muted">Base ref</dt>
+                    <dd className="text-app-text font-mono text-[11px]">{worktree.baseRef}</dd>
+                  </>
+                )}
+                <dt className="text-app-text-muted">Path</dt>
+                <dd className="text-app-text font-mono text-[11px] break-all">{worktree.absPath}</dd>
+                <dt className="text-app-text-muted">Status</dt>
+                <dd>
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    worktree.status === 'ready' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' :
+                    worktree.status === 'pending' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400' :
+                    'bg-red-500/15 text-red-700 dark:text-red-400'
+                  }`}>
+                    {worktree.status}
+                  </span>
+                </dd>
+              </dl>
+            </div>
+          )}
 
           {/* System Prompt */}
           <div>

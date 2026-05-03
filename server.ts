@@ -3,6 +3,10 @@ import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
+import {
+  acquireLock, releaseLock, writeState, readState,
+  uptimeMsSince, LiveLockError,
+} from "./server/services/daemon-state";
 import { createTopicsRouter } from "./server/routes/topics";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
@@ -35,6 +39,9 @@ import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
+import { createProjectsRouter } from "./server/routes/projects";
+import { createWorktreesRouter } from "./server/routes/worktrees";
+import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 
@@ -137,6 +144,29 @@ const processesRouter = createProcessesRouter(ctx);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
+const projectsRouter = createProjectsRouter(ctx);
+const worktreesRouter = createWorktreesRouter(ctx);
+const machinesRouter = createMachinesRouter(ctx);
+
+// Phase D — heartbeat ticker. Upserts the local machine row every 30 s
+// and flips other machines that haven't checked in for 5 minutes to
+// `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const STALE_THRESHOLD_MS = 5 * 60_000;
+function tickHeartbeat() {
+  try {
+    const local = ctx.machineStore.upsertLocal();
+    ctx.broadcastToAll({ type: "machine:upserted", machine: local, payload_version: 1 });
+    const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
+    for (const m of flipped) {
+      ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });
+    }
+  } catch (err) {
+    console.warn("[Heartbeat] tick failed:", err);
+  }
+}
+tickHeartbeat();
+const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
 
 // Wire snapshot manager → WS broadcast. Single 100ms debounce coalesces
 // the multiple "loading → ready" transitions a single refresh fires.
@@ -214,6 +244,21 @@ const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
 
+// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
+// Acquire singleton lock + write state file BEFORE Bun.serve so
+// concurrent boots see the live lock and exit fast. The state file is
+// finalised after Bun.serve returns the actual port (in case PORT=0).
+try {
+  acquireLock();
+} catch (err) {
+  if (err instanceof LiveLockError) {
+    console.error(`[Daemon] ${err.message}`);
+    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
+    process.exit(1);
+  }
+  throw err;
+}
+
 const server = Bun.serve<WSData>({
   port: PORT,
   hostname: "0.0.0.0",
@@ -233,6 +278,37 @@ const server = Bun.serve<WSData>({
     const startTime = Date.now();
     const isApiRequest = pathname.startsWith("/api/");
     if (isApiRequest) console.log(`[HTTP] → ${method} ${pathname}`);
+
+    // Phase B · DAEMON-02: token-authed loopback control endpoints.
+    // We read the state file fresh on every call so a state-file rewrite
+    // (e.g. token rotation in a future phase) takes effect immediately.
+    if (pathname.startsWith("/__daemon/")) {
+      const fresh = readState();
+      const auth = req.headers.get("authorization") || "";
+      const match = auth.match(/^Bearer\s+([0-9a-f]{64})$/i);
+      const token = match?.[1] ?? "";
+      if (!fresh || token.length !== 64 || token !== fresh.token) {
+        return new Response(JSON.stringify({ error: "unauthorized" }), {
+          status: 401, headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && pathname === "/__daemon/healthz") {
+        return new Response(JSON.stringify({
+          pid: fresh.pid,
+          startedAt: fresh.startedAt,
+          uptime_ms: uptimeMsSince(fresh.startedAt),
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (method === "POST" && pathname === "/__daemon/shutdown") {
+        // Reply first so the caller sees 202; SIGTERM ourselves a tick
+        // later so the existing graceful-shutdown handler runs.
+        setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 202, headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    }
 
     // WebSocket upgrade - terminal
     if (pathname.startsWith("/ws/terminal/")) {
@@ -340,6 +416,9 @@ const server = Bun.serve<WSData>({
     if (isApiRequest) {
       const response = await agentApiRouter(req, url, pathname, method)
         || await topicsRouter(req, url, pathname, method)
+        || await projectsRouter(req, url, pathname, method)
+        || await worktreesRouter(req, url, pathname, method)
+        || await machinesRouter(req, url, pathname, method)
         || await filesRouter(req, url, pathname, method)
         || await browserRouter(req, url, pathname, method)
         || await cronRouter(req, url, pathname, method)
@@ -469,12 +548,19 @@ console.log(`📡 WebSocket available at ${wsProto}://localhost:${PORT}/ws`);
 if (useTls) console.log(`🔒 TLS enabled (cert: ${tlsCert})`);
 console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/browser/:id)`);
 
+// Phase B · DAEMON-01: finalise state file once Bun.serve owns a port.
+// `server.port` reflects the *actual* port (Bun resolves 0 → ephemeral).
+const daemonState = writeState(server.port);
+console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonState.port}`);
+
 // Graceful shutdown
 async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
+  clearInterval(heartbeatTimer);
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();
   closeDatabase();
+  releaseLock();
   process.exit(0);
 }
 

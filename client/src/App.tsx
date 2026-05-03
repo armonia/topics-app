@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense, type ComponentType } from 
 import { createPortal } from 'react-dom';
 import { Plus, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, Cpu, Activity, BarChart3, Radio, Globe, Timer } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
+import { UpdaterToast } from './components/UpdaterToast';
 import { ClaudeIcon } from './components/Shared/ClaudeIcon';
 import type { SidebarTab } from './types';
 import { useTopics } from './hooks/useTopics';
@@ -734,6 +735,7 @@ function App() {
             onClose={() => setShowNewTopic(false)}
             onCreate={handleCreateTopic}
             projectPath={showNewTopic ? showNewTopic.projectPath : undefined}
+            onMessage={onWSMessage}
           />
         </Suspense>
       )}
@@ -825,6 +827,9 @@ function App() {
       )}
 
       {import.meta.env.DEV && DevOverlay && <DevOverlay />}
+
+      {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
+      <UpdaterToast />
     </div>
     </ToastProvider>
     </TabNotificationProvider>
