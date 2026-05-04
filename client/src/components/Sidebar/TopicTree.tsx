@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, GitBranch, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
+import { usePendingActionStatus } from '../../contexts/PendingActionContext';
+import { PendingActionRing } from '../Shared/PendingActionRing';
 // DnD imports preserved for future drag-to-reorder in timeline
 // import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 // import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -387,9 +389,11 @@ export function TopicTree({
                   </button>
                 )}
                 {onArchiveProject && (
-                  <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); }} className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors" title={allArchived ? 'Restore Project' : 'Archive Project'}>
-                    {allArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
-                  </button>
+                  <ProjectArchiveButton
+                    projectPath={pp}
+                    allArchived={allArchived}
+                    onArchive={onArchiveProject}
+                  />
                 )}
                 {(onNewTopicInProject || onAddProjectPane) && (
                   <div className="relative hidden group-hover/proj:block">
@@ -807,5 +811,39 @@ function TouchProjectMenu({ pp, allArchived, claudeSkipPermissions, setClaudeSki
         )}
       </DropdownPortal>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Project archive button — extracted so we can call usePendingActionStatus
+ * for the inline check + countdown ring (replaces the Archive icon during
+ * the 3 s soft-archive window). Lives at module scope because hooks can't
+ * be called inside the projects.map(...) render loop above. */
+
+interface ProjectArchiveButtonProps {
+  projectPath: string;
+  allArchived: boolean;
+  onArchive: (projectPath: string, archive: boolean) => Promise<boolean>;
+}
+
+function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectArchiveButtonProps) {
+  // Only the archive direction goes through the countdown — restoring is
+  // immediate (consistent with TopicItem and the App-level wrappers).
+  const status = usePendingActionStatus(allArchived ? null : `archive-project:${projectPath}`);
+  if (status) {
+    return (
+      <span className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center">
+        <PendingActionRing status={status} size={14} title="Annulla archiviazione" />
+      </span>
+    );
+  }
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onArchive(projectPath, !allArchived); }}
+      className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+      title={allArchived ? 'Restore Project' : 'Archive Project'}
+    >
+      {allArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+    </button>
   );
 }

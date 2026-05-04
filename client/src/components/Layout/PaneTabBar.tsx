@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare, Columns2, Rows2 } from 'lucide-react';
+import { usePendingActionStatus } from '../../contexts/PendingActionContext';
+import { PendingActionRing } from '../Shared/PendingActionRing';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, type ProjectTabStatus } from '../../state/pane/adapters';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
@@ -752,6 +754,17 @@ function PaneCloseButton({
 }) {
   const globalIdx = useGlobalTabIndex(paneId);
   const showBadge = isElectron && !isTouch && isAppFocused && globalIdx >= 0 && globalIdx < 9;
+  // Inline pending-action UX: when the user has clicked X, the close is
+  // queued in PendingActionContext under `close-tab:<paneId>`. We swap the
+  // X here for the check + countdown ring; clicking it cancels.
+  const pendingStatus = usePendingActionStatus(`close-tab:${paneId}`);
+  if (pendingStatus) {
+    return (
+      <span className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+        <PendingActionRing status={pendingStatus} size={14} title="Annulla chiusura" />
+      </span>
+    );
+  }
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClose(paneId); }}

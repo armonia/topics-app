@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
+import { usePendingActionStatus } from '@/contexts/PendingActionContext';
+import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -87,6 +89,13 @@ export const TopicItem = memo(function TopicItem({
 
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
+
+  // Subscribe to PendingActionContext for THIS topic's archive flow. Only
+  // active when transitioning archived=false → archived=true (unarchive is
+  // restorative and commits immediately, no countdown).
+  const pendingArchiveStatus = usePendingActionStatus(
+    topic.archived ? null : `archive-topic:${topic.id}`,
+  );
 
   const handleArchiveClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -234,27 +243,37 @@ export const TopicItem = memo(function TopicItem({
         ) : (
           /* Desktop: old swap — timestamp visible at rest, archive button on hover */
           <span className="flex-shrink-0 flex items-center justify-center w-7 h-7">
-            {topic.updatedAt && (
-              <span
-                className="text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
-                title={new Date(topic.updatedAt).toLocaleString()}
-              >
-                {relativeTime(topic.updatedAt)}
-              </span>
-            )}
-            {onArchive && (
-              <button
-                onClick={handleArchiveClick}
-                className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-                title={topic.archived ? 'Unarchive' : 'Archive'}
-                aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
-              >
-                {topic.archived ? (
-                  <ArchiveRestore size={12} className="text-app-text-tertiary" />
-                ) : (
-                  <Archive size={12} className="text-app-text-tertiary" />
+            {/* Pending-action ring takes over the slot during the 3 s
+                countdown — replaces both the timestamp and the archive
+                button so the user has a single, focused affordance to
+                cancel by re-clicking. Only applies to archive (not unarch). */}
+            {pendingArchiveStatus ? (
+              <PendingActionRing status={pendingArchiveStatus} size={14} title="Annulla archiviazione" />
+            ) : (
+              <>
+                {topic.updatedAt && (
+                  <span
+                    className="text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
+                    title={new Date(topic.updatedAt).toLocaleString()}
+                  >
+                    {relativeTime(topic.updatedAt)}
+                  </span>
                 )}
-              </button>
+                {onArchive && (
+                  <button
+                    onClick={handleArchiveClick}
+                    className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+                    title={topic.archived ? 'Unarchive' : 'Archive'}
+                    aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
+                  >
+                    {topic.archived ? (
+                      <ArchiveRestore size={12} className="text-app-text-tertiary" />
+                    ) : (
+                      <Archive size={12} className="text-app-text-tertiary" />
+                    )}
+                  </button>
+                )}
+              </>
             )}
           </span>
         )

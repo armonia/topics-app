@@ -28,8 +28,7 @@ import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider } from './components/Shared/Toast';
-import { PendingActionProvider, enqueuePendingAction } from './contexts/PendingActionContext';
-import { PendingActionOutlet } from './components/Shared/PendingActionToast';
+import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
@@ -327,51 +326,54 @@ function App() {
   //      bypassing the countdown for power users who know what they want.
   // The raw handlers (handleClosePanel, archiveTopic, handleArchiveProject)
   // remain available for both cases.
+  // Helper — enqueue + auto-tick, so the countdown starts on the very first
+  // click of the X / archive button. The user's "tick the checkbox" gesture
+  // becomes the click itself; cancellation is a re-click on the now-filled
+  // checkbox (rendered inline by the PaneTabBar / TopicItem callsites that
+  // subscribe to PendingAction state). No bottom-right toast.
+  const enqueueAndTick = useCallback((args: Parameters<typeof enqueuePendingAction>[0]) => {
+    enqueuePendingAction(args);
+    tickPendingAction(args.key);
+  }, []);
+
   const handleClosePanelDeferred = useCallback((topicId: string) => {
-    // Resolve a pretty label for the toast — topic name when available, else
-    // the pane id (kept short by the truncate in the toast).
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
-    enqueuePendingAction({
+    enqueueAndTick({
       key: `close-tab:${topicId}`,
       kind: 'close-tab',
       label,
       color: topic?.color,
       commit: () => handleClosePanel(topicId),
     });
-  }, [topics, handleClosePanel]);
+  }, [topics, handleClosePanel, enqueueAndTick]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
-    // Unarchive (archive=false) is restorative, not destructive — commit
-    // immediately, no toast.
+    // Unarchive (archive=false) is restorative — commit immediately.
     if (!archive) return archiveTopic(topicId, false);
     const topic = topics[topicId];
     const label = topic?.name || topicId;
-    enqueuePendingAction({
+    enqueueAndTick({
       key: `archive-topic:${topicId}`,
       kind: 'archive-topic',
       label,
       color: topic?.color,
       commit: async () => { await archiveTopic(topicId, true); },
     });
-    // The archive happens later (or not at all if cancelled). Returning
-    // `true` keeps callers happy — the user has expressed intent and the
-    // toast carries the cancel affordance. None of the existing call sites
-    // rely on the returned boolean for anything load-bearing.
     return Promise.resolve(true);
-  }, [topics, archiveTopic]);
+  }, [topics, archiveTopic, enqueueAndTick]);
 
   const handleArchiveProjectDeferred = useCallback((projectPath: string, archive: boolean): Promise<boolean> => {
     if (!archive) return handleArchiveProject(projectPath, false);
     const label = projectPath.split('/').filter(Boolean).pop() || projectPath;
-    enqueuePendingAction({
+    enqueueAndTick({
       key: `archive-project:${projectPath}`,
       kind: 'archive-project',
       label,
       commit: async () => { await handleArchiveProject(projectPath, true); },
     });
     return Promise.resolve(true);
-  }, [handleArchiveProject]);
+  }, [handleArchiveProject, enqueueAndTick]);
 
   // Sidebar / browser-context state (App-level — sidebar UI consumers).
   const sidebar = useSidebarState(onWSMessage);
@@ -897,12 +899,6 @@ function App() {
 
       {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
       <UpdaterToast />
-
-      {/* Pending-action toasts (Things3-style: tick checkbox → 3s countdown
-          → commit). Rendered at App root so the surface survives layout
-          re-renders. Pointer-events on the items themselves; the wrapper
-          is non-blocking (defined inside PendingActionOutlet). */}
-      <PendingActionOutlet />
     </div>
     </PendingActionProvider>
     </ToastProvider>

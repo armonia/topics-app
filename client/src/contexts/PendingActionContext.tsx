@@ -196,6 +196,27 @@ export function useHasPendingAction(key: string | null | undefined): boolean {
   return entries.some((e) => e.key === key);
 }
 
+/** Returns the live status of a pending action by key, or null if no entry
+ *  is queued. UI components use this to render an inline check + countdown
+ *  ring in place of the original X / archive icon. The callsite typically:
+ *    - clicks the icon → calls enqueueAndTick on App-level (status appears)
+ *    - re-clicks the icon → calls `cancel()` returned here (status clears)
+ *  The `tickedAt` timestamp lets the renderer animate a progress ring with
+ *  CSS transitions (e.g. stroke-dashoffset over `countdownMs`). */
+export interface PendingActionStatus {
+  entry: PendingActionEntry;
+  countdownMs: number;
+  cancel: () => void;
+}
+
+export function usePendingActionStatus(key: string | null | undefined): PendingActionStatus | null {
+  const { entries, cancel, countdownMs } = usePendingActions();
+  if (!key) return null;
+  const entry = entries.find((e) => e.key === key);
+  if (!entry) return null;
+  return { entry, countdownMs, cancel: () => cancel(key) };
+}
+
 // ─── Module-singleton imperative API ──────────────────────────────────────
 //
 // Mirror of the UndoContext pattern: exposes `enqueuePendingAction()` etc. as
