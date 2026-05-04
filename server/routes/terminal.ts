@@ -8,6 +8,7 @@ import { writeFile } from "fs/promises";
 import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
+import { augmentPath } from "../utils/path-env";
 
 interface TerminalSession {
   id: string;
@@ -494,11 +495,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
 
   let env: Record<string, string | null> | undefined;
   if (sessionType === 'claude-code') {
-    const home = process.env.HOME || '';
-    const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin'];
-    const currentPath = process.env.PATH || '/usr/local/bin';
-    const augmentedPath = [...extraPaths, currentPath].filter(Boolean).join(':');
-    env = { CLAUDECODE: null, PATH: augmentedPath };
+    env = { CLAUDECODE: null, PATH: augmentPath() };
   }
 
   // Await the bridge's ack before populating in-memory + DB. If the

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
+import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 
 interface ScriptProcess {
   processId: string;
@@ -398,13 +399,29 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       const projectPath = body.projectPath as string;
       const command = `npm run ${scriptName}`;
 
+      // tty: true (default) wraps the command in script(1) so it gets a PTY.
+      // Required by CLIs that check isatty() — supabase login, gh auth login,
+      // npm login, etc. Set body.tty=false explicitly for legacy behavior.
+      const useTty = body.tty !== false;
+      const argv = useTty
+        ? wrapPty(["npm", "run", scriptName])
+        : ["npm", "run", scriptName];
+
       let proc: ReturnType<typeof Bun.spawn>;
       try {
-        proc = Bun.spawn(["npm", "run", scriptName], {
+        proc = Bun.spawn(argv, {
           cwd: projectPath,
           stdout: "pipe",
           stderr: "pipe",
-          env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", HOST: "0.0.0.0", NODE_ENV: "development" },
+          // augmentEnv prepends ~/.bun/bin, /opt/homebrew/bin, etc. so scripts
+          // that call `bun`, `pnpm`, `cargo`... resolve even when the server
+          // is launched from launchd/tray with a minimal PATH.
+          env: augmentEnv(process.env, {
+            FORCE_COLOR: "0",
+            NO_COLOR: "1",
+            HOST: "0.0.0.0",
+            NODE_ENV: "development",
+          }),
         });
       } catch (err: any) {
         return json({ error: `Failed to spawn: ${err.message}` }, 500);
@@ -436,7 +453,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              appendOutput(sp, decoder.decode(value, { stream: true }));
+              const chunk = decoder.decode(value, { stream: true });
+              appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
               notifyScriptOutput(ctx, processId);
             }
           } catch {}
@@ -452,7 +470,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              appendOutput(sp, decoder.decode(value, { stream: true }));
+              const chunk = decoder.decode(value, { stream: true });
+              appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
               notifyScriptOutput(ctx, processId);
             }
           } catch {}
