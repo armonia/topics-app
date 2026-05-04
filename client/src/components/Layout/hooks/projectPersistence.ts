@@ -128,7 +128,17 @@ export function loadPersistedState(
 
 // --- Chat-sync gate ---
 // Track which projects have completed their initial chat sync.
-// Until sync completes, persistence is suppressed to prevent empty overwrites.
+// Until sync completes, the SERVER push is suppressed to prevent empty
+// `openChatTopicIds` arrays from clobbering server-side state during the
+// brief mount→render→persist race. localStorage is NOT gated — it's a
+// same-device cache and MUST reflect every edit so a refresh during the
+// gate window still restores the latest layout.
+//
+// History: the gate previously suppressed *all* persistence (including
+// localStorage). That meant any edit made before chat-sync fired was lost
+// on refresh — surfacing as "the layout I see after refresh is different
+// from what I just had". Splitting the gate to cover only the server PUT
+// keeps the original race-prevention intent without the data-loss tail.
 const _chatSyncComplete = new Set<string>();
 export function markChatSyncComplete(projectPath: string): void {
   _chatSyncComplete.add(projectPath);
@@ -138,12 +148,13 @@ export function savePersistedTabState(
   projectPath: string,
   state: PersistedTabState,
 ): void {
-  // Guard: suppress ALL persistence until the initial chat sync has completed.
-  // This prevents the mount→render→persist race that overwrites saved chat IDs
-  // with empty arrays before the sync effect has run.
-  if (!_chatSyncComplete.has(projectPath)) {
-    return; // Don't persist anything yet — wait for chat sync
-  }
+  // ALWAYS write localStorage immediately. A refresh during the chat-sync
+  // gate window still gets the most recent state.
+  saveProjectLayoutLocalOnly(storageKey(projectPath), state);
+  // Server PUT (via the PROJECT_LAYOUT_SNAPSHOT debounce inside
+  // `saveProjectLayout`) is gated until chat-sync completes — that's the
+  // path that the original race-protection cared about.
+  if (!_chatSyncComplete.has(projectPath)) return;
   saveProjectLayout(storageKey(projectPath), projectPath, state);
 }
 
