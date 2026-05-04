@@ -166,6 +166,25 @@ export function removeProvider(name: string): void {
 }
 
 /**
+ * Stop ALL providers — called from gracefulShutdown so spawned children
+ * (claude CLI, codex CLI, etc.) receive SIGTERM and get a chance to flush
+ * their on-disk session state. Without this, `bun --watch` hot-reloads
+ * left zombie children behind AND lost claude-code conversation context
+ * because the CLI hadn't checkpointed before being orphaned.
+ *
+ * Returns a promise that resolves once all providers have signalled their
+ * children. Each provider's `stop()` schedules SIGKILL after a grace period
+ * internally; we wait for that grace period before resolving so the caller
+ * can safely process.exit() without truncating the flush.
+ */
+export async function stopAllProviders(graceMs = 3500): Promise<void> {
+  for (const [, p] of _providers) {
+    try { p.stop(); } catch (err: any) { console.warn(`[Providers] stop() failed:`, err?.message ?? err); }
+  }
+  await new Promise((r) => setTimeout(r, graceMs));
+}
+
+/**
  * Lazy import of the snapshot manager — avoids a circular import at module
  * load time (snapshot-manager → index → snapshot-manager).
  */
@@ -338,6 +357,19 @@ async function detectCodexCli(): Promise<boolean> {
  */
 export function initProvider(config?: ProviderConfig): AIProvider {
   if (config) {
+    // Stop the previous instance if one already exists for this provider
+    // type. Without this, a second `initProvider()` call (e.g. on hot
+    // reload, or a settings-driven re-init) would leak the old instance —
+    // its inactivity timers kept firing and `claude-code` would keep two
+    // pools alive, each spawning their own `--resume` child for the same
+    // sessionKey. That double-spawn corrupted the on-disk session file.
+    const existing = _providers.get(config.type);
+    if (existing) {
+      try { existing.stop(); } catch (err: any) {
+        console.warn(`[Providers] Failed to stop previous ${config.type} instance: ${err?.message ?? err}`);
+      }
+      _providers.delete(config.type);
+    }
     const p = createProvider(config);
     p.start();
     _providers.set(p.name, p);

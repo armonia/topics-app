@@ -37,7 +37,7 @@ import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders } from "./server/providers";
 import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
@@ -609,6 +609,13 @@ async function gracefulShutdown(signal: string) {
   stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();
+  // Stop all AI providers BEFORE closing the DB. claude-code's stop() sends
+  // SIGTERM to the spawned `claude` CLI children so they flush session state
+  // to ~/.claude/sessions/ — without this, `bun --watch` hot reloads left
+  // children orphaned and the next spawn started a fresh conversation. The
+  // grace window inside stopAllProviders matches each provider's internal
+  // SIGTERM→SIGKILL window so process.exit() doesn't truncate the flush.
+  await stopAllProviders();
   closeDatabase();
   releaseLock();
   process.exit(0);

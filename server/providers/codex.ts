@@ -169,6 +169,60 @@ function hasActiveSession(): boolean {
          Boolean(process.env.OPENAI_API_KEY);
 }
 
+// ============ Helpers ============
+
+/**
+ * Maximum non-system transcript turns to ship to `codex exec`. Codex's
+ * single-shot mode has a finite context window and there's no resume API to
+ * lean on — past this cap we keep the most recent turns and ALL system
+ * messages (which are typically small but carry pinned context the user
+ * specifically wants preserved). Tuned for ~32k context with reasonable
+ * room for the response; bump if codex grows.
+ */
+const CODEX_HISTORY_TURN_CAP = 20;
+
+/**
+ * Format a chat transcript as a markdown preamble that codex `exec` can read.
+ * We label each turn with its role so the model can disambiguate; system
+ * messages flow through as `## Context` blocks since codex doesn't have a
+ * dedicated system-prompt slot in single-shot mode.
+ *
+ * Long histories are truncated to `CODEX_HISTORY_TURN_CAP` user/assistant
+ * turns from the tail. System messages are always preserved because they
+ * usually encode pinned context (SOUL.md, project hints, etc.).
+ */
+function renderHistoryAsPrompt(history: ChatMessage[]): string {
+  const systemMessages = history.filter((m) => m.role === "system");
+  const conversational = history.filter((m) => m.role === "user" || m.role === "assistant");
+
+  let truncated = false;
+  let kept = conversational;
+  if (conversational.length > CODEX_HISTORY_TURN_CAP) {
+    kept = conversational.slice(-CODEX_HISTORY_TURN_CAP);
+    truncated = true;
+  }
+
+  const lines: string[] = ["# Conversation so far"];
+  if (truncated) {
+    lines.push(
+      "",
+      `> _(Earlier ${conversational.length - kept.length} turns omitted; only the most recent ${kept.length} are shown.)_`
+    );
+  }
+
+  for (const m of systemMessages) {
+    lines.push("", "## Context", "", m.content);
+  }
+  for (const m of kept) {
+    if (m.role === "user") {
+      lines.push("", "## User", "", m.content);
+    } else if (m.role === "assistant") {
+      lines.push("", "## Assistant", "", m.content);
+    }
+  }
+  return lines.join("\n");
+}
+
 // ============ Provider ============
 
 export class CodexProvider implements AIProvider {
@@ -178,6 +232,11 @@ export class CodexProvider implements AIProvider {
     "tools",
     "sessions",
     "abort",
+    // `history` capability tells the chat route to forward the full transcript
+    // every turn. Codex's `exec` mode is one-shot stateless — without this
+    // the CLI saw only the new user message and forgot every prior turn,
+    // exactly the behavior the user reported as "topics losing history".
+    "history",
   ]);
 
   private config: CodexProviderConfig;
@@ -227,7 +286,7 @@ export class CodexProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string },
+    options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
     const bin = resolveCodexBinary();
     if (!bin) {
@@ -336,7 +395,16 @@ export class CodexProvider implements AIProvider {
       handler.onError(err.message);
     });
 
-    child.stdin!.write(message);
+    // Codex `exec` is stateless — every turn spawns a fresh child with no
+    // memory of prior turns. To restore continuity we prepend the conversation
+    // transcript (when the chat route supplies one) ahead of the new user
+    // message. Without this, every reply read like the first one.
+    const history = options?.history ?? [];
+    const prompt = history.length > 0
+      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
+      : message;
+
+    child.stdin!.write(prompt);
     child.stdin!.end();
 
     return { runId };

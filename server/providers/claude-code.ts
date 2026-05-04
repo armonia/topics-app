@@ -20,6 +20,7 @@ import type {
   StreamHandler,
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
+import { getDatabase } from "../db";
 
 // ============ Config ============
 
@@ -97,6 +98,73 @@ function buildSafeEnv(): Record<string, string> {
 
   env.JARVIS_SPAWN = "1";
   return env;
+}
+
+// ============ Claude CLI Session ID Persistence ============
+
+/**
+ * Get or create the persistent Claude CLI session UUID for a given sessionKey.
+ * Returns `{ id, isNew }` so the caller can decide between `--session-id` (new)
+ * and `--resume` (existing). Survives hot reloads, inactivity timeouts, and
+ * crashes — every spawn for the same sessionKey resumes the same conversation.
+ *
+ * Without this, the in-memory child process pool was the only thing tying a
+ * sessionKey to a CLI conversation. Killing the child (which happens on
+ * `bun --watch` hot reloads) erased the AI's memory of prior turns even
+ * though all messages were preserved in the messages table.
+ */
+function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: boolean } {
+  let db: ReturnType<typeof getDatabase>;
+  try {
+    db = getDatabase();
+  } catch {
+    // DB not yet initialized — fall back to a transient ID. This shouldn't
+    // happen in practice (initProviders runs after initDatabase) but we
+    // don't want a fatal error.
+    return { id: crypto.randomUUID(), isNew: true };
+  }
+
+  // Atomic upsert: SELECT-then-INSERT was racy (two parallel callers for the
+  // same sessionKey could both see "no row" and the second INSERT would hit
+  // the PRIMARY KEY constraint and crash). `INSERT ... ON CONFLICT DO UPDATE
+  // ... RETURNING` collapses the read+write into one statement and returns
+  // BOTH the resolved id and whether the row was freshly inserted.
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const row = db.prepare(
+    `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(session_key) DO UPDATE SET updated_at = excluded.updated_at
+     RETURNING claude_session_id, created_at`
+  ).get(sessionKey, id, now, now) as { claude_session_id: string; created_at: string };
+  return { id: row.claude_session_id, isNew: row.created_at === now };
+}
+
+/**
+ * Forget the persisted Claude session UUID for a sessionKey. Called when the
+ * CLI signals the on-disk session file is gone (missing/corrupted/upgrade) so
+ * the next spawn starts fresh with `--session-id` instead of looping on a
+ * doomed `--resume`.
+ */
+function forgetClaudeSessionId(sessionKey: string): void {
+  try {
+    const db = getDatabase();
+    db.prepare("DELETE FROM claude_code_sessions WHERE session_key = ?").run(sessionKey);
+  } catch {
+    // DB unavailable — nothing to do; the in-memory pool already discarded
+    // the dead child, and the next bootstrap will regenerate the row.
+  }
+}
+
+const SESSION_NOT_FOUND_PATTERNS = [
+  /session\s+(not\s+found|does not exist)/i,
+  /no\s+such\s+session/i,
+  /could not find session/i,
+  /session id .* not found/i,
+];
+
+function looksLikeMissingSessionError(stderrChunk: string): boolean {
+  return SESSION_NOT_FOUND_PATTERNS.some((p) => p.test(stderrChunk));
 }
 
 // ============ Persistent Process ============
@@ -398,11 +466,19 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   async listModels(): Promise<string[]> {
-    return [
+    const all = [
       "claude-sonnet-4-6",
       "claude-opus-4-7",
       "claude-haiku-4-5",
     ];
+    // Surface the configured model first so the snapshot's effective default
+    // (clients use models[0]) reflects the user's settings.json choice. We
+    // tolerate an unknown model by inserting it at the head — it lets the
+    // user pin a future Anthropic model without a code change.
+    const preferred = this.config.model;
+    if (!preferred) return all;
+    const rest = all.filter((m) => m !== preferred);
+    return [preferred, ...rest];
   }
 
   // ============ Process Pool Internals ============
@@ -417,16 +493,22 @@ export class ClaudeCodeProvider implements AIProvider {
       this.processes.delete(sessionKey);
     }
 
-    console.log(`[claude-code] Spawning persistent process for ${sessionKey}`);
-    const pp = this.spawnPersistentProcess();
+    const pp = this.spawnPersistentProcess(sessionKey);
     this.processes.set(sessionKey, pp);
     return pp;
   }
 
-  private spawnPersistentProcess(): PersistentProcess {
+  private spawnPersistentProcess(sessionKey: string): PersistentProcess {
     const model = this.config.model ?? DEFAULT_MODEL;
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
+
+    // Look up (or create) the persistent Claude CLI session UUID for this
+    // sessionKey. On first spawn we use `--session-id` to pin the UUID; on
+    // every subsequent spawn (after hot reload, inactivity timeout, lifetime
+    // cap, crash) we use `--resume` to reload the session from disk and
+    // restore the AI's memory of prior turns.
+    const { id: claudeSessionId, isNew: isNewSession } = getOrCreateClaudeSessionId(sessionKey);
 
     const args = [
       "--print",
@@ -436,7 +518,12 @@ export class ClaudeCodeProvider implements AIProvider {
       "--setting-sources", "user,project,local",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
+      ...(isNewSession ? ["--session-id", claudeSessionId] : ["--resume", claudeSessionId]),
     ];
+
+    console.log(
+      `[claude-code] Spawning ${isNewSession ? 'new' : 'resumed'} session for ${sessionKey} (claude_session_id=${claudeSessionId})`
+    );
 
     const env = buildSafeEnv();
 
@@ -473,13 +560,25 @@ export class ClaudeCodeProvider implements AIProvider {
       }
     });
 
-    // --- stderr: rate limit detection ---
+    // --- stderr: rate limit + missing-session detection ---
     let stderrBuf = "";
     proc.stderr!.on("data", (d: Buffer) => {
       stderrBuf += d.toString();
       if (stderrBuf.length > 2048) stderrBuf = stderrBuf.slice(-2048);
 
       const chunk = d.toString();
+
+      // The CLI was asked to `--resume` a session that no longer exists on
+      // disk. Wipe the DB row so the next spawn falls back to --session-id
+      // instead of looping forever on a doomed resume. We don't kill here —
+      // the close handler will fire shortly with the non-zero exit code.
+      if (!isNewSession && looksLikeMissingSessionError(chunk)) {
+        console.warn(
+          `[claude-code] Resume failed for ${sessionKey} (claude_session_id=${claudeSessionId}); forgetting and will respawn fresh on next call`
+        );
+        forgetClaudeSessionId(sessionKey);
+      }
+
       if (
         (chunk.includes("rate_limit") || chunk.includes("429") || /overloaded/i.test(chunk)) &&
         pp.pendingReject
