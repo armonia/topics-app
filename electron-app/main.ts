@@ -243,15 +243,19 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
+    // Detached topic windows (Cmd-click "Pop out" in the chat): explicit
+    // intent — open as a separate Electron BrowserWindow inside the app.
     if (frameName && frameName.startsWith('topic-')) {
       const topicId = frameName.replace('topic-', '');
       createDetachedWindow(topicId, url, features);
       return { action: 'deny' as const };
     }
 
-    if (url.startsWith('http://localhost') || url.startsWith(SERVER_URL)) {
-      return { action: 'allow' as const };
-    }
+    // Everything else: route to the user's system browser. Previously we
+    // allowed http://localhost and the topics server URL to open as native
+    // Electron windows, but that meant clicking the port link of a spawned
+    // dev server (e.g. localhost:3456 from ScriptRunner) popped a barebones
+    // Electron BrowserWindow instead of opening in the user's real browser.
     if (url.startsWith('https://') || url.startsWith('http://')) {
       shell.openExternal(url).catch((err) => {
         console.error('[Topics Electron] Failed to open external URL:', url, err);
@@ -332,9 +336,8 @@ function createDetachedWindow(topicId: string, url: string, features = ''): Brow
       createDetachedWindow(newTopicId, newUrl);
       return { action: 'deny' as const };
     }
-    if (newUrl.startsWith('http://localhost') || newUrl.startsWith(SERVER_URL)) {
-      return { action: 'allow' as const };
-    }
+    // Same policy as the main window: every regular link click goes to the
+    // system browser, including localhost dev-server URLs.
     if (newUrl.startsWith('https://') || newUrl.startsWith('http://')) {
       shell.openExternal(newUrl).catch((err) => {
         console.error('[Topics Electron] Failed to open external URL:', newUrl, err);
