@@ -115,11 +115,18 @@ function ensurePaneRegistered(
 ): void {
   const s = usePaneStore.getState();
   if (s.panes[pane.id]) return;
-  // Caller-provided groupId wins (App-level openings must always land in the
-  // standalone group regardless of which inner project pane is focused).
-  // Otherwise we fall back to the focused group, then to the default.
-  const focusLoc = s.focusedPaneId ? findPaneLocation(s, s.focusedPaneId) : null;
-  const groupId = options?.groupId ?? focusLoc?.groupId ?? 'group:default';
+  // App-level panes ALWAYS belong in the standalone group ('group:default').
+  // The previous fallback ("focused pane's group") was a footgun: when the
+  // user had a split layout at the App level (or any non-default group held
+  // focus), a fresh project / topic / utility pane landed in that other
+  // group. Effect A in usePanelLifecycle only observes
+  // `groups['group:default'].paneIds`, so the new id was invisible to the
+  // store→React bridge — Effect A then reverted `focusedPanelId` back to
+  // whatever was previously focused (the "open project, focus snaps back
+  // to the previous tab after a delay" bug, surfaced by Cmd+K).
+  // Callers that genuinely need to land in a specific group can still pass
+  // `options.groupId` explicitly; this is just a safer default.
+  const groupId = options?.groupId ?? 'group:default';
   s.dispatch({
     type: 'OPEN_PANE',
     payload: { ...pane, preview: false, groupId },
