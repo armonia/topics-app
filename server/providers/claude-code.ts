@@ -182,8 +182,12 @@ interface PersistentProcess {
   pendingReject: ((err: Error) => void) | null;
   /** Accumulated full text for onTextDelta */
   fullText: string;
-  /** Active tool calls being tracked */
+  /** Tool calls announced but not yet resulted. */
   activeToolCalls: Set<string>;
+  /** Tool calls that have already had their result emitted — the Claude CLI
+   *  re-emits them on every cumulative `assistant` snapshot, so we need a
+   *  set to skip duplicates and prevent push-without-dedup downstream. */
+  settledToolCalls?: Set<string>;
   inactivityTimer: ReturnType<typeof setTimeout> | null;
   lifetimeTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -267,6 +271,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.streamHandler = handler;
     pp.fullText = "";
     pp.activeToolCalls.clear();
+    pp.settledToolCalls?.clear();
 
     // Build NDJSON message
     const input = JSON.stringify({
@@ -704,6 +709,19 @@ export class ClaudeCodeProvider implements AIProvider {
             : null)
         : null;
     if (assistantContent && handler) {
+      // The Claude CLI emits cumulative `assistant` events: each event's
+      // `message.content` is a snapshot containing ALL blocks accumulated so
+      // far, NOT a delta. Iterating naively re-fires onToolStart /
+      // onToolResult for blocks already announced — produces duplicate
+      // ToolCall entries on the message (push-without-dedup downstream),
+      // and the duplicates stay in `running` forever because
+      // updateToolCallResult only patches the first match by id. Symptom:
+      // tool spinner never clears.
+      //
+      // Dedup by tracking which tool_use ids we've already announced
+      // (`pp.activeToolCalls`) and which we've already settled
+      // (`pp.settledToolCalls`). Both are per-process-instance Sets.
+      const settled = (pp.settledToolCalls ??= new Set<string>());
       for (const block of assistantContent) {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
           pp.fullText += block.text;
@@ -712,15 +730,18 @@ export class ClaudeCodeProvider implements AIProvider {
           handler.onThinkingDelta?.(block.thinking);
         } else if (block.type === "tool_use") {
           const toolId = (typeof block.id === "string" ? block.id : null) ?? crypto.randomUUID();
+          if (pp.activeToolCalls.has(toolId) || settled.has(toolId)) continue;
           pp.activeToolCalls.add(toolId);
           handler.onToolStart(toolId, String(block.name ?? ""), block.input as Record<string, unknown> | undefined);
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+          if (!toolId || settled.has(toolId)) continue;
           const resultContent = typeof block.content === "string"
             ? block.content
             : JSON.stringify(block.content);
           handler.onToolResult(toolId, resultContent);
           pp.activeToolCalls.delete(toolId);
+          settled.add(toolId);
         }
       }
     }

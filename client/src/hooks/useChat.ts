@@ -267,8 +267,32 @@ export function useChat() {
         const updatedMessages = [...sessionMessages];
         const lastMsg = updatedMessages[lastMessageIndex];
 
-        const nextToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls, toolCall] : [toolCall];
-        const nextBlocks = appendBlock(lastMsg.blocks, { kind: 'tool', toolCall });
+        // Defensive dedup (mirror of server-side `addToolCallToLastMessage`).
+        // Cumulative-snapshot providers (Claude CLI) re-announce the same
+        // tool_use block multiple times; without this guard each
+        // re-announcement appends a fresh duplicate entry, and only the
+        // FIRST one ever flips to 'success' when stream:tool_result arrives —
+        // the rest stay in `running` and the spinner never clears.
+        const existingIdx = (lastMsg.toolCalls ?? []).findIndex(t => t.id === toolCall.id);
+        let nextToolCalls: typeof lastMsg.toolCalls;
+        let nextBlocks = lastMsg.blocks;
+        if (existingIdx >= 0) {
+          // Update in place — preserve any state the existing entry already
+          // accumulated (e.g. result if a re-announce raced after the first
+          // settle). The new payload's args usually win.
+          nextToolCalls = lastMsg.toolCalls!.slice();
+          nextToolCalls[existingIdx] = { ...lastMsg.toolCalls![existingIdx], ...toolCall };
+          if (nextBlocks) {
+            nextBlocks = nextBlocks.map(b =>
+              b.kind === 'tool' && b.toolCall.id === toolCall.id
+                ? { kind: 'tool' as const, toolCall: nextToolCalls![existingIdx] }
+                : b,
+            );
+          }
+        } else {
+          nextToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls, toolCall] : [toolCall];
+          nextBlocks = appendBlock(lastMsg.blocks, { kind: 'tool', toolCall });
+        }
 
         updatedMessages[lastMessageIndex] = { ...lastMsg, toolCalls: nextToolCalls, blocks: nextBlocks };
 

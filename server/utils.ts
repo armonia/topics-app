@@ -689,7 +689,20 @@ export function createAppContext(baseDir: string): AppContext {
     if (!row) return null;
     const msg = rowToMessage(row);
     if (!msg.toolCalls) msg.toolCalls = [];
-    msg.toolCalls.push(toolCall);
+    // Defensive dedup: providers that emit cumulative tool snapshots (the
+    // Claude CLI is one) call this multiple times for the same id. Without
+    // this guard we'd accumulate duplicate entries; updateToolCallResult
+    // only patches the FIRST match, so the duplicates would stay forever
+    // in `running` and the spinner would never clear in the UI. The
+    // upstream provider is meant to dedup too — this is belt-and-braces.
+    const existingIdx = msg.toolCalls.findIndex(t => t.id === toolCall.id);
+    if (existingIdx >= 0) {
+      // Update in place so a re-announcement with newer args doesn't lose
+      // the work tracked under the same id.
+      msg.toolCalls[existingIdx] = { ...msg.toolCalls[existingIdx], ...toolCall };
+    } else {
+      msg.toolCalls.push(toolCall);
+    }
     stmts.updateMessage.run({
       $id: msg.id,
       $content: msg.content,
