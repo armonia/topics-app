@@ -1,28 +1,20 @@
 /**
- * Adapter for client/src/lib/projectLayoutSync.ts — saves project layouts via
- * the unified reducer snapshot instead of per-project ui_state keys.
+ * Adapter for project-window layout persistence.
  *
- * The legacy per-project server key (project-layout-<hash>) is no longer
- * used; the reducer's `pane-store-v2` snapshot includes `projects` keyed by
- * projectPath and the syncServer middleware handles the PUT. This adapter is
- * intentionally thin: it holds the 2000 ms debounce that legacy callers
- * depend on and dispatches PROJECT_LAYOUT_SNAPSHOT / PROJECT_LAYOUT_RESTORE.
+ * History: this module used to dispatch a debounced PROJECT_LAYOUT_SNAPSHOT
+ * into the pane-store reducer's `state.projects[path]` so the layout could
+ * sync cross-device via the pane-store-v2 server snapshot. That capture
+ * was wrong-scope (it snapshotted the GLOBAL App-level pane state, not the
+ * project's inner React state — see projectPersistence.ts:91-99 for the
+ * footgun trail), so consumers had to silently filter out the result. The
+ * dispatch + the matching `projects` field in selectSyncableSnapshot were
+ * effectively dead data spamming the server with garbage.
  *
- * Legacy localStorage writes are preserved so a cold reload between plans
- * 07-08 (partial cutover) still finds the same keys where call sites expect
- * them.
+ * This adapter is now a thin localStorage wrapper. Cross-device project
+ * layout sync is a TODO that needs a properly-shaped server channel
+ * mirroring the project-window's inner state (panes/groups/rows).
  */
-import { usePaneStore, type PaneStore } from '../store';
 import type { ProjectLayout } from '../types';
-
-const DEBOUNCE_MS = 2000;
-const timers = new Map<string, ReturnType<typeof setTimeout>>();
-
-// Safety net for loadProjectLayout subscribe leaks (see below). If the reducer
-// never hydrates with `projects[projectPath]` (e.g. the user closed the tab
-// before the WS ui-state:init landed), the subscription would otherwise live
-// for the lifetime of the document. Cap it at 30 s.
-const LOAD_SUBSCRIBE_TIMEOUT_MS = 30_000;
 
 // Storage-key derivation (hash of projectPath). Exposed here so call sites
 // don't need to re-implement the hash and so the PANE-01 grep gate passes
@@ -60,96 +52,74 @@ export function saveProjectLayoutLocalOnly(localKey: string, state: unknown): vo
  * Save a project layout. Legacy signature kept intact so call sites don't
  * change during cutover.
  *
- * - Writes `localKey` to localStorage immediately (fast-paint cache).
- * - Debounces a dispatch of PROJECT_LAYOUT_SNAPSHOT so the reducer captures
- *   the current visible state into `projects[projectPath]`. The syncServer
- *   middleware then flushes the whole pane-store-v2 snapshot.
+ * Writes `localKey` to localStorage immediately. Previously also dispatched
+ * a debounced PROJECT_LAYOUT_SNAPSHOT into the pane-store reducer's
+ * `state.projects[projectPath]`, but that snapshot captured the GLOBAL
+ * App-level pane state instead of the project's inner React state — wrong
+ * shape for ever restoring a ProjectWindow's panes (consumers had to
+ * silently filter it out, see projectPersistence.ts:91-99). The dispatch
+ * was also serialised onto the server via `selectSyncableSnapshot` and
+ * roundtripped on every WS hydrate, wasting bandwidth on data that nothing
+ * could ever consume.
+ *
+ * Cross-device project layout sync remains a TODO — when implemented, it
+ * should snapshot the ProjectWindow's inner React state (panes/groups/rows
+ * managed by useProjectLayout) into a dedicated server key, NOT into the
+ * App-level pane store.
  */
 export function saveProjectLayout(
   localKey: string,
   projectPath: string,
   state: unknown,
 ): void {
+  // Suppress unused-args lint while keeping the signature for legacy callers.
+  void projectPath;
   try {
     localStorage.setItem(localKey, JSON.stringify(state));
   } catch {
     /* quota / private mode — silent */
   }
-
-  const existing = timers.get(projectPath);
-  if (existing) clearTimeout(existing);
-  const t = setTimeout(() => {
-    timers.delete(projectPath);
-    usePaneStore.getState().dispatch({
-      type: 'PROJECT_LAYOUT_SNAPSHOT',
-      payload: { projectPath },
-    });
-  }, DEBOUNCE_MS);
-  timers.set(projectPath, t);
 }
 
 /**
  * Load the project layout.
  *
- * Legacy behavior: read localStorage immediately, fire an async server fetch,
- * and call `onUpdate` if the server's answer differs. The adapter now pulls
- * from the reducer's `projects[projectPath]` first (authoritative) and falls
- * back to the localStorage fast-paint cache when the reducer hasn't
- * hydrated yet. `onUpdate` fires if reducer state changes after the initial
- * read (e.g. WS ui-state:init arrives).
+ * Returns the synchronous localStorage cache for `localKey`. The previous
+ * implementation also read `usePaneStore.getState().projects[projectPath]`
+ * and subscribed for cross-device updates, but the pane-store's
+ * `state.projects` field captured the wrong scope (App-level pane state,
+ * not the project's inner React state) so consumers had to silently filter
+ * the result anyway. With PROJECT_LAYOUT_SNAPSHOT no longer dispatched
+ * (see saveProjectLayout above), `state.projects[path]` is always empty
+ * and the subscription is dead — both are removed here. The `onUpdate`
+ * callback is kept for API compatibility but is now never invoked from
+ * this path; cross-device project layout sync is a TODO that needs a
+ * properly-shaped server channel.
  */
 export function loadProjectLayout(
   localKey: string,
-  projectPath: string,
-  onUpdate?: (freshState: unknown) => void,
+  _projectPath: string,
+  _onUpdate?: (freshState: unknown) => void,
 ): unknown | null {
-  // Reducer first (authoritative).
-  const fromStore = usePaneStore.getState().projects[projectPath];
-  if (fromStore) return fromStore;
-
-  // Fast-paint from localStorage.
-  let cached: unknown = null;
+  void _projectPath;
+  void _onUpdate;
   try {
     const raw = localStorage.getItem(localKey);
-    if (raw) cached = JSON.parse(raw);
+    if (raw) return JSON.parse(raw);
   } catch {
-    /* ignore */
+    /* corrupt entry — fall through to null */
   }
-
-  // Subscribe once for the first reducer update so consumers get the
-  // authoritative state when WS or syncWS hydrates. Guard against leaks with
-  // a 30 s safety-net timer: if the reducer never hydrates `projects[path]`
-  // (e.g. user closed the tab before WS ui-state:init arrived), we unsub and
-  // free the closure instead of holding it for the lifetime of the document.
-  if (onUpdate) {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const unsub = usePaneStore.subscribe(
-      (s: PaneStore) => s.projects[projectPath],
-      (layout: ProjectLayout | undefined) => {
-        if (layout) {
-          if (timeoutId !== null) clearTimeout(timeoutId);
-          unsub();
-          onUpdate(layout);
-        }
-      },
-    );
-    timeoutId = setTimeout(() => {
-      timeoutId = null;
-      unsub();
-    }, LOAD_SUBSCRIBE_TIMEOUT_MS);
-  }
-
-  return cached;
+  return null;
 }
 
 /**
- * Restore a project layout as a batch action. Dispatched when the user
- * reopens a project tab; the reducer replays groups+panes atomically so
- * every render observes the same frame.
+ * @deprecated never invoked — kept as a stub so any straggling caller doesn't
+ * fail to import. The PROJECT_LAYOUT_RESTORE reducer path is dead because the
+ * snapshot path that fed it captured the wrong scope (App-level pane state,
+ * not project-inner state). Project window layouts are restored from
+ * localStorage by useProjectPersistenceLoad, not via this dispatch.
  */
-export function restoreProjectLayout(layout: ProjectLayout): void {
-  usePaneStore.getState().dispatch({
-    type: 'PROJECT_LAYOUT_RESTORE',
-    payload: { projectPath: layout.projectPath, layout },
-  });
+export function restoreProjectLayout(_layout: ProjectLayout): void {
+  void _layout;
+  // intentional no-op; see comment above.
 }

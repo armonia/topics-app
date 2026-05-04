@@ -665,6 +665,7 @@ function App() {
           topics={topics}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
+          onClosePanelImmediate={handleClosePanel}
           onReorderPanels={handleReorderPanels}
           onOpenPanelAt={handleOpenPanelAt}
           nextPanelMode={nextPanelMode}

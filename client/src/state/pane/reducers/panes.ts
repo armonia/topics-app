@@ -196,7 +196,9 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       }
       if (clean.panes) state.panes = clean.panes;
       if (clean.groups) state.groups = clean.groups;
-      if (clean.projects) state.projects = clean.projects;
+      // `clean.projects` is intentionally ignored — see selectors.ts for the
+      // full reasoning. The field is no longer in outbound snapshots; any
+      // legacy server snapshot still carrying it is dead data.
       if (clean.groupOrder) state.groupOrder = clean.groupOrder;
       if (clean.closedStack) state.closedStack = clean.closedStack;
       // Re-inject local drafts on top of the freshly applied snapshot. We

@@ -47,6 +47,9 @@ interface StandaloneChatGroupProps {
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
   onClosePanel: (topicId: string) => void;
+  /** Optional bypass-the-countdown close, plumbed to PaneTabBar's
+   *  right-click "Close now" entry. Falls back to onClosePanel. */
+  onClosePanelImmediate?: (topicId: string) => void;
   onDragStart: (topicId: string) => (e: React.DragEvent) => void;
   // Chat props pass-through
   getSessionMessages: (sk: string) => ChatMessage[];
@@ -112,7 +115,7 @@ interface StandaloneChatGroupProps {
 
 export function StandaloneChatGroup({
   topicIds, topics, focusedPanelId,
-  onFocusPanel, onClosePanel, onDragStart,
+  onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
@@ -421,6 +424,7 @@ export function StandaloneChatGroup({
         }
       }}
       onClose={handleClosePane}
+      onCloseImmediate={onClosePanelImmediate}
       onAddPane={handleAddPane}
       availableTypes={availableTypes}
       groupId={gridItemKey}

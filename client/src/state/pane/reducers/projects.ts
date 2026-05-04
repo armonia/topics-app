@@ -1,37 +1,22 @@
-import type { PaneState, PaneAction, ProjectLayout } from '../types';
+import type { PaneState, PaneAction } from '../types';
 
-export function projectsReducer(state: PaneState, action: PaneAction): void {
-  switch (action.type) {
-    case 'PROJECT_LAYOUT_SNAPSHOT': {
-      const { projectPath } = action.payload;
-      // Snapshot current visible state into projects[projectPath]
-      const layout: ProjectLayout = {
-        projectPath,
-        groups: state.groupOrder
-          .map((gid) => state.groups[gid])
-          .filter((g): g is NonNullable<typeof g> => Boolean(g))
-          .map((g) => ({ ...g, paneIds: [...g.paneIds] })),
-        panes: { ...state.panes },
-        groupOrder: [...state.groupOrder],
-        tabOrder: state.groupOrder.flatMap((gid) => state.groups[gid]?.paneIds ?? []),
-        focusedPaneId: state.focusedPaneId,
-        lastOpenedAt: Date.now(),
-      };
-      state.projects[projectPath] = layout;
-      break;
-    }
-    case 'PROJECT_LAYOUT_RESTORE': {
-      const { layout } = action.payload;
-      // Replace visible state with saved layout (atomic batch)
-      state.groups = {};
-      state.panes = { ...layout.panes };
-      state.groupOrder = [...layout.groupOrder];
-      for (const g of layout.groups) {
-        state.groups[g.id] = { ...g, paneIds: [...g.paneIds] };
-      }
-      state.focusedPaneId = layout.focusedPaneId; // project-restore IS allowed to restore focus
-      state.projects[layout.projectPath] = { ...layout, lastOpenedAt: Date.now() };
-      break;
-    }
-  }
+/**
+ * Both PROJECT_LAYOUT_SNAPSHOT and PROJECT_LAYOUT_RESTORE are now no-ops.
+ *
+ * Historical context: the SNAPSHOT case captured the global App-level pane
+ * state under `state.projects[projectPath]` so it could ride along on the
+ * pane-store-v2 server snapshot for cross-device sync. But the captured
+ * shape was wrong for the consumer (the project's inner React state lives
+ * outside the global pane store), so consumers had to silently filter the
+ * result and the field was dead data — see projectLayoutSync.ts header for
+ * the full trail.
+ *
+ * Adapters no longer dispatch these action types. Action constants are kept
+ * in PaneAction for back-compat with any straggling caller; they are
+ * silently ignored here.
+ */
+export function projectsReducer(_state: PaneState, _action: PaneAction): void {
+  void _state;
+  void _action;
+  // intentionally empty
 }

@@ -1,6 +1,5 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
-import { isProjectPaneId, getProjectPathFromPaneId } from '../state/pane/adapters';
-import { usePaneStore } from '../state/pane/store';
+import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey } from '../state/pane/adapters';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -42,31 +41,46 @@ function topicTimestamp(t: Topic): number {
 }
 
 /**
- * Read persisted pane IDs for a project from the pane-store reducer.
+ * Read persisted pane IDs for a project's INNER ProjectWindow from
+ * localStorage (`topics-project-panes-<hash>`). This is the only authoritative
+ * source for the inner-project layout — `useProjectPersistenceSave` writes
+ * the same key on every layout change.
  *
- * The reducer's `projects[projectPath]` is the authoritative source — populated
- * by PROJECT_LAYOUT_SNAPSHOT (from ProjectWindow) and by
- * HYDRATE_FROM_SNAPSHOT (from WS / GET fallback). Reading directly from the
- * store replaces the previous localStorage read (`topics-project-panes-<hash>`),
- * which bypassed the Phase-30 single-source-of-truth contract.
+ * Previous implementation read `usePaneStore.getState().projects[path]`,
+ * which captured the WRONG SCOPE (the App-level global pane store, not the
+ * project's inner React state — see comment in
+ * client/src/components/Layout/hooks/projectPersistence.ts:91-99 for the
+ * footgun history). The pane-store path is being retired; localStorage is
+ * the single source of truth for inner-project pane lists.
  *
- * `buildSidebarItems` runs inside a React render via TopicTree's useMemo, so
- * calling `usePaneStore.getState()` is safe: it returns a synchronous snapshot.
- * The memo dependency list at the call site does NOT include store state, so
- * sidebar updates driven purely by the store still require the caller to pass
- * `projectOpenPanes` explicitly — this function only fills the initial-render
- * gap before the first callback-driven `projectOpenPanes` update arrives.
+ * `buildSidebarItems` runs inside TopicTree's useMemo, so synchronous
+ * localStorage reads are fine. The memo dependency list does NOT include
+ * localStorage contents, so sidebar updates driven purely by inner-project
+ * edits still require the caller to pass `projectOpenPanes` callback data
+ * explicitly — this function only fills the initial-render gap before the
+ * first `projectOpenPanes` update lands.
  */
 function readProjectPaneIds(projectPath: string): string[] {
-  const layout = usePaneStore.getState().projects[projectPath];
-  if (!layout) return [];
-  // `tabOrder` is the visible tab order (pane IDs in the order they appear);
-  // fall back to flattening group paneIds if tabOrder is empty (e.g. fresh
-  // project created before tabOrder was populated).
-  if (Array.isArray(layout.tabOrder) && layout.tabOrder.length > 0) {
-    return layout.tabOrder.slice();
+  try {
+    const raw = localStorage.getItem(projectPanesLocalKey(projectPath));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as {
+      nonChatPanes?: { id: string }[];
+      openChatTopicIds?: string[];
+    };
+    const ids: string[] = [];
+    if (Array.isArray(parsed.nonChatPanes)) {
+      for (const p of parsed.nonChatPanes) if (p && typeof p.id === 'string') ids.push(p.id);
+    }
+    if (Array.isArray(parsed.openChatTopicIds)) {
+      for (const tid of parsed.openChatTopicIds) {
+        if (typeof tid === 'string') ids.push(`chat:${tid}`);
+      }
+    }
+    return ids;
+  } catch {
+    return [];
   }
-  return layout.groups.flatMap((g) => g.paneIds);
 }
 
 // ── Builder ────────────────────────────────────────────────────────────────────

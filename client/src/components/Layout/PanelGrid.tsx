@@ -83,7 +83,12 @@ interface PanelGridProps {
   focusedPanelId: string | null;
   topics: Record<string, Topic>;
   onFocusPanel: (topicId: string) => void;
+  /** Default close — typically deferred via the PendingAction countdown. */
   onClosePanel: (topicId: string) => void;
+  /** Optional immediate close (bypass countdown). Wired by App so the
+   *  right-click "Close now" entry on standalone top-level tabs skips the
+   *  toast. Falls back to onClosePanel if not provided. */
+  onClosePanelImmediate?: (topicId: string) => void;
   onReorderPanels: (panels: string[]) => void;
   onOpenPanelAt: (topicId: string, index: number) => void;
   nextPanelMode?: 'side' | 'below';
@@ -152,6 +157,7 @@ export function PanelGrid({
   topics,
   onFocusPanel,
   onClosePanel,
+  onClosePanelImmediate,
   onReorderPanels: _onReorderPanels,
   onOpenPanelAt,
   nextPanelMode: _nextPanelMode = 'side',
@@ -1193,6 +1199,7 @@ export function PanelGrid({
         focusedPanelId={focusedPanelId}
         onFocusPanel={onFocusPanel}
         onClosePanel={onClosePanel}
+        onClosePanelImmediate={onClosePanelImmediate}
         onDragStart={handleDragStart}
         onGroupDragStart={handleGridItemDragStart(item)}
         getSessionMessages={getSessionMessages}

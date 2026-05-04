@@ -1,6 +1,6 @@
 import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from './store';
-import type { Pane, Group, PaneState, ProjectLayout, ClosedPaneRecord } from './types';
+import type { Pane, Group, PaneState, ClosedPaneRecord } from './types';
 
 export function usePanesInGroup(groupId: string): Pane[] {
   return usePaneStore(
@@ -59,16 +59,14 @@ function buildSnapshot(s: PaneState, opts: SnapshotOptions) {
     groupsOut[gid] =
       filteredIds.length === g.paneIds.length ? g : { ...g, paneIds: filteredIds };
   }
-  const projectsOut: Record<string, ProjectLayout> = {};
-  for (const [projectKey, layout] of Object.entries(s.projects)) {
-    const nestedPanes: Record<string, Pane> = {};
-    for (const [paneId, p] of Object.entries(layout.panes)) {
-      if (opts.excludeDrafts && isDraftId(paneId)) continue;
-      const { scrollOffset: _scroll, ...rest } = p;
-      nestedPanes[paneId] = rest as Pane;
-    }
-    projectsOut[projectKey] = { ...layout, panes: nestedPanes };
-  }
+  // `projects` is intentionally omitted from the snapshot: the reducer's
+  // `state.projects[path]` field used to capture App-level pane state under
+  // a project key (wrong scope — see projectLayoutSync.ts header) and the
+  // result was never consumed authoritatively (consumers silently filtered
+  // it out). Stripping it here reduces every server PUT and cross-tab
+  // broadcast by ~all of the open-project layout data we don't actually
+  // sync. localStorage `topics-project-panes-<hash>` remains the source of
+  // truth for inner-project layouts (same-device only).
   const closedStackOut: ClosedPaneRecord[] = s.closedStack
     .filter((rec) => !(opts.excludeDrafts && isDraftId(rec.pane.id)))
     .map((rec) => {
@@ -79,7 +77,6 @@ function buildSnapshot(s: PaneState, opts: SnapshotOptions) {
   return {
     panes: panesWithoutScroll,
     groups: groupsOut,
-    projects: projectsOut,
     groupOrder: s.groupOrder,
     closedStack: closedStackOut,
     lastSeq: s.lastSeq,
