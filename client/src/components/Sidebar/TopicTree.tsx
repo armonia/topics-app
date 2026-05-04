@@ -275,37 +275,17 @@ export function TopicTree({
     const paneId = `browser:${bc.id}`;
     const isFocused = focusedTopicId === paneId;
     const isOpen = !isFocused && openPanels.includes(paneId);
-
     return (
-      <div
+      <BrowserSidebarItem
         key={item.id}
-        className={[
-          'group flex items-center h-11 md:h-8 cursor-pointer transition-colors duration-100 relative text-[14px] md:text-[13px] border-b border-app-border/40 md:border-b-0',
-          isFocused && 'bg-primary/8 dark:bg-primary/15 text-[#10b981]',
-          !isFocused && isOpen && 'bg-app-hover text-app-text',
-          !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
-        ].filter(Boolean).join(' ')}
-        style={{ paddingLeft: 12 + depth * 16 }}
-        onClick={() => onOpenBrowser?.(bc.id)}
-      >
-        {isFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full" style={{ backgroundColor: '#10b981' }} />}
-        <Globe size={14} className="flex-shrink-0 mr-2 opacity-60" />
-        <span className="flex-1 truncate" title={bc.url}>
-          {item.name}
-        </span>
-        <span className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
-          {relativeTime(bc.lastActivity)}
-        </span>
-        {onCloseBrowser && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onCloseBrowser(bc.id); }}
-            className="hidden group-hover:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 hover:text-red-500 transition-all mr-1"
-            title="Close browser"
-          >
-            <X size={12} />
-          </button>
-        )}
-      </div>
+        bc={bc}
+        itemName={item.name}
+        depth={depth}
+        isFocused={isFocused}
+        isOpen={isOpen}
+        onOpenBrowser={onOpenBrowser}
+        onCloseBrowser={onCloseBrowser}
+      />
     );
   };
 
@@ -657,14 +637,16 @@ interface TerminalSidebarItemProps {
 function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const pendingClose = usePendingActionStatus(`close-terminal:${s.id}`);
 
   return (
     <div
-      className={`group/terminal w-full flex items-center h-10 md:h-7 transition-colors border-b border-app-border/40 md:border-b-0 ${
+      className={`group/terminal w-full flex items-center h-10 md:h-7 transition-colors border-b border-app-border/40 md:border-b-0 relative ${
         isActive ? 'bg-primary/10 text-primary' : 'text-app-text hover:bg-app-hover'
       }`}
       style={{ paddingLeft: 12 + depth * 16 }}
     >
+      {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <button
         onClick={() => onTerminalClick?.(s.id, s.name)}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
@@ -686,15 +668,10 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
         )}
       </button>
 
-      {onOpenAsProject && !projectName && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpenAsProject(s.cwd); }}
-          className="hidden group-hover/terminal:flex flex-shrink-0 items-center justify-center w-6 h-6 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all mr-0.5"
-          title="Open as project"
-        >
-          <FolderOpen size={11} className="text-app-text-tertiary hover:text-primary" />
-        </button>
-      )}
+      {/* Inline "Open as project" icon removed — it competed with the
+          close-button slot for hover attention and made the row noisy.
+          The action is still reachable from the touch overflow menu
+          (DropdownPortal below) and from the right-click context menu. */}
 
       {onCloseTerminal && (
         <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 relative mr-1">
@@ -727,14 +704,25 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
                 </button>
               </DropdownPortal>
             </>
+          ) : pendingClose ? (
+            <span className="flex items-center justify-center w-full h-full relative z-10">
+              <PendingActionRing
+                status={pendingClose}
+                size={14}
+                pendingTitle="Annulla chiusura"
+                pendingAriaLabel={`Annulla chiusura ${s.name}`}
+              />
+            </span>
           ) : (
-            <button
-              onClick={(e) => { e.stopPropagation(); onCloseTerminal(s.id); }}
-              className="hidden group-hover/terminal:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-              title="Close terminal"
-            >
-              <X size={10} className="text-app-text-tertiary hover:text-red-500" />
-            </button>
+            <span className="hidden group-hover/terminal:flex items-center justify-center w-full h-full">
+              <PendingActionRing
+                status={null}
+                size={14}
+                onIdleClick={() => onCloseTerminal(s.id)}
+                idleTitle="Chiudi terminale"
+                idleAriaLabel={`Chiudi terminale ${s.name}`}
+              />
+            </span>
           )}
         </span>
       )}
@@ -884,4 +872,68 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
   const status = usePendingActionStatus(`archive-project:${projectPath}`);
   if (!status) return null;
   return <PendingActionProgressOverlay status={status} />;
+}
+
+/**
+ * Browser sidebar item — extracted from the parent's `renderBrowserItem`
+ * inline closure so we can call `usePendingActionStatus` per browser.
+ * Otherwise hooks live inside a function called conditionally inside the
+ * parent's render, which violates the rules of hooks across re-renders.
+ */
+interface BrowserSidebarItemProps {
+  bc: BrowserContextInfo;
+  itemName: string;
+  depth: number;
+  isFocused: boolean;
+  isOpen: boolean;
+  onOpenBrowser?: (id: string) => void;
+  onCloseBrowser?: (id: string) => void;
+}
+
+function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrowser, onCloseBrowser }: BrowserSidebarItemProps) {
+  const pendingClose = usePendingActionStatus(`close-browser:${bc.id}`);
+  return (
+    <div
+      className={[
+        'group flex items-center h-11 md:h-8 cursor-pointer transition-colors duration-100 relative text-[14px] md:text-[13px] border-b border-app-border/40 md:border-b-0',
+        isFocused && 'bg-primary/8 dark:bg-primary/15 text-[#10b981]',
+        !isFocused && isOpen && 'bg-app-hover text-app-text',
+        !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
+      ].filter(Boolean).join(' ')}
+      style={{ paddingLeft: 12 + depth * 16 }}
+      onClick={() => onOpenBrowser?.(bc.id)}
+    >
+      {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
+      {isFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full" style={{ backgroundColor: '#10b981' }} />}
+      <Globe size={14} className="flex-shrink-0 mr-2 opacity-60" />
+      <span className="flex-1 truncate" title={bc.url}>
+        {itemName}
+      </span>
+      <span className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
+        {relativeTime(bc.lastActivity)}
+      </span>
+      {onCloseBrowser && (
+        <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center mr-1 relative z-10">
+          {pendingClose ? (
+            <PendingActionRing
+              status={pendingClose}
+              size={14}
+              pendingTitle="Annulla chiusura"
+              pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
+            />
+          ) : (
+            <span className="hidden group-hover:flex items-center justify-center w-full h-full">
+              <PendingActionRing
+                status={null}
+                size={14}
+                onIdleClick={() => onCloseBrowser(bc.id)}
+                idleTitle="Chiudi browser"
+                idleAriaLabel={`Chiudi browser ${itemName}`}
+              />
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  );
 }

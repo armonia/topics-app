@@ -379,6 +379,28 @@ function App() {
   const sidebar = useSidebarState(onWSMessage);
   const browserCtx = useBrowserContexts(true, onWSMessage);
 
+  // Sidebar close handlers — same Things3 pattern. The raw close function
+  // is server-touching (DELETE on terminal sessions / browser contexts) so
+  // we wrap it in the 3 s soft window. Right-click bypasses (touch
+  // overflow menu) still call the raw handlers directly.
+  const handleCloseTerminalDeferred = useCallback((sessionId: string, sessionName?: string) => {
+    enqueueAndTick({
+      key: `close-terminal:${sessionId}`,
+      kind: 'close-terminal',
+      label: sessionName || 'Terminal',
+      commit: async () => { await handleCloseTerminal(sessionId); },
+    });
+  }, [handleCloseTerminal, enqueueAndTick]);
+
+  const handleCloseBrowserDeferred = useCallback((contextId: string) => {
+    enqueueAndTick({
+      key: `close-browser:${contextId}`,
+      kind: 'close-browser',
+      label: 'Browser',
+      commit: async () => { await browserCtx.closeContext(contextId); },
+    });
+  }, [browserCtx, enqueueAndTick]);
+
   // Keyboard shortcuts (Phase 3 hook 4 — ref-mirror pattern fixes
   // CRITIQUE C2 listener churn). Snapshot args mirrored into refs
   // inside the hook so the keydown listener registers ONCE on mount.
@@ -593,10 +615,13 @@ function App() {
             browserContexts={browserCtx.contexts}
             onTerminalClick={handleTerminalClick}
             onNewTerminal={handleQuickCreateTerminal}
-            onCloseTerminal={handleCloseTerminal}
+            onCloseTerminal={(sessionId) => {
+              const session = terminalSessions.find(s => s.id === sessionId);
+              handleCloseTerminalDeferred(sessionId, session?.name);
+            }}
             onOpenAsProject={handleOpenAsProject}
             onOpenBrowser={(contextId) => openBrowserPane(contextId)}
-            onCloseBrowser={browserCtx.closeContext}
+            onCloseBrowser={handleCloseBrowserDeferred}
             viewMode={sidebar.viewMode}
             showArchived={sidebar.showArchived}
             expandedProjects={expandedProjects}

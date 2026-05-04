@@ -28,7 +28,12 @@ import {
   type ReactNode,
 } from 'react';
 
-export type PendingActionKind = 'close-tab' | 'archive-topic' | 'archive-project';
+export type PendingActionKind =
+  | 'close-tab'
+  | 'archive-topic'
+  | 'archive-project'
+  | 'close-terminal'
+  | 'close-browser';
 
 export interface PendingAction {
   /** Stable de-dupe key. Same key replaces any prior pending entry. */
