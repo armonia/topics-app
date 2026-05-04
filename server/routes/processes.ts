@@ -421,6 +421,15 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             NO_COLOR: "1",
             HOST: "0.0.0.0",
             NODE_ENV: "development",
+            // npx prompts "Ok to proceed? (y)" before installing packages —
+            // the Processes panel has no stdin to answer, so it would hang.
+            // npm_config_yes=true makes npx proceed without asking. Same
+            // effect as `npx --yes <pkg>`.
+            //
+            // We deliberately DON'T set CI=true: many dev servers
+            // (create-react-app, etc.) change behavior under CI and would
+            // exit immediately instead of running in watch mode.
+            npm_config_yes: "true",
           }),
         });
       } catch (err: any) {
