@@ -1025,9 +1025,21 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleOpenAsProject = useCallback((path: string) => {
     const projectPaneId = createPaneId('project', path);
-    setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+    // Register the pane entity in the store BEFORE pushing it into openPanels.
+    // Without this, Effect B's REORDER_PANES dispatch is silently filtered
+    // (the reducer drops ids whose pane entity doesn't exist), then Effect A
+    // resyncs openPanels back to storeOrder — dropping our new id and leaving
+    // focus stranded on whatever was active before. Same fix as
+    // handleProjectClick / handleAddProjectPane.
+    ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: path });
+    if (isMobile) {
+      setOpenPanels([projectPaneId]);
+      setSidebarCollapsed(true);
+    } else {
+      setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+    }
     setFocusedPanelId(projectPaneId);
-  }, []);
+  }, [isMobile, setSidebarCollapsed]);
 
   const handleTerminalClick = useCallback((sessionId: string, _sessionName: string) => {
     const session = terminalSessions.find(s => s.id === sessionId);
