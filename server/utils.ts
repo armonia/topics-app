@@ -168,56 +168,105 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Helper: Save a single topic and its relations to SQLite ---
+  /**
+   * Upsert a topic plus its 4 child relation tables atomically. Wrapped in
+   * one transaction so a concurrent reader (e.g. another request running
+   * `getTopicById`) never sees the half-state where links/contextFiles/etc.
+   * have been DELETEd but not yet re-INSERTed.
+   *
+   * Without the transaction, the 9 statements below were a write fence —
+   * any reader landing between `deleteTopicLinks` and the matching insert
+   * loop would observe the topic with `links: []` for a few microseconds.
+   * SQLite's WAL mode masks most of this, but Bun's `await` yields make
+   * the gap large enough to matter under load.
+   */
   function saveSingleTopic(topic: Topic): void {
-    stmts.insertTopic.run({
-      $id: topic.id,
-      $name: topic.name,
-      $slug: topic.slug,
-      $parent_id: topic.parentId || null,
-      $session_key: topic.sessionKey,
-      $color: topic.color,
-      $icon: topic.icon,
-      $system_prompt: topic.systemPrompt || null,
-      $project_path: topic.projectPath || null,
-      $sort_order: topic.sortOrder ?? 0,
-      $autonomy_level: topic.autonomyLevel || 'ask',
-      $provider: topic.provider || null,
-      $model: topic.model || null,
-      // worktree_id (Phase A · migration 018). NULL = no binding; FK
-      // ON DELETE SET NULL on the column ensures graceful degrade.
-      $worktree_id: topic.worktreeId || null,
-      // initial_message (Phase C · migration 019). One-shot — the renderer
-      // PATCHes back to null after dispatching it.
-      $initial_message: topic.initialMessage || null,
-      $archived: topic.archived ? 1 : 0,
-      $created_at: topic.createdAt,
-      $updated_at: topic.updatedAt,
-    });
+    db.transaction(() => {
+      stmts.insertTopic.run({
+        $id: topic.id,
+        $name: topic.name,
+        $slug: topic.slug,
+        $parent_id: topic.parentId || null,
+        $session_key: topic.sessionKey,
+        $color: topic.color,
+        $icon: topic.icon,
+        $system_prompt: topic.systemPrompt || null,
+        $project_path: topic.projectPath || null,
+        $sort_order: topic.sortOrder ?? 0,
+        $autonomy_level: topic.autonomyLevel || 'ask',
+        $provider: topic.provider || null,
+        $model: topic.model || null,
+        // worktree_id (Phase A · migration 018). NULL = no binding; FK
+        // ON DELETE SET NULL on the column ensures graceful degrade.
+        $worktree_id: topic.worktreeId || null,
+        // initial_message (Phase C · migration 019). One-shot — the renderer
+        // PATCHes back to null after dispatching it.
+        $initial_message: topic.initialMessage || null,
+        $archived: topic.archived ? 1 : 0,
+        $created_at: topic.createdAt,
+        $updated_at: topic.updatedAt,
+      });
 
-    // Links
-    stmts.deleteTopicLinks.run(topic.id);
-    if (topic.links?.length) {
-      for (const targetId of topic.links) stmts.insertTopicLink.run(topic.id, targetId);
-    }
+      // Links
+      stmts.deleteTopicLinks.run(topic.id);
+      if (topic.links?.length) {
+        for (const targetId of topic.links) stmts.insertTopicLink.run(topic.id, targetId);
+      }
 
-    // Context files
-    stmts.deleteTopicContextFiles.run(topic.id);
-    if (topic.contextFiles?.length) {
-      for (const fp of topic.contextFiles) stmts.insertTopicContextFile.run(topic.id, fp);
-    }
+      // Context files
+      stmts.deleteTopicContextFiles.run(topic.id);
+      if (topic.contextFiles?.length) {
+        for (const fp of topic.contextFiles) stmts.insertTopicContextFile.run(topic.id, fp);
+      }
 
-    // Pinned messages
-    stmts.deleteTopicPinnedMessages.run(topic.id);
-    if (topic.pinnedMessages?.length) {
-      for (const msgId of topic.pinnedMessages) stmts.insertTopicPinnedMessage.run(topic.id, msgId);
-    }
+      // Pinned messages
+      stmts.deleteTopicPinnedMessages.run(topic.id);
+      if (topic.pinnedMessages?.length) {
+        for (const msgId of topic.pinnedMessages) stmts.insertTopicPinnedMessage.run(topic.id, msgId);
+      }
 
-    // Disabled sources
-    stmts.deleteTopicDisabledSources.run(topic.id);
-    if (topic.disabledContextSources?.length) {
-      for (const src of topic.disabledContextSources) stmts.insertTopicDisabledSource.run(topic.id, src);
-    }
+      // Disabled sources
+      stmts.deleteTopicDisabledSources.run(topic.id);
+      if (topic.disabledContextSources?.length) {
+        for (const src of topic.disabledContextSources) stmts.insertTopicDisabledSource.run(topic.id, src);
+      }
+    })();
+  }
 
+  /**
+   * Delete a single topic, its child relations, and all per-session data
+   * (messages, active branch pointers, claude-code session id) cascaded by
+   * sessionKey. Wrapped in one transaction so a half-deleted topic can't
+   * leave orphans visible to a concurrent reader.
+   *
+   * The `messages` table can't have a real FK to `topics` because not all
+   * sessionKeys are topic-owned (terminals, agents, telegram bridges all
+   * share the same column), so we sweep explicitly here. The
+   * `claude_code_sessions` table DOES have FK CASCADE (migration 023) — the
+   * explicit DELETE here is redundant when foreign_keys=ON but cheap and
+   * defensive against a future config drift.
+   */
+  function deleteTopicById(id: string): void {
+    // Resolve the topic's sessionKey BEFORE the transaction so we can sweep
+    // by session_key inside the same atomic write.
+    const row = stmts.getTopicById.get(id) as { session_key?: string } | undefined;
+    const sessionKey = row?.session_key;
+    db.transaction(() => {
+      stmts.deleteTopicLinks.run(id);
+      stmts.deleteTopicContextFiles.run(id);
+      stmts.deleteTopicPinnedMessages.run(id);
+      stmts.deleteTopicDisabledSources.run(id);
+      if (sessionKey) {
+        // Sweep messages and active branch pointers — these reference
+        // session_key (no FK), so SQLite won't cascade them automatically.
+        stmts.deleteMessagesBySession.run(sessionKey);
+        stmts.deleteActiveBranchesBySession.run(sessionKey);
+        // Defense-in-depth: drop the claude_code_sessions row even if FK
+        // CASCADE happens to be disabled in this build.
+        db.prepare("DELETE FROM claude_code_sessions WHERE session_key = ?").run(sessionKey);
+      }
+      stmts.deleteTopic.run(id);
+    })();
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
@@ -347,17 +396,43 @@ export function createAppContext(baseDir: string): AppContext {
     return { topics };
   }
 
-  function saveTopics(data: TopicsData): void {
-    // Get current topic IDs in DB
-    const currentIds = new Set((stmts.getAllTopics.all() as any[]).map(r => r.id));
-    const newIds = new Set(Object.keys(data.topics));
+  /**
+   * Load a single topic by id without paying for a full table scan + Topic
+   * reconstruction for every row. Returns null if missing. Use this in
+   * mutation paths that touch one topic — pairs with `saveSingleTopic` to
+   * avoid the lost-update race that the load-all/save-all pattern carries
+   * across concurrent requests.
+   */
+  function getTopicById(id: string): Topic | null {
+    const row = stmts.getTopicById.get(id) as any;
+    if (!row) return null;
+    return rowToTopic(row);
+  }
 
+  /**
+   * Load a single topic by sessionKey. Same constant-time read as
+   * `getTopicById` but indexed on `session_key` (UNIQUE in migration 001).
+   * Used by chat/abort, autoname, gateway hooks, and other code paths that
+   * only know the session, not the topic id.
+   */
+  function getTopicBySessionKey(sessionKey: string): Topic | null {
+    const row = db.prepare("SELECT * FROM topics WHERE session_key = ? LIMIT 1").get(sessionKey) as any;
+    if (!row) return null;
+    return rowToTopic(row);
+  }
+
+  /**
+   * @deprecated Bulk-save every topic in `data`. All in-tree callers were
+   * migrated to `saveSingleTopic` / `getTopicById` / targeted column writes
+   * because the old "load-all → mutate one → save-all" pattern carried a
+   * lost-update race: two concurrent requests would each load a snapshot,
+   * mutate disjoint fields, and save — the second save would overwrite the
+   * first's mutation with stale values. This function is kept ONLY for
+   * out-of-tree consumers (CLI tooling, tests) and now upserts without
+   * deleting absent topics. Hard deletes go through `deleteTopicById`.
+   */
+  function saveTopics(data: TopicsData): void {
     db.transaction(() => {
-      // Delete topics that are no longer in the data
-      for (const id of currentIds) {
-        if (!newIds.has(id)) stmts.deleteTopic.run(id);
-      }
-      // Upsert all topics
       for (const topic of Object.values(data.topics)) {
         saveSingleTopic(topic);
       }
@@ -1037,7 +1112,9 @@ export function createAppContext(baseDir: string): AppContext {
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir,
     activeStreams, wsClients,
     broadcast, broadcastToAll, broadcastToTopic, isTopicFocused,
-    loadTopics, saveTopics, loadUnread, saveUnread,
+    loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
+    getTopicById, getTopicBySessionKey,
+    loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult,

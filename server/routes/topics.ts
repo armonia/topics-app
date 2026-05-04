@@ -97,7 +97,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   const {
     GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR, OPENCLAW_DIR,
     broadcastToAll, broadcast, isTopicFocused,
-    loadTopics, saveTopics, loadUnread, saveUnread,
+    loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
+    getTopicById, getTopicBySessionKey,
+    loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
@@ -445,7 +447,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           (newTopic as any).projectPath = currentTopic.projectPath;
         }
         data.topics[id] = newTopic;
-        saveTopics(data);
+        // Targeted single-topic write — no diff against in-memory snapshot,
+        // so a sibling request that just created its own topic isn't trampled.
+        saveSingleTopic(newTopic);
         broadcastToAll({ type: "topic:created", topic: newTopic });
         console.log(`[TopicSwitch] Created new topic "${topicName}" and switching from "${currentTopic.name}"`);
         broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
@@ -485,12 +489,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!existsSync(targetDir)) {
           mkdirSync(targetDir, { recursive: true });
           writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
-          const topicsData = loadTopics();
-          const t = topicsData.topics[currentTopic.id];
+          const t = getTopicById(currentTopic.id);
           if (t) {
             t.projectPath = targetDir;
             t.updatedAt = new Date().toISOString();
-            saveTopics(topicsData);
+            saveSingleTopic(t);
             broadcastToAll({ type: "topic:updated", topic: t });
           }
           console.log(`[ProjectMarker] Created project "${safeName}" at ${targetDir}`);
@@ -512,12 +515,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         targetDir = found || join(WORKSPACE_DIR, targetDir);
       }
       if (existsSync(targetDir) && statSync(targetDir).isDirectory()) {
-        const topicsData = loadTopics();
-        const t = topicsData.topics[currentTopic.id];
+        const t = getTopicById(currentTopic.id);
         if (t) {
           t.projectPath = targetDir;
           t.updatedAt = new Date().toISOString();
-          saveTopics(topicsData);
+          saveSingleTopic(t);
           broadcastToAll({ type: "topic:updated", topic: t });
         }
         console.log(`[ProjectMarker] Opened project at ${targetDir}`);
@@ -584,12 +586,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     if (localMsgs.length < 2) return; // need at least 1 user + 1 assistant
     const detected = detectProjectPathFromMessages(localMsgs);
     if (detected) {
-      const topicsData = loadTopics();
-      const t = topicsData.topics[topic.id];
+      const t = getTopicById(topic.id);
       if (t && !t.projectPath) {
         t.projectPath = detected;
         t.updatedAt = new Date().toISOString();
-        saveTopics(topicsData);
+        saveSingleTopic(t);
         broadcastToAll({ type: "topic:updated", topic: t });
         console.log(`[AutoBind] Detected projectPath for "${t.name}": ${detected}`);
       }
@@ -607,11 +608,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
    * Reuses the same gateway streaming flow as /api/chat.
    */
   async function streamEditResponse(sessionKey: string, newUserMsgId: string, userContent: string): Promise<Response> {
-    const topicsData = loadTopics();
-    let matchedTopic: Topic | null = null;
-    for (const t of Object.values(topicsData.topics)) {
-      if (t.sessionKey === sessionKey) { matchedTopic = t; break; }
-    }
+    // O(1) lookup via UNIQUE index on session_key — replaces a full-table
+    // scan that paid for every queued edit-stream.
+    const matchedTopic = getTopicBySessionKey(sessionKey);
     const topicProvider = resolveProvider(matchedTopic);
 
     // Build the messages array from the active thread up to (and including) the new user message
@@ -871,15 +870,23 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // --- Topics CRUD ---
     if (method === "GET" && pathname === "/api/topics") {
       const data = loadTopics();
-      let fixed = false;
+      const fixedIds: string[] = [];
       for (const topic of Object.values(data.topics)) {
         if (topic.parentId && !data.topics[topic.parentId]) {
           console.log(`[Orphan Fix] Topic "${topic.name}" (${topic.id}) had broken parentId "${topic.parentId}" — moved to root`);
           topic.parentId = null;
-          fixed = true;
+          fixedIds.push(topic.id);
         }
       }
-      if (fixed) saveTopics(data);
+      // Save only the topics we actually modified — saveTopics-all would
+      // re-write every row and could overwrite a sibling request's recent
+      // mutation on an unrelated field. One outer transaction so a crash
+      // mid-loop can't leave half the orphan-fixes applied.
+      if (fixedIds.length > 0) {
+        ctx.db.transaction(() => {
+          for (const id of fixedIds) saveSingleTopic(data.topics[id]);
+        })();
+      }
       return json({ ...data, workspaceProjects: getWorkspaceProjects() });
     }
 
@@ -922,7 +929,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
       data.topics[id] = topic;
       topic.sessionKey = "topic:" + id.slice(0, 8);
-      saveTopics(data);
+      saveSingleTopic(topic);
       broadcastToAll({ type: "topic:created", topic });
       return json(topic, 201);
     }
@@ -992,20 +999,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           }
         }
         topic.updatedAt = new Date().toISOString();
-        saveTopics(data);
+        saveSingleTopic(topic);
         broadcastToAll({ type: "topic:updated", topic });
         return json(topic);
       }
 
       if (params && method === "DELETE") {
-        const data = loadTopics();
-        const topic = data.topics[params.id];
+        const topic = getTopicById(params.id);
         if (!topic) return json({ error: "not found" }, 404);
         let archive = true;
         try { const body = await req.json(); if (typeof body.archived === 'boolean') archive = body.archived; } catch {}
         topic.archived = archive;
         topic.updatedAt = new Date().toISOString();
-        saveTopics(data);
+        saveSingleTopic(topic);
         broadcastToAll({ type: "topic:archived", topic });
         // Reset unread when archiving
         if (archive) {
@@ -1048,8 +1054,15 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
       }
       if (updatedTopics.length === 0) return json({ error: "no topics found for projectPath" }, 404);
-      saveTopics(data);
-      if (archived) saveUnread(unread);
+      // Targeted writes wrapped in one transaction — only the topics we just
+      // modified are written (no trampling of unrelated rows) AND a crash
+      // mid-archive can't leave half the project archived. saveUnread for
+      // the archive path is included so the unread reset commits with the
+      // archive flip.
+      ctx.db.transaction(() => {
+        for (const topic of updatedTopics) saveSingleTopic(topic);
+        if (archived) saveUnread(unread);
+      })();
       const purgeFailures: { topicId: string; error: string }[] = [];
       for (const topic of updatedTopics) {
         broadcastToAll({ type: "topic:archived", topic });
@@ -1081,15 +1094,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (params && method === "POST") {
         const body = await readJSON(req);
         if (!body || !body.targetId) return json({ error: "targetId required" }, 400);
-        const data = loadTopics();
-        const topic = data.topics[params.id];
-        const target = data.topics[body.targetId];
+        const topic = getTopicById(params.id);
+        const target = getTopicById(body.targetId);
         if (!topic || !target) return json({ error: "not found" }, 404);
         if (!topic.links.includes(body.targetId)) topic.links.push(body.targetId);
         if (!target.links.includes(params.id)) target.links.push(params.id);
         topic.updatedAt = new Date().toISOString();
         target.updatedAt = new Date().toISOString();
-        saveTopics(data);
+        // Atomic: both sides of the symmetric link write together, so a
+        // crash mid-pair can't leave a half-link (A→B exists, B→A doesn't).
+        ctx.db.transaction(() => {
+          saveSingleTopic(topic);
+          saveSingleTopic(target);
+        })();
         return json({ ok: true });
       }
     }
@@ -1098,15 +1115,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     {
       const params = matchRoute(pathname, "/api/topics/:id/link/:targetId");
       if (params && method === "DELETE") {
-        const data = loadTopics();
-        const topic = data.topics[params.id];
-        const target = data.topics[params.targetId];
+        const topic = getTopicById(params.id);
+        const target = getTopicById(params.targetId);
         if (!topic) return json({ error: "not found" }, 404);
         topic.links = topic.links.filter((l) => l !== params.targetId);
         if (target) target.links = target.links.filter((l) => l !== params.id);
         topic.updatedAt = new Date().toISOString();
         if (target) target.updatedAt = new Date().toISOString();
-        saveTopics(data);
+        ctx.db.transaction(() => {
+          saveSingleTopic(topic);
+          if (target) saveSingleTopic(target);
+        })();
         return json({ ok: true });
       }
     }
@@ -1115,12 +1134,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     if (method === "POST" && pathname === "/api/topics/reorder") {
       const body = await readJSON(req);
       if (!body?.order || !Array.isArray(body.order)) return json({ error: "order array required" }, 400);
-      const data = loadTopics();
-      for (let i = 0; i < body.order.length; i++) {
-        const topicId = body.order[i];
-        if (data.topics[topicId]) data.topics[topicId].sortOrder = i;
-      }
-      saveTopics(data);
+      // Targeted column update inside one transaction: only `sort_order` is
+      // touched, so a sibling request mutating `name` / `provider` / `model`
+      // on the same topic concurrently doesn't have its write rolled back.
+      // We bypass `saveSingleTopic` here because that function rewrites the
+      // entire row from a Topic snapshot (and we don't want to re-fetch each
+      // one just to flip one integer).
+      const stmt = ctx.db.prepare("UPDATE topics SET sort_order = ?, updated_at = ? WHERE id = ?");
+      const now = new Date().toISOString();
+      ctx.db.transaction(() => {
+        for (let i = 0; i < body.order.length; i++) {
+          stmt.run(i, now, body.order[i]);
+        }
+      })();
       broadcastToAll({ type: "topics:reordered", order: body.order });
       return json({ ok: true });
     }
@@ -1269,13 +1295,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const filepath = join(topicDir, filename);
         const buffer = await (file as File).arrayBuffer();
         writeFileSync(filepath, Buffer.from(buffer));
-        const data = loadTopics();
-        const topic = data.topics[topicId];
+        const topic = getTopicById(topicId);
         if (topic) {
           if (!topic.contextFiles) topic.contextFiles = [];
           topic.contextFiles.push(filepath);
           topic.updatedAt = new Date().toISOString();
-          saveTopics(data);
+          saveSingleTopic(topic);
         }
         return json({ path: filepath, filename: (file as File).name, size: (file as File).size });
       } catch (err: any) { return json({ error: "Upload failed: " + err.message }, 500); }
@@ -1333,9 +1358,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const messages = body.messages;
       if (!messages || !Array.isArray(messages) || messages.length === 0) return json({ error: "messages array required" }, 400);
 
-      const topicsData = loadTopics();
-      let matchedTopic: Topic | null = null;
-      for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { matchedTopic = t; break; } }
+      // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
+      const matchedTopic = getTopicBySessionKey(sessionKey);
 
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
@@ -1456,12 +1480,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                       writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
                       // Bind to current topic
                       if (matchedTopic) {
-                        const topicsData = loadTopics();
-                        const t = topicsData.topics[matchedTopic.id];
+                        const t = getTopicById(matchedTopic.id);
                         if (t) {
                           t.projectPath = targetDir;
                           t.updatedAt = new Date().toISOString();
-                          saveTopics(topicsData);
+                          saveSingleTopic(t);
                           broadcastToAll({ type: "topic:updated", topic: t });
                         }
                       }
@@ -1484,12 +1507,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                   } else {
                     const projectName = targetDir.split("/").pop() || arg;
                     if (matchedTopic) {
-                      const topicsData = loadTopics();
-                      const t = topicsData.topics[matchedTopic.id];
+                      const t = getTopicById(matchedTopic.id);
                       if (t) {
                         t.projectPath = targetDir;
                         t.updatedAt = new Date().toISOString();
-                        saveTopics(topicsData);
+                        saveSingleTopic(t);
                         broadcastToAll({ type: "topic:updated", topic: t });
                       }
                     }
@@ -2528,11 +2550,10 @@ Wait for the user to approve the plan before executing any changes.` };
         try { stream.abortController.abort(); } catch {}
       }
 
-      // Resolve topic and provider for abort
-      const topicsData = loadTopics();
-      let abortTopic: Topic | null = null;
-      let topicId: string | undefined;
-      for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { abortTopic = t; topicId = t.id; break; } }
+      // Resolve topic and provider for abort — O(1) UNIQUE-index lookup
+      // instead of a full topics scan per /api/chat/abort hit.
+      const abortTopic = getTopicBySessionKey(sessionKey);
+      const topicId: string | undefined = abortTopic?.id;
       const abortProvider = resolveProvider(abortTopic);
 
       // Also abort via provider if connected
@@ -2541,9 +2562,31 @@ Wait for the user to approve the plan before executing any changes.` };
         abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
+      // `clearMessages` is the client's hint that this was a brand-new chat
+      // whose first message was canceled before the AI could reply, so the
+      // chat itself can be discarded. The client computes this from its own
+      // in-memory state — which is empty during initial load, after WS
+      // reconnect, and after a hot-reload race. Trusting the client here
+      // would let `saveLocalMessages([])` wipe entire conversation histories
+      // when the client guess is wrong. We re-check from the DB authoritative
+      // copy: only honor the wipe when there's actually ≤1 user message AND
+      // ≤1 assistant message stored.
+      let clearedForReal = false;
       if (body?.clearMessages) {
-        // First-message cancel — wipe server-side messages entirely
-        saveLocalMessages(sessionKey, []);
+        const stored = loadLocalMessages(sessionKey);
+        const userCount = stored.filter((m) => m.role === "user").length;
+        const assistantCount = stored.filter((m) => m.role === "assistant").length;
+        if (userCount <= 1 && assistantCount <= 1) {
+          saveLocalMessages(sessionKey, []);
+          clearedForReal = true;
+        } else {
+          console.warn(
+            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${userCount} user / ${assistantCount} assistant messages, not first-message`
+          );
+          // Fall through to the normal finalize path so we don't lose the
+          // partial assistant content the user was about to abort.
+          updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
+        }
       } else {
         // Finalize whatever content we have
         updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
@@ -2555,7 +2598,7 @@ Wait for the user to approve the plan before executing any changes.` };
       // choice, not an omission.
       broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort" });
 
-      return json({ ok: true, cleared: !!body?.clearMessages });
+      return json({ ok: true, cleared: clearedForReal });
     }
 
     // --- Edit message (create branch) ---
@@ -2818,12 +2861,11 @@ Wait for the user to approve the plan before executing any changes.` };
     if (method === "DELETE" && pathname === "/api/context-file") {
       const body = await readJSON(req);
       if (!body?.topicId || !body?.filePath) return json({ error: "topicId and filePath required" }, 400);
-      const data = loadTopics();
-      const topic = data.topics[body.topicId];
+      const topic = getTopicById(body.topicId);
       if (!topic) return json({ error: "not found" }, 404);
       topic.contextFiles = (topic.contextFiles || []).filter(f => f !== body.filePath);
       topic.updatedAt = new Date().toISOString();
-      saveTopics(data);
+      saveSingleTopic(topic);
       return json({ ok: true });
     }
 
@@ -2831,8 +2873,7 @@ Wait for the user to approve the plan before executing any changes.` };
     {
       const params = matchRoute(pathname, "/api/topics/:id/auto-name");
       if (params && method === "POST") {
-        const data = loadTopics();
-        const topic = data.topics[params.id];
+        const topic = getTopicById(params.id);
         if (!topic) return json({ error: "not found" }, 404);
         const localMsgs = loadLocalMessages(topic.sessionKey);
         if (localMsgs.length < 2) return json({ error: "Not enough messages yet" }, 400);
@@ -2843,12 +2884,14 @@ Wait for the user to approve the plan before executing any changes.` };
         if (detectedPath && !topic.projectPath) suggestedProject = detectedPath;
 
         if (suggestedProject) {
-          const freshData = loadTopics();
-          const freshTopic = freshData.topics[params.id];
+          // Re-read inside the conditional so two concurrent autoname runs
+          // don't both decide they need to write — whichever lands first
+          // sets projectPath, the loser sees the field already populated.
+          const freshTopic = getTopicById(params.id);
           if (freshTopic && !freshTopic.projectPath) {
             freshTopic.projectPath = suggestedProject;
             freshTopic.updatedAt = new Date().toISOString();
-            saveTopics(freshData);
+            saveSingleTopic(freshTopic);
             broadcastToAll({ type: "topic:updated", topic: freshTopic });
           }
         }
@@ -2859,7 +2902,8 @@ Wait for the user to approve the plan before executing any changes.` };
         const conversationSummary = recentMsgs.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 150)}`).join('\n');
         (async () => {
           try {
-            const namingProvider = resolveProvider(topicsData.topics[topicId]);
+            const aiTopicEarly = getTopicById(topicId);
+            const namingProvider = resolveProvider(aiTopicEarly);
             const result = await namingProvider.complete([
               { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
             ]);
@@ -2868,14 +2912,16 @@ Wait for the user to approve the plan before executing any changes.` };
             if (!jsonMatch) { console.log("[AutoName] AI did not return JSON:", content.slice(0, 100)); return; }
             const parsed = JSON.parse(jsonMatch[0]);
             if (!parsed.title) return;
-            const aiData = loadTopics();
-            const aiTopic = aiData.topics[topicId];
+            // Re-fetch right before write — between the AI call (~seconds) and
+            // here the user may have manually renamed the topic; preserve
+            // their explicit edit instead of overwriting with the AI guess.
+            const aiTopic = getTopicById(topicId);
             if (aiTopic) {
               aiTopic.name = parsed.title;
               if (parsed.icon) aiTopic.icon = parsed.icon;
               aiTopic.slug = slugify(parsed.title);
               aiTopic.updatedAt = new Date().toISOString();
-              saveTopics(aiData);
+              saveSingleTopic(aiTopic);
               broadcastToAll({ type: "topic:updated", topic: aiTopic });
               console.log(`[AutoName] AI: "${parsed.title}" ${parsed.icon || ''}`);
             }

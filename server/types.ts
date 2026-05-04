@@ -239,6 +239,22 @@ export interface AppContext {
   isTopicFocused: (topicId: string) => boolean;
   loadTopics: () => TopicsData;
   saveTopics: (data: TopicsData) => void;
+  /**
+   * Upsert a single topic without touching others. Prefer this over
+   * `saveTopics(allTopics)` when you only need to mutate one topic — the
+   * "save-all" path diffs against a stale in-memory snapshot and silently
+   * deletes any topic missing from it (lost-update race).
+   */
+  saveSingleTopic: (topic: Topic) => void;
+  /**
+   * Delete a single topic by id with its child relations cascaded. Same
+   * race-safety reasoning as `saveSingleTopic`.
+   */
+  deleteTopicById: (id: string) => void;
+  /** Constant-time topic lookup by id. Returns null if missing. */
+  getTopicById: (id: string) => Topic | null;
+  /** Constant-time topic lookup by sessionKey (UNIQUE column). */
+  getTopicBySessionKey: (sessionKey: string) => Topic | null;
   loadUnread: () => UnreadData;
   saveUnread: (data: UnreadData) => void;
   loadLocalMessages: (sessionKey: string) => StoredMessage[];
