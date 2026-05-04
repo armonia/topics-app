@@ -37,7 +37,7 @@ import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName } from "./server/providers";
 import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
@@ -120,17 +120,26 @@ const aiProvider = initProvider({
   }),
 } as any);
 
-// Wire provider events to broadcast system
+// Wire provider events to broadcast system + recompute default on
+// connectivity changes. Without recompute, openclaw would stay as default
+// after the gateway goes down, and every chat would silently fail until
+// the user manually picked another provider.
 if (aiProvider.onConnect) {
   aiProvider.onConnect(() => {
     console.log("[Server] AI provider connected");
     ctx.broadcastToAll({ type: "gateway:status", connected: true });
+    if (recomputeDefault()) {
+      console.log(`[Server] Default provider re-picked: ${getDefaultProviderName()}`);
+    }
   });
 }
 if (aiProvider.onDisconnect) {
   aiProvider.onDisconnect((reason) => {
     console.log(`[Server] AI provider disconnected: ${reason}`);
     ctx.broadcastToAll({ type: "gateway:status", connected: false });
+    if (recomputeDefault()) {
+      console.log(`[Server] Default provider re-picked: ${getDefaultProviderName()}`);
+    }
   });
 }
 

@@ -89,6 +89,39 @@ export function setDefaultProvider(name: string): void {
   _defaultName = name;
 }
 
+/**
+ * Re-evaluate the default provider based on current connectivity.
+ *
+ * Called at end of initProviders() and on connect/disconnect events so a chat
+ * routed to "default" never silently dispatches to an offline provider. The
+ * AI_PROVIDER env override is always honored if set; otherwise we keep the
+ * current default if it's still connected, else pick the best available.
+ *
+ * Returns true if the default changed.
+ */
+export function recomputeDefault(): boolean {
+  const previous = _defaultName;
+  const explicit = process.env.AI_PROVIDER?.toLowerCase();
+  if (explicit && _providers.has(explicit)) {
+    _defaultName = explicit;
+    return _defaultName !== previous;
+  }
+  if (_providers.size === 0) return false;
+
+  // Keep current default if it's still connected — avoids flapping.
+  const currentOk = _defaultName && _providers.get(_defaultName)?.connected === true;
+  if (currentOk) return false;
+
+  // Prefer openclaw when reachable (BC), else first connected, else first registered.
+  if (_providers.has("openclaw") && _providers.get("openclaw")?.connected === true) {
+    _defaultName = "openclaw";
+  } else {
+    const firstConnected = [..._providers.entries()].find(([, p]) => p.connected)?.[0];
+    _defaultName = firstConnected ?? _defaultName ?? _providers.keys().next().value;
+  }
+  return _defaultName !== previous;
+}
+
 /** List all registered providers with status */
 export function listProviders(): Array<{
   name: string;
@@ -249,24 +282,16 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
-  // Set default: explicit env wins; otherwise prefer a CONNECTED provider so
-  // chat routes don't silently dispatch to an offline gateway. Without this
-  // gate, "openclaw" wins backwards-compat priority even when its gateway is
-  // unreachable, and every /api/chat call returns "Gateway unreachable" or an
-  // empty SSE stream — surfaced as "No response received" in the UI.
-  const explicit = process.env.AI_PROVIDER?.toLowerCase();
-  if (explicit && _providers.has(explicit)) {
-    _defaultName = explicit;
-  } else if (!_defaultName && _providers.size > 0) {
-    const connectedName = (name: string) => _providers.get(name)?.connected === true;
-    // Prefer openclaw if it's actually reachable (BC), else first connected, else first registered.
-    if (_providers.has("openclaw") && connectedName("openclaw")) {
-      _defaultName = "openclaw";
-    } else {
-      const firstConnected = [..._providers.entries()].find(([, p]) => p.connected)?.[0];
-      _defaultName = firstConnected ?? _providers.keys().next().value;
-    }
-  }
+  // Pick a sensible default: explicit env wins; otherwise prefer a CONNECTED
+  // provider so chat routes don't silently dispatch to an offline gateway.
+  // Without re-evaluation, "openclaw" wins backwards-compat priority even
+  // when its gateway is unreachable, and every /api/chat call returns
+  // "Gateway unreachable" or an empty SSE stream — surfaced in the UI as
+  // "No response received" / generic error. recomputeDefault() ignores the
+  // legacy `!_defaultName` gate so the explicit-config path in initProvider()
+  // (which pre-sets `_defaultName` to e.g. "openclaw" before the WS even
+  // attempts to connect) gets re-evaluated against actual connectivity.
+  recomputeDefault();
 
   if (started.length === 0) {
     console.warn("[Providers] No providers configured. Set GATEWAY_URL+GATEWAY_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY, or install codex/claude-code CLIs.");
