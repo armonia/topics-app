@@ -500,6 +500,13 @@ function ProviderCard({ entry, expanded, testing, result, onToggle, onSetDefault
           {entry.name === 'openai' && entry.requirements.some((r) => r.key === 'OPENAI_API_KEY' && !r.present) && (
             <ApiKeyForm provider="openai" placeholder="sk-..." onSaved={onAfterConfigure} />
           )}
+          {entry.name === 'claude-code' && entry.status === 'ready' && entry.models.length > 0 && (
+            <ClaudeCodeModelPicker
+              models={entry.models}
+              currentModel={entry.models[0]}
+              onSaved={onAfterConfigure}
+            />
+          )}
 
           {/* Freshness footer */}
           {entry.fetchedAt && (
@@ -549,6 +556,61 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ClaudeCodeModelPicker({ models, currentModel, onSaved }: { models: string[]; currentModel: string; onSaved: () => void }) {
+  // The picker reflects the model the next spawned `claude` CLI will use.
+  // The currently-selected value is the snapshot's models[0] (server reorders
+  // listModels so the configured model leads), so we don't keep a separate
+  // local source of truth — local optimistic state only spans the in-flight
+  // POST so the dropdown doesn't flash back to the old value while the
+  // snapshot WS push catches up.
+  const [pending, setPending] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const value = pending ?? currentModel;
+
+  const submit = async (next: string) => {
+    if (next === currentModel) return;
+    setPending(next);
+    setSaving(true);
+    setError(null);
+    try {
+      await providersApi.configureClaudeCode(next);
+      onSaved();
+      // Persist alongside other Claude prefs so a fresh server restart can
+      // re-apply the choice (server falls back to env `CLAUDE_CODE_MODEL` —
+      // the client re-applies on init via the snapshot subscriber).
+      try { localStorage.setItem('claude-code-model', next); } catch {}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to set model');
+      setPending(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="pt-1">
+      <label className="text-[11px] text-app-text-muted block mb-1">Model</label>
+      <div className="flex items-center gap-1.5">
+        <select
+          value={value}
+          disabled={saving}
+          onChange={(e) => { void submit(e.target.value); }}
+          className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border text-app-text focus:outline-none focus:border-primary/50 disabled:opacity-50"
+        >
+          {models.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+        {saving && <RefreshCw size={11} className="animate-spin text-app-text-muted" />}
+      </div>
+      {error && (
+        <div className="mt-1 text-[10px] text-red-500">{error}</div>
       )}
     </div>
   );

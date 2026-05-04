@@ -64,6 +64,19 @@ export function ChatPanel({
     try { localStorage.setItem(CONTEXT_INSPECTOR_KEY, String(showContext)); } catch {}
   }, [showContext]);
 
+  // Listen for context-ring clicks coming from this panel's ChatInput. Each
+  // event carries its topicId so panels in split view ignore events meant for
+  // a sibling.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { topicId?: string } | undefined;
+      if (!detail || detail.topicId !== topic.id) return;
+      setShowContext(prev => !prev);
+    };
+    window.addEventListener('chat-input:toggle-context', handler);
+    return () => window.removeEventListener('chat-input:toggle-context', handler);
+  }, [topic.id, setShowContext]);
+
   // Consume initial tab override
   useEffect(() => {
     if (initialTab && initialTab !== 'browser') {

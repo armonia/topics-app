@@ -7,6 +7,8 @@ import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu
 import { ContextPills, useContextFileTokens } from './ContextPills';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
+import { ContextRing } from '../Shared/ContextRing';
+import { useContextInspector } from '../../hooks/useContextInspector';
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -227,6 +229,15 @@ export function ChatInput({
   const contextFilePaths = topic.contextFiles || [];
   const contextTokenMap = useContextFileTokens(topic.sessionKey, contextFilePaths);
   const [excludedContextPaths, setExcludedContextPaths] = useState<Set<string>>(new Set());
+
+  // Context budget ring — sits left of the model selector. Drafts have no
+  // server-side topic yet, so skip the analysis call until promotion.
+  const isDraftTopic = topic.id.startsWith('draft:');
+  const { budgetPercent } = useContextInspector(isDraftTopic ? null : topic.id);
+  const handleContextRingClick = useCallback(() => {
+    // ChatPanel listens for this event and toggles its inspector flag.
+    window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: topic.id } }));
+  }, [topic.id]);
 
   const handleToggleContext = useCallback((path: string, currentlyExcluded: boolean) => {
     setExcludedContextPaths(prev => {
@@ -672,6 +683,18 @@ export function ChatInput({
                 >
                   <ClipboardList size={16} />
                 </button>
+                {!isDraftTopic && (
+                  <button
+                    type="button"
+                    onClick={handleContextRingClick}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors"
+                    title={`Context: ${budgetPercent}%`}
+                    aria-label="Toggle context inspector"
+                    data-testid="chat-input-context-ring"
+                  >
+                    <ContextRing percent={budgetPercent} size={14} />
+                  </button>
+                )}
                 {onProviderOverrideChange && (
                   <ProviderModelPicker
                     override={providerOverride ?? null}

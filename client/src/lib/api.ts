@@ -1403,6 +1403,13 @@ export const providersApi = {
     });
   },
 
+  async configureClaudeCode(model: string) {
+    return request<{ ok: boolean; provider: any }>('/providers/claude-code/configure', {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    });
+  },
+
   async remove(name: string) {
     return request<{ ok: boolean }>(`/providers/${encodeURIComponent(name)}`, { method: 'DELETE' });
   },

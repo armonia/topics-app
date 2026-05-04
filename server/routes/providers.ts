@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import type { ClaudeProviderConfig, OpenAIProviderConfig } from "../providers/types";
+import type { ClaudeProviderConfig, ClaudeCodeProviderConfig, OpenAIProviderConfig } from "../providers/types";
 import {
   listProviders,
   getDefaultProviderName,
@@ -109,6 +109,38 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
           apiKey,
           model: model || undefined,
           maxTokens: maxTokens ? parseInt(String(maxTokens), 10) : undefined,
+        };
+        const provider = registerProvider(config);
+        return json({
+          ok: true,
+          provider: {
+            name: provider.name,
+            connected: provider.connected,
+            capabilities: [...provider.capabilities],
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ ok: false, error: msg }, 500);
+      }
+    }
+
+    // POST /api/providers/claude-code/configure — pick the model used by the
+    // claude-code CLI provider. Re-registers the provider so the next spawned
+    // child uses the new --model flag. Persistent processes from the previous
+    // model are killed by `registerProvider` (existing.stop()).
+    if (method === "POST" && pathname === "/api/providers/claude-code/configure") {
+      try {
+        const body = await req.json();
+        const { model, permissionMode, defaultWorkspace } = body ?? {};
+        if (!model || typeof model !== "string") {
+          return json({ ok: false, error: "Missing 'model' in request body" }, 400);
+        }
+        const config: ClaudeCodeProviderConfig = {
+          type: "claude-code",
+          model,
+          permissionMode: permissionMode || process.env.CLAUDE_CODE_PERMISSION_MODE || undefined,
+          defaultWorkspace: defaultWorkspace || process.env.CLAUDE_CODE_WORKSPACE || undefined,
         };
         const provider = registerProvider(config);
         return json({

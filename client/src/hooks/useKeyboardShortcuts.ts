@@ -20,6 +20,7 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
+import { isProjectPaneId, getProjectPathFromPaneId } from '../state/pane/adapters';
 
 export interface UseKeyboardShortcutsArgs {
   isElectron: boolean;
@@ -27,6 +28,9 @@ export interface UseKeyboardShortcutsArgs {
   // without re-registering on every change.
   focusedPanelId: string | null;
   openPanels: string[];
+  /** paneIds open inside each project window, keyed by projectPath. Used to
+   *  flatten Cmd+1-9 across both top-level panels and project sub-panes. */
+  projectOpenPanes: Record<string, string[]>;
   topics: Record<string, Topic>;
   focusedProjectPath: string | undefined;
   showSearch: boolean;
@@ -46,10 +50,45 @@ export interface UseKeyboardShortcutsArgs {
   setShowFileSearch: Dispatch<SetStateAction<false | { projectPath: string }>>;
 }
 
+/**
+ * Build the flat ordered tab list used by Cmd+1-9. Each entry maps a global
+ * index → either a top-level panel (no innerPaneId) or one project sub-pane
+ * (panelId is the project's panelId, innerPaneId is the sub-pane).
+ *
+ * Top-level non-project panels contribute one slot each; project panels
+ * contribute one slot per inner pane in the order reported by the project's
+ * persistence layer. When projectOpenPanes is missing for a project (e.g.
+ * the project hasn't mounted yet), we fall back to a single slot for the
+ * project panel so Cmd+N at minimum still focuses it.
+ */
+function buildGlobalTabList(
+  openPanels: string[],
+  projectOpenPanes: Record<string, string[]>,
+): Array<{ panelId: string; innerPaneId?: string }> {
+  const list: Array<{ panelId: string; innerPaneId?: string }> = [];
+  for (const panelId of openPanels) {
+    if (isProjectPaneId(panelId)) {
+      const projectPath = getProjectPathFromPaneId(panelId);
+      const innerPanes = projectPath ? projectOpenPanes[projectPath] : undefined;
+      if (innerPanes && innerPanes.length > 0) {
+        for (const innerPaneId of innerPanes) {
+          list.push({ panelId, innerPaneId });
+        }
+      } else {
+        list.push({ panelId });
+      }
+    } else {
+      list.push({ panelId });
+    }
+  }
+  return list;
+}
+
 export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   // ---- Mirror snapshots into refs (no-deps useEffects = every render) ----
   const focusedPanelIdRef = useRef(args.focusedPanelId);
   const openPanelsRef = useRef(args.openPanels);
+  const projectOpenPanesRef = useRef(args.projectOpenPanes);
   const topicsRef = useRef(args.topics);
   const focusedProjectPathRef = useRef(args.focusedProjectPath);
   const modalsRef = useRef({
@@ -60,6 +99,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   });
   useEffect(() => { focusedPanelIdRef.current = args.focusedPanelId; });
   useEffect(() => { openPanelsRef.current = args.openPanels; });
+  useEffect(() => { projectOpenPanesRef.current = args.projectOpenPanes; });
   useEffect(() => { topicsRef.current = args.topics; });
   useEffect(() => { focusedProjectPathRef.current = args.focusedProjectPath; });
   useEffect(() => {
@@ -163,10 +203,27 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       }
 
       if (isElectron && isMod && e.key >= '1' && e.key <= '9') {
-        e.preventDefault();
         const idx = parseInt(e.key) - 1;
         const panels = openPanelsRef.current;
-        if (idx < panels.length) setFocusedPanelId(panels[idx]);
+        const projectPanes = projectOpenPanesRef.current;
+        const flat = buildGlobalTabList(panels, projectPanes);
+        if (idx >= flat.length) return; // let lower handlers see it (no global slot)
+        e.preventDefault();
+        // capture phase + stopImmediatePropagation suppresses the legacy
+        // PaneTabBar local handler (also bound on window in capture phase),
+        // so the inner project's Cmd+N never races with the global mapping.
+        e.stopImmediatePropagation();
+        const target = flat[idx];
+        setFocusedPanelId(target.panelId);
+        if (target.innerPaneId) {
+          // Hop into the project window's inner pane. ProjectWindow listens
+          // for this event and calls its `handleActivatePane` once the
+          // panel becomes the focused one.
+          const projectPath = getProjectPathFromPaneId(target.panelId);
+          window.dispatchEvent(new CustomEvent('global-tab:focus-inner', {
+            detail: { projectPath, paneId: target.innerPaneId },
+          }));
+        }
         return;
       }
 
@@ -185,8 +242,10 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       }
     };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    // Capture phase: fires before the per-PaneTabBar Cmd+1-9 handlers, so the
+    // global tab list owns the mapping when it has a slot to claim.
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
   }, [
     isElectron,
     handleClosePanel,

@@ -152,11 +152,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="provider-model-picker"
-        className={`inline-flex items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors ${
-          override
-            ? 'text-primary bg-primary/10 hover:bg-primary/15'
-            : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
-        }`}
+        className="inline-flex items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
         title="Provider & model"
       >
         <Zap size={11} />
