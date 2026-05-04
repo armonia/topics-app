@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, GitBranch, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
+import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 // DnD imports preserved for future drag-to-reorder in timeline
 // import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 // import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -333,6 +334,7 @@ export function TopicTree({
             setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds });
           }}
         >
+          <ProjectRowPendingOverlay projectPath={pp} />
           {isProjectFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
           <button
             onClick={() => {
@@ -830,20 +832,56 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
   // Only the archive direction goes through the countdown — restoring is
   // immediate (consistent with TopicItem and the App-level wrappers).
   const status = usePendingActionStatus(allArchived ? null : `archive-project:${projectPath}`);
+
+  // Pending: filled check (cancels on click).
   if (status) {
     return (
-      <span className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center">
-        <PendingActionRing status={status} size={14} title="Annulla archiviazione" />
+      <span className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center relative z-10">
+        <PendingActionRing
+          status={status}
+          size={14}
+          pendingTitle="Annulla archiviazione"
+          pendingAriaLabel={`Annulla archiviazione progetto ${projectPath}`}
+        />
       </span>
     );
   }
+
+  // Idle, archived → restore icon (no countdown — restoration is safe).
+  if (allArchived) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onArchive(projectPath, false); }}
+        className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+        title="Restore Project"
+      >
+        <ArchiveRestore size={12} />
+      </button>
+    );
+  }
+
+  // Idle, not archived → empty "todo" circle. Click queues the soft-archive.
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onArchive(projectPath, !allArchived); }}
-      className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
-      title={allArchived ? 'Restore Project' : 'Archive Project'}
-    >
-      {allArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
-    </button>
+    <span className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center relative z-10">
+      <PendingActionRing
+        status={null}
+        size={14}
+        onIdleClick={() => onArchive(projectPath, true)}
+        idleTitle="Archivia progetto"
+        idleAriaLabel={`Archivia progetto ${projectPath}`}
+      />
+    </span>
   );
+}
+
+/**
+ * Sub-component used as a direct child of the project header row in
+ * TopicTree (pos: relative on that row) so the progress fill aligns to
+ * the row's bounds. Lives at module scope for the same hook-rule reason
+ * as ProjectArchiveButton.
+ */
+function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
+  const status = usePendingActionStatus(`archive-project:${projectPath}`);
+  if (!status) return null;
+  return <PendingActionProgressOverlay status={status} />;
 }

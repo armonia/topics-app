@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare, Columns2, Rows2 } from 'lucide-react';
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
+import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, type ProjectTabStatus } from '../../state/pane/adapters';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
@@ -432,6 +433,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {isActive && pane.color && (
               <div className="absolute inset-0 rounded-md pointer-events-none" style={{ backgroundColor: pane.color, opacity: 0.10 }} />
             )}
+            {/* PendingAction progress fill — covers the tab background L→R
+                during the 3 s soft-close countdown. Sub-component subscribes
+                to the context per-pane so an unrelated pane's state changes
+                don't re-render every other tab. */}
+            <PaneTabPendingOverlay paneId={pane.id} />
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
@@ -754,30 +760,58 @@ function PaneCloseButton({
 }) {
   const globalIdx = useGlobalTabIndex(paneId);
   const showBadge = isElectron && !isTouch && isAppFocused && globalIdx >= 0 && globalIdx < 9;
-  // Inline pending-action UX: when the user has clicked X, the close is
-  // queued in PendingActionContext under `close-tab:<paneId>`. We swap the
-  // X here for the check + countdown ring; clicking it cancels.
   const pendingStatus = usePendingActionStatus(`close-tab:${paneId}`);
+
+  // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {
     return (
-      <span className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-        <PendingActionRing status={pendingStatus} size={14} title="Annulla chiusura" />
+      <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative z-10">
+        <PendingActionRing
+          status={pendingStatus}
+          size={14}
+          pendingTitle="Annulla chiusura"
+          pendingAriaLabel="Annulla chiusura"
+        />
       </span>
     );
   }
+
+  // Idle: keep the ⌘N kbd hint visible at rest if applicable, but on
+  // hover swap to the empty "todo circle" — Things3-style affordance for
+  // "mark as done". Click triggers the deferred close (auto-tick → 3 s
+  // countdown). The original X icon is retired; the circle scans as
+  // "complete" rather than "destroy".
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onClose(paneId); }}
-      className="w-5 h-5 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
-    >
+    <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative z-10">
       {showBadge ? (
-        <>
-          <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{globalIdx + 1}</kbd>
-          <X size={12} className="hidden group-hover:block" />
-        </>
-      ) : (
-        <X size={12} className={isTouch ? '' : 'opacity-0 group-hover:opacity-100'} />
-      )}
-    </button>
+        <kbd className="kbd text-app-text-muted/50 group-hover:hidden">
+          {isMac ? '⌘' : '⌃'}{globalIdx + 1}
+        </kbd>
+      ) : null}
+      <span className={`absolute inset-0 flex items-center justify-center ${
+        showBadge ? 'opacity-0 group-hover:opacity-100' : (isTouch ? '' : 'opacity-0 group-hover:opacity-100')
+      } transition-opacity`}>
+        <PendingActionRing
+          status={null}
+          size={14}
+          onIdleClick={() => onClose(paneId)}
+          idleTitle="Chiudi tab"
+          idleAriaLabel={`Chiudi tab ${paneId}`}
+        />
+      </span>
+    </span>
   );
+}
+
+/**
+ * Sub-component co-located in this file because it needs to live as a
+ * direct child of the per-pane `<button>` (so the absolute overlay covers
+ * just that tab) and needs its own subscription to PendingActionContext
+ * keyed by paneId. Module scope keeps the hook out of the parent's
+ * `panes.map(...)` loop.
+ */
+function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
+  const status = usePendingActionStatus(`close-tab:${paneId}`);
+  if (!status) return null;
+  return <PendingActionProgressOverlay status={status} className="rounded-md" />;
 }

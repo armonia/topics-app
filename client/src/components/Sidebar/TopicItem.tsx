@@ -6,6 +6,7 @@ import { TopicIcon } from '@/lib/topicIcons';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { usePendingActionStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
+import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -154,6 +155,13 @@ export const TopicItem = memo(function TopicItem({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
+      {/* Pending-action progress fill — runs over the whole row L→R during
+          the 3 s soft-archive countdown. Sits behind everything (no z
+          index) so the sidebar accent border + content render on top. */}
+      {pendingArchiveStatus && (
+        <PendingActionProgressOverlay status={pendingArchiveStatus} />
+      )}
+
       {/* Left accent border for focused */}
       {isFocused && (
         <div
@@ -241,14 +249,21 @@ export const TopicItem = memo(function TopicItem({
             )}
           </>
         ) : (
-          /* Desktop: old swap — timestamp visible at rest, archive button on hover */
-          <span className="flex-shrink-0 flex items-center justify-center w-7 h-7">
-            {/* Pending-action ring takes over the slot during the 3 s
-                countdown — replaces both the timestamp and the archive
-                button so the user has a single, focused affordance to
-                cancel by re-clicking. Only applies to archive (not unarch). */}
+          /* Desktop: timestamp at rest, "mark as done" / archive control on hover.
+             For NOT-archived topics the hover control is the Things3-style
+             checkbox (idle = empty circle; pending = filled circle + check)
+             so the action reads as "complete" rather than "destroy", and
+             plays nicely with the L→R progress overlay above. For archived
+             topics the action is restorative and uses the original Archive
+             icon (no countdown). */
+          <span className="flex-shrink-0 flex items-center justify-center w-7 h-7 relative z-10">
             {pendingArchiveStatus ? (
-              <PendingActionRing status={pendingArchiveStatus} size={14} title="Annulla archiviazione" />
+              <PendingActionRing
+                status={pendingArchiveStatus}
+                size={14}
+                pendingTitle="Annulla archiviazione"
+                pendingAriaLabel={`Annulla archiviazione ${topic.name}`}
+              />
             ) : (
               <>
                 {topic.updatedAt && (
@@ -259,18 +274,25 @@ export const TopicItem = memo(function TopicItem({
                     {relativeTime(topic.updatedAt)}
                   </span>
                 )}
-                {onArchive && (
+                {onArchive && !topic.archived && (
+                  <span className="hidden group-hover:flex items-center justify-center w-full h-full">
+                    <PendingActionRing
+                      status={null}
+                      size={14}
+                      onIdleClick={() => onArchive(topic.id, true)}
+                      idleTitle="Archivia"
+                      idleAriaLabel={`Archivia ${topic.name}`}
+                    />
+                  </span>
+                )}
+                {onArchive && topic.archived && (
                   <button
                     onClick={handleArchiveClick}
                     className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-                    title={topic.archived ? 'Unarchive' : 'Archive'}
-                    aria-label={topic.archived ? `Unarchive ${topic.name}` : `Archive ${topic.name}`}
+                    title="Unarchive"
+                    aria-label={`Unarchive ${topic.name}`}
                   >
-                    {topic.archived ? (
-                      <ArchiveRestore size={12} className="text-app-text-tertiary" />
-                    ) : (
-                      <Archive size={12} className="text-app-text-tertiary" />
-                    )}
+                    <ArchiveRestore size={12} className="text-app-text-tertiary" />
                   </button>
                 )}
               </>
