@@ -50,6 +50,7 @@ import {
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { pushUndo } from '../../../contexts/UndoContext';
+import { enqueuePendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 
@@ -137,7 +138,10 @@ export interface UseProjectLayoutReturn {
   };
   handlers: {
     activate: (groupId: string, paneId: string) => void;
+    /** Soft close — queues a PendingAction toast (3 s countdown). */
     close: (groupId: string, paneId: string) => void;
+    /** Immediate close — bypasses the countdown (right-click "Close now"). */
+    closeNow: (groupId: string, paneId: string) => void;
     reopenLastClosed: () => Promise<void>;
     addToGroup: (groupId: string, type: PaneType, subType?: string) => Promise<void>;
     addWhenEmpty: (type: PaneType, subType?: string) => Promise<void>;
@@ -625,7 +629,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     [onFocusPanel, wrapperPaneId],
   );
 
-  const handleClosePane = useCallback(
+  // Inner workhorse — performs the actual close (state mutations + undo
+  // record). Called either directly (from `handleClosePaneImmediate`, the
+  // bypass path used by right-click "Close now") or by the deferred path
+  // after the 3 s pending-action countdown elapses without cancellation.
+  const handleClosePaneNow = useCallback(
     (groupId: string, paneId: string) => {
       const pane = panes.find(p => p.id === paneId);
       const group = groups.find(g => g.id === groupId);
@@ -704,6 +712,23 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       });
     },
     [panes, groups, projectPath, pushClosedTab, removeClosedTab],
+  );
+
+  // Deferred close — the default (UI X-click) path. Queues a PendingAction
+  // toast; the actual close fires after a 3 s countdown unless the user
+  // cancels. Right-click "Close now" calls `handleClosePaneNow` directly.
+  const handleClosePane = useCallback(
+    (groupId: string, paneId: string) => {
+      const pane = panes.find(p => p.id === paneId);
+      if (!pane) return;
+      enqueuePendingAction({
+        key: `close-tab:${paneId}`,
+        kind: 'close-tab',
+        label: pane.title || pane.type,
+        commit: () => handleClosePaneNow(groupId, paneId),
+      });
+    },
+    [panes, handleClosePaneNow],
   );
 
   const handleReopenLastClosed = useCallback(async () => {
@@ -1556,6 +1581,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     handlers: {
       activate: handleActivatePane,
       close: handleClosePane,
+      closeNow: handleClosePaneNow,
       reopenLastClosed: handleReopenLastClosed,
       addToGroup: handleAddPaneToGroup,
       addWhenEmpty: handleAddPaneWhenEmpty,

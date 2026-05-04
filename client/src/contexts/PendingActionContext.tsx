@@ -1,0 +1,238 @@
+/**
+ * PendingActionContext — Things3-style "pending action with countdown".
+ *
+ * Pattern: instead of committing a soft-destructive action immediately
+ * (close tab / archive topic / archive project), we register a *pending*
+ * action that materialises as a toast with a checkbox. The user has to
+ * tick the checkbox (active confirmation) — that starts a short progress
+ * bar (default 3s); when the bar fills, the action commits. The user can
+ * cancel anytime before commit (either by un-ticking, by clicking the
+ * Cancel button, or by dismissing the toast).
+ *
+ * Invariants:
+ *  - At most one pending action *for the same key* is queued. Re-registering
+ *    the same key replaces the prior pending entry (the user re-clicked
+ *    "close tab" on a tab that was already pending).
+ *  - The bypass-on-direct-confirm path (right-click → "Close now" /
+ *    "Archive now") does NOT go through this context — those callsites
+ *    invoke the underlying commit fn directly.
+ */
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+export type PendingActionKind = 'close-tab' | 'archive-topic' | 'archive-project';
+
+export interface PendingAction {
+  /** Stable de-dupe key. Same key replaces any prior pending entry. */
+  key: string;
+  /** Drives the icon and label phrasing. */
+  kind: PendingActionKind;
+  /** Short human label, e.g. the tab title or topic name. */
+  label: string;
+  /** Optional accent color (hex) for the toast icon — propagated from topic. */
+  color?: string;
+  /** Function that performs the actual mutation when the countdown ends. */
+  commit: () => void | Promise<void>;
+  /** Optional pre-tick cancel hook (e.g. log analytics). Always called when
+   *  the user dismisses without committing. */
+  onCancel?: () => void;
+}
+
+export interface PendingActionEntry extends PendingAction {
+  /** wall-clock ms when registered. Used as a tiebreaker / age in UI. */
+  createdAt: number;
+  /** wall-clock ms when the user ticked the checkbox; null while pending tick. */
+  tickedAt: number | null;
+}
+
+interface PendingActionContextValue {
+  entries: PendingActionEntry[];
+  /** Register a new pending action (or replace one with the same key). */
+  enqueue: (action: PendingAction) => void;
+  /** User ticked the checkbox — starts the countdown. */
+  tick: (key: string) => void;
+  /** User un-ticked or clicked Cancel. */
+  cancel: (key: string) => void;
+  /** Internal: timer fired → commit and pop. */
+  __completeForCommit: (key: string) => void;
+  /** Configurable countdown duration (ms). Default 3000. */
+  countdownMs: number;
+}
+
+const Ctx = createContext<PendingActionContextValue | null>(null);
+
+export interface PendingActionProviderProps {
+  children: ReactNode;
+  /** Countdown duration in ms after the user ticks. Default 3000. */
+  countdownMs?: number;
+}
+
+export function PendingActionProvider({
+  children,
+  countdownMs = 3000,
+}: PendingActionProviderProps) {
+  const [entries, setEntries] = useState<PendingActionEntry[]>([]);
+  // Per-key commit timers so cancels are cheap (no need to scan).
+  const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const clearTimer = useCallback((key: string) => {
+    const t = timers.current.get(key);
+    if (t) {
+      clearTimeout(t);
+      timers.current.delete(key);
+    }
+  }, []);
+
+  const enqueue = useCallback((action: PendingAction) => {
+    clearTimer(action.key);
+    setEntries((prev) => {
+      const filtered = prev.filter((e) => e.key !== action.key);
+      return [
+        ...filtered,
+        { ...action, createdAt: Date.now(), tickedAt: null },
+      ];
+    });
+  }, [clearTimer]);
+
+  const cancel = useCallback((key: string) => {
+    clearTimer(key);
+    setEntries((prev) => {
+      const entry = prev.find((e) => e.key === key);
+      if (entry?.onCancel) {
+        try {
+          entry.onCancel();
+        } catch {
+          /* user-supplied — never throw out */
+        }
+      }
+      return prev.filter((e) => e.key !== key);
+    });
+  }, [clearTimer]);
+
+  const __completeForCommit = useCallback((key: string) => {
+    clearTimer(key);
+    let committed: PendingActionEntry | undefined;
+    setEntries((prev) => {
+      committed = prev.find((e) => e.key === key);
+      return prev.filter((e) => e.key !== key);
+    });
+    if (committed) {
+      // Run async commit outside the render cycle.
+      Promise.resolve()
+        .then(() => committed!.commit())
+        .catch((err) => {
+          // Soft-destructive — never crash the app on commit failure.
+          // eslint-disable-next-line no-console
+          console.warn('[PendingAction] commit failed:', err);
+        });
+    }
+  }, [clearTimer]);
+
+  const tick = useCallback((key: string) => {
+    setEntries((prev) =>
+      prev.map((e) => (e.key === key ? { ...e, tickedAt: Date.now() } : e)),
+    );
+    // Schedule the commit. Using a stable per-key timer so a re-tick after a
+    // cancel just reschedules cleanly.
+    clearTimer(key);
+    const t = setTimeout(() => {
+      __completeForCommit(key);
+    }, countdownMs);
+    timers.current.set(key, t);
+  }, [clearTimer, __completeForCommit, countdownMs]);
+
+  // Cleanup all timers on unmount (and only on unmount — avoid React 18
+  // strict-mode double-invoke wiping live timers, which would silently
+  // un-schedule an in-flight commit).
+  useEffect(() => {
+    const owned = timers.current;
+    return () => {
+      for (const t of owned.values()) clearTimeout(t);
+      owned.clear();
+    };
+  }, []);
+
+  // Wire the module-singleton imperative API to this provider's dispatchers.
+  // Last-mount-wins (only one provider expected, but if multiple are nested
+  // for some reason the innermost should be authoritative for the whole tree).
+  useEffect(() => {
+    apiSingleton = { enqueue, cancel, tick };
+    return () => {
+      if (apiSingleton && apiSingleton.enqueue === enqueue) apiSingleton = null;
+    };
+  }, [enqueue, cancel, tick]);
+
+  const value = useMemo<PendingActionContextValue>(
+    () => ({ entries, enqueue, tick, cancel, __completeForCommit, countdownMs }),
+    [entries, enqueue, tick, cancel, __completeForCommit, countdownMs],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+export function usePendingActions(): PendingActionContextValue {
+  const ctx = useContext(Ctx);
+  if (!ctx) {
+    throw new Error(
+      'usePendingActions must be used inside <PendingActionProvider>',
+    );
+  }
+  return ctx;
+}
+
+/** Convenience helper that returns whether a given key has a pending entry
+ *  (whether ticked or not). Useful for hiding the original action button. */
+export function useHasPendingAction(key: string | null | undefined): boolean {
+  const { entries } = usePendingActions();
+  if (!key) return false;
+  return entries.some((e) => e.key === key);
+}
+
+// ─── Module-singleton imperative API ──────────────────────────────────────
+//
+// Mirror of the UndoContext pattern: exposes `enqueuePendingAction()` etc. as
+// plain function calls so non-React-tree callers (custom hooks composed
+// outside the provider, module-level utilities, keyboard handlers) can
+// register pending actions without lifting their entire call chain into a
+// React component. The provider wires its dispatchers into this singleton
+// on mount and unwires on unmount — calls before the provider mounts are
+// silent no-ops with a console warn so the bug is visible without crashing.
+
+interface PendingActionApi {
+  enqueue: (action: PendingAction) => void;
+  cancel: (key: string) => void;
+  tick: (key: string) => void;
+}
+
+let apiSingleton: PendingActionApi | null = null;
+
+function withApi<K extends keyof PendingActionApi>(
+  fnName: K,
+): PendingActionApi[K] {
+  return ((...args: Parameters<PendingActionApi[K]>) => {
+    if (!apiSingleton) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[PendingAction] ${fnName} called before <PendingActionProvider> mounted; ignoring.`,
+      );
+      return;
+    }
+    // @ts-expect-error tuple spread on union — runtime is correct.
+    return apiSingleton[fnName](...args);
+  }) as PendingActionApi[K];
+}
+
+/** Imperative: register a pending action. Mirrors `enqueue` from the hook. */
+export const enqueuePendingAction = withApi('enqueue');
+/** Imperative: cancel a pending action by key. */
+export const cancelPendingAction = withApi('cancel');
+/** Imperative: programmatically tick (rarely needed; usually the user does it). */
+export const tickPendingAction = withApi('tick');

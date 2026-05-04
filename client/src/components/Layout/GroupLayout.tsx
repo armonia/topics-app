@@ -21,6 +21,9 @@ interface GroupLayoutProps {
   isAppFocused?: boolean;
   onActivatePane: (groupId: string, paneId: string) => void;
   onClosePane: (groupId: string, paneId: string) => void;
+  /** Optional immediate close (bypass PendingAction countdown). Wired via the
+   *  PaneTabBar right-click "Close now" entry. */
+  onClosePaneImmediate?: (groupId: string, paneId: string) => void;
   onAddPaneToGroup: (groupId: string, type: PaneType, subType?: string) => void;
   onNewChatInGroup?: (groupId: string) => void;
   onAddPaneWhenEmpty?: (type: PaneType, subType?: string) => void;
@@ -44,7 +47,7 @@ interface GroupLayoutProps {
 
 export function GroupLayout({
   panes, groups, rows, rowHeights, focusedGroupId, isAppFocused = true,
-  onActivatePane, onClosePane, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
+  onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, contextPercent, onContextRingClick, streamingPaneIds, onStopStreaming,
@@ -349,6 +352,7 @@ export function GroupLayout({
                           groupIsAppFocused={isFullyFocused}
                           onActivate={(paneId) => { clearPane(paneId); onActivatePane(groupId, paneId); }}
                           onClose={(paneId) => onClosePane(groupId, paneId)}
+                          onCloseImmediate={onClosePaneImmediate ? (paneId) => onClosePaneImmediate(groupId, paneId) : undefined}
                           onAddPane={(type, subType) => onAddPaneToGroup(groupId, type, subType)}
                           availableTypes={availableTypesForGroup(group.type, groupId)}
                           groupType={group.type}

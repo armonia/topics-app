@@ -9,6 +9,7 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
+import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
@@ -18,7 +19,12 @@ interface PaneTabBarProps {
   panes: Pane[];
   activePaneId: string | null;
   onActivate: (paneId: string) => void;
+  /** Default close — typically deferred via the PendingAction countdown. */
   onClose: (paneId: string) => void;
+  /** Optional immediate close — invoked by right-click "Close now" so the
+   *  user can opt out of the countdown when they're sure. Falls back to
+   *  `onClose` when not provided (legacy callers). */
+  onCloseImmediate?: (paneId: string) => void;
   onAddPane: (type: PaneType, subType?: string) => void;
   availableTypes: PaneType[];
   groupType?: PaneGroupType;
@@ -63,37 +69,7 @@ interface PaneTabBarProps {
   groupIsAppFocused?: boolean;
 }
 
-// Mini context ring SVG for chat tabs
-function ContextRing({ percent, onClick }: { percent: number; onClick?: () => void }) {
-  const r = 5;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference - (percent / 100) * circumference;
-  const isCritical = percent > 90;
-  const isWarning = percent > 70;
-  const color = isCritical ? '#ef4444' : isWarning ? '#f59e0b' : '#3b82f6';
-  const bgColor = isCritical ? 'rgba(239,68,68,0.2)' : isWarning ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.2)';
-
-  return (
-    <svg
-      width="14" height="14" className={`flex-shrink-0 ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
-      viewBox="0 0 14 14"
-      onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
-      aria-label="Context Inspector"
-      data-testid="context-ring"
-    >
-      <circle cx="7" cy="7" r={r} fill="none" stroke={bgColor} strokeWidth="2" />
-      <circle
-        cx="7" cy="7" r={r} fill="none"
-        stroke={color} strokeWidth="2" strokeLinecap="round"
-        strokeDasharray={circumference} strokeDashoffset={offset}
-        transform="rotate(-90 7 7)"
-        className="transition-all duration-300"
-      />
-    </svg>
-  );
-}
-
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent, onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -332,33 +308,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
     }
   }, []);
 
-  // Keyboard shortcut: Cmd/Ctrl+1-9 to select tabs
+  // Keyboard shortcut: Cmd/Ctrl+1-9 is owned globally by `useKeyboardShortcuts`
+  // — it walks both top-level panels AND project sub-panes so every tab gets
+  // a single global slot. The local handler that used to live here was
+  // removed; we keep the badges wired up so users still see ⌘N hints, but
+  // the indices now reflect the global tab order, not the per-group order.
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
   const isElectron = !!(window as any).electronAPI?.isElectron;
-
-  // Only the App-focused group (the one the user is actually looking at)
-  // claims Cmd/Ctrl+1-9. Otherwise every PaneTabBar in every group would
-  // race for the same shortcut and the badges (⌘1, ⌘2, …) would be
-  // duplicated across panes. Capture-phase + stopImmediatePropagation
-  // pre-empts App-level Cmd+1-9 when a sub-group owns focus.
-  useEffect(() => {
-    if (!isElectron || !panes.length || !isAppFocused) return;
-    const handler = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod || e.shiftKey || e.altKey) return;
-      const n = parseInt(e.key, 10);
-      if (n >= 1 && n <= 9) {
-        const idx = n - 1;
-        if (idx < panes.length) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          onActivate(panes[idx].id);
-        }
-      }
-    };
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [panes, onActivate, isElectron, isAppFocused]);
 
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
@@ -438,7 +394,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
         const showLeftIndicator = dragOverIdx === paneIdx && hasDragSource && isNotSelf;
         const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && hasDragSource && isNotSelf;
-        const paneContextPercent = pane.type === 'chat' && contextPercent ? contextPercent[pane.id] : undefined;
         const isPaneStreaming = pane.type === 'chat' && streamingPaneIds?.has(pane.id);
         const badgeCount = !isActive && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
@@ -482,9 +437,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
             ) : Icon ? (
               <Icon size={14} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
             ) : null}
-            {pane.type === 'chat' && contextPercent && (
-              <ContextRing percent={paneContextPercent ?? 0} onClick={onContextRingClick ? () => onContextRingClick(pane.id) : undefined} />
-            )}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
             {pane.type === 'project' && projectStatus?.[pane.id] && (() => {
               const ps = projectStatus[pane.id];
@@ -527,19 +479,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
                 {badgeCount > 99 ? '99+' : badgeCount}
               </span>
             )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
-              className={`${'w-5 h-5'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0`}
-            >
-              {isElectron && !isTouch && paneIdx < 9 && isAppFocused ? (
-                <>
-                  <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{paneIdx + 1}</kbd>
-                  <X size={12} className="hidden group-hover:block" />
-                </>
-              ) : (
-                <X size={12} className={isTouch ? '' : 'opacity-0 group-hover:opacity-100'} />
-              )}
-            </button>
+            <PaneCloseButton
+              paneId={pane.id}
+              onClose={onClose}
+              isElectron={isElectron}
+              isTouch={isTouch}
+              isAppFocused={isAppFocused}
+              isMac={isMac}
+            />
             {showRightIndicator && (
               <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
             )}
@@ -666,13 +613,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
           className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
         >
+          {/* Right-click "Close" is the explicit-confirmation path — bypass
+              the PendingAction countdown that gates the default X button.
+              Falls back to onClose for legacy callers that don't pass
+              onCloseImmediate. */}
           <button
-            onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
+            onClick={() => {
+              (onCloseImmediate ?? onClose)(ctxMenu.paneId);
+              setCtxMenu(null);
+            }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
             <X size={14} />
-            <span className="flex-1 text-left">Close</span>
+            <span className="flex-1 text-left">Close now</span>
             {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}W</kbd>}
+          </button>
+          <button
+            onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            title="Queues a 3-second confirmation toast"
+          >
+            <X size={14} />
+            <span className="flex-1 text-left">Close (with countdown)</span>
           </button>
           {panes.length > 1 && (
             <button
@@ -769,5 +731,40 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onAddPane
         document.body
       )}
     </div>
+  );
+}
+
+/**
+ * Per-tab close button. Shows the global ⌘N badge (sourced from
+ * GlobalTabIndexContext) when idle and an X on hover. Pulled out of the main
+ * render loop so each tab can call `useGlobalTabIndex` — calling hooks inside
+ * `panes.map(...)` is forbidden.
+ */
+function PaneCloseButton({
+  paneId, onClose, isElectron, isTouch, isAppFocused, isMac,
+}: {
+  paneId: string;
+  onClose: (id: string) => void;
+  isElectron: boolean;
+  isTouch: boolean;
+  isAppFocused: boolean;
+  isMac: boolean;
+}) {
+  const globalIdx = useGlobalTabIndex(paneId);
+  const showBadge = isElectron && !isTouch && isAppFocused && globalIdx >= 0 && globalIdx < 9;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClose(paneId); }}
+      className="w-5 h-5 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
+    >
+      {showBadge ? (
+        <>
+          <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{globalIdx + 1}</kbd>
+          <X size={12} className="hidden group-hover:block" />
+        </>
+      ) : (
+        <X size={12} className={isTouch ? '' : 'opacity-0 group-hover:opacity-100'} />
+      )}
+    </button>
   );
 }

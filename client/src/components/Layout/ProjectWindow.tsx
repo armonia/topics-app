@@ -135,6 +135,7 @@ export function ProjectWindowPane({
   const handleAddPaneWhenEmpty = layout.handlers.addWhenEmpty;
   const handleActivatePane = layout.handlers.activate;
   const handleClosePane = layout.handlers.close;
+  const handleClosePaneImmediate = layout.handlers.closeNow;
   const handleReorderGroupPanes = layout.handlers.reorderGroupPanes;
   const handleMovePaneBetweenGroups = layout.handlers.moveBetweenGroups;
   const handleSplitGroup = layout.handlers.splitGroup;
@@ -211,6 +212,36 @@ export function ProjectWindowPane({
   useEffect(() => {
     try { localStorage.setItem('topics-context-inspector-open', String(showContext)); } catch {}
   }, [showContext]);
+
+  // Listen for context-ring clicks from any ChatInput inside this project.
+  // Only react when the event's topicId matches the currently active topic
+  // so chat-pane events meant for a sibling project window are ignored.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { topicId?: string } | undefined;
+      if (!detail || !activeTopicId || detail.topicId !== activeTopicId) return;
+      setShowContext(prev => !prev);
+    };
+    window.addEventListener('chat-input:toggle-context', handler);
+    return () => window.removeEventListener('chat-input:toggle-context', handler);
+  }, [activeTopicId]);
+
+  // Listen for global Cmd+1-9 events that resolve to a pane inside this
+  // project. We find which group owns the paneId and activate it. The event
+  // is keyed by projectPath so projects in split view ignore each other's
+  // hits.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { projectPath?: string; paneId?: string } | undefined;
+      if (!detail || detail.projectPath !== projectPath || !detail.paneId) return;
+      // Find which group contains this pane (panes can live in any group).
+      const owningGroup = groups.find(g => g.paneIds.includes(detail.paneId!));
+      if (!owningGroup) return;
+      handleActivatePane(owningGroup.id, detail.paneId);
+    };
+    window.addEventListener('global-tab:focus-inner', handler);
+    return () => window.removeEventListener('global-tab:focus-inner', handler);
+  }, [projectPath, groups, handleActivatePane]);
 
   // Persist tab identity to server (cross-device sync) and layout to
   // localStorage only. Owns the userEditedRef flag-flip via mountedRef.
@@ -389,6 +420,7 @@ export function ProjectWindowPane({
             isAppFocused={isProjectFocused}
             onActivatePane={handleActivatePane}
             onClosePane={handleClosePane}
+            onClosePaneImmediate={handleClosePaneImmediate}
             onAddPaneToGroup={handleAddPaneToGroup}
             onNewChatInGroup={onNewChat ? handleNewChatInGroup : undefined}
             onAddPaneWhenEmpty={handleAddPaneWhenEmpty}

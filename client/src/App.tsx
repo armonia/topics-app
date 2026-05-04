@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, lazy, Suspense, type ComponentType } from 'react';
+import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, Cpu, Activity, BarChart3, Radio, Globe, Timer } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
@@ -9,10 +9,12 @@ import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
+import { GlobalTabIndexProvider } from './contexts/GlobalTabIndexContext';
 import { useTheme } from './hooks/useTheme';
 import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
+import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
@@ -26,6 +28,8 @@ import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider } from './components/Shared/Toast';
+import { PendingActionProvider, enqueuePendingAction } from './contexts/PendingActionContext';
+import { PendingActionOutlet } from './components/Shared/PendingActionToast';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
@@ -168,6 +172,9 @@ function App() {
   const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
+  // Re-apply the user's saved Claude Code model preference once the providers
+  // snapshot is available; resets each session unless localStorage has been set.
+  useClaudeCodeModelSync();
   const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
@@ -310,6 +317,62 @@ function App() {
     setPendingProjectFocus, setPendingProjectPane, setPanelInitialTab,
   } = panelLifecycle.handlers;
 
+  // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
+  // Each soft-destructive action (close tab, archive topic, archive project)
+  // gets two entry points:
+  //   1. The default user-facing button → `*Deferred` wrapper, which queues
+  //      a PendingAction toast. Nothing commits until the user ticks the
+  //      checkbox + the 3s countdown elapses.
+  //   2. The right-click "now" variant → calls the raw handler directly,
+  //      bypassing the countdown for power users who know what they want.
+  // The raw handlers (handleClosePanel, archiveTopic, handleArchiveProject)
+  // remain available for both cases.
+  const handleClosePanelDeferred = useCallback((topicId: string) => {
+    // Resolve a pretty label for the toast — topic name when available, else
+    // the pane id (kept short by the truncate in the toast).
+    const topic = topics[topicId];
+    const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
+    enqueuePendingAction({
+      key: `close-tab:${topicId}`,
+      kind: 'close-tab',
+      label,
+      color: topic?.color,
+      commit: () => handleClosePanel(topicId),
+    });
+  }, [topics, handleClosePanel]);
+
+  const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
+    // Unarchive (archive=false) is restorative, not destructive — commit
+    // immediately, no toast.
+    if (!archive) return archiveTopic(topicId, false);
+    const topic = topics[topicId];
+    const label = topic?.name || topicId;
+    enqueuePendingAction({
+      key: `archive-topic:${topicId}`,
+      kind: 'archive-topic',
+      label,
+      color: topic?.color,
+      commit: async () => { await archiveTopic(topicId, true); },
+    });
+    // The archive happens later (or not at all if cancelled). Returning
+    // `true` keeps callers happy — the user has expressed intent and the
+    // toast carries the cancel affordance. None of the existing call sites
+    // rely on the returned boolean for anything load-bearing.
+    return Promise.resolve(true);
+  }, [topics, archiveTopic]);
+
+  const handleArchiveProjectDeferred = useCallback((projectPath: string, archive: boolean): Promise<boolean> => {
+    if (!archive) return handleArchiveProject(projectPath, false);
+    const label = projectPath.split('/').filter(Boolean).pop() || projectPath;
+    enqueuePendingAction({
+      key: `archive-project:${projectPath}`,
+      kind: 'archive-project',
+      label,
+      commit: async () => { await handleArchiveProject(projectPath, true); },
+    });
+    return Promise.resolve(true);
+  }, [handleArchiveProject]);
+
   // Sidebar / browser-context state (App-level — sidebar UI consumers).
   const sidebar = useSidebarState(onWSMessage);
   const browserCtx = useBrowserContexts(true, onWSMessage);
@@ -321,6 +384,7 @@ function App() {
     isElectron,
     focusedPanelId,
     openPanels,
+    projectOpenPanes,
     topics,
     focusedProjectPath,
     showSearch,
@@ -340,7 +404,9 @@ function App() {
 
   return (
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
+    <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <ToastProvider>
+    <PendingActionProvider countdownMs={3000}>
     <div
       className="flex bg-app-bg overflow-hidden max-w-[100vw]"
       onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
@@ -510,8 +576,8 @@ function App() {
             onTopicDoubleClick={handleTopicDoubleClick}
             onTopicContextMenu={handleTopicContextMenu}
             unreadData={unreadData}
-            onArchiveTopic={archiveTopic}
-            onArchiveProject={handleArchiveProject}
+            onArchiveTopic={handleArchiveTopicDeferred}
+            onArchiveProject={handleArchiveProjectDeferred}
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
@@ -598,7 +664,7 @@ function App() {
           focusedPanelId={focusedPanelId}
           topics={topics}
           onFocusPanel={handleFocusPanel}
-          onClosePanel={handleClosePanel}
+          onClosePanel={handleClosePanelDeferred}
           onReorderPanels={handleReorderPanels}
           onOpenPanelAt={handleOpenPanelAt}
           nextPanelMode={nextPanelMode}
@@ -830,8 +896,16 @@ function App() {
 
       {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
       <UpdaterToast />
+
+      {/* Pending-action toasts (Things3-style: tick checkbox → 3s countdown
+          → commit). Rendered at App root so the surface survives layout
+          re-renders. Pointer-events on the items themselves; the wrapper
+          is non-blocking (defined inside PendingActionOutlet). */}
+      <PendingActionOutlet />
     </div>
+    </PendingActionProvider>
     </ToastProvider>
+    </GlobalTabIndexProvider>
     </TabNotificationProvider>
   );
 }
