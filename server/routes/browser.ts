@@ -1,5 +1,13 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { BrowserService } from "../browser-service";
+import {
+  handleBrowserOpen,
+  handleBrowserObserve,
+  handleBrowserAct,
+  handleBrowserExtract,
+  handleBrowserScreenshot,
+  handleBrowserPoint,
+} from "../browser-tools-handler";
 
 export function createBrowserRouter(ctx: AppContext, browserService: BrowserService): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute, broadcast } = ctx;
@@ -39,6 +47,128 @@ export function createBrowserRouter(ctx: AppContext, browserService: BrowserServ
         return json(result);
       } catch (err: any) {
         return errorResponse(500, `Navigate failed: ${err.message}`);
+      }
+    }
+
+    // --- Phase 30 BROWSER-CHAT-03 — Agent tool endpoints ---
+    // 6 endpoints under /api/browsers/:id/agent/{open|observe|act|extract|screenshot|point}.
+    // Each one parses+validates body, calls the tool handler, returns JSON or
+    // 4xx with { error }. Handlers may THROW (becomes 500) or RETURN { error }
+    // (passed through as 200 with structured error -- failsoft to agent).
+    // These MUST come before /interact and /:id-DELETE so a future /agent/foo
+    // does not collide with the catch-all interactMatch shape below.
+    const agentOpenMatch = matchRoute(pathname, "/api/browsers/:id/agent/open");
+    if (agentOpenMatch && method === "POST") {
+      try {
+        const body = (await req.json()) as { url?: string };
+        if (typeof body.url !== "string" || !body.url) {
+          return json({ error: "browser_open: url (string) is required" }, 400);
+        }
+        const result = await handleBrowserOpen(browserService, agentOpenMatch.id, { url: body.url });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/open failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentObserveMatch = matchRoute(pathname, "/api/browsers/:id/agent/observe");
+    if (agentObserveMatch && method === "POST") {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { max_elements?: unknown };
+        let max_elements: number | undefined;
+        if (body.max_elements !== undefined) {
+          if (typeof body.max_elements !== "number" || !Number.isFinite(body.max_elements)) {
+            return json({ error: "browser_observe: max_elements must be a number" }, 400);
+          }
+          if (body.max_elements < 1 || body.max_elements > 100) {
+            return json({ error: "browser_observe: max_elements must be in range 1-100" }, 400);
+          }
+          max_elements = body.max_elements;
+        }
+        const result = await handleBrowserObserve(browserService, agentObserveMatch.id, { max_elements });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/observe failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentActMatch = matchRoute(pathname, "/api/browsers/:id/agent/act");
+    if (agentActMatch && method === "POST") {
+      try {
+        const body = (await req.json()) as { element_id?: unknown; action?: unknown; text?: unknown };
+        if (typeof body.element_id !== "number" || !Number.isFinite(body.element_id)) {
+          return json({ error: "browser_act: element_id (number) is required" }, 400);
+        }
+        if (body.action !== "click" && body.action !== "type" && body.action !== "select") {
+          return json({ error: "browser_act: action must be one of click|type|select" }, 400);
+        }
+        const text = typeof body.text === "string" ? body.text : undefined;
+        const result = await handleBrowserAct(browserService, agentActMatch.id, {
+          element_id: body.element_id,
+          action: body.action,
+          text,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/act failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentExtractMatch = matchRoute(pathname, "/api/browsers/:id/agent/extract");
+    if (agentExtractMatch && method === "POST") {
+      try {
+        const body = (await req.json()) as { schema?: unknown; instruction?: unknown };
+        if (!body.schema || typeof body.schema !== "object") {
+          return json({ error: "browser_extract: schema (object) is required" }, 400);
+        }
+        const instruction = typeof body.instruction === "string" ? body.instruction : undefined;
+        const result = await handleBrowserExtract(browserService, agentExtractMatch.id, {
+          schema: body.schema as Record<string, unknown>,
+          instruction,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/extract failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentScreenshotMatch = matchRoute(pathname, "/api/browsers/:id/agent/screenshot");
+    if (agentScreenshotMatch && method === "POST") {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { full_page?: unknown };
+        const full_page = typeof body.full_page === "boolean" ? body.full_page : undefined;
+        const result = await handleBrowserScreenshot(browserService, agentScreenshotMatch.id, { full_page });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/screenshot failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentPointMatch = matchRoute(pathname, "/api/browsers/:id/agent/point");
+    if (agentPointMatch && method === "POST") {
+      try {
+        const body = (await req.json()) as { description?: unknown };
+        if (typeof body.description !== "string" || !body.description.trim()) {
+          return json({ error: "browser_point: description (non-empty string) is required" }, 400);
+        }
+        const result = await handleBrowserPoint(browserService, agentPointMatch.id, {
+          description: body.description,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/point failed:`, msg);
+        return json({ error: msg }, 500);
       }
     }
 
