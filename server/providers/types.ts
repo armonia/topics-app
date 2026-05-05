@@ -6,6 +6,8 @@
  *   - ClaudeProvider:   uses Anthropic SDK directly (standalone mode)
  */
 
+import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+
 // ============ Message Types ============
 
 export interface ChatMessage {
@@ -230,6 +232,13 @@ export interface AIProvider {
        * because they hold session state themselves.
        */
       history?: ChatMessage[];
+      /**
+       * Optional Anthropic-format Tool[] to register for this turn (Phase 30
+       * BROWSER-CHAT-04). Providers with `isPassthroughProvider(name) === true`
+       * forward to the underlying SDK; CLI/gateway providers ignore the field
+       * (their tool surface is managed upstream).
+       */
+      tools?: Tool[];
     },
   ): Promise<{ runId?: string }>;
 
