@@ -156,5 +156,12 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     api.setBounds(viewId, bounds).catch(() => {});
   }, [viewId]);
 
-  return { url, title, loading, agentActive, ready, viewId, navigate, goBack, goForward, reload, goHome, setBounds };
+  // Phase 30.1 polish — DevTools toggle (idempotent: open if closed, close if open).
+  const toggleDevTools = useCallback(async () => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return;
+    await api.toggleDevTools(viewId).catch(() => {});
+  }, [viewId]);
+
+  return { url, title, loading, agentActive, ready, viewId, navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools };
 }

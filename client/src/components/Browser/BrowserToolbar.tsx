@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Home, ExternalLink, Globe, Clock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Home, ExternalLink, Globe, Clock, Code2 } from 'lucide-react';
 
 interface BrowserToolbarProps {
   url: string;
@@ -13,6 +13,8 @@ interface BrowserToolbarProps {
   loading: boolean;
   /** Phase 30 BROWSER-CHAT-04 — recent URLs dropdown (per-topic history). */
   history?: string[];
+  /** Phase 30.1 polish — DevTools toggle for native WebContentsView. Hidden in web mode (undefined). */
+  onToggleDevTools?: () => void;
 }
 
 export function BrowserToolbar({
@@ -26,6 +28,7 @@ export function BrowserToolbar({
   canGoForward,
   loading,
   history,
+  onToggleDevTools,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -143,6 +146,18 @@ export function BrowserToolbar({
             </div>
           )}
         </div>
+      )}
+
+      {/* Phase 30.1 polish — DevTools toggle (Electron native only) */}
+      {onToggleDevTools && (
+        <button
+          onClick={onToggleDevTools}
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
+          title="Toggle DevTools (⌥⌘I)"
+          data-testid="browser-devtools-button"
+        >
+          <Code2 size={14} />
+        </button>
       )}
 
       {/* Open external */}

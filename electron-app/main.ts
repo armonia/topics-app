@@ -1293,6 +1293,19 @@ ipcMain.handle('browser-native:get-cdp-target-id', async (_evt, viewId: string):
   return await resolveCdpTargetIdForView(entry.view);
 });
 
+// Phase 30.1 BROWSER-CHAT-06 polish — DevTools toggle for native WebContentsView.
+// Opens detached so it doesn't steal pane real estate. Idempotent: closes if open.
+ipcMain.handle('browser-native:toggle-devtools', async (_evt, viewId: string): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:toggle-devtools — view ${viewId} not found`);
+  const wc = entry.view.webContents;
+  if (wc.isDevToolsOpened()) {
+    wc.closeDevTools();
+  } else {
+    wc.openDevTools({ mode: 'detach' });
+  }
+});
+
 // --- Window Control ---
 ipcMain.handle('window:close', () => {
   mainWindow?.hide();

@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setBounds: (viewId: string, bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke('browser-native:set-bounds', viewId, bounds),
     getCdpTargetId: (viewId: string) => ipcRenderer.invoke('browser-native:get-cdp-target-id', viewId),
+    toggleDevTools: (viewId: string) => ipcRenderer.invoke('browser-native:toggle-devtools', viewId),
     onUrlChange: (viewId: string, callback: (url: string) => void) => {
       const channel = `browser-native:url-change:${viewId}`;
       const listener = (_evt: unknown, url: string) => callback(url);

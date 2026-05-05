@@ -317,6 +317,19 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
     }
   }, [browser.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Phase 30.1 polish — Cmd+Opt+I toggles WebContentsView DevTools.
+  // Window-level so it works even when toolbar input is focused.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        browser.toggleDevTools();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [browser.toggleDevTools]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-native-panel">
       <BrowserToolbar
@@ -330,6 +343,7 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         canGoForward={true}
         loading={browser.loading}
         history={history}
+        onToggleDevTools={browser.toggleDevTools}
       />
       <NativeBrowserPlaceholder browser={browser} />
     </div>
