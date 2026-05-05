@@ -182,8 +182,45 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
     }
     if (!chromiumPath) {
-      // Legacy fallback chain (macOS hardcoded). Kept for older dev machines
-      // that don't have CHROMIUM_PATH set and have an outdated playwright install.
+      // BUGFIX 2026-05-05: playwright-core's bundled `executablePath()` can point
+      // to a build revision (e.g. chromium-1208) that isn't actually installed
+      // on disk if the user has multiple Playwright versions or upgraded
+      // @playwright/test independently. Glob the cache dir for ANY existing
+      // chromium-* build (highest revision wins) before falling back to
+      // hardcoded paths. Recovers gracefully from version drift without
+      // requiring user to reinstall browsers.
+      const cacheRoot = `${process.env.HOME}/Library/Caches/ms-playwright`;
+      try {
+        const { readdirSync } = require("node:fs") as typeof import("node:fs");
+        const dirs = readdirSync(cacheRoot, { withFileTypes: true })
+          .filter(d => d.isDirectory() && /^chromium-\d+$/.test(d.name))
+          .map(d => ({ name: d.name, rev: parseInt(d.name.split("-")[1] || "0", 10) }))
+          .sort((a, b) => b.rev - a.rev);
+        for (const dir of dirs) {
+          const candidates = [
+            `${cacheRoot}/${dir.name}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+            `${cacheRoot}/${dir.name}/chrome-mac/Chromium.app/Contents/MacOS/Chromium`,
+            `${cacheRoot}/${dir.name}/chrome-mac/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+            `${cacheRoot}/${dir.name}/chrome-linux/chrome`,
+          ];
+          for (const p of candidates) {
+            if (existsSync(p)) {
+              chromiumPath = p;
+              if (dir.name !== "chromium-1208") {
+                console.warn(`[BrowserService] Auto-discovered Chromium at ${p}. Playwright bundled path missing — using ${dir.name}. Run \`bun playwright install chromium\` to silence this warning.`);
+              }
+              tried.push(`auto-discovered=${p}`);
+              break;
+            }
+          }
+          if (chromiumPath) break;
+        }
+      } catch (err: any) {
+        tried.push(`auto-discovery threw: ${err.message}`);
+      }
+    }
+    if (!chromiumPath) {
+      // Legacy fallback chain (macOS hardcoded). Last-resort defense.
       const playwrightDir = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1208`;
       const legacy = [
         `${playwrightDir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
