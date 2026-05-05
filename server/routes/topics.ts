@@ -369,8 +369,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
   const browserNavigatedTopics = new Set<string>();
 
-  // Cache browser targetIds per topic context to avoid repeated lookups
-  const browserTargetIdCache = new Map<string, string>();
+  // Phase 30 BROWSER-CHAT-03 — OpenClaw browser bridge removed; agent now
+  // controls the browser via 5 native tools at /api/browsers/:id/agent/*.
+  // The legacy per-request targetId memoization Map (used by the deleted
+  // bridge handler) was deleted alongside the bridge block.
 
   function detectAndBroadcastBrowserMarker(content: string, topic: Topic | null): string {
     if (!topic) return content;
@@ -1641,38 +1643,8 @@ The marker will be automatically processed and removed from the visible output. 
         const projectInsertIdx = finalMessages.findIndex(m => m.role !== "system");
         finalMessages.splice(projectInsertIdx >= 0 ? projectInsertIdx : finalMessages.length, 0, projectInstruction);
 
-        // Browser isolation: ensure topic sessions use the 'topics' browser profile
-        // This creates an isolated browser context per topic via BrowserService.
-        // The BrowserService launches Chromium on CDP port 19222 (matching OpenClaw's 'topics' profile).
-        // Each topic gets its own BrowserContext (isolated cookies, localStorage, sessions).
-        if (browserService) {
-          const topicId = matchedTopic.id;
-          const contextId = topicId.slice(0, 8); // Match sessionKey format: topic:446c8612
-          try {
-            let targetId = browserTargetIdCache.get(contextId);
-            if (!targetId) {
-              // Lazy launch: only start browser when a topic session actually runs
-              if (!browserService.isLaunched()) {
-                await browserService.launch();
-                console.log(`[BrowserIsolation] BrowserService launched (CDP port 19222)`);
-              }
-              await browserService.getOrCreate(contextId);
-              targetId = await browserService.getTargetId(contextId) || undefined;
-              if (targetId) {
-                browserTargetIdCache.set(contextId, targetId);
-                console.log(`[BrowserIsolation] Created context for topic ${contextId}, targetId: ${targetId}`);
-              }
-            }
-            if (targetId) {
-              const isolationInstruction = { role: "system", content: `BROWSER ISOLATION: This topic has its own isolated browser context. When using the browser tool, you MUST use profile="topics" and targetId="${targetId}". This ensures your browsing session is isolated from other topics. Never use the default browser profile in topic sessions.` };
-              const isoIdx = finalMessages.findIndex(m => m.role !== "system");
-              finalMessages.splice(isoIdx >= 0 ? isoIdx : finalMessages.length, 0, isolationInstruction);
-            }
-          } catch (err) {
-            console.warn(`[BrowserIsolation] Failed to setup browser context for topic ${contextId}:`, err);
-            // Don't block the chat — browser isolation is best-effort
-          }
-        }
+        // Phase 30 BROWSER-CHAT-03 — OpenClaw browser bridge removed; agent now
+        // controls the browser via 5 native tools at /api/browsers/:id/agent/*.
 
         // Topic auto-switch: inject directory of available topics
         const topicDirectory = buildTopicDirectory(matchedTopic.id);
@@ -2077,13 +2049,16 @@ Wait for the user to approve the plan before executing any changes.` };
                 console.log(`[SubagentPoll] sessions_spawn detected via WS in topic ${matchedTopic.id.slice(0,8)}`);
               }
 
-              // Browser isolation monitoring
+              // Phase 30 BROWSER-CHAT-03 — OpenClaw browser tool profile monitoring.
+              // The bridge that injected targetId+profile system messages was removed;
+              // this block remains as logging-only telemetry for OpenClaw browser tool
+              // calls coming through other routes (sees what profile the model picked).
               if (name === 'browser' && matchedTopic) {
                 const profile = args?.profile;
                 if (profile === 'topics') {
-                  console.log(`[BrowserIsolation] ✓ Topic ${matchedTopic.id.slice(0,8)} using isolated browser (action: ${args?.action})`);
+                  console.log(`[BrowserMonitor] ✓ Topic ${matchedTopic.id.slice(0,8)} using isolated browser (action: ${args?.action})`);
                 } else {
-                  console.warn(`[BrowserIsolation] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
+                  console.warn(`[BrowserMonitor] ⚠ Topic ${matchedTopic.id.slice(0,8)} used browser with profile="${profile || 'default'}" instead of "topics"`);
                 }
               }
             },
