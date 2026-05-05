@@ -223,6 +223,35 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     return unsub;
   }, [onWSMessage, onFocusPanel, onBrowserNavigateUrl]);
 
+  // 8b. Phase 30 BROWSER-CHAT-04 — DOM-event variant for /browser slash command
+  // (and any other client-side producer). Mirrors the WS browser:navigate flow
+  // but skips the WS hop. Sourced from ChatPane.handleSlashCommand.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ topicId?: string; url?: string }>;
+      if (!ce.detail?.url) return;
+      if (hasProjectPaneRef.current) return; // Project window owns its panes
+      let navigateUrl: string = ce.detail.url;
+      try {
+        const parsed = new URL(navigateUrl);
+        if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+          parsed.hostname = window.location.hostname;
+          parsed.protocol = window.location.protocol;
+          navigateUrl = parsed.toString();
+        }
+      } catch { /* not a valid URL, leave as-is */ }
+      onBrowserNavigateUrl(navigateUrl);
+      setOrderedIds(prev => {
+        if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
+        const { next, resolvedId } = browserSingletonReducer(prev);
+        if (resolvedId) queueMicrotask(() => onFocusPanel(resolvedId));
+        return next;
+      });
+    };
+    window.addEventListener('browser:open-and-navigate', handler as EventListener);
+    return () => window.removeEventListener('browser:open-and-navigate', handler as EventListener);
+  }, [onFocusPanel, onBrowserNavigateUrl]);
+
   // 9. initialTab === 'browser' — reads activePaneIdRef (Path 4).
   useEffect(() => {
     const ap = activePaneIdRef.current;

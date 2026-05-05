@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe } from 'lucide-react';
 import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
@@ -21,6 +21,7 @@ const SLASH_COMMANDS = [
   { cmd: '/resume', label: 'Resume', description: 'Resume agent (@name)', icon: Play },
   { cmd: '/assign', label: 'Assign', description: 'Assign task (@name task)', icon: UserPlus },
   { cmd: '/project', label: 'Project', description: 'Create or open a project', icon: FolderOpen },
+  { cmd: '/browser', label: 'Browser', description: 'Open browser tab and navigate (e.g. /browser https://example.com)', icon: Globe },
   { cmd: '/help', label: 'Help', description: 'Show available commands', icon: HelpCircle },
 ];
 

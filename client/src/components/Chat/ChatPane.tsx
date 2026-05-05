@@ -282,8 +282,35 @@ export function ChatPane({
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
     if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
+
+    // Phase 30 BROWSER-CHAT-04 — /browser <url> opens or focuses the topic's
+    // browser pane and navigates. Intercepted BEFORE LLM dispatch.
+    if (cmd.startsWith('/browser ')) {
+      const url = text.slice('/browser '.length).trim();
+      if (!url) {
+        setCommandResult({ type: 'error', message: 'Usage: /browser <url>' });
+        return true;
+      }
+      // Normalize: prepend https:// when no protocol given.
+      const normalized = /^https?:\/\//.test(url) ? url : `https://${url}`;
+      // Loosely-coupled signal: layout layer listens for browser:open-and-navigate
+      // and ensureBrowserPane + navigates. Mirrors the existing browser:navigate
+      // CustomEvent pattern used by server-driven detection.
+      window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
+        detail: { topicId: topic.id, url: normalized },
+      }));
+      setCommandResult({ type: 'success', message: `Opening browser → ${normalized}` });
+      return true;
+    }
+
+    // Phase 30 BROWSER-CHAT-04 — @browser <prompt> is a user-side mnemonic.
+    // No special parsing: the message flows to the LLM normally, and since
+    // browserTools are registered for SDK providers (claude/openai), the model
+    // sees them and decides when to call. Returning false lets sendMessage
+    // dispatch the original text to the chat pipeline.
+
     return false;
-  }, [topic.sessionKey, loadHistory]);
+  }, [topic.sessionKey, topic.id, loadHistory]);
 
   const togglePlanMode = useCallback(() => {
     setPlanMode(prev => {
