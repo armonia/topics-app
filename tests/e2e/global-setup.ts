@@ -9,13 +9,46 @@
  */
 
 import { spawn, execSync, type ChildProcess } from "child_process";
-import { resolve } from "path";
+import { existsSync, readdirSync } from "fs";
+import { homedir } from "os";
+import { join, resolve } from "path";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 chosen to avoid conflicts with production services
 // (port 3334 is used by the openclaw-gateway voice-call webhook)
 const BASE = "http://localhost:13334";
 const TEST_SERVER_PORT = 13334;
+
+/**
+ * Resolve a Chromium executable on disk. Falls back through the most likely
+ * Playwright cache locations because the server's `playwright-core` may pin
+ * a slightly older manifest version than the binary that `@playwright/test`
+ * actually installs (e.g. server resolves chromium-1208 but the cache holds
+ * chromium-1217). Returns "" if nothing found — BrowserService will then
+ * surface a clear error at first use.
+ */
+function resolveChromiumPath(): string {
+  const cacheDir = join(homedir(), "Library/Caches/ms-playwright");
+  if (!existsSync(cacheDir)) return "";
+  try {
+    const entries = readdirSync(cacheDir).filter((d) => d.startsWith("chromium-"));
+    // Prefer the highest revision numerically (newer cache wins).
+    entries.sort((a, b) => {
+      const ax = parseInt(a.split("-")[1] || "0", 10);
+      const bx = parseInt(b.split("-")[1] || "0", 10);
+      return bx - ax;
+    });
+    for (const dir of entries) {
+      const candidate = join(
+        cacheDir,
+        dir,
+        "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+      );
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch { /* ignore */ }
+  return "";
+}
 
 let serverProcess: ChildProcess | null = null;
 
@@ -47,6 +80,17 @@ async function startTestServer(): Promise<void> {
       ...process.env,
       BUN_PORT: String(TEST_SERVER_PORT),
       DATA_DIR: "/tmp/topics-test-data",
+      // Phase 30 plan 30-05: dedicated TOPICS_HOME so the test server's
+      // daemon lock + state files don't collide with the dev server
+      // (which holds ~/.topics/daemon-process.lock).
+      TOPICS_HOME: "/tmp/topics-test-data/.topics-home",
+      // Phase 30 plan 30-05: server's playwright-core ships an older
+      // chromium-1208 manifest, but @playwright/test installs the current
+      // chromium-1217 binary. Pin the BrowserService Chromium to the
+      // actually-installed binary. Override via CHROMIUM_PATH env if
+      // running on a machine with a different layout.
+      CHROMIUM_PATH: process.env.CHROMIUM_PATH ||
+        resolveChromiumPath(),
       NO_TLS: "1",
       GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
       GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",

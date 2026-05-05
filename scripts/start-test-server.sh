@@ -11,11 +11,14 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 export BUN_PORT=13334
 export DATA_DIR=/tmp/topics-test-data
+# Phase 30 plan 30-05: dedicated TOPICS_HOME so the test server doesn't
+# compete with the dev server (which holds ~/.topics/daemon-process.lock).
+export TOPICS_HOME="${TOPICS_HOME:-/tmp/topics-test-data/.topics-home}"
 export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
 export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
 
-# Ensure data directory exists
-mkdir -p "$DATA_DIR"
+# Ensure data + topics-home directories exist
+mkdir -p "$DATA_DIR" "$TOPICS_HOME"
 
 cd "$REPO_ROOT"
 exec bun run server.ts
