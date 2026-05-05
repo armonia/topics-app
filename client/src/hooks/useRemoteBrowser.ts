@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { BrowserWsMessage } from '@/types/browser-ws-messages';
+
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
 interface RemoteBrowserState {
   url: string;
@@ -7,6 +10,8 @@ interface RemoteBrowserState {
   connected: boolean;
   screenshotSrc: string | null;
   error: string | null;
+  connectionState: ConnectionState;
+  lastClickPos: { x: number; y: number; t: number } | null;
 }
 
 interface InteractionHandlers {
@@ -30,6 +35,7 @@ const VIEWPORT_HEIGHT = 720;
 const IDLE_INTERVAL = 2000;
 const ACTIVE_INTERVAL = 300;
 const ACTIVE_DURATION = 3000;
+const FALLBACK_DELAY_MS = 2000;
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -41,6 +47,7 @@ const SPECIAL_KEYS = new Set([
 function mapCoordinates(
   e: React.MouseEvent<HTMLImageElement>,
   img: HTMLImageElement,
+  pageScaleFactor = 1,
 ): { x: number; y: number } | null {
   const rect = img.getBoundingClientRect();
   const naturalW = img.naturalWidth || VIEWPORT_WIDTH;
@@ -69,9 +76,10 @@ function mapCoordinates(
     return null;
   }
 
+  const scale = pageScaleFactor || 1;
   return {
-    x: Math.round((localX / displayW) * naturalW),
-    y: Math.round((localY / displayH) * naturalH),
+    x: Math.round(((localX / displayW) * naturalW) / scale),
+    y: Math.round(((localY / displayH) * naturalH) / scale),
   };
 }
 
@@ -84,13 +92,18 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     connected: false,
     screenshotSrc: null,
     error: null,
+    connectionState: 'connecting',
+    lastClickPos: null,
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const pageScaleFactorRef = useRef<number>(1);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeUntilRef = useRef<number>(0);
   const mountedRef = useRef(true);
-  const connectedRef = useRef(false); // tracks connected without re-creating callbacks
+  const connectionStateRef = useRef<ConnectionState>('connecting');
   const typeBufRef = useRef<string>('');
   const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrollRef = useRef<number>(0);
@@ -99,7 +112,17 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     activeUntilRef.current = Date.now() + ACTIVE_DURATION;
   }, []);
 
-  // Send interaction to server (interact endpoints do getOrCreate)
+  const updateConnectionState = useCallback((next: ConnectionState) => {
+    connectionStateRef.current = next;
+    setState(s => ({
+      ...s,
+      connectionState: next,
+      connected: next === 'connected' || next === 'fallback-http',
+    }));
+  }, []);
+
+  // REST fallback — kept for graceful degradation when the WS bridge is down.
+  // The interact endpoint does getOrCreate server-side.
   const interact = useCallback(async (body: Record<string, unknown>) => {
     try {
       const res = await fetch(`/api/browsers/${encodedId}/interact`, {
@@ -107,16 +130,15 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (res.ok) {
-        connectedRef.current = true;
-        setState(s => ({ ...s, connected: true, error: null }));
+      if (!res.ok && mountedRef.current) {
+        setState(s => ({ ...s, error: `Interact ${res.status}` }));
       }
     } catch {
-      // Silently fail — info poll will detect disconnect
+      // Silently fail — info poll will detect disconnect.
     }
   }, [encodedId]);
 
-  // Fetch screenshot — only call when context exists (connected)
+  // Fetch screenshot via REST (used only in fallback-http mode).
   const fetchScreenshot = useCallback(() => {
     if (!mountedRef.current) return;
     const preload = new Image();
@@ -125,101 +147,229 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
       setState(s => ({ ...s, screenshotSrc: preload.src }));
     };
     preload.onerror = () => {
-      // Don't clear existing screenshot on transient errors
+      // Don't clear existing screenshot on transient errors.
     };
     preload.src = `/api/browsers/${encodedId}/snapshot?t=${Date.now()}`;
   }, [encodedId]);
 
-  // Check if context exists (GET info — does NOT create)
+  // Fetch context info via REST (URL/title check + connection probe).
   const fetchInfo = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch(`/api/browsers/${encodedId}`);
       if (!mountedRef.current) return false;
       if (res.ok) {
         const data = await res.json();
-        connectedRef.current = true;
         setState(s => ({
           ...s,
           url: data.url || s.url,
           title: data.title || s.title,
-          connected: true,
           loading: false,
         }));
         return true;
       } else if (res.status === 404) {
-        connectedRef.current = false;
-        setState(s => ({ ...s, connected: false }));
         return false;
       }
     } catch {
-      if (mountedRef.current) {
-        connectedRef.current = false;
-        setState(s => ({ ...s, connected: false }));
-      }
+      // Network error — stay in current state; the next poll/WS attempt retries.
     }
     return false;
   }, [encodedId]);
 
-  // Polling loop — only fetch screenshots when context exists
+  // sendInput — WS-first, REST fallback. Switches based on live connection state.
+  const sendInput = useCallback((
+    action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
+    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
+  ) => {
+    if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
+      const msg: BrowserWsMessage = { type: 'input', action, payload };
+      try {
+        wsRef.current.send(JSON.stringify(msg));
+        return;
+      } catch {
+        // WS send failed mid-flight — fall through to REST.
+      }
+    }
+    // Fallback: REST interact. Map action to the REST shape (the existing
+    // /api/browsers/:id/interact endpoint expects { action, ...payload }).
+    interact({ action, ...payload });
+  }, [interact]);
+
+  // WebSocket lifecycle. Opens once per contextId, retries to fallback-http
+  // on close/error after FALLBACK_DELAY_MS.
   useEffect(() => {
     mountedRef.current = true;
-    connectedRef.current = false;
+    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsProto}://${window.location.host}/ws/browser/${encodedId}`;
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      // Browser blocked WS — go straight to fallback.
+      updateConnectionState('fallback-http');
+      return () => {
+        mountedRef.current = false;
+      };
+    }
+    wsRef.current = ws;
+    updateConnectionState('connecting');
 
+    ws.onopen = () => {
+      if (!mountedRef.current) return;
+      updateConnectionState('connected');
+      setState(s => ({ ...s, error: null }));
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
+
+    ws.onmessage = (event) => {
+      if (!mountedRef.current) return;
+      try {
+        const msg = JSON.parse(event.data) as BrowserWsMessage;
+        switch (msg.type) {
+          case 'frame':
+            if (msg.metadata?.pageScaleFactor) {
+              pageScaleFactorRef.current = msg.metadata.pageScaleFactor;
+            }
+            setState(s => ({ ...s, screenshotSrc: `data:image/jpeg;base64,${msg.data}` }));
+            break;
+          case 'nav':
+            if (msg.phase === 'response') {
+              setState(s => ({ ...s, url: msg.url, loading: false }));
+            }
+            break;
+          case 'console':
+            // Forward to devtools console; full UI surface deferred to plan 30-04.
+            console.debug(`[browser ${contextId}] ${msg.level}: ${msg.text}`);
+            break;
+          case 'agent_active':
+            // UI lock overlay is plan 30-04; current task just acks the message.
+            break;
+          default:
+            break;
+        }
+      } catch (err) {
+        console.warn('[useRemoteBrowser] Failed to parse WS message:', err);
+      }
+    };
+
+    ws.onerror = () => {
+      if (!mountedRef.current) return;
+      updateConnectionState('disconnected');
+    };
+
+    ws.onclose = () => {
+      if (!mountedRef.current) return;
+      updateConnectionState('disconnected');
+      // Schedule fallback transition. 2s grace allows brief network hiccups
+      // to recover via WS retry (added in 30-05 if needed) before falling
+      // back to polling.
+      fallbackTimerRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+        if (connectionStateRef.current !== 'connected') {
+          updateConnectionState('fallback-http');
+        }
+      }, FALLBACK_DELAY_MS);
+    };
+
+    return () => {
+      mountedRef.current = false;
+      try { ws.close(); } catch {}
+      wsRef.current = null;
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+      if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+    };
+  }, [contextId, encodedId, updateConnectionState]);
+
+  // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
+  // Mirrors the legacy polling loop but gated on connectionState.
+  useEffect(() => {
+    if (state.connectionState !== 'fallback-http') {
+      if (pollingRef.current) {
+        clearTimeout(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+    mountedRef.current = true;
     const poll = async () => {
       if (!mountedRef.current) return;
-
       const exists = await fetchInfo();
-      // Only fetch screenshot if context exists on server
-      // This avoids triggering getOrCreate on the snapshot endpoint
       if (exists) {
         fetchScreenshot();
       }
-
       const isActive = Date.now() < activeUntilRef.current;
       const interval = isActive ? ACTIVE_INTERVAL : IDLE_INTERVAL;
       pollingRef.current = setTimeout(poll, interval);
     };
-
-    // Initial check
     poll();
-
     return () => {
-      mountedRef.current = false;
-      if (pollingRef.current) clearTimeout(pollingRef.current);
-      if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+      if (pollingRef.current) {
+        clearTimeout(pollingRef.current);
+        pollingRef.current = null;
+      }
     };
-  }, [contextId, fetchScreenshot, fetchInfo]);
+  }, [state.connectionState, fetchInfo, fetchScreenshot]);
 
   // --- Interaction handlers ---
 
   const navigate = useCallback((url: string) => {
     setState(s => ({ ...s, loading: true, url }));
     markActive();
-    // interact does getOrCreate — this is intentional for navigate
+    if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
+      const msg: BrowserWsMessage = { type: 'nav', url, phase: 'request' };
+      try {
+        wsRef.current.send(JSON.stringify(msg));
+        return;
+      } catch {
+        // Fall through to REST.
+      }
+    }
+    // REST fallback. interact does getOrCreate — intentional for navigate.
     interact({ action: 'navigate', url }).then(() => {
-      // After navigate completes, immediately fetch screenshot + info
-      fetchScreenshot();
-      fetchInfo();
+      if (connectionStateRef.current === 'fallback-http') {
+        fetchScreenshot();
+        fetchInfo();
+      }
     });
   }, [interact, markActive, fetchScreenshot, fetchInfo]);
 
   const goBack = useCallback(() => {
-    if (!connectedRef.current) return;
+    if (!connectionStateRef.current || connectionStateRef.current === 'disconnected') return;
     markActive();
-    interact({ action: 'back' }).then(() => { fetchScreenshot(); fetchInfo(); });
+    interact({ action: 'back' }).then(() => {
+      if (connectionStateRef.current === 'fallback-http') {
+        fetchScreenshot();
+        fetchInfo();
+      }
+    });
   }, [interact, markActive, fetchScreenshot, fetchInfo]);
 
   const goForward = useCallback(() => {
-    if (!connectedRef.current) return;
+    if (!connectionStateRef.current || connectionStateRef.current === 'disconnected') return;
     markActive();
-    interact({ action: 'forward' }).then(() => { fetchScreenshot(); fetchInfo(); });
+    interact({ action: 'forward' }).then(() => {
+      if (connectionStateRef.current === 'fallback-http') {
+        fetchScreenshot();
+        fetchInfo();
+      }
+    });
   }, [interact, markActive, fetchScreenshot, fetchInfo]);
 
   const reload = useCallback(() => {
-    if (!connectedRef.current) return;
+    if (!connectionStateRef.current || connectionStateRef.current === 'disconnected') return;
     setState(s => ({ ...s, loading: true }));
     markActive();
-    interact({ action: 'reload' }).then(() => { fetchScreenshot(); fetchInfo(); });
+    interact({ action: 'reload' }).then(() => {
+      if (connectionStateRef.current === 'fallback-http') {
+        fetchScreenshot();
+        fetchInfo();
+      }
+    });
   }, [interact, markActive, fetchScreenshot, fetchInfo]);
 
   const goHome = useCallback(() => {
@@ -227,36 +377,36 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
   }, [navigate]);
 
   const onClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
-    if (!connectedRef.current) return;
+    if (connectionStateRef.current === 'disconnected') return;
     const img = e.currentTarget;
-    const coords = mapCoordinates(e, img);
+    const coords = mapCoordinates(e, img, pageScaleFactorRef.current);
     if (!coords) return;
     markActive();
-    interact({ action: 'click', x: coords.x, y: coords.y }).then(fetchScreenshot);
-  }, [interact, markActive, fetchScreenshot]);
+    setState(s => ({ ...s, lastClickPos: { x: e.clientX, y: e.clientY, t: Date.now() } }));
+    sendInput('click', { x: coords.x, y: coords.y });
+  }, [markActive, sendInput]);
 
   const onWheel = useCallback((e: React.WheelEvent<HTMLImageElement>) => {
-    if (!connectedRef.current) return;
+    if (connectionStateRef.current === 'disconnected') return;
     const now = Date.now();
     if (now - lastScrollRef.current < 100) return;
     lastScrollRef.current = now;
 
     const img = e.currentTarget;
-    const coords = mapCoordinates(e as unknown as React.MouseEvent<HTMLImageElement>, img);
+    const coords = mapCoordinates(e as unknown as React.MouseEvent<HTMLImageElement>, img, pageScaleFactorRef.current);
     if (!coords) return;
 
     markActive();
-    interact({
-      action: 'scroll',
+    sendInput('scroll', {
       x: coords.x,
       y: coords.y,
       deltaX: e.deltaX,
       deltaY: e.deltaY,
     });
-  }, [interact, markActive]);
+  }, [markActive, sendInput]);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!connectedRef.current) return;
+    if (connectionStateRef.current === 'disconnected') return;
     if (e.metaKey || e.ctrlKey) return;
 
     e.preventDefault();
@@ -265,22 +415,22 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
 
     if (SPECIAL_KEYS.has(e.key)) {
       if (typeBufRef.current) {
-        interact({ action: 'type', text: typeBufRef.current });
+        sendInput('type', { text: typeBufRef.current });
         typeBufRef.current = '';
         if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       }
-      interact({ action: 'keypress', key: e.key }).then(fetchScreenshot);
+      sendInput('keypress', { key: e.key });
     } else if (e.key.length === 1) {
       typeBufRef.current += e.key;
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       typeTimerRef.current = setTimeout(() => {
         if (typeBufRef.current) {
-          interact({ action: 'type', text: typeBufRef.current }).then(fetchScreenshot);
+          sendInput('type', { text: typeBufRef.current });
           typeBufRef.current = '';
         }
       }, 50);
     }
-  }, [interact, markActive, fetchScreenshot]);
+  }, [markActive, sendInput]);
 
   return useMemo(() => ({
     ...state,
