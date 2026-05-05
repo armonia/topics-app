@@ -104,6 +104,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
   const contexts = new Map<string, BrowserContextEntry>();
   const targetIds = new Map<string, string>();  // contextId → CDP targetId
+  // Phase 30 BROWSER-CHAT-02 — active CDP screencast sessions. Keyed by
+  // contextId. Set by startScreencast, deleted by stopScreencast (idempotent).
+  // Cleaned up by close() and destroyContext() before the underlying
+  // BrowserContext is torn down.
+  const screencastSessions = new Map<string, {
+    cdpSession: import("playwright-core").CDPSession;
+    onFrame: (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => void;
+  }>();
   let browser: Browser | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -229,6 +237,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
     async close() {
       if (cleanupTimer) clearInterval(cleanupTimer);
+      // Phase 30 BROWSER-CHAT-02 — stop all active screencasts BEFORE
+      // closing contexts. Detaches CDP sessions cleanly so the close()
+      // call doesn't race with in-flight Page.screencastFrame events.
+      for (const id of Array.from(screencastSessions.keys())) {
+        await service.stopScreencast(id).catch(() => {});
+      }
       for (const [_id, entry] of contexts) {
         entry.autoSaveCleanup?.();
         try { await entry.context.close(); } catch {}
@@ -322,6 +336,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     async destroyContext(id) {
       const entry = contexts.get(id);
       if (!entry) return;
+      // Phase 30 BROWSER-CHAT-02 — stop screencast first so no in-flight
+      // CDP frames target a context that's about to be torn down.
+      await service.stopScreencast(id).catch(() => {});
       entry.autoSaveCleanup?.();
       // Final flush before close (best effort).
       try {
@@ -580,19 +597,123 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       return { restored, failed };
     },
 
-    // Phase 30 BROWSER-CHAT-02 — Task 1 stubs. Replaced by real CDP-driven
-    // implementations in Task 2 (same plan). Importing the module never
-    // throws; calling these methods before Task 2 ships does throw with a
-    // clear "not implemented yet" marker so the WS handler in server.ts
-    // can ship typecheck-clean as part of Task 1's commit.
-    async startScreencast(_id, _onFrame, _opts) {
-      throw new Error("startScreencast: not implemented yet — Task 2");
+    // Phase 30 BROWSER-CHAT-02 — push-driven CDP screencast.
+    // Pattern (Browser Use 2025 + Playwright 1.59 release notes):
+    //   1. Open a dedicated CDP session per context (not the targetId-capture
+    //      session — that one is GC'd in createContext after Target.getTargetInfo).
+    //   2. Subscribe to Page.screencastFrame, ACK each frame BEFORE invoking
+    //      onFrame so the next frame keeps flowing (CDP holds the next frame
+    //      until ACK — built-in flow control).
+    //   3. Call Page.startScreencast with format/quality tuned for the
+    //      BROWSER-CHAT-02 budget (jpeg q70, everyNthFrame=2 -> 15 FPS floor).
+    //
+    // CDP doc: https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast
+    async startScreencast(id, onFrame, opts) {
+      // Idempotent: if already streaming, swap the onFrame handler in place
+      // (lets a re-attach use the existing CDP session without restart).
+      const existing = screencastSessions.get(id);
+      if (existing) {
+        existing.onFrame = onFrame;
+        return;
+      }
+
+      const entry = await service.getOrCreate(id);
+      const cdpSession = await entry.context.newCDPSession(entry.page);
+
+      cdpSession.on("Page.screencastFrame", async (payload: { data: string; sessionId: number; metadata: { timestamp?: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number } }) => {
+        // ACK first to keep frames flowing.
+        try {
+          await cdpSession.send("Page.screencastFrameAck", { sessionId: payload.sessionId });
+        } catch (err: any) {
+          // ACK can fail if the session/page closed mid-frame — non-fatal.
+          console.warn(`[BrowserService] screencastFrameAck failed for ${id}:`, err.message);
+          return;
+        }
+        try {
+          const session = screencastSessions.get(id);
+          if (!session) return;  // stopScreencast was called between ACK and onFrame
+          session.onFrame(payload.data, {
+            timestamp: payload.metadata?.timestamp ?? Date.now(),
+            pageScaleFactor: payload.metadata?.pageScaleFactor,
+            deviceWidth: payload.metadata?.deviceWidth,
+            deviceHeight: payload.metadata?.deviceHeight,
+          });
+        } catch (err: any) {
+          console.warn(`[BrowserService] onFrame handler threw for ${id}:`, err.message);
+        }
+      });
+
+      // Defaults match BROWSER-CHAT-02 budget:
+      //   - format jpeg + quality 70 → ~500kbps - 1.5Mbps (target band)
+      //   - everyNthFrame 2 → effective 30 → 15 FPS (Nyquist floor)
+      //   - maxWidth/maxHeight clamp to viewport (no upscale)
+      const viewport = entry.page.viewportSize() || { width: 1280, height: 720 };
+      await cdpSession.send("Page.startScreencast", {
+        format: opts?.format ?? "jpeg",
+        quality: opts?.quality ?? 70,
+        maxWidth: opts?.maxWidth ?? viewport.width,
+        maxHeight: opts?.maxHeight ?? viewport.height,
+        everyNthFrame: opts?.everyNthFrame ?? 2,
+      });
+
+      screencastSessions.set(id, { cdpSession, onFrame });
+      console.log(`[BrowserService] Screencast started for ${id} (q=${opts?.quality ?? 70}, everyNthFrame=${opts?.everyNthFrame ?? 2})`);
     },
-    async stopScreencast(_id) {
-      throw new Error("stopScreencast: not implemented yet — Task 2");
+
+    async stopScreencast(id) {
+      const session = screencastSessions.get(id);
+      if (!session) return;  // Idempotent
+      try {
+        await session.cdpSession.send("Page.stopScreencast");
+      } catch (err: any) {
+        console.warn(`[BrowserService] Page.stopScreencast failed for ${id}:`, err.message);
+      }
+      try {
+        await session.cdpSession.detach();
+      } catch (err: any) {
+        // CDP detach can fail if context already closed — non-fatal.
+        console.warn(`[BrowserService] CDP detach failed for ${id}:`, err.message);
+      }
+      screencastSessions.delete(id);
+      console.log(`[BrowserService] Screencast stopped for ${id}`);
     },
-    async dispatchInput(_id, _action, _payload) {
-      throw new Error("dispatchInput: not implemented yet — Task 2");
+
+    async dispatchInput(id, action, payload) {
+      const entry = await service.getOrCreate(id);
+      // Coordinates are sent as native-CSS px from the client (the client-side
+      // mapper handles devicePixelRatio via screencast metadata). The server
+      // trusts the input as native-CSS px and forwards directly to Playwright.
+      switch (action) {
+        case 'click':
+          if (payload.x == null || payload.y == null) {
+            throw new Error("dispatchInput click: x and y required");
+          }
+          await entry.page.mouse.click(payload.x, payload.y, { button: payload.button ?? 'left' });
+          break;
+        case 'type':
+          if (!payload.text) throw new Error("dispatchInput type: text required");
+          await entry.page.keyboard.type(payload.text);
+          break;
+        case 'scroll':
+          // mouse.move + mouse.wheel mirrors existing service.scroll() semantics.
+          await entry.page.mouse.move(payload.x ?? 0, payload.y ?? 0);
+          await entry.page.mouse.wheel(payload.deltaX ?? 0, payload.deltaY ?? 0);
+          break;
+        case 'mousemove':
+          if (payload.x == null || payload.y == null) {
+            throw new Error("dispatchInput mousemove: x and y required");
+          }
+          await entry.page.mouse.move(payload.x, payload.y);
+          break;
+        case 'keypress':
+          if (!payload.key) throw new Error("dispatchInput keypress: key required");
+          await entry.page.keyboard.press(payload.key);
+          break;
+        default:
+          throw new Error(`dispatchInput: unknown action '${action}'`);
+      }
+      // getOrCreate already touched activity; the action is a real interaction
+      // so the entry's lastActivity stays fresh.
     },
   };
 
