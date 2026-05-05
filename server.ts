@@ -26,6 +26,7 @@ import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createSpacesRouter } from "./server/routes/spaces";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createBrowserService, type BrowserService } from "./server/browser-service";
+import { sendBrowserWsMessage, isBrowserWsMessage } from "./server/browser-ws-messages";
 import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
@@ -386,6 +387,30 @@ const server = Bun.serve<WSData>({
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    // Phase 30 BROWSER-CHAT-02 — WebSocket upgrade for browser streaming.
+    // Path: /ws/browser/:contextId — bidirectional. server -> client carries
+    // 'frame' (CDP screencast JPEG base64) and 'agent_active'/'console'/'nav'
+    // events; client -> server carries 'input' actions (click/type/scroll/etc).
+    // The per-WS lifecycle (startScreencast on open, stopScreencast on close,
+    // input dispatch on message) lives in the websocket.{open,message,close}
+    // handlers below.
+    if (pathname.startsWith("/ws/browser/")) {
+      const browserContextId = decodeURIComponent(pathname.split("/ws/browser/")[1] || "");
+      if (!browserContextId) {
+        return new Response("Missing contextId", { status: 400 });
+      }
+      const upgraded = server.upgrade(req, {
+        data: {
+          id: crypto.randomUUID(),
+          focusedTopicId: null,
+          lastPong: Date.now(),
+          browserContextId,
+        },
+      });
+      if (upgraded) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
     // WebSocket upgrade
     if (pathname === "/ws") {
       const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now() } });
@@ -524,6 +549,43 @@ const server = Bun.serve<WSData>({
     maxPayloadLength: 1024 * 1024,
     open(ws) {
       ws.data.lastPong = Date.now();
+
+      // Phase 30 BROWSER-CHAT-02 — browser WS branch.
+      // Started BEFORE the terminal branch since both use ws.data fields,
+      // but the browser branch is the more specific check.
+      if (ws.data.browserContextId) {
+        const ctxId = ws.data.browserContextId;
+        console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
+        ws.data._browserCleanup = async () => {
+          await browserService.stopScreencast(ctxId).catch(err =>
+            console.warn(`[WS][browser] stopScreencast failed for ${ctxId}:`, err.message)
+          );
+        };
+        // Inline screencast start. Backpressure: if the WS isn't OPEN, drop
+        // the frame. Bun's ServerWebSocket exposes readyState directly
+        // (1 = OPEN) — same pattern already used in the heartbeat ticker
+        // around the file (no `as any` needed).
+        browserService.startScreencast(ctxId, (data, metadata) => {
+          if (ws.readyState !== 1) return;
+          sendBrowserWsMessage(ws, {
+            type: 'frame',
+            data,
+            metadata: {
+              timestamp: metadata.timestamp,
+              pageScaleFactor: metadata.pageScaleFactor,
+              deviceWidth: metadata.deviceWidth,
+              deviceHeight: metadata.deviceHeight,
+            },
+          });
+        }).catch(err => {
+          console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
+          try {
+            ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));
+          } catch {}
+        });
+        return;
+      }
+
       const termId = ws.data.terminalId;
       if (termId) {
         // Terminal WebSocket
@@ -562,6 +624,33 @@ const server = Bun.serve<WSData>({
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
+
+      // Phase 30 BROWSER-CHAT-02 — browser WS branch.
+      if (ws.data.browserContextId) {
+        const ctxId = ws.data.browserContextId;
+        try {
+          const parsed = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+          if (!isBrowserWsMessage(parsed)) {
+            console.warn(`[WS][browser] Invalid message shape from ${ws.data.id}`);
+            return;
+          }
+          if (parsed.type === 'input') {
+            browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err =>
+              console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message)
+            );
+          } else if (parsed.type === 'nav' && parsed.phase === 'request') {
+            browserService.navigate(ctxId, parsed.url).then(() => {
+              sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
+            }).catch(err => console.warn(`[WS][browser] navigate failed for ${ctxId}:`, err.message));
+          }
+          // Ignore other message types from client (frame/agent_active/console are server -> client only).
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[WS][browser] Failed to parse message from ${ws.data.id}:`, msg);
+        }
+        return;
+      }
+
       const handler = ws.data._termHandler;
       if (handler) { handler.message(message); return; }
       try {
@@ -576,6 +665,15 @@ const server = Bun.serve<WSData>({
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws) {
+      // Phase 30 BROWSER-CHAT-02 — browser WS branch.
+      if (ws.data.browserContextId) {
+        console.log(`[WS][browser] Close: ${ws.data.id} -> ctx ${ws.data.browserContextId}`);
+        ws.data._browserCleanup?.().catch(err =>
+          console.warn(`[WS][browser] cleanup failed:`, err.message)
+        );
+        return;
+      }
+
       const handler = ws.data._termHandler;
       if (handler) { handler.close(); return; }
       // Remove from client set FIRST so concurrent isTopicFocused() iterations

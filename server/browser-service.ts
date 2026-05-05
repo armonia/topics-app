@@ -73,6 +73,20 @@ export interface BrowserService {
   loadCookies(id: string): Promise<void>;
   /** Restore BrowserContext for every topic with browserState. Best-effort — never throws. */
   restoreAllContexts(topics: Topic[]): Promise<{ restored: number; failed: number }>;
+  /** Phase 30 BROWSER-CHAT-02 — start CDP screencast, fire onFrame for every JPEG frame. Returns once startScreencast resolves. Idempotent (calling twice on same id swaps the onFrame handler in place). */
+  startScreencast(
+    id: string,
+    onFrame: (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => void,
+    opts?: { format?: 'jpeg' | 'png'; quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number }
+  ): Promise<void>;
+  /** Phase 30 BROWSER-CHAT-02 — stop CDP screencast for a context. Idempotent. */
+  stopScreencast(id: string): Promise<void>;
+  /** Phase 30 BROWSER-CHAT-02 — dispatch input action via Playwright page.mouse.* / page.keyboard.* / page.mouse.wheel. */
+  dispatchInput(
+    id: string,
+    action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
+    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
+  ): Promise<void>;
 }
 
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
@@ -564,6 +578,21 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       console.log(`[BrowserService] restoreAllContexts: ${restored} restored, ${failed} failed`);
       return { restored, failed };
+    },
+
+    // Phase 30 BROWSER-CHAT-02 — Task 1 stubs. Replaced by real CDP-driven
+    // implementations in Task 2 (same plan). Importing the module never
+    // throws; calling these methods before Task 2 ships does throw with a
+    // clear "not implemented yet" marker so the WS handler in server.ts
+    // can ship typecheck-clean as part of Task 1's commit.
+    async startScreencast(_id, _onFrame, _opts) {
+      throw new Error("startScreencast: not implemented yet — Task 2");
+    },
+    async stopScreencast(_id) {
+      throw new Error("stopScreencast: not implemented yet — Task 2");
+    },
+    async dispatchInput(_id, _action, _payload) {
+      throw new Error("dispatchInput: not implemented yet — Task 2");
     },
   };
 

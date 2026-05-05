@@ -7,6 +7,10 @@ export interface WSData {
   lastPong: number;
   terminalId?: string;
   _termHandler?: { message: (data: string | Buffer | ArrayBuffer) => void; close: () => void };
+  /** Phase 30 BROWSER-CHAT-02 — set when WS upgraded on /ws/browser/:contextId. */
+  browserContextId?: string;
+  /** Phase 30 BROWSER-CHAT-02 — per-WS cleanup for screencast + CDP session. Called from websocket.close. */
+  _browserCleanup?: () => Promise<void>;
 }
 
 export interface ToolCall {
