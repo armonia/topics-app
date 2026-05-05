@@ -6,6 +6,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type {
   AIProvider,
   ChatMessage,
@@ -82,7 +83,7 @@ export class ClaudeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string; history?: ChatMessage[] },
+    options?: { model?: string; history?: ChatMessage[]; tools?: Tool[] },
   ): Promise<{ runId?: string }> {
     const client = this.requireClient();
     const runId = crypto.randomUUID();
@@ -111,6 +112,23 @@ export class ClaudeProvider implements AIProvider {
 
     this.applyThinking(params, model, maxTokens);
 
+    // Phase 30 BROWSER-CHAT-04 — passthrough Tool[] when caller registered them.
+    // Anthropic SDK natively accepts MessageCreateParams.tools as Tool[].
+    if (options?.tools && options.tools.length > 0) {
+      params.tools = options.tools;
+    }
+
+    // LIMITATION (Phase 30): single-turn tool emission only. Multi-turn
+    // tool_use -> tool_result -> next-turn loop is deferred (would require
+    // restarting the stream after handler.onToolResult fires). The existing
+    // topics.ts onToolStart hook is sufficient for v1: the tool runs,
+    // broadcasts, and persists, but the LLM does not see the result back in
+    // the same conversation turn.
+
+    // Per-block-index buffers for tool_use streaming (input_json_delta accumulates JSON).
+    const toolJsonBuffers: Record<number, string> = {};
+    const toolBlocksByIndex: Record<number, { id: string; name: string }> = {};
+
     let fullText = "";
 
     try {
@@ -130,6 +148,36 @@ export class ClaudeProvider implements AIProvider {
             handler.onTextDelta(event.delta.text, fullText);
           } else if (event.delta.type === "thinking_delta") {
             handler.onThinkingDelta?.(event.delta.thinking);
+          } else if (event.delta.type === "input_json_delta") {
+            // Buffer per-block; finalize on content_block_stop. Each tool_use
+            // block accumulates JSON in pieces.
+            const idx = event.index ?? 0;
+            toolJsonBuffers[idx] = (toolJsonBuffers[idx] || "") + event.delta.partial_json;
+          }
+        } else if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
+          const idx = event.index ?? 0;
+          toolBlocksByIndex[idx] = {
+            id: event.content_block.id,
+            name: event.content_block.name,
+          };
+          // Initialize buffer so input_json_delta accumulation can start.
+          toolJsonBuffers[idx] = "";
+        } else if (event.type === "content_block_stop") {
+          const idx = event.index ?? 0;
+          const tb = toolBlocksByIndex[idx];
+          if (tb && toolJsonBuffers[idx] !== undefined) {
+            let parsed: Record<string, unknown> = {};
+            try {
+              parsed = toolJsonBuffers[idx] ? JSON.parse(toolJsonBuffers[idx]) : {};
+            } catch {
+              parsed = { _raw: toolJsonBuffers[idx] };
+            }
+            // Emit tool_start with full args so the topics.ts dispatcher can
+            // act on them (single-emit pattern -- the dispatcher only needs
+            // the final args, never the partial JSON).
+            handler.onToolStart(tb.id, tb.name, parsed);
+            delete toolBlocksByIndex[idx];
+            delete toolJsonBuffers[idx];
           }
         } else if (event.type === "message_stop") {
           handler.onDone();

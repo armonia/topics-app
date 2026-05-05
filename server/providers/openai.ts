@@ -6,6 +6,7 @@
  * the Settings UI.
  */
 
+import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type {
   AIProvider,
   ChatMessage,
@@ -16,6 +17,7 @@ import type {
   ProviderRequirement,
   StreamHandler,
 } from "./types";
+import { toOpenAIFunctions } from "../browser-tools-adapters";
 
 const API_BASE = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-4o";
@@ -68,7 +70,7 @@ export class OpenAIProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string; history?: ChatMessage[] },
+    options?: { model?: string; history?: ChatMessage[]; tools?: Tool[] },
   ): Promise<{ runId?: string }> {
     if (!this.config.apiKey) {
       handler.onError("OPENAI_API_KEY not configured");
@@ -94,18 +96,28 @@ export class OpenAIProvider implements AIProvider {
     let fullText = "";
 
     try {
+      const body: Record<string, unknown> = {
+        model,
+        messages: apiMessages,
+        max_tokens: maxTokens,
+        stream: true,
+      };
+
+      // Phase 30 BROWSER-CHAT-04 — wrap Anthropic Tool[] into OpenAI
+      // function-calling format and forward. tool_choice='auto' lets the
+      // model decide if/when to call any of the registered tools.
+      if (options?.tools && options.tools.length > 0) {
+        body.tools = toOpenAIFunctions(options.tools);
+        body.tool_choice = "auto";
+      }
+
       const resp = await fetch(`${API_BASE}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.config.apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          messages: apiMessages,
-          max_tokens: maxTokens,
-          stream: true,
-        }),
+        body: JSON.stringify(body),
         signal: ac.signal,
       });
 
@@ -115,10 +127,14 @@ export class OpenAIProvider implements AIProvider {
         return { runId };
       }
 
-      await this.consumeSSE(resp.body, (delta) => {
-        fullText += delta;
-        handler.onTextDelta(delta, fullText);
-      });
+      await this.consumeSSE(
+        resp.body,
+        (delta) => {
+          fullText += delta;
+          handler.onTextDelta(delta, fullText);
+        },
+        (id, name, args) => handler.onToolStart(id, name, args),
+      );
 
       handler.onDone();
     } catch (err: any) {
@@ -321,10 +337,17 @@ export class OpenAIProvider implements AIProvider {
   private async consumeSSE(
     body: ReadableStream<Uint8Array>,
     onDelta: (text: string) => void,
+    onToolStart?: (toolCallId: string, name: string, args: Record<string, unknown>) => void,
   ): Promise<void> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+
+    // Phase 30 BROWSER-CHAT-04 — accumulate per-index tool_call deltas. OpenAI
+    // streams function calls in pieces:
+    //   { delta: { tool_calls: [{ index, id?, function: { name?, arguments } }] }}
+    // We collect them and emit handler.onToolStart on `finish_reason === 'tool_calls'`.
+    const toolCalls: Record<number, { id: string; name: string; args: string }> = {};
 
     try {
       while (true) {
@@ -345,6 +368,31 @@ export class OpenAIProvider implements AIProvider {
             const delta = event?.choices?.[0]?.delta?.content;
             if (typeof delta === "string" && delta.length > 0) {
               onDelta(delta);
+            }
+            // Tool call streaming: accumulate per-index and emit on finish.
+            const tcArr = event?.choices?.[0]?.delta?.tool_calls;
+            if (Array.isArray(tcArr) && onToolStart) {
+              for (const tc of tcArr) {
+                const idx = typeof tc?.index === "number" ? tc.index : 0;
+                if (tc?.id && tc?.function?.name) {
+                  toolCalls[idx] = { id: tc.id, name: tc.function.name, args: "" };
+                }
+                if (tc?.function?.arguments && toolCalls[idx]) {
+                  toolCalls[idx].args += tc.function.arguments;
+                }
+              }
+            }
+            const finishReason = event?.choices?.[0]?.finish_reason;
+            if (finishReason === "tool_calls" && onToolStart) {
+              for (const tc of Object.values(toolCalls)) {
+                let parsed: Record<string, unknown> = {};
+                try {
+                  parsed = tc.args ? JSON.parse(tc.args) : {};
+                } catch {
+                  parsed = { _raw: tc.args };
+                }
+                onToolStart(tc.id, tc.name, parsed);
+              }
             }
           } catch {
             // ignore malformed lines
