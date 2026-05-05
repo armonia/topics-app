@@ -978,167 +978,17 @@ function createTray(): void {
 
 // ============ IPC Handlers ============
 
-// --- Tab Management ---
-ipcMain.handle('browser:createTab', async (_event, url: string) => {
-  const result = createBrowserTab(url || 'about:blank');
-  activeTabId = result.id;
-  browserPanelVisible = true;
-  updateLayout?.();
-  return { success: true, ...result };
-});
-
-ipcMain.handle('browser:closeTab', async (_event, id: string) => {
-  const success = closeBrowserTab(id || activeTabId!);
-  return { success };
-});
-
-ipcMain.handle('browser:listTabs', async () => {
-  const tabs: { id: string; url: string; title: string; active: boolean }[] = [];
-  for (const [id, tab] of browserTabs) {
-    tabs.push({
-      id,
-      url: tab.url,
-      title: tab.title,
-      active: id === activeTabId,
-    });
-  }
-  return { success: true, tabs, activeTabId };
-});
-
-ipcMain.handle('browser:activateTab', async (_event, id: string) => {
-  if (!browserTabs.has(id)) return { success: false, error: 'Tab not found' };
-  activeTabId = id;
-  browserPanelVisible = true;
-  updateLayout?.();
-  return { success: true, activeTabId };
-});
-
-// --- Panel Visibility ---
-ipcMain.handle('browser:show', async () => {
-  browserPanelVisible = true;
-  if (browserTabs.size === 0) {
-    const result = createBrowserTab('about:blank');
-    activeTabId = result.id;
-  }
-  updateLayout?.();
-  return { success: true };
-});
-
-ipcMain.handle('browser:hide', async () => {
-  browserPanelVisible = false;
-  updateLayout?.();
-  return { success: true };
-});
-
-ipcMain.handle('browser:toggle', async () => {
-  browserPanelVisible = !browserPanelVisible;
-  if (browserPanelVisible && browserTabs.size === 0) {
-    const result = createBrowserTab('about:blank');
-    activeTabId = result.id;
-  }
-  updateLayout?.();
-  return { success: true, visible: browserPanelVisible };
-});
-
-ipcMain.handle('browser:isVisible', async () => {
-  return { visible: browserPanelVisible };
-});
-
-ipcMain.handle('browser:setWidth', async (_event, width: number) => {
-  // Not reassigning const — use a separate mutable approach if needed
-  // For now this is read-only
-  return { success: true, width: browserPanelWidth };
-});
-
-// --- Navigation ---
-ipcMain.handle('browser:navigate', async (_event, url: string) => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab) {
-    await tab.view.webContents.loadURL(url);
-    return { success: true };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('browser:back', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab && tab.view.webContents.canGoBack()) {
-    tab.view.webContents.goBack();
-    return { success: true };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('browser:forward', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab && tab.view.webContents.canGoForward()) {
-    tab.view.webContents.goForward();
-    return { success: true };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('browser:reload', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab) {
-    tab.view.webContents.reload();
-    return { success: true };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('browser:getUrl', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab) {
-    return { success: true, url: tab.view.webContents.getURL() };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('browser:getTitle', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab) {
-    return { success: true, title: tab.view.webContents.getTitle() };
-  }
-  return { success: false };
-});
-
-ipcMain.handle('browser:executeJs', async (_event, code: string) => {
-  const tab = browserTabs.get(activeTabId!);
-  if (tab) {
-    try {
-      const result = await tab.view.webContents.executeJavaScript(code);
-      return { success: true, result };
-    } catch (err: unknown) {
-      return { success: false, error: (err as Error).message };
-    }
-  }
-  return { success: false, error: 'No active tab' };
-});
-
-ipcMain.handle('browser:canGoBack', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  return { canGoBack: tab ? tab.view.webContents.canGoBack() : false };
-});
-
-ipcMain.handle('browser:canGoForward', async () => {
-  const tab = browserTabs.get(activeTabId!);
-  return { canGoForward: tab ? tab.view.webContents.canGoForward() : false };
-});
-
-// --- Screenshot ---
-ipcMain.handle('browser:screenshot', async (_event, tabId?: string) => {
-  const tab = browserTabs.get(tabId || activeTabId!);
-  if (!tab) return { success: false, error: 'Tab not found' };
-
-  try {
-    const image = await tab.view.webContents.capturePage();
-    const buffer = image.toPNG();
-    return { success: true, data: buffer.toString('base64'), format: 'png' };
-  } catch (err: unknown) {
-    return { success: false, error: (err as Error).message };
-  }
-});
+// --- Browser IPC handlers ---
+// REMOVED in plan 30-01 (Phase 30 BROWSER-CHAT-01).
+// 19 orphan handlers (createTab/closeTab/listTabs/activateTab/show/hide/toggle/
+// isVisible/setWidth/navigate/back/forward/reload/getUrl/getTitle/executeJs/
+// canGoBack/canGoForward/screenshot) had ZERO callers in client/src/ —
+// Electron's BrowserView side panel was never wired into the React UI.
+// The underlying browserTabs Map + createBrowserTab/closeBrowserTab + the
+// CDP info server at startCDPInfoServer() are KEPT — they back OpenClaw's
+// /json/list endpoint used by external tools to enumerate targets. Browser
+// control inside Topics now flows through Playwright (server/browser-service.ts)
+// and will be exposed via WebSocket in plan 30-02.
 
 // --- Window Control ---
 ipcMain.handle('window:close', () => {

@@ -109,6 +109,18 @@ export interface Topic {
   initialMessage?: string | null;
   disabledContextSources?: string[];
   assignedAgents?: { id: string; name: string; role: string }[];
+  /**
+   * Phase 30 BROWSER-CHAT-01 — last-known browser state for this topic.
+   * Populated by BrowserService on every navigation. Restored on server
+   * boot via browserService.restoreAllContexts(topics). NULL = topic has
+   * never opened a browser context.
+   */
+  browserState?: {
+    url: string;
+    contextId: string;
+    lastActiveAt: number;
+    viewport?: { width: number; height: number };
+  };
 }
 
 /**

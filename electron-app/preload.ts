@@ -1,31 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Browser tab management
-  browser: {
-    createTab: (url: string) => ipcRenderer.invoke('browser:createTab', url),
-    closeTab: (id: string) => ipcRenderer.invoke('browser:closeTab', id),
-    listTabs: () => ipcRenderer.invoke('browser:listTabs'),
-    activateTab: (id: string) => ipcRenderer.invoke('browser:activateTab', id),
-
-    show: () => ipcRenderer.invoke('browser:show'),
-    hide: () => ipcRenderer.invoke('browser:hide'),
-    toggle: () => ipcRenderer.invoke('browser:toggle'),
-    isVisible: () => ipcRenderer.invoke('browser:isVisible'),
-    setWidth: (width: number) => ipcRenderer.invoke('browser:setWidth', width),
-
-    navigate: (url: string) => ipcRenderer.invoke('browser:navigate', url),
-    back: () => ipcRenderer.invoke('browser:back'),
-    forward: () => ipcRenderer.invoke('browser:forward'),
-    reload: () => ipcRenderer.invoke('browser:reload'),
-    getUrl: () => ipcRenderer.invoke('browser:getUrl'),
-    getTitle: () => ipcRenderer.invoke('browser:getTitle'),
-    canGoBack: () => ipcRenderer.invoke('browser:canGoBack'),
-    canGoForward: () => ipcRenderer.invoke('browser:canGoForward'),
-
-    executeJs: (code: string) => ipcRenderer.invoke('browser:executeJs', code),
-    screenshot: (tabId?: string) => ipcRenderer.invoke('browser:screenshot', tabId),
-  },
+  // Browser IPC removed in plan 30-01 (Phase 30 BROWSER-CHAT-01).
+  // 19 orphan handlers in main.ts had zero callers in client/src/.
+  // Browser control inside Topics now flows through Playwright (server/browser-service.ts)
+  // and will be exposed via WebSocket in plan 30-02.
+  // The `browser-event` channel (onBrowserEvent below) STAYS — it's an inbound
+  // listener for events sent by notifyTopics() in main.ts.
 
   onBrowserEvent: (callback: (data: unknown) => void) => {
     ipcRenderer.on('browser-event', (_event, data) => callback(data));
