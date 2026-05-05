@@ -1,0 +1,21 @@
+{
+  "$schema": "perf-baseline-v1",
+  "phase": "30-browser-in-chat",
+  "updated": "2026-05-05",
+  "browser_ws_streaming": {
+    "fps_floor": 15,
+    "frame_count_in_2s_floor": 30,
+    "input_latency_p95_ms_ceiling": 150,
+    "input_latency_sample_size_min": 20,
+    "bandwidth_kbps_ceiling": 1500,
+    "first_frame_ms_ceiling": 2000,
+    "fallback_http_grace_ms_ceiling": 4000
+  },
+  "browser_agent_control": {
+    "tool_call_overhead_ms_ceiling": 50,
+    "agent_active_broadcast_sequence_strict": true
+  },
+  "browser_iframe_fallback": {
+    "cls_ceiling": 0.1
+  }
+}
