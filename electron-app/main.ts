@@ -1,5 +1,5 @@
 import {
-  app, BrowserWindow, BrowserView, ipcMain, Menu, Tray,
+  app, BrowserWindow, BrowserView, WebContentsView, ipcMain, Menu, Tray,
   nativeImage, shell, session, Notification,
   type NativeImage, type MenuItemConstructorOptions, type MenuItem,
 } from 'electron';
@@ -139,6 +139,168 @@ const CDP_INFO_PORT = 19334;
 let tabIdCounter = 0;
 function generateTabId(): string {
   return `tab-${++tabIdCounter}-${Date.now()}`;
+}
+
+// ============ Phase 30.1 BROWSER-CHAT-06 — Native Browser Manager ============
+//
+// Per-topic WebContentsView lifecycle. Runs alongside (NOT replacing) the
+// legacy `browserTabs` Map (BrowserView side-panel — unused in current UI
+// but preserved for /json/list backward-compat).
+//
+// Sync utente↔agent: ONE WebContentsView per topic. Server-side agent
+// dispatcher attacca via CDP a porta 19333 (already exposed via
+// app.commandLine.appendSwitch line ~1515) e identifica la view via
+// `cdpTargetId` ritornato da getCdpTargetId().
+
+interface NativeBrowserEntry {
+  view: WebContentsView;
+  topicId: string;
+  partitionId: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  // Cleanup on destroy.
+  cleanup: () => void;
+}
+
+const nativeBrowsers = new Map<string, NativeBrowserEntry>();
+
+function generateNativeViewId(): string {
+  return `nbv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Resolve the CDP targetId of a WebContentsView's webContents.
+ *
+ * Electron exposes CDP on port 19333 (see app.commandLine line ~1515).
+ * Each WebContents has a `getOSProcessId()` and a `webContents.id` (renderer
+ * process id, NOT CDP targetId). To resolve the actual CDP targetId we hit
+ * /json/list and match by URL + title.
+ *
+ * Match strategy (in order, first non-empty match wins):
+ *   1. URL exact match (rare collisions across views)
+ *   2. URL prefix match (covers query-string-only nav)
+ *   3. Title match (final fallback)
+ *
+ * Caller MUST ensure the view has finished loading at least once before
+ * calling — otherwise URL is 'about:blank' and matches non-deterministically.
+ */
+async function resolveCdpTargetIdForView(view: WebContentsView): Promise<string> {
+  const wc = view.webContents;
+  const url = wc.getURL();
+  const title = wc.getTitle();
+
+  const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
+  if (!res.ok) {
+    throw new Error(`CDP /json/list returned ${res.status}`);
+  }
+  const targets = (await res.json()) as Array<{
+    id: string;
+    type: string;
+    url: string;
+    title: string;
+  }>;
+
+  // 1. URL exact
+  const exact = targets.find(t => t.type === 'page' && t.url === url);
+  if (exact) return exact.id;
+
+  // 2. URL prefix (strip query+hash for stability)
+  const stripped = url.split('?')[0].split('#')[0];
+  const prefix = targets.find(t => t.type === 'page' && t.url.startsWith(stripped));
+  if (prefix) return prefix.id;
+
+  // 3. Title fallback
+  const byTitle = targets.find(t => t.type === 'page' && t.title === title && title !== '');
+  if (byTitle) return byTitle.id;
+
+  throw new Error(
+    `resolveCdpTargetIdForView: no CDP target match for url=${url} title=${title} (targets seen: ${targets.length})`
+  );
+}
+
+function createNativeBrowser(
+  topicId: string,
+  partitionId: string,
+  initialUrl: string
+): NativeBrowserEntry {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    throw new Error('createNativeBrowser: mainWindow not available');
+  }
+
+  // Per-topic isolated session — cookies/localStorage/sessionStorage scoped
+  // to the partition string. Persists across Electron restarts because the
+  // 'persist:' prefix tells Electron to write to disk under userData.
+  const topicSession = session.fromPartition(partitionId, { cache: true });
+
+  const view = new WebContentsView({
+    webPreferences: {
+      session: topicSession,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      // No webview tag in WebContentsView; not needed here.
+    },
+  });
+
+  // Attach as child of the main window's contentView. The renderer
+  // controls placement via setBounds; default starts hidden offscreen
+  // until the renderer ResizeObserver fires.
+  mainWindow.contentView.addChildView(view);
+  view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+
+  const entry: NativeBrowserEntry = {
+    view,
+    topicId,
+    partitionId,
+    bounds: { x: 0, y: 0, width: 0, height: 0 },
+    cleanup: () => {
+      // Listeners are wired below; this is filled in next.
+    },
+  };
+
+  // Initial navigation — kicks off the page load AFTER attaching to the
+  // window so DevTools / CDP picks it up.
+  const wc = view.webContents;
+  if (initialUrl && initialUrl !== 'about:blank') {
+    wc.loadURL(initialUrl).catch((err: unknown) => {
+      console.error(`[BrowserNativeManager] initial loadURL failed:`, err);
+    });
+  } else {
+    wc.loadURL('about:blank').catch(() => { /* ignore */ });
+  }
+
+  return entry;
+}
+
+function destroyNativeBrowser(viewId: string): void {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) return;
+
+  // Run cleanup hooks FIRST (removes IPC senders, listeners, etc.).
+  try { entry.cleanup(); } catch (err) {
+    console.error(`[BrowserNativeManager] cleanup hook failed for ${viewId}:`, err);
+  }
+
+  // Detach from window contentView.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.contentView.removeChildView(entry.view);
+    } catch (err) {
+      console.error(`[BrowserNativeManager] removeChildView failed for ${viewId}:`, err);
+    }
+  }
+
+  // Destroy underlying webContents.
+  const wc = entry.view.webContents;
+  if (!wc.isDestroyed()) {
+    // No public destroy() on WebContents; close() works for owned views.
+    try {
+      (wc as unknown as { close(): void }).close();
+    } catch (err) {
+      console.error(`[BrowserNativeManager] webContents close failed for ${viewId}:`, err);
+    }
+  }
+
+  nativeBrowsers.delete(viewId);
 }
 
 // ============ Window Management ============
@@ -990,6 +1152,147 @@ function createTray(): void {
 // control inside Topics now flows through Playwright (server/browser-service.ts)
 // and will be exposed via WebSocket in plan 30-02.
 
+// --- Phase 30.1 BROWSER-CHAT-06 — Native browser IPC handlers ---
+// Re-add 8 clean handlers backing WebContentsView per topic. Pulisce il
+// gap del manual smoke ("ma è un browser finto in streaming?") in Electron.
+// In web mode (no Electron), questi non vengono mai chiamati — il client
+// detect runtime via window.electronAPI?.browserNative?.isAvailable e cade
+// back al path Phase 30.
+
+ipcMain.handle('browser-native:create', async (
+  _evt,
+  opts: { topicId: string; partitionId: string; initialUrl?: string }
+): Promise<{ viewId: string; cdpTargetId: string }> => {
+  if (!opts || typeof opts.topicId !== 'string' || !opts.topicId) {
+    throw new Error('browser-native:create — topicId required');
+  }
+  if (typeof opts.partitionId !== 'string' || !opts.partitionId.startsWith('persist:')) {
+    throw new Error('browser-native:create — partitionId must start with "persist:"');
+  }
+  const viewId = generateNativeViewId();
+  const initialUrl = opts.initialUrl || 'about:blank';
+  const entry = createNativeBrowser(opts.topicId, opts.partitionId, initialUrl);
+  nativeBrowsers.set(viewId, entry);
+
+  const wc = entry.view.webContents;
+
+  // Wire per-view IPC senders (renderer subscribes via channels keyed by viewId).
+  const sendUrl = () => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(`browser-native:url-change:${viewId}`, wc.getURL());
+    }
+  };
+  const sendTitle = (_e: unknown, title: string) => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(`browser-native:title-change:${viewId}`, title);
+    }
+  };
+  const sendLoadingStart = () => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(`browser-native:loading-change:${viewId}`, true);
+    }
+  };
+  const sendLoadingEnd = () => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(`browser-native:loading-change:${viewId}`, false);
+    }
+  };
+
+  wc.on('did-navigate', sendUrl);
+  wc.on('did-navigate-in-page', sendUrl);
+  wc.on('page-title-updated', sendTitle);
+  wc.on('did-start-loading', sendLoadingStart);
+  wc.on('did-stop-loading', sendLoadingEnd);
+
+  entry.cleanup = () => {
+    wc.removeListener('did-navigate', sendUrl);
+    wc.removeListener('did-navigate-in-page', sendUrl);
+    wc.removeListener('page-title-updated', sendTitle);
+    wc.removeListener('did-start-loading', sendLoadingStart);
+    wc.removeListener('did-stop-loading', sendLoadingEnd);
+  };
+
+  // Wait for first paint before resolving CDP targetId — otherwise
+  // the /json/list response may not yet contain the view (race).
+  await new Promise<void>((resolve) => {
+    if (!wc.isLoading()) return resolve();
+    wc.once('did-stop-loading', () => resolve());
+  });
+
+  let cdpTargetId: string;
+  try {
+    cdpTargetId = await resolveCdpTargetIdForView(entry.view);
+  } catch (err) {
+    // Don't fail the create — fallback to empty cdpTargetId; agent
+    // dispatcher will retry via getCdpTargetId IPC. Log for diagnosis.
+    console.warn(`[browser-native:create] resolveCdpTargetId failed:`, (err as Error).message);
+    cdpTargetId = '';
+  }
+
+  return { viewId, cdpTargetId };
+});
+
+ipcMain.handle('browser-native:destroy', async (_evt, viewId: string): Promise<void> => {
+  destroyNativeBrowser(viewId);
+});
+
+ipcMain.handle('browser-native:navigate', async (
+  _evt, viewId: string, url: string
+): Promise<{ url: string; title: string }> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:navigate — view ${viewId} not found`);
+  if (typeof url !== 'string' || !url) throw new Error('browser-native:navigate — url required');
+  await entry.view.webContents.loadURL(url);
+  return {
+    url: entry.view.webContents.getURL(),
+    title: entry.view.webContents.getTitle(),
+  };
+});
+
+ipcMain.handle('browser-native:go-back', async (_evt, viewId: string): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:go-back — view ${viewId} not found`);
+  const nav = (entry.view.webContents as unknown as { navigationHistory?: { goBack(): void } }).navigationHistory;
+  if (nav?.goBack) nav.goBack();
+  else (entry.view.webContents as unknown as { goBack(): void }).goBack?.();
+});
+
+ipcMain.handle('browser-native:go-forward', async (_evt, viewId: string): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:go-forward — view ${viewId} not found`);
+  const nav = (entry.view.webContents as unknown as { navigationHistory?: { goForward(): void } }).navigationHistory;
+  if (nav?.goForward) nav.goForward();
+  else (entry.view.webContents as unknown as { goForward(): void }).goForward?.();
+});
+
+ipcMain.handle('browser-native:reload', async (_evt, viewId: string): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:reload — view ${viewId} not found`);
+  entry.view.webContents.reload();
+});
+
+ipcMain.handle('browser-native:set-bounds', async (
+  _evt, viewId: string, bounds: { x: number; y: number; width: number; height: number }
+): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:set-bounds — view ${viewId} not found`);
+  // Round to integers — Electron's setBounds expects integer pixels.
+  const safe = {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.max(0, Math.round(bounds.width)),
+    height: Math.max(0, Math.round(bounds.height)),
+  };
+  entry.view.setBounds(safe);
+  entry.bounds = safe;
+});
+
+ipcMain.handle('browser-native:get-cdp-target-id', async (_evt, viewId: string): Promise<string> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:get-cdp-target-id — view ${viewId} not found`);
+  return await resolveCdpTargetIdForView(entry.view);
+});
+
 // --- Window Control ---
 ipcMain.handle('window:close', () => {
   mainWindow?.hide();
@@ -1498,6 +1801,10 @@ app.on('will-quit', () => {
   stopWSBridge();
   stopNotificationCleanup();
   stopAssetWatcher();
+  // Phase 30.1 — destroy any native browser views still alive.
+  for (const viewId of nativeBrowsers.keys()) {
+    try { destroyNativeBrowser(viewId); } catch { /* best effort */ }
+  }
 });
 
 // Allow self-signed TLS certificates for localhost
