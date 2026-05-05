@@ -332,6 +332,22 @@ export function ChatInput({
     }
   }, [currentMessages, currentStreaming, autoTTS, speak]);
 
+  // Phase 30 BROWSER-CHAT-04 — listen for chat:insert-text custom events
+  // dispatched by SelectElementOverlay (Cmd+Shift+E pick) and other loosely
+  // coupled producers. Inserts the provided text into the chat input prefixed
+  // with a blank line if there's existing content, then focuses the textarea.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ text?: string }>;
+      const incoming = ce.detail?.text;
+      if (!incoming) return;
+      setMessage(message ? `${message}\n\n${incoming}` : incoming);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener('chat:insert-text', handler as EventListener);
+    return () => window.removeEventListener('chat:insert-text', handler as EventListener);
+  }, [message, setMessage, textareaRef]);
+
   const filteredSlashCommands = SLASH_COMMANDS.filter(c => 
     c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
   );

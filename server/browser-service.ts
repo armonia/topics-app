@@ -107,6 +107,19 @@ export interface BrowserService {
    *  overlay container + data-topics-idx attributes in a finally block (best
    *  effort — cleanup errors do not propagate). */
   captureAnnotatedScreenshot(contextId: string, elements: IndexedElement[], opts?: { quality?: number }): Promise<string>;
+  /** Phase 30 BROWSER-CHAT-04 — DOM info at a viewport point for the
+   *  Cursor-style select-element pattern (Cmd+Shift+E). Returns DOM XPath +
+   *  CSS-style selector + bbox + truncated text, or null if no element exists
+   *  at the point or the context is gone. */
+  resolveElementAtPoint(
+    contextId: string,
+    point: { x: number; y: number },
+  ): Promise<{
+    path: string;
+    cssPath: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    text?: string;
+  } | null>;
 }
 
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
@@ -929,6 +942,69 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           });
         } catch {}
         throw err;
+      }
+    },
+
+    // Phase 30 BROWSER-CHAT-04 — DOM info at a point for select-element mode.
+    // Returns null when the context is missing or no element resolves at the
+    // given coords. Pure read; no DOM mutation. The page evaluate walks the
+    // ancestor chain to build an XPath-like path and constructs a short CSS
+    // selector (tag + #id + up to 3 classes).
+    async resolveElementAtPoint(contextId, point) {
+      const entry = contexts.get(contextId);
+      if (!entry) return null;
+      const page = entry.page;
+      try {
+        const result = await page.evaluate((p: { x: number; y: number }) => {
+          const target = document.elementFromPoint(p.x, p.y);
+          if (!target) return null;
+
+          // Build an XPath-like path of [tag][index] segments up to <html>.
+          const segments: string[] = [];
+          let cur: Element | null = target;
+          while (cur && cur !== document.documentElement) {
+            const parent = cur.parentElement;
+            const siblings = parent
+              ? Array.from(parent.children).filter((c) => c.tagName === cur!.tagName)
+              : [];
+            const idx = parent ? siblings.indexOf(cur) + 1 : 1;
+            segments.unshift(`${cur.tagName.toLowerCase()}[${idx}]`);
+            cur = parent;
+          }
+          const path = '/html/' + segments.join('/');
+
+          const tag = target.tagName.toLowerCase();
+          const idAttr = target.id ? `#${target.id}` : '';
+          let classes = '';
+          const classAttr = target.getAttribute('class');
+          if (classAttr) {
+            const parts = classAttr.split(/\s+/).filter(Boolean).slice(0, 3);
+            if (parts.length > 0) classes = '.' + parts.join('.');
+          }
+          const cssPath = `${tag}${idAttr}${classes}`;
+
+          const r = target.getBoundingClientRect();
+          const txt = (target.textContent || '').trim();
+          const text = txt.length > 0 ? txt.slice(0, 80) : undefined;
+
+          return {
+            path,
+            cssPath,
+            bbox: {
+              x: Math.round(r.left),
+              y: Math.round(r.top),
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+            },
+            text,
+          };
+        }, point);
+        touchActivity(entry);
+        return result;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[BrowserService] resolveElementAtPoint failed for ${contextId}:`, msg);
+        return null;
       }
     },
   };

@@ -245,10 +245,11 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
           imgRef={browser.imgRef}
           pageScaleFactor={browser.pageScaleFactor}
           onPick={(el) => {
+            // SelectElementOverlay also dispatches the chat:insert-text custom
+            // event before calling onPick (single source of truth for the
+            // chat-injection side effect). Here we just persist the picked
+            // element on the hook for any downstream consumers.
             browser.setSelectedElement(el);
-            // Inject as chat context message via custom event (loosely coupled).
-            const text = `Selected element: ${el.cssPath} @ ${el.path} (bbox: ${el.bbox.x},${el.bbox.y},${el.bbox.w},${el.bbox.h})${el.text ? ` text: "${el.text}"` : ''}`;
-            window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text } }));
           }}
           onCancel={() => browser.exitSelectMode()}
         />

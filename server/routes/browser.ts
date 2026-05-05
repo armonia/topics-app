@@ -172,6 +172,30 @@ export function createBrowserRouter(ctx: AppContext, browserService: BrowserServ
       }
     }
 
+    // --- Phase 30 BROWSER-CHAT-04 — DOM info at a viewport point ---
+    // Backs the Cursor Cmd+Shift+E select-element overlay. Pure read endpoint:
+    // returns DOM path + CSS selector + bbox + truncated text for the element
+    // at (x, y), or 404 if nothing resolves there. Also serves agent flows
+    // that want to query DOM context without invoking the full observe path.
+    const inspectMatch = matchRoute(pathname, "/api/browsers/:id/inspect");
+    if (method === "POST" && inspectMatch) {
+      const body = await readJSON(req);
+      const x = Number(body?.x);
+      const y = Number(body?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return json({ error: "x and y required" }, 400);
+      }
+      try {
+        const info = await browserService.resolveElementAtPoint(inspectMatch.id, { x, y });
+        if (!info) return json({ error: "Element not found at point" }, 404);
+        return json(info);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /inspect failed:`, msg);
+        return errorResponse(500, `Inspect failed: ${msg}`);
+      }
+    }
+
     // --- Interact (unified REST endpoint for agents) ---
     const interactMatch = matchRoute(pathname, "/api/browsers/:id/interact");
     if (method === "POST" && interactMatch) {

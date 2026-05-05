@@ -145,7 +145,15 @@ export function SelectElementOverlay({
         });
         if (!res.ok) return;
         const info = await res.json();
-        if (info?.bbox) onPick(info);
+        if (info?.bbox) {
+          // Phase 30 BROWSER-CHAT-04 — dispatch chat:insert-text so any chat
+          // input wired to listen receives the picked element as a context
+          // message. Loosely coupled (no prop drilling). Parent's onPick can
+          // also subscribe to selectedElement state via the hook.
+          const text = `Selected element: ${info.cssPath} @ ${info.path} (bbox: ${info.bbox.x},${info.bbox.y},${info.bbox.w},${info.bbox.h})${info.text ? ` text: "${info.text}"` : ''}`;
+          window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text } }));
+          onPick(info);
+        }
       } catch {
         // Ignore — user can retry.
       }
