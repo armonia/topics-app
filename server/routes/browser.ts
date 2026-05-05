@@ -1,5 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { BrowserService } from "../browser-service";
+import type { ElectronCdpDispatcher } from "../browser-cdp-dispatcher";
 import {
   handleBrowserOpen,
   handleBrowserObserve,
@@ -9,7 +10,11 @@ import {
   handleBrowserPoint,
 } from "../browser-tools-handler";
 
-export function createBrowserRouter(ctx: AppContext, browserService: BrowserService): RouteHandler {
+export function createBrowserRouter(
+  ctx: AppContext,
+  browserService: BrowserService,
+  cdpDispatcher: ElectronCdpDispatcher | null = null,
+): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute, broadcast } = ctx;
 
   return async function browserRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -170,6 +175,31 @@ export function createBrowserRouter(ctx: AppContext, browserService: BrowserServ
         console.warn(`[Routes/browser] /agent/point failed:`, msg);
         return json({ error: msg }, 500);
       }
+    }
+
+    // --- Phase 30.1 BROWSER-CHAT-06 — register CDP targetId for Electron native browser ---
+    // Called by client useNativeBrowser hook after WebContentsView creation.
+    // POST /api/browsers/:id/cdp-target { cdpTargetId } -> registers in dispatcher
+    // DELETE /api/browsers/:id/cdp-target               -> unregisters on view destroy
+    const cdpRegisterMatch = matchRoute(pathname, "/api/browsers/:id/cdp-target");
+    if (cdpRegisterMatch && method === "POST") {
+      if (!cdpDispatcher) return json({ error: "Electron CDP dispatcher not configured (web mode)" }, 400);
+      try {
+        const body = (await req.json()) as { cdpTargetId?: string };
+        if (typeof body.cdpTargetId !== "string" || !body.cdpTargetId) {
+          return json({ error: "cdpTargetId (string) is required" }, 400);
+        }
+        cdpDispatcher.registerTarget(cdpRegisterMatch.id, body.cdpTargetId);
+        return json({ ok: true, contextId: cdpRegisterMatch.id, cdpTargetId: body.cdpTargetId });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ error: msg }, 500);
+      }
+    }
+    if (cdpRegisterMatch && method === "DELETE") {
+      if (!cdpDispatcher) return json({ ok: true });
+      cdpDispatcher.unregisterTarget(cdpRegisterMatch.id);
+      return json({ ok: true });
     }
 
     // --- Phase 30 BROWSER-CHAT-04 — DOM info at a viewport point ---

@@ -1,0 +1,122 @@
+/**
+ * Phase 30.1 BROWSER-CHAT-06 — Unified browser operations surface.
+ *
+ * Both BrowserService (Playwright server-launched) and ElectronCdpDispatcher
+ * (Playwright connectOverCDP to Electron host) implement this interface
+ * so the 6 tool handlers can target ONE shape regardless of runtime.
+ *
+ * `broadcastAgentActive` is excluded — it's a service-level concern (the
+ * single registry) and stays a separate dep on the handler factory.
+ */
+import type { BrowserService } from './browser-service';
+import type { ElectronCdpDispatcher } from './browser-cdp-dispatcher';
+import type { IndexedElement } from './browser-tools';
+
+export interface BrowserOps {
+  navigate(url: string): Promise<{ url: string; title: string }>;
+  screenshot(opts: { format?: 'jpeg' | 'png'; quality?: number; fullPage?: boolean }): Promise<Buffer>;
+  dispatchInput(
+    type: 'click' | 'type' | 'scroll',
+    payload: { x?: number; y?: number; text?: string; deltaX?: number; deltaY?: number },
+  ): Promise<void>;
+  extractIndexedElements(opts: { maxElements?: number }): Promise<IndexedElement[]>;
+  captureAnnotatedScreenshot(elements: IndexedElement[]): Promise<string>;
+  accessibilitySnapshot(): Promise<{ url: string; title: string; ariaSnapshot: string }>;
+  viewport(): { width: number; height: number };
+}
+
+/** Adapter wrapping BrowserService (Phase 30 path). */
+export function playwrightOps(service: BrowserService, contextId: string): BrowserOps {
+  return {
+    navigate: (url) => service.navigate(contextId, url),
+    screenshot: (opts) => service.screenshot(contextId, opts),
+    dispatchInput: (type, payload) => service.dispatchInput(contextId, type, payload),
+    extractIndexedElements: (opts) => service.extractIndexedElements(contextId, opts),
+    captureAnnotatedScreenshot: (els) => service.captureAnnotatedScreenshot(contextId, els),
+    accessibilitySnapshot: () => service.accessibilitySnapshot(contextId),
+    viewport: () => {
+      // BrowserService doesn't expose a sync viewport — wrap getOrCreate.
+      // Callers use this only for screenshot return shape; default to 1280x720
+      // and let the actual call upgrade if needed. The handler does its own
+      // viewport read via service.getOrCreate, so this is a safe default.
+      return { width: 1280, height: 720 };
+    },
+  };
+}
+
+/**
+ * Adapter wrapping ElectronCdpDispatcher (Phase 30.1 path). Mirrors
+ * Playwright API on the resolved Page. The action set matches BrowserService
+ * but uses page.click/keyboard/wheel directly (no CDP raw screencast since
+ * Electron native rendering doesn't need server-side frame stream).
+ *
+ * extractIndexedElements + captureAnnotatedScreenshot are deferred-and-thrown
+ * for now: they require helpers from BrowserService (DOM walker injected via
+ * page.evaluate). To avoid duplicating ~150 lines of helper code, MVP
+ * delegates these two ops to BrowserService when in Electron mode (see
+ * browser-tools-handler.ts Task 4.2 for the routing pattern). This keeps
+ * the dispatcher minimal: navigate/screenshot/dispatchInput are the
+ * latency-sensitive ops (CDP path is much faster than streaming Playwright
+ * server). Observe/extract are agent-side and tolerate web fallback even
+ * in Electron mode.
+ */
+export function cdpOps(
+  dispatcher: ElectronCdpDispatcher,
+  contextId: string,
+  // Fallback service for ops we don't (yet) implement on the CDP path.
+  fallbackService: BrowserService,
+): BrowserOps {
+  const playwrightFallback = playwrightOps(fallbackService, contextId);
+  return {
+    async navigate(url) {
+      const page = await dispatcher.getPage(contextId);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      return { url: page.url(), title: await page.title() };
+    },
+    async screenshot(opts) {
+      const page = await dispatcher.getPage(contextId);
+      return await page.screenshot({
+        type: opts.format ?? 'jpeg',
+        quality: opts.format === 'png' ? undefined : (opts.quality ?? 70),
+        fullPage: opts.fullPage ?? false,
+      });
+    },
+    async dispatchInput(type, payload) {
+      const page = await dispatcher.getPage(contextId);
+      if (type === 'click') {
+        await page.mouse.click(payload.x ?? 0, payload.y ?? 0);
+      } else if (type === 'type') {
+        await page.keyboard.type(payload.text ?? '');
+      } else if (type === 'scroll') {
+        await page.mouse.wheel(payload.deltaX ?? 0, payload.deltaY ?? 0);
+      }
+    },
+    // Observe/extract: delegate to BrowserService — DOM walker reuse keeps
+    // behaviour identical to web mode. KNOWN LIMITATION MVP: the walker
+    // runs on the Playwright-managed page in BrowserService, NOT on the
+    // Electron WebContentsView. Silent state mismatch acceptable per MVP
+    // (browser_act subsequently dispatches via WebContentsView CDP, and
+    // the user-visible WebContentsView is the source of truth). See
+    // REQUIREMENTS.md BROWSER-CHAT-06 known-limitation note. Future
+    // improvement: extract DOM walker into a standalone module reusable
+    // by both adapters. Runtime warns once per call so the deviation is
+    // observable in dev logs.
+    extractIndexedElements: async (opts) => {
+      console.warn('[cdpOps] extractIndexedElements: delegating to Playwright BrowserService (DOM walker reuse) — NOT walking the Electron WebContentsView. Known MVP limitation per BROWSER-CHAT-06.');
+      return playwrightFallback.extractIndexedElements(opts);
+    },
+    captureAnnotatedScreenshot: async (elements) => {
+      console.warn('[cdpOps] captureAnnotatedScreenshot: delegating to Playwright BrowserService — annotation overlay drawn on Playwright page, NOT WebContentsView. Known MVP limitation per BROWSER-CHAT-06.');
+      return playwrightFallback.captureAnnotatedScreenshot(elements);
+    },
+    accessibilitySnapshot: async () => {
+      const page = await dispatcher.getPage(contextId);
+      return {
+        url: page.url(),
+        title: await page.title(),
+        ariaSnapshot: await page.locator('body').ariaSnapshot().catch(() => ''),
+      };
+    },
+    viewport: () => ({ width: 1280, height: 720 }), // Electron uses native size; renderer-bound
+  };
+}

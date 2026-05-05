@@ -26,6 +26,8 @@ import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createSpacesRouter } from "./server/routes/spaces";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createBrowserService, type BrowserService } from "./server/browser-service";
+import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
+import { setBrowserCdpDispatcher } from "./server/browser-tools-handler";
 import { sendBrowserWsMessage, isBrowserWsMessage } from "./server/browser-ws-messages";
 import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
@@ -197,6 +199,17 @@ const browserService = await createBrowserService({
   broadcastToBrowserWs,
 });
 
+// Phase 30.1 BROWSER-CHAT-06 — Electron CDP dispatcher.
+// Created at boot and wired to browser-tools-handler so the agent tool
+// dispatcher can route conditionally between Playwright (web) and CDP
+// (Electron native) paths. The browser-tools-handler resolveOps() probes
+// isElectronCdpAvailable() per-call. Web-only deployments (no Electron
+// host) just see the probe return false and stay on the Playwright path.
+const cdpDispatcher = createCdpDispatcher({
+  broadcastAgentActive: browserService.broadcastAgentActive.bind(browserService),
+});
+setBrowserCdpDispatcher(cdpDispatcher);
+
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
 initUsageStore(import.meta.dir);
 rebuildSummary();
@@ -204,7 +217,7 @@ rebuildSummary();
 // Create route handlers
 const topicsRouter = createTopicsRouter(ctx, browserService);
 const filesRouter = createFilesRouter(ctx);
-const browserRouter = createBrowserRouter(ctx, browserService);
+const browserRouter = createBrowserRouter(ctx, browserService, cdpDispatcher);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx);
@@ -782,6 +795,8 @@ async function gracefulShutdown(signal: string) {
   stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();
+  // Phase 30.1 BROWSER-CHAT-06 — close CDP dispatcher (releases connectOverCDP browser handle).
+  await cdpDispatcher.close();
   // Stop all AI providers BEFORE closing the DB. claude-code's stop() sends
   // SIGTERM to the spawned `claude` CLI children so they flush session state
   // to ~/.claude/sessions/ — without this, `bun --watch` hot reloads left

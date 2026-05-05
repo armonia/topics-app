@@ -23,8 +23,30 @@ import type {
   IndexedElement,
 } from "./browser-tools";
 import { pointObject } from "./integrations/moondream-client";
+import { isElectronCdpAvailable } from "./electron-cdp-probe";
+import type { ElectronCdpDispatcher } from "./browser-cdp-dispatcher";
+import { playwrightOps, cdpOps, type BrowserOps } from "./browser-ops-adapter";
 
 const observeCache = new Map<string, IndexedElement[]>();
+
+// Phase 30.1 BROWSER-CHAT-06 — module-level dispatcher reference. Set once at
+// boot via setBrowserCdpDispatcher() in server.ts. Null in pure-web builds.
+let cdpDispatcher: ElectronCdpDispatcher | null = null;
+export function setBrowserCdpDispatcher(d: ElectronCdpDispatcher | null): void {
+  cdpDispatcher = d;
+}
+
+/**
+ * Resolve the right BrowserOps adapter for a contextId.
+ * - Electron CDP up + cdpTargetId registered for this contextId -> CDP path
+ * - Otherwise -> existing Playwright path (zero regressions in web mode)
+ */
+async function resolveOps(service: BrowserService, contextId: string): Promise<BrowserOps> {
+  if (cdpDispatcher && (await isElectronCdpAvailable()) && cdpDispatcher.getTargetId(contextId)) {
+    return cdpOps(cdpDispatcher, contextId, service);
+  }
+  return playwrightOps(service, contextId);
+}
 
 export function clearObserveCache(contextId: string): void {
   observeCache.delete(contextId);
@@ -56,8 +78,9 @@ export async function handleBrowserOpen(
     throw new Error("browser_open: 'url' (string) is required");
   }
   console.log(`[BrowserTools] browser_open(${contextId}, ${args.url})`);
+  const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const result = await service.navigate(contextId, args.url);
+    const result = await ops.navigate(args.url);
     // Page navigated -> any cached IndexedElement[] is stale.
     clearObserveCache(contextId);
     return result;
@@ -71,15 +94,13 @@ export async function handleBrowserObserve(
 ): Promise<AgentObserveResponse> {
   const max = typeof args?.max_elements === "number" ? args.max_elements : 50;
   console.log(`[BrowserTools] browser_observe(${contextId}, max=${max})`);
+  const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const elements = await service.extractIndexedElements(contextId, {
+    const elements = await ops.extractIndexedElements({
       maxElements: max,
     });
-    const screenshot_annotated = await service.captureAnnotatedScreenshot(
-      contextId,
-      elements
-    );
-    const a11y = await service.accessibilitySnapshot(contextId);
+    const screenshot_annotated = await ops.captureAnnotatedScreenshot(elements);
+    const a11y = await ops.accessibilitySnapshot();
     observeCache.set(contextId, elements);
     return {
       a11y_tree: a11y.ariaSnapshot,
@@ -120,24 +141,25 @@ export async function handleBrowserAct(
   console.log(
     `[BrowserTools] browser_act(${contextId}, id=${args.element_id}, action=${args.action})`
   );
+  const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
     const cx = el.bbox.x + Math.round(el.bbox.width / 2);
     const cy = el.bbox.y + Math.round(el.bbox.height / 2);
     if (args.action === "click") {
-      await service.dispatchInput(contextId, "click", { x: cx, y: cy });
+      await ops.dispatchInput("click", { x: cx, y: cy });
     } else if (args.action === "type") {
       if (typeof args.text !== "string") {
         throw new Error("browser_act type: 'text' (string) is required");
       }
       // Click first to focus, then type.
-      await service.dispatchInput(contextId, "click", { x: cx, y: cy });
-      await service.dispatchInput(contextId, "type", { text: args.text });
+      await ops.dispatchInput("click", { x: cx, y: cy });
+      await ops.dispatchInput("type", { text: args.text });
     } else {
       // 'select' falls through to a focus click. Full option-by-text selection
       // (e.g. via <select><option> matching args.text) is deferred -- MVP
       // treats select like click on the indexed element and lets the agent
       // call browser_observe again to interact with the popped option list.
-      await service.dispatchInput(contextId, "click", { x: cx, y: cy });
+      await ops.dispatchInput("click", { x: cx, y: cy });
     }
     return { ok: true as const, element: el };
   });
@@ -162,9 +184,10 @@ export async function handleBrowserExtract(
   console.log(
     `[BrowserTools] browser_extract(${contextId}, schema keys: ${keys.length ? keys.join(",") : "<none>"})`
   );
+  const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
     try {
-      const a11y = await service.accessibilitySnapshot(contextId);
+      const a11y = await ops.accessibilitySnapshot();
       // MVP: return discovery payload (a11y snapshot + schemaEcho + page metadata).
       // Full LLM-driven extraction landing in a follow-up plan -- the schema
       // is echoed back so a downstream LLM call can do the structured output.
@@ -196,14 +219,14 @@ export async function handleBrowserScreenshot(
   console.log(
     `[BrowserTools] browser_screenshot(${contextId}, full_page=${Boolean(args?.full_page)})`
   );
+  const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const buf = await service.screenshot(contextId, {
+    const buf = await ops.screenshot({
       format: "jpeg",
       quality: 70,
       fullPage: args?.full_page ?? false,
     });
-    const entry = await service.getOrCreate(contextId);
-    const vp = entry.page.viewportSize() ?? { width: 1280, height: 720 };
+    const vp = ops.viewport();
     return {
       format: "jpeg" as const,
       data: buf.toString("base64"),
@@ -225,13 +248,13 @@ export async function handleBrowserPoint(
   console.log(
     `[BrowserTools] browser_point(${contextId}, "${args.description.slice(0, 80)}")`
   );
+  const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const buf = await service.screenshot(contextId, {
+    const buf = await ops.screenshot({
       format: "jpeg",
       quality: 70,
     });
-    const entry = await service.getOrCreate(contextId);
-    const vp = entry.page.viewportSize() ?? { width: 1280, height: 720 };
+    const vp = ops.viewport();
     const result = await pointObject({
       contextId,
       imageBase64: buf.toString("base64"),
@@ -245,7 +268,7 @@ export async function handleBrowserPoint(
       };
     }
     const target = result.points[0];
-    await service.dispatchInput(contextId, "click", { x: target.x, y: target.y });
+    await ops.dispatchInput("click", { x: target.x, y: target.y });
     return { clicked: true as const, point: target };
   });
 }
