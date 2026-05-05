@@ -40,7 +40,11 @@ const MOCK_BROWSER_CONTEXTS = [
 ];
 
 export class BrowserProcessPage {
-  constructor(private page: Page) {}
+  // Phase 30 BROWSER-CHAT-02: promoted to `protected` so BrowserProcessPageV2
+  // (extends this class) can call this.page.routeWebSocket / page.route directly
+  // for the new WS bridge + tool-agent mocks. Tests in this fixture's own file
+  // continue to use `this.page` exactly as before.
+  constructor(protected page: Page) {}
 
   // ── Script Runner Mocks ──
 
