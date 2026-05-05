@@ -85,6 +85,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // Phase 30.1 BROWSER-CHAT-06 — Native browser bridge.
+  // The renderer detects Electron mode via `window.electronAPI?.browserNative?.isAvailable`
+  // and conditionally mounts a placeholder div backed by setBounds calls.
+  // In web mode (browser, not Electron), this whole property is undefined.
+  browserNative: {
+    isAvailable: true as const,
+    create: (opts: { topicId: string; partitionId: string; initialUrl?: string }) =>
+      ipcRenderer.invoke('browser-native:create', opts),
+    destroy: (viewId: string) => ipcRenderer.invoke('browser-native:destroy', viewId),
+    navigate: (viewId: string, url: string) =>
+      ipcRenderer.invoke('browser-native:navigate', viewId, url),
+    goBack: (viewId: string) => ipcRenderer.invoke('browser-native:go-back', viewId),
+    goForward: (viewId: string) => ipcRenderer.invoke('browser-native:go-forward', viewId),
+    reload: (viewId: string) => ipcRenderer.invoke('browser-native:reload', viewId),
+    setBounds: (viewId: string, bounds: { x: number; y: number; width: number; height: number }) =>
+      ipcRenderer.invoke('browser-native:set-bounds', viewId, bounds),
+    getCdpTargetId: (viewId: string) => ipcRenderer.invoke('browser-native:get-cdp-target-id', viewId),
+    onUrlChange: (viewId: string, callback: (url: string) => void) => {
+      const channel = `browser-native:url-change:${viewId}`;
+      const listener = (_evt: unknown, url: string) => callback(url);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
+    onTitleChange: (viewId: string, callback: (title: string) => void) => {
+      const channel = `browser-native:title-change:${viewId}`;
+      const listener = (_evt: unknown, title: string) => callback(title);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
+    onLoadingChange: (viewId: string, callback: (loading: boolean) => void) => {
+      const channel = `browser-native:loading-change:${viewId}`;
+      const listener = (_evt: unknown, loading: boolean) => callback(loading);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
