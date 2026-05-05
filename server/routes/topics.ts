@@ -9,6 +9,10 @@ import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
+import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import { browserTools } from "../browser-tools";
+import { isPassthroughProvider } from "../browser-tools-adapters";
+import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2049,6 +2053,40 @@ Wait for the user to approve the plan before executing any changes.` };
                 console.log(`[SubagentPoll] sessions_spawn detected via WS in topic ${matchedTopic.id.slice(0,8)}`);
               }
 
+              // Phase 30 BROWSER-CHAT-04 — server-side dispatch for native browser_* tools.
+              // When the LLM emits a tool call with name starting with "browser_", call
+              // the canonical handler directly (no HTTP roundtrip). The handler wraps
+              // its action in withLock so agent_active broadcasts on entry and exit
+              // (try/finally guaranteed unlock even if it throws). Result is fed back
+              // through the same onToolResult update path used by every other tool, so
+              // the chat UI shows identical lifecycle (running -> success/error).
+              if (name.startsWith('browser_') && matchedTopic && browserService) {
+                dispatchBrowserToolCall(name, args || {}, matchedTopic, browserService)
+                  .then((result) => {
+                    const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+                    // Mirror the onToolResult flow inline so the UI / SSE / persisted
+                    // state updates happen consistently. Same surface as the existing
+                    // onToolResult callback below.
+                    updateToolCallResult(sessionKey, toolCallId, resultStr);
+                    updateBlockTool(toolCallId, { status: 'success', result: resultStr });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr });
+                    writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
+                    const idx = trackedToolCallIds.indexOf(toolCallId);
+                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                  })
+                  .catch((err: unknown) => {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    console.warn(`[browser-tool-dispatcher] ${name} failed: ${msg}`);
+                    const errResult = JSON.stringify({ error: msg });
+                    updateToolCallResult(sessionKey, toolCallId, errResult);
+                    updateBlockTool(toolCallId, { status: 'error', result: errResult });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult });
+                    writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
+                    const idx = trackedToolCallIds.indexOf(toolCallId);
+                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                  });
+              }
+
               // Phase 30 BROWSER-CHAT-03 — OpenClaw browser tool profile monitoring.
               // The bridge that injected targetId+profile system messages was removed;
               // this block remains as logging-only telemetry for OpenClaw browser tool
@@ -2194,9 +2232,15 @@ Wait for the user to approve the plan before executing any changes.` };
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[] } = {};
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[] } = {};
             if (overrideModel) sendOptions.model = overrideModel;
             if (historyForProvider) sendOptions.history = historyForProvider;
+            // Phase 30 BROWSER-CHAT-04 — register browserTools for SDK-driven providers.
+            // CLI/gateway providers (codex, claude-code, openclaw) ignore this field
+            // (their tool surfaces are managed upstream).
+            if (isPassthroughProvider(topicProvider.name) && browserService) {
+              sendOptions.tools = browserTools;
+            }
             // Fire-and-forget: kick off sendChat WITHOUT awaiting so the
             // Response can be returned immediately. The provider's stream
             // for-await loop drives handler callbacks → writeSSE → flushes
