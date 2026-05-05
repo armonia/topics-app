@@ -73,6 +73,27 @@ const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast
   loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
   isStreaming, activeStreams, getMimeType, logRequest, db } = ctx;
 
+// Phase 30 BROWSER-CHAT-03 — registry of active /ws/browser/:contextId
+// connections keyed by contextId. Multiple panels may watch the same context
+// (UI plus E2E spies); the broadcast iterates the whole set. Populated by the
+// websocket.open browser branch and cleaned by websocket.close.
+const browserWsClients = new Map<string, Set<ServerWebSocket<WSData>>>();
+
+export function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
+  const set = browserWsClients.get(contextId);
+  if (!set || set.size === 0) return;
+  const payload = JSON.stringify(msg);
+  for (const ws of set) {
+    if (ws.readyState !== 1) continue;
+    try {
+      ws.send(payload);
+    } catch (err: unknown) {
+      const m = err instanceof Error ? err.message : String(err);
+      console.warn(`[broadcastToBrowserWs] send failed for ${contextId}:`, m);
+    }
+  }
+}
+
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
 // (migration 012). Without this, every GET/PUT would silently degrade. Fail loud.
 try {
@@ -171,6 +192,9 @@ const browserService = await createBrowserService({
       console.warn(`[server] onNavigate persist failed for ${contextId}:`, err.message);
     }
   },
+  // Phase 30 BROWSER-CHAT-03 — wire agent_active broadcast through the
+  // /ws/browser/:contextId registry maintained in this module.
+  broadcastToBrowserWs,
 });
 
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
@@ -556,6 +580,14 @@ const server = Bun.serve<WSData>({
       if (ws.data.browserContextId) {
         const ctxId = ws.data.browserContextId;
         console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
+        // Phase 30 BROWSER-CHAT-03 — register this WS in the broadcast set
+        // so broadcastToBrowserWs(ctxId, msg) reaches it.
+        let bset = browserWsClients.get(ctxId);
+        if (!bset) {
+          bset = new Set();
+          browserWsClients.set(ctxId, bset);
+        }
+        bset.add(ws);
         ws.data._browserCleanup = async () => {
           await browserService.stopScreencast(ctxId).catch(err =>
             console.warn(`[WS][browser] stopScreencast failed for ${ctxId}:`, err.message)
@@ -668,6 +700,13 @@ const server = Bun.serve<WSData>({
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       if (ws.data.browserContextId) {
         console.log(`[WS][browser] Close: ${ws.data.id} -> ctx ${ws.data.browserContextId}`);
+        // Phase 30 BROWSER-CHAT-03 — remove from broadcast set BEFORE invoking
+        // cleanup so any concurrent broadcast no longer targets this socket.
+        const bset = browserWsClients.get(ws.data.browserContextId);
+        if (bset) {
+          bset.delete(ws);
+          if (bset.size === 0) browserWsClients.delete(ws.data.browserContextId);
+        }
         ws.data._browserCleanup?.().catch(err =>
           console.warn(`[WS][browser] cleanup failed:`, err.message)
         );

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver } from "./browser-state-store";
 import type { Topic } from "./types";
+import type { IndexedElement } from "./browser-tools";
+import type { BrowserWsMessage } from "./browser-ws-messages";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -29,6 +31,10 @@ interface BrowserServiceOptions {
   onNavigate?: (contextId: string, url: string, viewport: { width: number; height: number }) => void;
   /** Override Chromium executable path (highest priority). Falls back to env CHROMIUM_PATH, then chromium.executablePath(), then legacy macOS hardcoded path. */
   chromiumPath?: string;
+  /** Phase 30 BROWSER-CHAT-03 — broadcast a message to all WS clients
+   *  watching a given contextId. Wired by server.ts via browserWsClients
+   *  registry. No-op if absent. */
+  broadcastToBrowserWs?: (contextId: string, msg: BrowserWsMessage) => void;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
@@ -87,6 +93,20 @@ export interface BrowserService {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
   ): Promise<void>;
+  /** Phase 30 BROWSER-CHAT-03 — broadcast `{ type: 'agent_active', active }` over the
+   *  /ws/browser/:contextId bridge. No-op when no broadcast callback was wired. */
+  broadcastAgentActive(contextId: string, active: boolean): void;
+  /** Phase 30 BROWSER-CHAT-03 — DOM walker that indexes interactive elements
+   *  with bounding boxes for the browser_observe tool. Side effect: assigns
+   *  data-topics-idx="N" attribute on each indexed element (cleaned by
+   *  captureAnnotatedScreenshot's finally-block). Max 50 elements default,
+   *  clamped to range 1-100. */
+  extractIndexedElements(contextId: string, opts?: { maxElements?: number }): Promise<IndexedElement[]>;
+  /** Phase 30 BROWSER-CHAT-03 — overlay-injected JPEG screenshot with bbox
+   *  bordering + numbered label badges. Returns base64 string. Cleans up the
+   *  overlay container + data-topics-idx attributes in a finally block (best
+   *  effort — cleanup errors do not propagate). */
+  captureAnnotatedScreenshot(contextId: string, elements: IndexedElement[], opts?: { quality?: number }): Promise<string>;
 }
 
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
@@ -714,6 +734,202 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       // getOrCreate already touched activity; the action is a real interaction
       // so the entry's lastActivity stays fresh.
+    },
+
+    // Phase 30 BROWSER-CHAT-03 — agent_active broadcast over /ws/browser/:contextId.
+    // Server.ts wires opts.broadcastToBrowserWs (no-op when absent).
+    broadcastAgentActive(contextId, active) {
+      if (!opts.broadcastToBrowserWs) return;
+      try {
+        opts.broadcastToBrowserWs(contextId, { type: 'agent_active', active });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[BrowserService] broadcastAgentActive failed for ${contextId}:`, msg);
+      }
+    },
+
+    // Phase 30 BROWSER-CHAT-03 — DOM walker indexing interactive elements.
+    // Pattern: Browser Use bounding-box index (https://browser-use.com).
+    // Selector list mirrors the agent-tool-readable surface of the page:
+    // buttons, links, inputs, role-based interactive nodes, [onclick], [tabindex].
+    // Side effect: writes data-topics-idx="N" on each element (cleaned by
+    // captureAnnotatedScreenshot's finally block).
+    async extractIndexedElements(contextId, observeOpts) {
+      const maxElements = Math.min(Math.max(observeOpts?.maxElements ?? 50, 1), 100);
+      const entry = await service.getOrCreate(contextId);
+      const elements = await entry.page.evaluate((max: number) => {
+        const selectors = [
+          'button',
+          '[role="button"]',
+          'a[href]',
+          'input:not([type="hidden"])',
+          'select',
+          'textarea',
+          '[onclick]',
+          '[tabindex]:not([tabindex="-1"])',
+          '[role="link"]',
+          '[role="menuitem"]',
+          '[role="checkbox"]',
+          '[role="radio"]',
+        ].join(',');
+
+        const seen = new Set<Element>();
+        const out: Array<{
+          id: number;
+          role: string;
+          name: string;
+          bbox: { x: number; y: number; width: number; height: number };
+          text?: string;
+          tagName: string;
+        }> = [];
+        let counter = 0;
+
+        const nodes = document.querySelectorAll(selectors);
+        for (const node of Array.from(nodes)) {
+          if (seen.has(node)) continue;
+          seen.add(node);
+          if (out.length >= max) break;
+
+          const rect = node.getBoundingClientRect();
+          if (rect.width < 4 || rect.height < 4) continue;
+          if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
+          if (rect.right < 0 || rect.left > window.innerWidth) continue;
+
+          counter += 1;
+          const id = counter;
+          const el = node as HTMLElement;
+          el.setAttribute('data-topics-idx', String(id));
+
+          const tagName = (node.tagName || '').toLowerCase();
+          const ariaRole = node.getAttribute('role');
+          const role = ariaRole && ariaRole.trim() ? ariaRole : tagName;
+
+          const ariaLabel = node.getAttribute('aria-label');
+          const titleAttr = node.getAttribute('title');
+          const innerText = (el.innerText || '').replace(/\s+/g, ' ').trim();
+          const name =
+            (ariaLabel && ariaLabel.trim()) ||
+            (titleAttr && titleAttr.trim()) ||
+            innerText.slice(0, 80) ||
+            '';
+
+          out.push({
+            id,
+            role,
+            name,
+            bbox: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            text: innerText.slice(0, 200),
+            tagName,
+          });
+        }
+        return out;
+      }, maxElements);
+
+      touchActivity(entry);
+      return elements as IndexedElement[];
+    },
+
+    // Phase 30 BROWSER-CHAT-03 — annotated screenshot via overlay injection.
+    // Pattern: Browser Use server-side overlay (one container div with one
+    // absolute-positioned colored box per indexed element + numeric label
+    // badge). Color rotation green/yellow/red cycled by `(id-1) % 3`.
+    // Cleanup is in finally — overlay container removed, data-topics-idx
+    // attributes stripped. Cleanup errors are swallowed (best effort).
+    async captureAnnotatedScreenshot(contextId, elements, screenshotOpts) {
+      const quality = screenshotOpts?.quality ?? 70;
+      const entry = await service.getOrCreate(contextId);
+      try {
+        await entry.page.evaluate((els: IndexedElement[]) => {
+          // Remove any leftover overlay first (idempotent).
+          const old = document.getElementById('__topics_observe_overlay');
+          if (old) old.remove();
+
+          const colors = ['#16a34a', '#eab308', '#dc2626'];
+          const container = document.createElement('div');
+          container.id = '__topics_observe_overlay';
+          container.style.cssText = [
+            'position:absolute',
+            'top:0',
+            'left:0',
+            'width:100%',
+            'height:100%',
+            'pointer-events:none',
+            'z-index:2147483647',
+          ].join(';');
+
+          for (const el of els) {
+            const color = colors[(el.id - 1) % colors.length];
+            const box = document.createElement('div');
+            box.style.cssText = [
+              'position:absolute',
+              `left:${el.bbox.x}px`,
+              `top:${el.bbox.y}px`,
+              `width:${el.bbox.width}px`,
+              `height:${el.bbox.height}px`,
+              `border:2px solid ${color}`,
+              'box-sizing:border-box',
+              'pointer-events:none',
+            ].join(';');
+
+            const label = document.createElement('span');
+            label.textContent = String(el.id);
+            label.style.cssText = [
+              'position:absolute',
+              'top:-20px',
+              'left:0',
+              'padding:1px 6px',
+              `background:${color}`,
+              'color:#ffffff',
+              'font-family:system-ui,sans-serif',
+              'font-size:12px',
+              'font-weight:600',
+              'border-radius:2px',
+              'white-space:nowrap',
+            ].join(';');
+            box.appendChild(label);
+            container.appendChild(box);
+          }
+          document.body.appendChild(container);
+        }, elements);
+
+        let buf: Buffer;
+        try {
+          buf = await entry.page.screenshot({ type: 'jpeg', quality, fullPage: false });
+        } finally {
+          // Cleanup overlay + data-topics-idx attrs. Wrapped in try/catch so
+          // a broken page doesn't propagate cleanup errors.
+          try {
+            await entry.page.evaluate(() => {
+              const c = document.getElementById('__topics_observe_overlay');
+              if (c) c.remove();
+              const indexed = document.querySelectorAll('[data-topics-idx]');
+              for (const node of Array.from(indexed)) {
+                (node as HTMLElement).removeAttribute('data-topics-idx');
+              }
+            });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[BrowserService] captureAnnotatedScreenshot cleanup failed for ${contextId}:`, msg);
+          }
+        }
+        touchActivity(entry);
+        return buf.toString('base64');
+      } catch (err) {
+        // Outer catch: if overlay inject itself failed, attempt cleanup once
+        // before rethrowing.
+        try {
+          await entry.page.evaluate(() => {
+            const c = document.getElementById('__topics_observe_overlay');
+            if (c) c.remove();
+          });
+        } catch {}
+        throw err;
+      }
     },
   };
 
