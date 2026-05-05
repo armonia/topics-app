@@ -1,6 +1,8 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
+import { loadStorageState, saveStorageState, debouncedSaver } from "./browser-state-store";
+import type { Topic } from "./types";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -11,6 +13,8 @@ interface BrowserContextEntry {
   title: string;
   consoleMessages: { level: string; text: string; timestamp: number }[];
   persistCookies?: boolean;
+  /** Cleanup hook for autosave timer + cancel for debounced saver. */
+  autoSaveCleanup?: () => void;
 }
 
 interface BrowserServiceOptions {
@@ -21,6 +25,10 @@ interface BrowserServiceOptions {
   screenshotQuality?: number;
   /** CDP remote debugging port (default: 19222 — matches OpenClaw 'topics' browser profile) */
   cdpPort?: number;
+  /** Callback invoked after successful navigate(); used to persist topic.browserState. */
+  onNavigate?: (contextId: string, url: string, viewport: { width: number; height: number }) => void;
+  /** Override Chromium executable path (highest priority). Falls back to env CHROMIUM_PATH, then chromium.executablePath(), then legacy macOS hardcoded path. */
+  chromiumPath?: string;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
@@ -63,6 +71,8 @@ export interface BrowserService {
   isLaunched(): boolean;
   saveCookies(id: string): Promise<void>;
   loadCookies(id: string): Promise<void>;
+  /** Restore BrowserContext for every topic with browserState. Best-effort — never throws. */
+  restoreAllContexts(topics: Topic[]): Promise<{ restored: number; failed: number }>;
 }
 
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
@@ -79,23 +89,67 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   try { mkdirSync(cookieDir, { recursive: true }); } catch {}
 
   const contexts = new Map<string, BrowserContextEntry>();
+  const targetIds = new Map<string, string>();  // contextId → CDP targetId
   let browser: Browser | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   async function ensureBrowser(): Promise<Browser> {
     if (browser && browser.isConnected()) return browser;
     const pw = await import("playwright-core");
-    const playwrightDir = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1208`;
-    const possiblePaths = [
-      `${playwrightDir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
-      `${playwrightDir}/chrome-mac/Chromium.app/Contents/MacOS/Chromium`,
-      `${playwrightDir}/chrome-mac/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
-      `${playwrightDir}/chrome-linux/chrome`,
-    ];
-    const chromiumPath = possiblePaths.find(p => existsSync(p));
-    if (!chromiumPath) {
-      throw new Error(`Chromium executable not found. Searched: ${possiblePaths.join(", ")}`);
+
+    // Path resolution chain (priority order):
+    //   1. opts.chromiumPath (constructor)
+    //   2. process.env.CHROMIUM_PATH
+    //   3. pw.chromium.executablePath() (Playwright bundled Chromium)
+    //   4. legacy macOS hardcoded paths (defense in depth, logged warning)
+    let chromiumPath: string | undefined;
+    const tried: string[] = [];
+
+    if (opts.chromiumPath) {
+      chromiumPath = opts.chromiumPath;
+      tried.push(`opts.chromiumPath=${chromiumPath}`);
     }
+    if (!chromiumPath && process.env.CHROMIUM_PATH) {
+      chromiumPath = process.env.CHROMIUM_PATH;
+      tried.push(`env CHROMIUM_PATH=${chromiumPath}`);
+    }
+    if (!chromiumPath) {
+      try {
+        const pwPath = pw.chromium.executablePath();
+        if (pwPath && existsSync(pwPath)) {
+          chromiumPath = pwPath;
+          tried.push(`playwright-core executablePath=${chromiumPath}`);
+        } else {
+          tried.push(`playwright-core executablePath=${pwPath || "(empty)"} (not found on disk)`);
+        }
+      } catch (err: any) {
+        tried.push(`playwright-core executablePath threw: ${err.message}`);
+      }
+    }
+    if (!chromiumPath) {
+      // Legacy fallback chain (macOS hardcoded). Kept for older dev machines
+      // that don't have CHROMIUM_PATH set and have an outdated playwright install.
+      const playwrightDir = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1208`;
+      const legacy = [
+        `${playwrightDir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+        `${playwrightDir}/chrome-mac/Chromium.app/Contents/MacOS/Chromium`,
+        `${playwrightDir}/chrome-mac/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+        `${playwrightDir}/chrome-linux/chrome`,
+      ];
+      for (const p of legacy) {
+        if (existsSync(p)) {
+          chromiumPath = p;
+          console.warn(`[BrowserService] Using legacy hardcoded Chromium path: ${p}. Set CHROMIUM_PATH env var to silence this warning.`);
+          tried.push(`legacy=${p}`);
+          break;
+        }
+      }
+    }
+    if (!chromiumPath) {
+      throw new Error(`Chromium executable not found. Tried:\n  ${tried.join("\n  ")}`);
+    }
+
+    console.log(`[BrowserService] Chromium path: ${chromiumPath}`);
     browser = await pw.chromium.launch({
       executablePath: chromiumPath,
       headless: true,
@@ -162,9 +216,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     async close() {
       if (cleanupTimer) clearInterval(cleanupTimer);
       for (const [_id, entry] of contexts) {
+        entry.autoSaveCleanup?.();
         try { await entry.context.close(); } catch {}
       }
       contexts.clear();
+      targetIds.clear();
       if (browser) {
         try { await browser.close(); } catch {}
         browser = null;
@@ -179,33 +235,91 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       const b = await ensureBrowser();
       const viewport = opts?.viewport || defaultViewport;
-      const context = await b.newContext({ viewport });
-      const page = await context.newPage();
-      const entry: BrowserContextEntry = {
-        context,
-        page,
-        createdAt: new Date().toISOString(),
-        lastActivity: Date.now(),
-        url: "about:blank",
-        title: "",
-        consoleMessages: [],
-        persistCookies: opts?.persistCookies,
-      };
-      contexts.set(id, entry);
-      await setupPage(entry, id);
-      // Load persisted cookies if available
-      if (opts?.persistCookies) {
-        await service.loadCookies(id);
+
+      // Load persisted storageState if available (cookies + localStorage).
+      // null is fine — newContext accepts undefined storageState.
+      const persistedState = await loadStorageState(id);
+      const context = await b.newContext({
+        viewport,
+        ...(persistedState ? { storageState: persistedState } : {}),
+      });
+
+      try {
+        const page = await context.newPage();
+
+        // Capture explicit targetId via CDP (replaces the legacy DOM title-marker hack).
+        try {
+          const session = await context.newCDPSession(page);
+          const info = await session.send("Target.getTargetInfo") as { targetInfo: { targetId: string } };
+          if (info?.targetInfo?.targetId) {
+            targetIds.set(id, info.targetInfo.targetId);
+            console.log(`[BrowserService] Captured targetId for ${id}: ${info.targetInfo.targetId}`);
+          }
+        } catch (err: any) {
+          // Non-fatal: getTargetId() will fall back to /json/list query.
+          console.warn(`[BrowserService] Failed to capture targetId for ${id}:`, err.message);
+        }
+
+        const entry: BrowserContextEntry = {
+          context,
+          page,
+          createdAt: new Date().toISOString(),
+          lastActivity: Date.now(),
+          url: "about:blank",
+          title: "",
+          consoleMessages: [],
+          persistCookies: opts?.persistCookies,
+        };
+        contexts.set(id, entry);
+        await setupPage(entry, id);
+
+        // Auto-save storageState every 30s + on context close.
+        // CRITICAL: setInterval calls saver.flush() (force-save), NOT
+        // saver.trigger() (debounced). A debounced trigger at the same
+        // period as the debounce delay would re-arm the timer on every
+        // tick and never fire.
+        const saver = debouncedSaver(id, async () => context.storageState(), 30_000);
+        const intervalHandle = setInterval(() => {
+          saver.flush().catch(err => console.warn(`[BrowserService] autosave flush failed for ${id}:`, err.message));
+        }, 30_000);
+        context.on("close", async () => {
+          clearInterval(intervalHandle);
+          saver.cancel();
+          try { await saver.flush(); } catch {}
+        });
+        entry.autoSaveCleanup = () => {
+          clearInterval(intervalHandle);
+          saver.cancel();
+        };
+
+        // Legacy cookie file load (kept for backwards compat with phase 27 test).
+        if (opts?.persistCookies) {
+          await service.loadCookies(id);
+        }
+        console.log(`[BrowserService] Context created: ${id} (total: ${contexts.size}, persisted=${persistedState ? "yes" : "no"})`);
+      } catch (err) {
+        // Cleanup on failure: drop targetId entry, close the context.
+        targetIds.delete(id);
+        await context.close().catch(() => {});
+        throw err;
       }
-      console.log(`[BrowserService] Context created: ${id} (total: ${contexts.size})`);
     },
 
     async destroyContext(id) {
       const entry = contexts.get(id);
       if (!entry) return;
+      entry.autoSaveCleanup?.();
+      // Final flush before close (best effort).
+      try {
+        const finalState = await entry.context.storageState();
+        await saveStorageState(id, finalState);
+      } catch (err: any) {
+        console.warn(`[BrowserService] Final state save failed for ${id}:`, err.message);
+      }
       if (entry.persistCookies) await service.saveCookies(id);
       try { await entry.context.close(); } catch {}
       contexts.delete(id);
+      targetIds.delete(id);
       console.log(`[BrowserService] Context destroyed: ${id} (remaining: ${contexts.size})`);
     },
 
@@ -229,6 +343,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       entry.url = entry.page.url();
       try { entry.title = await entry.page.title(); } catch { entry.title = ""; }
       touchActivity(entry);
+      // Persist topic.browserState via callback (best effort).
+      if (opts.onNavigate) {
+        try {
+          const vp = entry.page.viewportSize() || defaultViewport;
+          opts.onNavigate(id, entry.url, vp);
+        } catch (err: any) {
+          console.warn(`[BrowserService] onNavigate callback failed for ${id}:`, err.message);
+        }
+      }
       return { url: entry.url, title: entry.title };
     },
 
@@ -387,46 +510,60 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     },
 
     async getTargetId(id) {
+      // Primary: explicit Map (set during createContext via CDP Target.getTargetInfo).
+      const cached = targetIds.get(id);
+      if (cached) return cached;
+
+      // Fallback: query CDP /json/list — used for restored contexts that
+      // pre-date the Map (e.g. resurrected from disk with no targetId capture).
       const entry = contexts.get(id);
       if (!entry) return null;
       try {
-        // Navigate to a unique identifier page if still on about:blank
-        // so we can match it in CDP target list
-        const pageUrl = entry.page.url();
-        if (pageUrl === "about:blank") {
-          // Set a unique title to identify this page in CDP
-          await entry.page.evaluate((ctxId: string) => {
-            document.title = `__topics_ctx_${ctxId}`;
-          }, id);
-        }
-
-        // Get CDP target ID by querying Chrome's debugging endpoint
         const resp = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
         const targets = await resp.json() as any[];
-
-        // Match by unique title marker
-        const markerTitle = `__topics_ctx_${id}`;
-        const byMarker = targets.find((t: any) => t.title === markerTitle && t.type === "page");
-        if (byMarker) return byMarker.id;
-
-        // Fallback: match by page URL (for pages that have navigated)
+        const pageUrl = entry.page.url();
         if (pageUrl !== "about:blank") {
           const byUrl = targets.find((t: any) => t.url === pageUrl && t.type === "page");
-          if (byUrl) return byUrl.id;
+          if (byUrl?.id) {
+            targetIds.set(id, byUrl.id);  // backfill cache
+            return byUrl.id;
+          }
         }
-
-        // Last resort: match by title
         const pageTitle = await entry.page.title().catch(() => "");
         if (pageTitle) {
           const byTitle = targets.find((t: any) => t.title === pageTitle && t.type === "page");
-          if (byTitle) return byTitle.id;
+          if (byTitle?.id) {
+            targetIds.set(id, byTitle.id);
+            return byTitle.id;
+          }
         }
-
         return null;
       } catch (err) {
         console.warn(`[BrowserService] Failed to get targetId for ${id}:`, err);
         return null;
       }
+    },
+
+    async restoreAllContexts(topics) {
+      let restored = 0;
+      let failed = 0;
+      for (const topic of topics) {
+        if (!topic.browserState) continue;
+        const { contextId, url, viewport } = topic.browserState;
+        try {
+          // createContext loads storageState internally — DO NOT add
+          // a separate loadStorageState() call here, it would double-load.
+          await service.createContext(contextId, { viewport });
+          await service.navigate(contextId, url);
+          restored++;
+          console.log(`[BrowserService] Restored context ${contextId} for topic ${topic.id} -> ${url}`);
+        } catch (err: any) {
+          failed++;
+          console.warn(`[BrowserService] Failed to restore context for topic ${topic.id}:`, err.message);
+        }
+      }
+      console.log(`[BrowserService] restoreAllContexts: ${restored} restored, ${failed} failed`);
+      return { restored, failed };
     },
   };
 

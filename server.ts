@@ -151,7 +151,26 @@ if (aiProvider.name === 'openclaw') {
 console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiProvider.capabilities].join(', ')})`);
 
 // Init browser service (lazy — Chromium launched on first use)
-const browserService = await createBrowserService();
+const browserService = await createBrowserService({
+  onNavigate: (contextId, url, viewport) => {
+    // Find the topic whose first 8 chars of id match contextId (matches
+    // the convention at server/routes/topics.ts:1650).
+    try {
+      const topics = ctx.loadTopics().topics;
+      const topic = Object.values(topics).find(t => t.id.slice(0, 8) === contextId);
+      if (!topic) return;  // contextId may be temp/standalone — ignore
+      topic.browserState = {
+        url,
+        contextId,
+        lastActiveAt: Date.now(),
+        viewport,
+      };
+      ctx.saveSingleTopic(topic);
+    } catch (err: any) {
+      console.warn(`[server] onNavigate persist failed for ${contextId}:`, err.message);
+    }
+  },
+});
 
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
 initUsageStore(import.meta.dir);
@@ -601,6 +620,13 @@ console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/brow
 // `server.port` reflects the *actual* port (Bun resolves 0 → ephemeral).
 const daemonState = writeState(server.port);
 console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonState.port}`);
+
+// Phase 30 BROWSER-CHAT-01 — restore browser contexts in background.
+// Fire-and-forget: never blocks server startup. Errors are logged but
+// never thrown (matches restoreAllContexts contract).
+browserService.restoreAllContexts(Object.values(ctx.loadTopics().topics))
+  .then(r => console.log(`[server] browser restore: ${r.restored} restored, ${r.failed} failed`))
+  .catch(err => console.warn(`[server] browser restore failed (non-fatal):`, err.message));
 
 // Graceful shutdown
 async function gracefulShutdown(signal: string) {
