@@ -1,9 +1,11 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { Globe, Loader2 } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
+import { useNativeBrowser } from '../../hooks/useNativeBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
+import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 
 interface RemoteBrowserPanelProps {
   contextId: string;
@@ -19,7 +21,39 @@ interface RemoteBrowserPanelProps {
 // error in this mode (acknowledged constraint).
 const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
-export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+  // Phase 30.1 BROWSER-CHAT-06 — Electron native render path.
+  // Detect via window.electronAPI?.browserNative?.isAvailable. In Electron,
+  // skip mounting useRemoteBrowser entirely (no WS streaming, no CDP screencast,
+  // no <img> rendering). The native hook wires its own /ws/browser/:contextId
+  // subscription for agent_active.
+  const isElectronNative = Boolean(window.electronAPI?.browserNative?.isAvailable);
+
+  if (isElectronNative) {
+    return (
+      <NativeBrowserPanelInner
+        contextId={contextId}
+        initialUrl={initialUrl}
+        navigateUrl={navigateUrl}
+        onUrlChange={onUrlChange}
+        onNavigateConsumed={onNavigateConsumed}
+      />
+    );
+  }
+
+  // ============ Phase 30 streaming code path (web fallback, byte-identical) ============
+  return (
+    <RemoteBrowserPanelStreaming
+      contextId={contextId}
+      initialUrl={initialUrl}
+      navigateUrl={navigateUrl}
+      onUrlChange={onUrlChange}
+      onNavigateConsumed={onNavigateConsumed}
+    />
+  );
+}
+
+function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
   const browser = useRemoteBrowser(contextId);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
 
@@ -254,6 +288,50 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
           onCancel={() => browser.exitSelectMode()}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Phase 30.1 BROWSER-CHAT-06 — Inner panel for Electron native render path.
+ * Mounted by RemoteBrowserPanel when window.electronAPI.browserNative is
+ * available. Uses useNativeBrowser (IPC + WS) and renders the toolbar +
+ * NativeBrowserPlaceholder. Cmd+Shift+E select-element overlay is NOT
+ * mounted in this mode (deferred — see SUMMARY for rationale).
+ */
+function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+  const browser = useNativeBrowser(contextId, initialUrl);
+  const { history, push: pushHistory } = useBrowserHistory(contextId);
+
+  useEffect(() => {
+    if (navigateUrl) {
+      browser.navigate(navigateUrl);
+      onNavigateConsumed?.();
+    }
+  }, [navigateUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (browser.url) {
+      onUrlChange?.(browser.url);
+      pushHistory(browser.url);
+    }
+  }, [browser.url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-native-panel">
+      <BrowserToolbar
+        url={browser.url}
+        onUrlChange={browser.navigate}
+        onBack={browser.goBack}
+        onForward={browser.goForward}
+        onRefresh={browser.reload}
+        onHome={browser.goHome}
+        canGoBack={true}
+        canGoForward={true}
+        loading={browser.loading}
+        history={history}
+      />
+      <NativeBrowserPlaceholder browser={browser} />
     </div>
   );
 }
