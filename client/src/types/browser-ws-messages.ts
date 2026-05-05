@@ -44,7 +44,10 @@ export type BrowserWsMessage =
     }
   // both directions (request from either side, response broadcast)
   | { type: 'nav'; url: string; phase: 'request' | 'response' }
-  // server -> client (lock state — full UI overlay implementation deferred to plan 30-04)
+  // server -> client (lock state — UI overlay rendered in RemoteBrowserPanel since plan 30-04)
   | { type: 'agent_active'; active: boolean }
   // server -> client (forwarded console messages from the page)
-  | { type: 'console'; level: 'log' | 'warn' | 'error'; text: string };
+  | { type: 'console'; level: 'log' | 'warn' | 'error'; text: string }
+  // client -> server (Phase 30 BROWSER-CHAT-04): user reclaimed control.
+  // Server triggers eager agent_active=false broadcast.
+  | { type: 'take_control' };

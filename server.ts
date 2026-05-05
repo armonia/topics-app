@@ -674,6 +674,16 @@ const server = Bun.serve<WSData>({
             browserService.navigate(ctxId, parsed.url).then(() => {
               sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
             }).catch(err => console.warn(`[WS][browser] navigate failed for ${ctxId}:`, err.message));
+          } else if (parsed.type === 'take_control') {
+            // Phase 30 BROWSER-CHAT-04 — user reclaimed control. Force-release the
+            // lock with an eager agent_active=false broadcast. The agent's in-flight
+            // tool will complete naturally (Playwright actions are quick), and its
+            // withLock finally block will broadcast agent_active=false a second
+            // time. The double-broadcast is idempotent on the client. Aborting the
+            // tool mid-action is a future enhancement (would require an
+            // AbortController plumbed through BrowserService dispatchInput / handlers).
+            console.log(`[WS][browser] take_control received for ctx ${ctxId}`);
+            browserService.broadcastAgentActive(ctxId, false);
           }
           // Ignore other message types from client (frame/agent_active/console are server -> client only).
         } catch (err) {

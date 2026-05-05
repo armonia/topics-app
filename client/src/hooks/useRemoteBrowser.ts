@@ -3,6 +3,14 @@ import type { BrowserWsMessage } from '@/types/browser-ws-messages';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
+// Phase 30 BROWSER-CHAT-04 — DOM info for the select-element pattern (Cursor Cmd+Shift+E).
+export interface SelectedElementInfo {
+  path: string;
+  cssPath: string;
+  bbox: { x: number; y: number; w: number; h: number };
+  text?: string;
+}
+
 interface RemoteBrowserState {
   url: string;
   title: string;
@@ -12,6 +20,11 @@ interface RemoteBrowserState {
   error: string | null;
   connectionState: ConnectionState;
   lastClickPos: { x: number; y: number; t: number } | null;
+  // Phase 30 BROWSER-CHAT-04 — agent lock + select-element state.
+  agentActive: boolean;
+  selectMode: boolean;
+  selectedElement: SelectedElementInfo | null;
+  pageScaleFactor: number;
 }
 
 interface InteractionHandlers {
@@ -27,6 +40,11 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   reload: () => void;
   goHome: () => void;
   imgRef: React.RefObject<HTMLImageElement | null>;
+  // Phase 30 BROWSER-CHAT-04 — take-control + select-element actions.
+  takeControl: () => void;
+  enterSelectMode: () => void;
+  exitSelectMode: () => void;
+  setSelectedElement: (el: SelectedElementInfo | null) => void;
 }
 
 const VIEWPORT_WIDTH = 1280;
@@ -94,6 +112,10 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     error: null,
     connectionState: 'connecting',
     lastClickPos: null,
+    agentActive: false,
+    selectMode: false,
+    selectedElement: null,
+    pageScaleFactor: 1,
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -228,12 +250,18 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
       try {
         const msg = JSON.parse(event.data) as BrowserWsMessage;
         switch (msg.type) {
-          case 'frame':
-            if (msg.metadata?.pageScaleFactor) {
-              pageScaleFactorRef.current = msg.metadata.pageScaleFactor;
+          case 'frame': {
+            const psf = msg.metadata?.pageScaleFactor;
+            if (psf) {
+              pageScaleFactorRef.current = psf;
             }
-            setState(s => ({ ...s, screenshotSrc: `data:image/jpeg;base64,${msg.data}` }));
+            setState(s => ({
+              ...s,
+              screenshotSrc: `data:image/jpeg;base64,${msg.data}`,
+              ...(psf && psf !== s.pageScaleFactor ? { pageScaleFactor: psf } : {}),
+            }));
             break;
+          }
           case 'nav':
             if (msg.phase === 'response') {
               setState(s => ({ ...s, url: msg.url, loading: false }));
@@ -244,7 +272,9 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
             console.debug(`[browser ${contextId}] ${msg.level}: ${msg.text}`);
             break;
           case 'agent_active':
-            // UI lock overlay is plan 30-04; current task just acks the message.
+            // Phase 30 BROWSER-CHAT-04 — agent lock state surfaced to RemoteBrowserPanel
+            // for the "🤖 Agent is controlling…" overlay rendering.
+            setState(s => ({ ...s, agentActive: msg.active }));
             break;
           default:
             break;
@@ -432,6 +462,32 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     }
   }, [markActive, sendInput]);
 
+  // Phase 30 BROWSER-CHAT-04 — take-control: optimistic UI lock release +
+  // notify server. The server's eager broadcast triggers an idempotent
+  // agent_active=false (already cleared locally; the duplicate is a no-op).
+  const takeControl = useCallback(() => {
+    setState(s => ({ ...s, agentActive: false }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'take_control' };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch {
+        // Ignore — the optimistic UI update already unblocked the user.
+      }
+    }
+  }, []);
+
+  // Phase 30 BROWSER-CHAT-04 — Cmd+Shift+E enters select-element mode (Cursor pattern).
+  const enterSelectMode = useCallback(() => {
+    setState(s => ({ ...s, selectMode: true }));
+  }, []);
+  const exitSelectMode = useCallback(() => {
+    setState(s => ({ ...s, selectMode: false, selectedElement: null }));
+  }, []);
+  const setSelectedElement = useCallback((el: SelectedElementInfo | null) => {
+    setState(s => ({ ...s, selectedElement: el, selectMode: false }));
+  }, []);
+
   return useMemo(() => ({
     ...state,
     navigate,
@@ -443,5 +499,9 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     onWheel,
     onKeyDown,
     imgRef,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown]);
+    takeControl,
+    enterSelectMode,
+    exitSelectMode,
+    setSelectedElement,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, takeControl, enterSelectMode, exitSelectMode, setSelectedElement]);
 }

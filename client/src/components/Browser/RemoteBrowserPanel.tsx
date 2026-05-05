@@ -1,7 +1,9 @@
 import { BrowserToolbar } from './BrowserToolbar';
 import { Globe, Loader2 } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
+import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect } from 'react';
+import { SelectElementOverlay } from './SelectElementOverlay';
 
 interface RemoteBrowserPanelProps {
   contextId: string;
@@ -11,8 +13,15 @@ interface RemoteBrowserPanelProps {
   onNavigateConsumed?: () => void;
 }
 
+// Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
+// render via <iframe>. Zero Playwright overhead, full DevTools, and the user
+// already has the page on their machine. Agent tools refuse with structured
+// error in this mode (acknowledged constraint).
+const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
+
 export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
   const browser = useRemoteBrowser(contextId);
+  const { history, push: pushHistory } = useBrowserHistory(contextId);
 
   // React to external navigateUrl prop
   useEffect(() => {
@@ -22,10 +31,58 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
     }
   }, [navigateUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Notify parent of URL changes
+  // Notify parent of URL changes + record in per-topic history.
   useEffect(() => {
-    if (browser.url) onUrlChange?.(browser.url);
+    if (browser.url) {
+      onUrlChange?.(browser.url);
+      pushHistory(browser.url);
+    }
   }, [browser.url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Phase 30 BROWSER-CHAT-04 — Cmd+Shift+E enters select-element mode (Cursor pattern).
+  // Esc exits the mode without picking. Window-level listener so the shortcut works
+  // even when a sub-element of the panel has focus (e.g. iframe in localhost mode).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        browser.enterSelectMode();
+      } else if (e.key === 'Escape' && browser.selectMode) {
+        browser.exitSelectMode();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [browser.enterSelectMode, browser.exitSelectMode, browser.selectMode]);
+
+  // localhost iframe fallback — early-return path with full toolbar.
+  const isLocalhost = browser.url && LOCAL_HOST_RX.test(browser.url);
+  if (isLocalhost) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <BrowserToolbar
+          url={browser.url}
+          onUrlChange={browser.navigate}
+          onBack={browser.goBack}
+          onForward={browser.goForward}
+          onRefresh={browser.reload}
+          onHome={browser.goHome}
+          canGoBack={true}
+          canGoForward={true}
+          loading={browser.loading}
+          history={history}
+        />
+        <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
+          <iframe
+            src={browser.url}
+            className="w-full h-full border-0"
+            title="Local site"
+            data-testid="browser-localhost-iframe"
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Phase 30 BROWSER-CHAT-02 — connection indicator label + class. Computed
   // outside JSX so the testid string-class is easy to assert in E2E.
@@ -76,6 +133,7 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
         canGoBack={true}
         canGoForward={true}
         loading={browser.loading}
+        history={history}
       />
 
       {/* Content — screenshot viewer */}
@@ -151,6 +209,49 @@ export function RemoteBrowserPanel({ contextId, navigateUrl, onUrlChange, onNavi
             data-testid="browser-click-ripple"
           />
         )}
+
+        {/* Phase 30 BROWSER-CHAT-04 — agent lock overlay. Renders when the WS
+            broadcasts agent_active=true (handler in useRemoteBrowser surfaces
+            the message). pointer-events:auto on the overlay swallows clicks
+            so the underlying screenshot stays untouched while the agent acts. */}
+        {browser.agentActive && (
+          <div
+            className="absolute inset-0 z-30 bg-black/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto"
+            data-testid="agent-controlling-overlay"
+          >
+            <div className="flex flex-col items-center gap-3 bg-surface/90 px-6 py-4 rounded-lg shadow-xl border border-app-border">
+              <div className="flex items-center gap-2 text-app-text">
+                <span className="text-xl">🤖</span>
+                <span className="text-[14px] font-medium">Agent is controlling…</span>
+              </div>
+              <button
+                type="button"
+                onClick={browser.takeControl}
+                className="px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                data-testid="browser-take-control-button"
+              >
+                Take control
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Phase 30 BROWSER-CHAT-04 — select-element overlay (Cursor Cmd+Shift+E pattern).
+            Mounts only when selectMode === true so screenshot interaction stays
+            unaffected when off. */}
+        <SelectElementOverlay
+          contextId={contextId}
+          active={browser.selectMode}
+          imgRef={browser.imgRef}
+          pageScaleFactor={browser.pageScaleFactor}
+          onPick={(el) => {
+            browser.setSelectedElement(el);
+            // Inject as chat context message via custom event (loosely coupled).
+            const text = `Selected element: ${el.cssPath} @ ${el.path} (bbox: ${el.bbox.x},${el.bbox.y},${el.bbox.w},${el.bbox.h})${el.text ? ` text: "${el.text}"` : ''}`;
+            window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text } }));
+          }}
+          onCancel={() => browser.exitSelectMode()}
+        />
       </div>
     </div>
   );
