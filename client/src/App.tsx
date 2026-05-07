@@ -27,7 +27,8 @@ import { TopicTree } from './components/Sidebar/TopicTree';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
-import { ToastProvider } from './components/Shared/Toast';
+import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
+import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -430,6 +431,17 @@ function App() {
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <ToastProvider>
+    {/* Surfaces a toast (and optional sound) when an agent completes or
+        errors on any topic. Reads settings live so the master toggle in
+        Settings → Notifications takes effect without a reload. Native
+        desktop notifications are dispatched independently from
+        electron-app/main.ts — see notifyAgentCompleted there. */}
+    <CompletionNotifierBridge
+      onWSMessage={onWSMessage}
+      settings={appSettings}
+      topics={topics}
+      focusedPanelId={focusedPanelId}
+    />
     <PendingActionProvider countdownMs={3000}>
     <div
       className="flex bg-app-bg overflow-hidden max-w-[100vw]"
@@ -924,6 +936,12 @@ function App() {
 
       {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
       <UpdaterToast />
+
+      {/* Root-level fallback outlet for global notifications (e.g. agent
+          completion). When a scoped outlet (ProjectWindow's) is mounted,
+          this one stays hidden to avoid double-rendering — the scoped
+          outlet wins and toasts appear inside the project pane. */}
+      <ToastOutlet fixed fallback />
     </div>
     </PendingActionProvider>
     </ToastProvider>

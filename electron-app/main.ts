@@ -31,6 +31,11 @@ interface TrayState {
   unread: Map<string, { unreadCount: number }>;
   topics: Map<string, { id: string; name: string; color: string; icon: string }>;
   focusedTopicId: string | null;
+  // Per-session previous status, keyed by session.key. Drives `active→idle`
+  // detection for the "Agent completed" desktop notification. The server
+  // emits status `idle` (after a 30s grace) — NOT `completed` — so the old
+  // count-based check missed every transition. We mirror the client's logic.
+  prevSessionStatusByKey: Map<string, string>;
 }
 
 interface Preferences {
@@ -49,7 +54,7 @@ interface WSMessage {
   topicId?: string;
   unreadCount?: number;
   connected?: boolean;
-  sessions?: Array<{ id: string; status: string; agent_id?: string; agentId?: string; topic_id?: string; topicId?: string }>;
+  sessions?: Array<{ id: string; key?: string; status: string; agent_id?: string; agentId?: string; topic_id?: string; topicId?: string }>;
   sessionKey?: string;
   message?: { content?: string; text?: string };
   toolName?: string;
@@ -590,6 +595,7 @@ const trayState: TrayState = {
   unread: new Map(),
   topics: new Map(),
   focusedTopicId: null,
+  prevSessionStatusByKey: new Map(),
 };
 
 let trayIcons: Partial<TrayIcons> = {};
@@ -704,12 +710,30 @@ function handleWSMessage(msg: WSMessage): void {
 
     case 'agents:sessions':
       if (Array.isArray(msg.sessions)) {
-        const prevCount = trayState.agentCount;
         trayState.agentCount = msg.sessions.filter(s => s.status === 'active').length;
-        if (prevCount > trayState.agentCount) {
-          const completed = msg.sessions.find(s => s.status === 'completed');
-          if (completed) notifyAgentCompleted(completed);
+
+        // Detect per-session active→idle transitions. The server's
+        // `deriveStatus()` returns 'active' while a session is producing
+        // output and flips to 'idle' once 30s have elapsed without activity
+        // (see server/routes/agents.ts). That edge is the real "agent
+        // finished" signal — the previous count-based heuristic misfired.
+        const prev = trayState.prevSessionStatusByKey;
+        const next = new Map<string, string>();
+        for (const session of msg.sessions) {
+          // The server emits `key` on every session (`agentId:topicId`); the
+          // older `id` is kept as a fallback so this still works against a
+          // gateway that hasn't shipped the field yet.
+          const sessionKey = session.key || session.id;
+          if (!sessionKey) continue;
+          const previousStatus = prev.get(sessionKey);
+          const justCompleted = previousStatus === 'active' && session.status === 'idle';
+          const justErrored = session.status === 'error' && previousStatus !== 'error';
+          if (justCompleted || justErrored) {
+            notifyAgentCompleted(session);
+          }
+          next.set(sessionKey, session.status);
         }
+        trayState.prevSessionStatusByKey = next;
       }
       onStateChanged();
       break;
@@ -985,11 +1009,26 @@ function handleNewMessage(msg: WSMessage): void {
 }
 
 function notifyAgentCompleted(session: WSMessage['sessions'] extends (infer T)[] | undefined ? T : never): void {
+  const topicId = session.topic_id || session.topicId;
+  const agentLabel = session.agent_id || session.agentId || 'Agent';
+
+  // Cooldown is keyed by topic so two agents firing back-to-back on the
+  // same topic don't spam the user, but parallel topics still each get
+  // their cue. We always fire (we already missed the visible count for
+  // years because of the old check) — focus-suppression is opt-in via
+  // user setting and lives on the renderer side, not here.
+  if (topicId && isTopicOnCooldown(topicId)) return;
+  if (topicId) setTopicCooldown(topicId);
+
+  const topicName = topicId ? getTopicName(topicId) : null;
+  const title = topicName ? `${topicName} · agent done` : 'Agent completed';
+  const body = topicName ? agentLabel : `${agentLabel} session finished`;
+
   showNotification({
-    id: `agent-${session.id}-${Date.now()}`,
-    title: 'Agent completed',
-    body: session.agent_id || session.agentId || 'Agent session finished',
-    topicId: session.topic_id || session.topicId,
+    id: `agent-${session.id || topicId || 'x'}-${Date.now()}`,
+    title,
+    body,
+    topicId,
   });
 }
 

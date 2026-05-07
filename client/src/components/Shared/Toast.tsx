@@ -19,6 +19,13 @@ interface ToastContextType {
   warning: (message: string, duration?: number) => void;
   toasts: Toast[];
   removeToast: (id: string) => void;
+  /** Mounted-outlet bookkeeping. Used by the root-level fallback outlet
+   *  in App.tsx so we don't double-render the same toast list when a
+   *  scoped outlet (e.g. ProjectWindow's) is also visible. The first
+   *  non-fallback outlet to mount wins; the fallback shows up only when
+   *  it has no scoped peer. */
+  registerOutlet: () => () => void;
+  scopedOutletCount: number;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -26,7 +33,12 @@ const ToastContext = createContext<ToastContextType | null>(null);
 export function useToast(): ToastContextType {
   const ctx = useContext(ToastContext);
   if (!ctx) {
-    return { toast: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {}, toasts: [], removeToast: () => {} };
+    return {
+      toast: () => {}, success: () => {}, error: () => {}, info: () => {}, warning: () => {},
+      toasts: [], removeToast: () => {},
+      registerOutlet: () => () => {},
+      scopedOutletCount: 0,
+    };
   }
   return ctx;
 }
@@ -70,6 +82,7 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [scopedOutletCount, setScopedOutletCount] = useState(0);
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -80,6 +93,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts(prev => [...prev.slice(-4), { id, type, message, duration }]);
   }, []);
 
+  const registerOutlet = useCallback(() => {
+    setScopedOutletCount((n) => n + 1);
+    return () => setScopedOutletCount((n) => Math.max(0, n - 1));
+  }, []);
+
   const contextValue: ToastContextType = {
     toast: addToast,
     success: (msg, dur) => addToast('success', msg, dur),
@@ -88,6 +106,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     warning: (msg, dur) => addToast('warning', msg, dur || 4000),
     toasts,
     removeToast,
+    registerOutlet,
+    scopedOutletCount,
   };
 
   return (
@@ -101,9 +121,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
  * Renders toasts inside the nearest relative-positioned ancestor.
  * Place this inside the project container to scope toasts to that area.
  * Falls back to fixed bottom-right if used without a positioned parent.
+ *
+ * `fallback` outlets only render when no other (scoped) outlet is mounted —
+ * use this at the root of App so global toasts (e.g. agent completion)
+ * surface even when the user isn't inside a project, without
+ * double-rendering when ProjectWindow's scoped outlet is also visible.
  */
-export function ToastOutlet({ fixed = false }: { fixed?: boolean }) {
-  const { toasts, removeToast } = useToast();
+export function ToastOutlet({ fixed = false, fallback = false }: { fixed?: boolean; fallback?: boolean }) {
+  const { toasts, removeToast, registerOutlet, scopedOutletCount } = useToast();
+
+  // Only scoped (= non-fallback) outlets register. The fallback then
+  // checks the count and bows out if a scoped outlet is mounted.
+  useEffect(() => {
+    if (fallback) return;
+    return registerOutlet();
+  }, [fallback, registerOutlet]);
+
+  if (fallback && scopedOutletCount > 0) return null;
   if (toasts.length === 0) return null;
 
   const posClass = fixed

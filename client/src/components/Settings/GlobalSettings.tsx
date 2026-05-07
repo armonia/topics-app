@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, BellOff, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard } from 'lucide-react';
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
-import { usePushNotifications } from '../../hooks/usePushNotifications';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 
@@ -89,7 +88,9 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                 onChange={handleChange}
               />
             )}
-            {section === 'notifications' && <PushNotificationsToggle />}
+            {section === 'notifications' && (
+              <NotificationsSection settings={localSettings} onChange={handleChange} />
+            )}
             {section === 'providers' && <AIProvidersSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
           </div>
@@ -656,47 +657,95 @@ function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | '
   );
 }
 
-function PushNotificationsToggle() {
-  const { state, loading, subscribe, unsubscribe } = usePushNotifications();
+interface NotificationsSectionProps {
+  settings: AppSettings;
+  onChange: (key: keyof AppSettings, value: any) => void;
+}
 
-  if (state === "unsupported") {
-    return (
-      <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
-          <BellOff size={14} />
-          Push Notifications
-        </label>
-        <p className="text-[12px] text-app-text-muted">Not supported in this browser.</p>
-      </div>
-    );
-  }
-
-  const isSubscribed = state === "subscribed";
-  const isDenied = state === "denied";
-
+/**
+ * Notifications settings — covers the in-window toast + native Electron
+ * desktop notification pair. Web Push (other devices) is intentionally NOT
+ * exposed: per product decision, completion alerts are scoped to the
+ * Electron client only.
+ */
+function NotificationsSection({ settings, onChange }: NotificationsSectionProps) {
+  const masterOn = settings.notificationsEnabled;
   return (
-    <div>
-      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-3">
-        {isSubscribed ? <Bell size={14} /> : <BellOff size={14} />}
-        Push Notifications
-      </label>
-      {isDenied ? (
-        <p className="text-[12px] text-app-text-muted">
-          Notifications blocked by your browser. Enable them in site settings.
+    <div className="space-y-5">
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <Bell size={14} />
+          Topic completion notifications
+        </label>
+        <p className="text-[12px] text-app-text-muted mb-3">
+          Toast in-window + native macOS notification when an agent
+          finishes (or errors) on any topic.
         </p>
-      ) : (
-        <button
-          onClick={isSubscribed ? unsubscribe : subscribe}
-          disabled={loading}
-          className={`w-full py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
-            isSubscribed
-              ? "bg-primary/10 border-primary/30 text-primary"
-              : "bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover"
-          } disabled:opacity-50`}
-        >
-          {loading ? "..." : isSubscribed ? "Disable push notifications" : "Enable push notifications"}
-        </button>
-      )}
+
+        <ToggleRow
+          label="Enable notifications"
+          description="Master switch for both toast and desktop notifications."
+          value={masterOn}
+          onChange={(v) => onChange('notificationsEnabled', v)}
+        />
+
+        <div className={masterOn ? '' : 'opacity-50 pointer-events-none'}>
+          <ToggleRow
+            label="Play sound"
+            description="Short tone when an agent completes."
+            value={settings.notificationsSound}
+            onChange={(v) => onChange('notificationsSound', v)}
+          />
+          <ToggleRow
+            label="Notify even when topic is focused"
+            description="Useful when you keep multiple topics open in parallel."
+            value={settings.notifyEvenWhenFocused}
+            onChange={(v) => onChange('notifyEvenWhenFocused', v)}
+          />
+        </div>
+      </div>
     </div>
   );
 }
+
+interface ToggleRowProps {
+  label: string;
+  description?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}
+
+function ToggleRow({ label, description, value, onChange }: ToggleRowProps) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-2 border-b border-app-border last:border-b-0">
+      <div className="min-w-0 flex-1">
+        <div className="text-[12.5px] text-app-text">{label}</div>
+        {description && (
+          <div className="text-[11px] text-app-text-muted mt-0.5">{description}</div>
+        )}
+      </div>
+      <button
+        role="switch"
+        aria-checked={value}
+        aria-label={label}
+        onClick={() => onChange(!value)}
+        className={`relative shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors ${
+          value ? 'bg-primary' : 'bg-app-border'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+            value ? 'translate-x-4' : 'translate-x-0'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+// Web Push notifications were intentionally removed from the UI: per
+// product decision, completion alerts are scoped to the local Electron
+// client (toast + native macOS notification). The push subscription
+// infrastructure (`usePushNotifications`, `/api/push/*`) is left in place
+// so a future "notify me on other devices" toggle can wire back into it
+// without redoing the server side.

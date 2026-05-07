@@ -5,6 +5,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   messageDensity: 'comfortable',
   sidebarWidth: 256,
   sidebarCollapsed: false,
+  // Notifications default to on with sound; users disable from Settings.
+  // `notifyEvenWhenFocused` defaults to false so we don't spam users who
+  // already have the topic in front of them — they get the toast either way.
+  notificationsEnabled: true,
+  notificationsSound: true,
+  notifyEvenWhenFocused: false,
 };
 
 export function loadSettings(): AppSettings {

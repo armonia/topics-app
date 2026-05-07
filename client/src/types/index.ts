@@ -713,6 +713,16 @@ export interface AppSettings {
   messageDensity: 'compact' | 'comfortable';
   sidebarWidth: number;   // 180-400
   sidebarCollapsed: boolean;
+  // Topic / agent completion notifications (in-app toast + native Electron).
+  // Surfaced in Settings → Notifications. When `notificationsEnabled` is
+  // false, no toast and no native notification fires for completions, and the
+  // sub-toggles are ignored. `notifyEvenWhenFocused` lets the desktop
+  // notification fire even when the corresponding topic is the focused tab —
+  // useful when several topics run in parallel and the user wants the cue
+  // even on the visible one.
+  notificationsEnabled: boolean;
+  notificationsSound: boolean;
+  notifyEvenWhenFocused: boolean;
 }
 
 export interface ProcessInfo {
