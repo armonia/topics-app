@@ -50,7 +50,7 @@ import {
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { pushUndo } from '../../../contexts/UndoContext';
-import { enqueuePendingAction } from '../../../contexts/PendingActionContext';
+import { enqueuePendingAction, tickPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 
@@ -715,18 +715,24 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   );
 
   // Deferred close — the default (UI X-click) path. Queues a PendingAction
-  // toast; the actual close fires after a 3 s countdown unless the user
-  // cancels. Right-click "Close now" calls `handleClosePaneNow` directly.
+  // entry AND auto-ticks it so the 3 s countdown starts on the very first
+  // click of the empty-circle "mark as done" affordance (mirrors App.tsx's
+  // `enqueueAndTick` for top-level tabs). Without the tick the entry sits
+  // pending forever — icon flips to the check, the L→R bar paints, but
+  // the commit setTimeout is never scheduled and the pane never actually
+  // closes. Right-click "Close now" calls `handleClosePaneNow` directly.
   const handleClosePane = useCallback(
     (groupId: string, paneId: string) => {
       const pane = panes.find(p => p.id === paneId);
       if (!pane) return;
+      const key = `close-tab:${paneId}`;
       enqueuePendingAction({
-        key: `close-tab:${paneId}`,
+        key,
         kind: 'close-tab',
         label: pane.title || pane.type,
         commit: () => handleClosePaneNow(groupId, paneId),
       });
+      tickPendingAction(key);
     },
     [panes, handleClosePaneNow],
   );

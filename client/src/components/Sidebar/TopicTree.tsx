@@ -3,9 +3,6 @@ import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSqu
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
-// DnD imports preserved for future drag-to-reorder in timeline
-// import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-// import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
 import { createPaneId, useProjectTabStatus } from '@/state/pane/adapters';

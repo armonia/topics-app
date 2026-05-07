@@ -41,9 +41,12 @@ export function PendingActionProgressOverlay({
 }: Props) {
   const [progress, setProgress] = useState(0);
   // `tickedAt` is set on auto-tick, so progress should start filling on
-  // the very next paint after the entry appears in the context. Keying
-  // the effect on the entry key (not tickedAt) handles the case where a
-  // new pending entry replaces a same-key prior entry — restart from 0.
+  // the very next paint after the entry appears in the context. Key the
+  // effect on BOTH the entry key AND `tickedAt`: the key handles a fresh
+  // pending entry replacing a previous one, and `tickedAt` handles the
+  // user-cancel-then-re-click cycle where the same key is re-enqueued
+  // and re-ticked at a new timestamp — without depending on tickedAt
+  // here the bar would skip the 0→1 ramp and appear already full.
   useEffect(() => {
     let raf1 = 0;
     let raf2 = 0;
@@ -55,7 +58,7 @@ export function PendingActionProgressOverlay({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [status.entry.key]);
+  }, [status.entry.key, status.entry.tickedAt]);
 
   const accent = status.entry.color || 'currentColor';
 
