@@ -579,6 +579,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   }
                 }
                 const isDark = document.documentElement.classList.contains('dark');
+                // Extract live CSS variables from the app theme so the overlay
+                // window matches the active palette (vibrancy, dark mode, etc.).
+                const cs = getComputedStyle(document.documentElement);
+                const get = (name: string, fallback: string) =>
+                  (cs.getPropertyValue(name).trim() || fallback);
+                const colors = {
+                  bg: get('--bg-surface', isDark ? '#1f2937' : '#ffffff'),
+                  text: get('--text', isDark ? '#e5e7eb' : '#1a1a1a'),
+                  muted: get('--text-muted', isDark ? '#9ca3af' : '#6b7280'),
+                  border: get('--border', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+                  hover: get('--bg-hover', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
+                };
                 const selectedId = await overlayApi.showMenu({
                   anchor: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
                   items,
@@ -586,6 +598,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   theme: isDark ? 'dark' : 'light',
                   estimatedWidth: 180,
                   estimatedItemHeight: 28,
+                  gap: 4,
+                  colors,
                 });
                 if (!selectedId) return;
                 if (selectedId === 'new-chat') {

@@ -133,6 +133,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       theme?: 'light' | 'dark';
       estimatedWidth?: number;
       estimatedItemHeight?: number;
+      gap?: number;
+      colors?: { bg?: string; text?: string; muted?: string; border?: string; hover?: string };
     }) => ipcRenderer.invoke('overlay:show-menu', opts) as Promise<string | null>,
   },
 

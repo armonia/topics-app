@@ -29,6 +29,14 @@ interface OverlayMenuInit {
   theme: 'light' | 'dark';
   /** Reported back so caller can match the response to the request. */
   requestId: string;
+  /** Optional CSS color overrides extracted from the parent app's theme. */
+  colors?: {
+    bg?: string;
+    text?: string;
+    muted?: string;
+    border?: string;
+    hover?: string;
+  };
 }
 
 interface OverlayBridge {
@@ -76,6 +84,18 @@ let currentRequestId: string | null = null;
 function renderMenu(init: OverlayMenuInit) {
   currentRequestId = init.requestId;
   document.body.classList.toggle('dark', init.theme === 'dark');
+
+  // Apply theme colors from parent app (CSS variables on body) so the
+  // overlay always matches the active app theme (light/dark/custom).
+  if (init.colors) {
+    const root = document.body.style;
+    if (init.colors.bg) root.setProperty('--ovl-bg', init.colors.bg);
+    if (init.colors.text) root.setProperty('--ovl-text', init.colors.text);
+    if (init.colors.muted) root.setProperty('--ovl-muted', init.colors.muted);
+    if (init.colors.border) root.setProperty('--ovl-border', init.colors.border);
+    if (init.colors.hover) root.setProperty('--ovl-hover', init.colors.hover);
+  }
+
   panel.replaceChildren();
 
   for (const item of init.items) {

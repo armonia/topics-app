@@ -35,6 +35,10 @@ interface ShowMenuOptions {
   /** Estimated panel size for sizing the overlay window. */
   estimatedWidth?: number;
   estimatedItemHeight?: number;
+  /** Pixel gap between anchor and panel (default: 4). */
+  gap?: number;
+  /** CSS color overrides applied via CSS variables in the overlay. */
+  colors?: { bg?: string; text?: string; muted?: string; border?: string; hover?: string };
 }
 
 interface PendingRequest {
@@ -103,25 +107,31 @@ export async function showMenu(
   void scale; // BrowserWindow APIs use CSS pixels on Mac/Linux; keep var for future per-platform tweaks.
 
   const side = opts.side ?? 'bottom';
+  const gap = opts.gap ?? 4;
   let x: number;
   let y: number;
   switch (side) {
     case 'bottom':
       x = parentBounds.x + Math.round(opts.anchor.x);
-      y = parentBounds.y + Math.round(opts.anchor.y + opts.anchor.height);
+      y = parentBounds.y + Math.round(opts.anchor.y + opts.anchor.height + gap);
       break;
     case 'top':
       x = parentBounds.x + Math.round(opts.anchor.x);
-      y = parentBounds.y + Math.round(opts.anchor.y - estH);
+      y = parentBounds.y + Math.round(opts.anchor.y - estH - gap);
       break;
     case 'right':
-      x = parentBounds.x + Math.round(opts.anchor.x + opts.anchor.width);
+      x = parentBounds.x + Math.round(opts.anchor.x + opts.anchor.width + gap);
       y = parentBounds.y + Math.round(opts.anchor.y);
       break;
     case 'left':
-      x = parentBounds.x + Math.round(opts.anchor.x - estW);
+      x = parentBounds.x + Math.round(opts.anchor.x - estW - gap);
       y = parentBounds.y + Math.round(opts.anchor.y);
       break;
+  }
+  // Default for "bottom" side: align panel's right edge with anchor's right edge
+  // so menus that open from a right-justified button stay inside the window.
+  if (side === 'bottom' && opts.anchor.x + opts.anchor.width > estW) {
+    x = parentBounds.x + Math.round(opts.anchor.x + opts.anchor.width - estW);
   }
 
   // Clamp to display bounds — overlay must not spawn off-screen.
@@ -181,6 +191,7 @@ export async function showMenu(
         requestId,
         items: opts.items,
         theme: opts.theme ?? 'light',
+        colors: opts.colors,
       });
       win.show();
       win.focus();

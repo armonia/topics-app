@@ -53,6 +53,10 @@ export interface OverlayShowMenuOptions {
   theme?: 'light' | 'dark';
   estimatedWidth?: number;
   estimatedItemHeight?: number;
+  /** Pixel gap between anchor and panel (default 4). */
+  gap?: number;
+  /** CSS color overrides applied via CSS variables in the overlay. */
+  colors?: { bg?: string; text?: string; muted?: string; border?: string; hover?: string };
 }
 
 export interface OverlayAPI {
