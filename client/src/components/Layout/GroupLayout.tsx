@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState, useCallback } from 'react';
+import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
 import { useGridResize } from '../../hooks/useGridResize';
@@ -68,6 +68,42 @@ export function GroupLayout({
     for (const g of groups) m.set(g.id, g);
     return m;
   }, [groups]);
+
+  // Keep-alive: track which panes have ever been activated. Once a pane is
+  // visited we keep its React subtree mounted (just hidden via display:none
+  // when not active) so the user doesn't see chat history re-fetches, scroll
+  // resets, or draft loss every time they switch tabs. Pruned when a pane is
+  // closed (no longer present in `panes`). Only the active pane is visible
+  // at any time, so the user-visible behavior is unchanged.
+  const [visitedPaneIds, setVisitedPaneIds] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    for (const g of groups) {
+      if (g.activePaneId) initial.add(g.activePaneId);
+    }
+    return initial;
+  });
+  useEffect(() => {
+    setVisitedPaneIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      // Add currently-active panes (visit-on-activation).
+      for (const g of groups) {
+        if (g.activePaneId && !next.has(g.activePaneId)) {
+          next.add(g.activePaneId);
+          changed = true;
+        }
+      }
+      // Drop ids for panes that no longer exist (closed/reaped).
+      const live = new Set(panes.map((p) => p.id));
+      for (const id of next) {
+        if (!live.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [groups, panes]);
 
   const callbacks = useMemo(() => ({
     onHorizontalResize: (rowIdx: number, _divIdx: number, newWidths: number[]) => {
@@ -320,7 +356,6 @@ export function GroupLayout({
                 const groupPanes = group.paneIds
                   .map(id => paneMap.get(id))
                   .filter((p): p is Pane => !!p);
-                const activePane = paneMap.get(group.activePaneId);
                 const groupNotifications = new Map<string, number>();
                 for (const p of groupPanes) {
                   const c = getBadgeCount(p.id, p.topicId, p.id === group.activePaneId);
@@ -417,11 +452,37 @@ export function GroupLayout({
                         onDragLeave={handleGroupContentDragLeave(groupId)}
                         onDrop={handleGroupContentDrop(groupId)}
                       >
-                        {activePane ? renderPane(activePane, isFocusedGroup) : (
-                          <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">
-                            No pane selected
-                          </div>
-                        )}
+                        {(() => {
+                          // Keep-alive render: every pane that has been visited
+                          // stays mounted; only the active one is visible. This
+                          // preserves chat scroll, history caches, terminal
+                          // buffers, and form drafts across tab switches —
+                          // before this, switching tabs unmounted the active
+                          // pane and re-mounted it from scratch, so users saw
+                          // a "reload" flicker (re-fetched history, lost
+                          // scroll, etc.) every time they came back.
+                          const visiblePanes = groupPanes.filter((p) => visitedPaneIds.has(p.id));
+                          if (visiblePanes.length === 0) {
+                            return (
+                              <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">
+                                No pane selected
+                              </div>
+                            );
+                          }
+                          return visiblePanes.map((pane) => {
+                            const isPaneActive = pane.id === group.activePaneId;
+                            return (
+                              <div
+                                key={pane.id}
+                                className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
+                                style={{ display: isPaneActive ? 'flex' : 'none' }}
+                                aria-hidden={!isPaneActive}
+                              >
+                                {renderPane(pane, isFocusedGroup && isPaneActive)}
+                              </div>
+                            );
+                          });
+                        })()}
 
                         {/* Edge drop zone overlays (Phase 3) */}
                         {edgeDrop && (

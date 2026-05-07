@@ -100,6 +100,15 @@ export function useChat() {
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
+  // Per-session timestamp of the last successful loadHistory fetch. Used to
+  // dedup rapid re-mounts (a tab switch in StandaloneChatGroup unmounts the
+  // active ChatPane and re-mounts a new one — without dedup the user sees
+  // the loading spinner flash + a network round-trip every time they come
+  // back to a chat they've just visited). WS broadcasts keep the cache
+  // fresh between fetches, so a short skip window is safe. After the
+  // window elapses the next mount refetches normally.
+  const lastHistoryFetchAtRef = useRef<Map<string, number>>(new Map());
+  const HISTORY_DEDUP_MS = 5_000;
   // Per-session send lock — prevents concurrent sendMessage calls for the same session
   // Stores timestamp of lock acquisition; auto-expires after SEND_LOCK_TIMEOUT_MS
   const sendLockRef = useRef<Map<string, number>>(new Map());
@@ -914,6 +923,17 @@ export function useChat() {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
     if (localSSESessionsRef.current.has(sessionKey)) return true;
 
+    // Dedup rapid re-fetches: a tab switch in StandaloneChatGroup re-mounts
+    // ChatPane, whose mount effect calls loadHistory. If we just fetched
+    // this session's history a few seconds ago AND we have non-empty cached
+    // messages, skip — WS keeps the cache fresh in between, so the user
+    // sees the existing messages instantly with no spinner flash.
+    const lastFetchedAt = lastHistoryFetchAtRef.current.get(sessionKey);
+    if (lastFetchedAt && Date.now() - lastFetchedAt < HISTORY_DEDUP_MS) {
+      const cached = messagesRef.current[sessionKey];
+      if (cached && cached.length > 0) return true;
+    }
+
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
@@ -952,6 +972,9 @@ export function useChat() {
         next.delete(sessionKey);
         return next;
       });
+      // Mark this session as freshly loaded — subsequent re-mounts within
+      // HISTORY_DEDUP_MS will short-circuit instead of re-fetching.
+      lastHistoryFetchAtRef.current.set(sessionKey, Date.now());
 
       // Clear any queued outbound messages for this session — the server already has them
       const queue = getOutboundQueue();
