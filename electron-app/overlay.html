@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src data:;">
+<title>Overlay</title>
+<style>
+  /* Phase 30.1 polish — overlay window for dropdowns/menus rendered above
+     OS-level WebContentsView. Vanilla DOM, no React. ~3KB total payload. */
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    -webkit-app-region: no-drag;
+    user-select: none;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 12px;
+    color: #1f2937;
+  }
+  body.dark { color: #e5e7eb; }
+  /* Outer wrapper anchors the panel to (0,0) of the overlay window so
+     window dimensions == panel dimensions. */
+  #panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08);
+    padding: 4px;
+    min-width: 160px;
+    box-sizing: border-box;
+  }
+  body.dark #panel {
+    background: #1f2937;
+    border-color: rgba(255,255,255,0.08);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.05s;
+  }
+  .item:hover { background: rgba(0,0,0,0.05); }
+  body.dark .item:hover { background: rgba(255,255,255,0.06); }
+  .item .icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+  }
+  body.dark .item .icon { color: #9ca3af; }
+  .item .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .divider {
+    height: 1px;
+    margin: 4px 6px;
+    background: rgba(0,0,0,0.08);
+  }
+  body.dark .divider { background: rgba(255,255,255,0.08); }
+</style>
+</head>
+<body>
+<div id="panel" role="menu"></div>
+<script src="./overlay-renderer.js"></script>
+</body>
+</html>

@@ -123,6 +123,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // Phase 30.1 polish — Overlay menu (transparent BrowserWindow above WebContentsView).
+  // Returns the selected item id, or null if cancelled (blur, esc).
+  overlay: {
+    showMenu: (opts: {
+      anchor: { x: number; y: number; width: number; height: number };
+      items: Array<{ id: string; label: string; iconName?: string; divider?: boolean }>;
+      side?: 'bottom' | 'top' | 'right' | 'left';
+      theme?: 'light' | 'dark';
+      estimatedWidth?: number;
+      estimatedItemHeight?: number;
+    }) => ipcRenderer.invoke('overlay:show-menu', opts) as Promise<string | null>,
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 

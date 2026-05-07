@@ -8,6 +8,7 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import WebSocket from 'ws';
+import { initOverlayManager, showMenu as showOverlayMenu } from './overlay-manager';
 
 // ============ Types ============
 
@@ -1293,6 +1294,25 @@ ipcMain.handle('browser-native:get-cdp-target-id', async (_evt, viewId: string):
   return await resolveCdpTargetIdForView(entry.view);
 });
 
+// Phase 30.1 polish — Overlay window IPC: renderer requests a menu, main
+// opens a transparent BrowserWindow above the parent (above WebContentsView)
+// and resolves with the selected item id (or null if cancelled).
+ipcMain.handle('overlay:show-menu', async (
+  evt,
+  opts: {
+    anchor: { x: number; y: number; width: number; height: number };
+    items: Array<{ id: string; label: string; iconName?: string; divider?: boolean }>;
+    side?: 'bottom' | 'top' | 'right' | 'left';
+    theme?: 'light' | 'dark';
+    estimatedWidth?: number;
+    estimatedItemHeight?: number;
+  }
+): Promise<string | null> => {
+  const senderWin = BrowserWindow.fromWebContents(evt.sender);
+  if (!senderWin) throw new Error('overlay:show-menu — no parent window');
+  return await showOverlayMenu(senderWin, opts);
+});
+
 // Phase 30.1 BROWSER-CHAT-06 polish — DevTools toggle for native WebContentsView.
 // Opens detached so it doesn't steal pane real estate. Idempotent: closes if open.
 ipcMain.handle('browser-native:toggle-devtools', async (_evt, viewId: string): Promise<void> => {
@@ -1769,6 +1789,8 @@ app.whenReady().then(() => {
   alwaysOnTop = prefs.alwaysOnTop || false;
 
   createAppMenu();
+  // Phase 30.1 polish — overlay manager IPC handlers register here.
+  initOverlayManager();
   createWindow();
   createTray();
   startWSBridge();

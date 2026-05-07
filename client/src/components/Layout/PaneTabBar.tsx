@@ -541,7 +541,65 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         >
           <button
             ref={buttonRef}
-            onClick={() => {
+            onClick={async () => {
+              // Phase 30.1 polish — when Electron's native browser is in use,
+              // the WebContentsView is OS-level and covers any DOM portal.
+              // Use the transparent overlay BrowserWindow API instead so the
+              // menu appears ABOVE the WebContentsView. Web mode (no
+              // electronAPI.overlay) falls through to the existing portal.
+              const overlayApi = window.electronAPI?.overlay;
+              const hasNativeBrowser = !!window.electronAPI?.browserNative?.isAvailable;
+              if (overlayApi && hasNativeBrowser && buttonRef.current && !showAddMenu) {
+                const rect = buttonRef.current.getBoundingClientRect();
+                const items: Array<{ id: string; label: string; iconName?: 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square'; divider?: boolean }> = [];
+                if (onNewChat) {
+                  items.push({ id: 'new-chat', label: 'New Chat', iconName: 'message-square' });
+                }
+                for (const type of availableTypes) {
+                  if (type === 'terminal') {
+                    items.push({ id: 'terminal-shell', label: 'Shell', iconName: 'terminal', divider: items.length > 0 });
+                    items.push({ id: 'terminal-claude-code', label: 'Claude Code', iconName: 'bot' });
+                  } else {
+                    const cfg = getPaneConfig(type);
+                    // Map lucide icon name → overlay icon keyword (subset).
+                    const iconMap: Record<string, 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square'> = {
+                      Globe: 'globe',
+                      Terminal: 'terminal',
+                      TerminalSquare: 'terminal',
+                      MessageSquare: 'message-square',
+                      Folder: 'folder',
+                      FolderOpen: 'folder',
+                      Bot: 'bot',
+                      FileText: 'file-text',
+                      Layout: 'layout',
+                      List: 'list',
+                    };
+                    const iconName = iconMap[cfg.icon] ?? 'plus-square';
+                    items.push({ id: type, label: cfg.label, iconName, divider: type !== availableTypes[0] && availableTypes[0] !== 'terminal' });
+                  }
+                }
+                const isDark = document.documentElement.classList.contains('dark');
+                const selectedId = await overlayApi.showMenu({
+                  anchor: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+                  items,
+                  side: 'bottom',
+                  theme: isDark ? 'dark' : 'light',
+                  estimatedWidth: 180,
+                  estimatedItemHeight: 28,
+                });
+                if (!selectedId) return;
+                if (selectedId === 'new-chat') {
+                  onNewChat?.();
+                } else if (selectedId === 'terminal-shell') {
+                  onAddPane('terminal', 'shell');
+                } else if (selectedId === 'terminal-claude-code') {
+                  onAddPane('terminal', 'claude-code');
+                } else {
+                  onAddPane(selectedId as PaneType);
+                }
+                return;
+              }
+              // Web mode (or no native browser active) — original portal logic.
               if (!showAddMenu && buttonRef.current) {
                 const rect = buttonRef.current.getBoundingClientRect();
                 const menuWidth = 160;

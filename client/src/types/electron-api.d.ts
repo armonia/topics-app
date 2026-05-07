@@ -36,10 +36,34 @@ export interface BrowserNativeAPI {
   onLoadingChange(viewId: string, callback: (loading: boolean) => void): () => void;
 }
 
+// Phase 30.1 polish — Overlay menu API (transparent BrowserWindow above WebContentsView).
+export interface OverlayMenuItem {
+  id: string;
+  label: string;
+  /** Predefined icon name; mapped to SVG in overlay-renderer. Unknown names render no icon. */
+  iconName?: 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square';
+  divider?: boolean;
+}
+
+export interface OverlayShowMenuOptions {
+  /** Anchor rect in renderer-local CSS pixels (BoundingClientRect of the trigger button). */
+  anchor: { x: number; y: number; width: number; height: number };
+  items: OverlayMenuItem[];
+  side?: 'bottom' | 'top' | 'right' | 'left';
+  theme?: 'light' | 'dark';
+  estimatedWidth?: number;
+  estimatedItemHeight?: number;
+}
+
+export interface OverlayAPI {
+  showMenu(opts: OverlayShowMenuOptions): Promise<string | null>;
+}
+
 declare global {
   interface Window {
     electronAPI?: {
       browserNative?: BrowserNativeAPI;
+      overlay?: OverlayAPI;
       // existing fields stay typed via the ad-hoc shape already used in App.tsx
       // (see client/src/types/electron.d.ts). We don't lock them down here to
       // avoid touching unrelated callsites.
