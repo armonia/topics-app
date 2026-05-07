@@ -614,8 +614,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               }
               setShowAddMenu(!showAddMenu);
             }}
-            className="w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
+            className="w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors app-no-drag"
             title="Add pane"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <Plus size={14} />
           </button>
