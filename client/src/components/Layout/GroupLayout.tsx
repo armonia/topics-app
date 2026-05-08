@@ -75,35 +75,46 @@ export function GroupLayout({
   // resets, or draft loss every time they switch tabs. Pruned when a pane is
   // closed (no longer present in `panes`). Only the active pane is visible
   // at any time, so the user-visible behavior is unchanged.
-  const [visitedPaneIds, setVisitedPaneIds] = useState<Set<string>>(() => {
+  //
+  // Tracked by `stableKey` — not `id` — so PANE_ID_REMAP (draft → real
+  // topic promotion changes the pane's `id` while keeping `stableKey`)
+  // doesn't drop the pane from the visited set and force a remount of
+  // its content (which would re-run loadHistory, blow away scroll, etc.).
+  const stableKeyOf = useCallback((p: Pane) => p.stableKey ?? p.id, []);
+  const [visitedKeys, setVisitedKeys] = useState<Set<string>>(() => {
     const initial = new Set<string>();
+    const lookup = new Map(panes.map((p) => [p.id, p]));
     for (const g of groups) {
-      if (g.activePaneId) initial.add(g.activePaneId);
+      const p = g.activePaneId ? lookup.get(g.activePaneId) : undefined;
+      if (p) initial.add(p.stableKey ?? p.id);
     }
     return initial;
   });
   useEffect(() => {
-    setVisitedPaneIds((prev) => {
+    setVisitedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;
-      // Add currently-active panes (visit-on-activation).
+      // Add the currently-active pane in each group (visit-on-activation).
       for (const g of groups) {
-        if (g.activePaneId && !next.has(g.activePaneId)) {
-          next.add(g.activePaneId);
+        const p = g.activePaneId ? paneMap.get(g.activePaneId) : undefined;
+        if (!p) continue;
+        const k = stableKeyOf(p);
+        if (!next.has(k)) {
+          next.add(k);
           changed = true;
         }
       }
-      // Drop ids for panes that no longer exist (closed/reaped).
-      const live = new Set(panes.map((p) => p.id));
-      for (const id of next) {
-        if (!live.has(id)) {
-          next.delete(id);
+      // Drop keys for panes that no longer exist (closed/reaped).
+      const liveKeys = new Set(panes.map(stableKeyOf));
+      for (const k of next) {
+        if (!liveKeys.has(k)) {
+          next.delete(k);
           changed = true;
         }
       }
       return changed ? next : prev;
     });
-  }, [groups, panes]);
+  }, [groups, panes, paneMap, stableKeyOf]);
 
   const callbacks = useMemo(() => ({
     onHorizontalResize: (rowIdx: number, _divIdx: number, newWidths: number[]) => {
@@ -461,7 +472,17 @@ export function GroupLayout({
                           // pane and re-mounted it from scratch, so users saw
                           // a "reload" flicker (re-fetched history, lost
                           // scroll, etc.) every time they came back.
-                          const visiblePanes = groupPanes.filter((p) => visitedPaneIds.has(p.id));
+                          //
+                          // Always include the currently-active pane even if
+                          // `visitedKeys` hasn't caught up yet — the visited
+                          // set is updated in a useEffect that runs *after*
+                          // render, so on the first render after activation
+                          // we'd otherwise show the empty-state for one frame.
+                          // Using `stableKey` as the React key (not pane.id)
+                          // keeps the subtree mounted across PANE_ID_REMAP.
+                          const visiblePanes = groupPanes.filter(
+                            (p) => visitedKeys.has(stableKeyOf(p)) || p.id === group.activePaneId,
+                          );
                           if (visiblePanes.length === 0) {
                             return (
                               <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">
@@ -473,7 +494,7 @@ export function GroupLayout({
                             const isPaneActive = pane.id === group.activePaneId;
                             return (
                               <div
-                                key={pane.id}
+                                key={stableKeyOf(pane)}
                                 className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
                                 style={{ display: isPaneActive ? 'flex' : 'none' }}
                                 aria-hidden={!isPaneActive}
