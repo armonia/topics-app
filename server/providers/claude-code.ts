@@ -167,6 +167,156 @@ function looksLikeMissingSessionError(stderrChunk: string): boolean {
   return SESSION_NOT_FOUND_PATTERNS.some((p) => p.test(stderrChunk));
 }
 
+// ============ DB-driven History Replay (resilience layer) ============
+
+/**
+ * Maximum non-system turns to replay when recovering from a lost CLI session.
+ * Mirrors codex's CODEX_HISTORY_TURN_CAP — 20 user/assistant turns is enough
+ * for the model to pick up context without blowing the context window.
+ */
+const REPLAY_TURN_CAP = 20;
+
+const REPLAY_CONTEXT_PREFIX = "[Chat messages since your last reply";
+const REPLAY_BROWSER_MARKER = /\{\{BROWSER:.*?\}\}/g;
+const REPLAY_TOPIC_SWITCH_MARKER = /\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g;
+const REPLAY_TOPIC_NEW_MARKER = /\{\{TOPIC_NEW:[^}]+\}\}\s*/g;
+
+export interface ReplayTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Walk the active branch of the `messages` table for `sessionKey` and return
+ * the turns (excluding the very last one, which is the user's brand-new
+ * message that the caller is about to send fresh).
+ *
+ * Why a duplicate-ish helper rather than reusing buildProviderHistory: the
+ * provider has no access to the AppContext closure where loadActiveThread
+ * lives — and adding a constructor-time DI parameter just for this would
+ * ripple through provider/index/createProvider. A direct query against the
+ * already-imported `getDatabase()` keeps the resilience layer self-contained.
+ */
+export function loadActiveBranchForReplay(sessionKey: string): ReplayTurn[] {
+  let db: ReturnType<typeof getDatabase>;
+  try {
+    db = getDatabase();
+  } catch {
+    return [];
+  }
+
+  // Pull every persisted row for this session (skip partial/streaming rows;
+  // they'd teach the model that truncation is OK).
+  type Row = { id: string; role: string; content: string | null; parent_id: string | null; branch_index: number | null };
+  const rows = db
+    .prepare(
+      `SELECT id, role, content, parent_id, branch_index
+       FROM messages
+       WHERE session_key = ? AND COALESCE(partial,0) = 0`,
+    )
+    .all(sessionKey) as Row[];
+  if (rows.length === 0) return [];
+
+  // Build parent → children map and walk the active branch from root.
+  // For each parent we pick the child whose branch_index matches the
+  // active branch row in `active_branches`; absent that, branch 0.
+  const childrenOf = new Map<string | "__root__", Row[]>();
+  for (const r of rows) {
+    const key = r.parent_id ?? "__root__";
+    const list = childrenOf.get(key) ?? [];
+    list.push(r);
+    childrenOf.set(key, list);
+  }
+
+  let activeRows: Row[] = [];
+  let cursor: string | null = null;
+  while (true) {
+    const key = cursor ?? "__root__";
+    const candidates = childrenOf.get(key) ?? [];
+    if (candidates.length === 0) break;
+    let chosen: Row | undefined;
+    if (candidates.length === 1) {
+      chosen = candidates[0];
+    } else {
+      try {
+        const lookupKey = cursor ?? "__root__";
+        const active = db
+          .prepare(
+            "SELECT active_branch_index FROM active_branches WHERE parent_id = ? AND session_key = ?",
+          )
+          .get(lookupKey, sessionKey) as { active_branch_index: number } | undefined;
+        const targetIdx = active?.active_branch_index ?? 0;
+        chosen =
+          candidates.find((c) => (c.branch_index ?? 0) === targetIdx) ?? candidates[0];
+      } catch {
+        chosen = candidates[0];
+      }
+    }
+    if (!chosen) break;
+    activeRows.push(chosen);
+    cursor = chosen.id;
+  }
+
+  return activeRows
+    .filter((r) => r.role === "user" || r.role === "assistant")
+    .filter((r) => !(r.content ?? "").startsWith(REPLAY_CONTEXT_PREFIX))
+    .map((r) => ({
+      role: r.role as "user" | "assistant",
+      content: (r.content ?? "")
+        .replace(REPLAY_BROWSER_MARKER, "")
+        .replace(REPLAY_TOPIC_SWITCH_MARKER, "")
+        .replace(REPLAY_TOPIC_NEW_MARKER, "")
+        .trim(),
+    }))
+    .filter((t) => t.content.length > 0)
+    // Exclude the last entry — it's the user's just-appended turn that
+    // sendChatInternal will dispatch fresh as the new prompt.
+    .slice(0, -1);
+}
+
+export function hasPriorMessagesInDB(sessionKey: string): boolean {
+  let db: ReturnType<typeof getDatabase>;
+  try {
+    db = getDatabase();
+  } catch {
+    return false;
+  }
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM messages
+       WHERE session_key = ? AND role IN ('user','assistant') AND COALESCE(partial,0) = 0`,
+    )
+    .get(sessionKey) as { n: number } | undefined;
+  // > 1 because the user's brand-new turn was just appended; we only need
+  // *prior* context, not the message we're about to send.
+  return (row?.n ?? 0) > 1;
+}
+
+export function renderReplayPrologue(turns: ReplayTurn[]): string {
+  const kept = turns.length > REPLAY_TURN_CAP ? turns.slice(-REPLAY_TURN_CAP) : turns;
+  const truncated = kept.length < turns.length;
+  const lines: string[] = [
+    "[The CLI session was reset and lost its memory. Recap of the conversation so far — read carefully, then respond to the new message that follows.]",
+    "",
+    "<conversation_recap>",
+  ];
+  if (truncated) {
+    lines.push(
+      `_(Earlier ${turns.length - kept.length} turns omitted; only the most recent ${kept.length} are shown.)_`,
+      "",
+    );
+  }
+  for (const t of kept) {
+    if (t.role === "user") {
+      lines.push("**User:**", t.content, "");
+    } else {
+      lines.push("**Assistant:**", t.content, "");
+    }
+  }
+  lines.push("</conversation_recap>", "");
+  return lines.join("\n");
+}
+
 // ============ Persistent Process ============
 
 interface PersistentProcess {
@@ -190,6 +340,14 @@ interface PersistentProcess {
   settledToolCalls?: Set<string>;
   inactivityTimer: ReturnType<typeof setTimeout> | null;
   lifetimeTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Set when this process was spawned with `--session-id` because the prior
+   * `claude_session_id` was either missing on disk or never existed, but the
+   * topics-app DB *does* contain prior user/assistant turns for this
+   * sessionKey. The next sendChat will prepend a markdown recap so the model
+   * doesn't lose the conversation thread. Cleared after one use.
+   */
+  needsHistoryReplay: boolean;
 }
 
 // ============ Provider ============
@@ -273,10 +431,34 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
 
+    // Resilience: if the process was respawned fresh (e.g. after a doomed
+    // `--resume`) and the DB carries prior turns, prepend a markdown recap
+    // so the model picks up the conversation thread on its very first stdin
+    // write. One-shot — clear the flag so subsequent turns flow normally.
+    let outboundMessage = message;
+    if (pp.needsHistoryReplay) {
+      pp.needsHistoryReplay = false;
+      try {
+        const replayTurns = loadActiveBranchForReplay(sessionKey);
+        if (replayTurns.length > 0) {
+          outboundMessage = renderReplayPrologue(replayTurns) + "\n" + message;
+          console.log(
+            `[claude-code] Injected recap prologue (${replayTurns.length} prior turns) for ${sessionKey}`,
+          );
+        }
+      } catch (err: any) {
+        // Replay is best-effort — if the DB is unavailable, fall back to the
+        // raw message rather than blocking the user's send.
+        console.warn(
+          `[claude-code] History replay failed for ${sessionKey}: ${err?.message ?? err}`,
+        );
+      }
+    }
+
     // Build NDJSON message
     const input = JSON.stringify({
       type: "user",
-      message: { role: "user", content: message },
+      message: { role: "user", content: outboundMessage },
     }) + "\n";
 
     // Set up message timeout
@@ -540,6 +722,18 @@ export class ClaudeCodeProvider implements AIProvider {
 
     const rl = createInterface({ input: proc.stdout! });
 
+    // Resilience layer: a fresh `--session-id` spawn is normal for a brand-
+    // new topic, but it's *also* what happens after `forgetClaudeSessionId`
+    // wipes a doomed `--resume`. If the DB already holds prior turns, we
+    // need to recap them in the next stdin write or the model resumes a
+    // fresh-feeling conversation that contradicts the visible chat history.
+    const needsHistoryReplay = isNewSession && hasPriorMessagesInDB(sessionKey);
+    if (needsHistoryReplay) {
+      console.log(
+        `[claude-code] Session for ${sessionKey} respawned fresh but DB has prior turns — next message will include a recap prologue`,
+      );
+    }
+
     const pp: PersistentProcess = {
       proc,
       readline: rl,
@@ -553,6 +747,7 @@ export class ClaudeCodeProvider implements AIProvider {
       activeToolCalls: new Set(),
       inactivityTimer: null,
       lifetimeTimer: null,
+      needsHistoryReplay,
     };
 
     // --- NDJSON stdout parsing ---
