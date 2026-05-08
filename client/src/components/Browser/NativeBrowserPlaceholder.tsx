@@ -25,42 +25,70 @@ interface NativeBrowserPlaceholderProps {
 export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderProps) {
   const placeholderRef = useRef<HTMLDivElement>(null);
 
-  // Drive setBounds from layout. ResizeObserver fires on every size or
-  // position change. We also listen for window scroll (the placeholder
-  // can move within the page).
+  // Drive setBounds from layout. ResizeObserver catches size changes on the
+  // placeholder itself, but split-layout drag, sidebar collapse, sibling
+  // pane resize don't always fire RO (when placeholder size doesn't change
+  // but its position does). Defensive layers:
+  //  1. ResizeObserver on the placeholder (size changes)
+  //  2. ResizeObserver on document.body (sibling/parent resize)
+  //  3. window resize + scroll (capture: true catches inner scroll)
+  //  4. requestAnimationFrame poll for ~500ms after viewId/agentActive
+  //     change (smoothes split transition while CSS animations settle)
+  //  5. MutationObserver on body class — picks up theme/sidebar toggles
+  //     that re-flow without firing RO
   useEffect(() => {
     if (!browser.viewId) return;
 
+    let lastSentJson = '';
     const updateBounds = () => {
       const el = placeholderRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
 
-      if (browser.agentActive) {
-        // Hide while agent works — the React overlay below covers the slot.
-        browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-        return;
-      }
+      const next = browser.agentActive
+        ? { x: 0, y: 0, width: 0, height: 0 }
+        : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
 
-      browser.setBounds({
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-      });
+      // Coalesce — skip the IPC if bounds didn't change. setBounds rounds
+      // to integers main-side, so we round here too for cheap equality.
+      const json = `${Math.round(next.x)},${Math.round(next.y)},${Math.round(next.width)},${Math.round(next.height)}`;
+      if (json === lastSentJson) return;
+      lastSentJson = json;
+      browser.setBounds(next);
     };
 
     updateBounds();
 
     const ro = new ResizeObserver(updateBounds);
     if (placeholderRef.current) ro.observe(placeholderRef.current);
+    // Observe body too — picks up sibling pane resize / sidebar collapse
+    // even when the placeholder's own size doesn't change.
+    ro.observe(document.body);
 
-    // Catch scroll + window resize (RO doesn't fire on viewport-relative shifts).
     window.addEventListener('resize', updateBounds);
     window.addEventListener('scroll', updateBounds, { passive: true, capture: true });
 
+    // MutationObserver on body: catches className toggles (theme, sidebar
+    // open/close) that re-flow without firing RO.
+    const mo = new MutationObserver(updateBounds);
+    mo.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'], subtree: false });
+
+    // Poll briefly to smooth split/transition animations. CSS transitions
+    // don't fire RO during their interpolation phase.
+    let pollCount = 0;
+    const maxPolls = 30; // ~500ms at 60fps
+    let rafId = 0;
+    const poll = () => {
+      updateBounds();
+      pollCount += 1;
+      if (pollCount < maxPolls) rafId = requestAnimationFrame(poll);
+    };
+    rafId = requestAnimationFrame(poll);
+
     return () => {
       ro.disconnect();
+      mo.disconnect();
+      cancelAnimationFrame(rafId);
       window.removeEventListener('resize', updateBounds);
       window.removeEventListener('scroll', updateBounds, { capture: true });
       // On unmount, hide the view (the destroy in useNativeBrowser will

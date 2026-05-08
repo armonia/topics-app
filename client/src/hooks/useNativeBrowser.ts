@@ -89,13 +89,32 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
       }
     })();
 
+    // Phase 30.1 polish — beforeunload listener fires the destroy IPC
+    // synchronously when the user navigates / refreshes / closes the tab,
+    // BEFORE React has a chance to run its async cleanup. Combined with
+    // the main-process did-finish-load orphan sweep, this prevents
+    // WebContentsView leaks on hot-reload.
+    const onBeforeUnload = () => {
+      if (createdViewId && api) {
+        // sendBeacon-style — fire and forget; main may not finish before unload
+        // but the orphan sweep on next render's did-finish-load is the safety net.
+        try { api.destroy(createdViewId); } catch { /* ignore */ }
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+
     return () => {
       mountedRef.current = false;
+      window.removeEventListener('beforeunload', onBeforeUnload);
       for (const fn of cleanupsRef.current) {
         try { fn(); } catch { /* ignore */ }
       }
       cleanupsRef.current = [];
       if (createdViewId) {
+        // Hide BEFORE destroy so during the short async destroy window the
+        // user doesn't see a flash of the orphan view. setBounds(0,0,0,0)
+        // is synchronous from the renderer's perspective (fire-and-forget IPC).
+        try { api.setBounds(createdViewId, { x: 0, y: 0, width: 0, height: 0 }); } catch { /* ignore */ }
         api.destroy(createdViewId).catch(() => {});
         // Best-effort unregister CDP target server-side.
         fetch(`/api/browsers/${contextId}/cdp-target`, { method: 'DELETE' }).catch(() => {});

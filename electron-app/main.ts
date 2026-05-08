@@ -402,6 +402,31 @@ function createWindow(): void {
     mainWindow!.show();
   });
 
+  // Phase 30.1 polish — destroy orphan native browsers on renderer reload.
+  // When the React app hot-reloads (Vite HMR, Cmd+R, dev server restart),
+  // the React tree unmounts but the WebContentsView attached to mainWindow
+  // stays alive (no IPC destroy fires in time), causing it to occupy
+  // viewport space without a controlling React component. The renderer
+  // then re-mounts the hook with a NEW viewId, so the old view becomes
+  // orphan + visible. Solution: on every did-finish-load AFTER the first
+  // (= renderer reloaded), destroy all currently-tracked native views.
+  let firstLoadHandled = false;
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!firstLoadHandled) {
+      firstLoadHandled = true;
+      return;
+    }
+    if (nativeBrowsers.size > 0) {
+      console.log(`[BrowserNativeManager] Renderer reloaded — destroying ${nativeBrowsers.size} orphan view(s)`);
+      const orphanIds = Array.from(nativeBrowsers.keys());
+      for (const viewId of orphanIds) {
+        try { destroyNativeBrowser(viewId); } catch (err) {
+          console.error(`[BrowserNativeManager] orphan destroy failed for ${viewId}:`, err);
+        }
+      }
+    }
+  });
+
   mainWindow.webContents.on('did-fail-load', (_event, code, desc) => {
     console.error('[Topics Electron] Failed to load:', code, desc);
   });
