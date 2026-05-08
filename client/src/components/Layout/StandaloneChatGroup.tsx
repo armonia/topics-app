@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, TerminalSessionInfo } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
@@ -16,6 +16,7 @@ import {
   getTerminalSessionFromPaneId,
   getProjectPathFromPaneId,
   getSessionKeyFromViewerPaneId,
+  getBrowserContextFromPaneId,
   isDraftPaneId,
   useProjectTabStatus,
   type ProjectTabStatus,
@@ -179,10 +180,15 @@ export function StandaloneChatGroup({
     topics,
   });
   const {
+    // Per-pane type flags are now consumed inside `renderPaneBody`
+    // directly off pane.id (so hidden panes get the right body too); we
+    // only keep the active-* flags that the early-return guard still
+    // checks below, plus draftTopics + browserContextId for the chat /
+    // browser branches inside renderPaneBody.
     activeIsBrowser, activeIsTerminal, activeIsSessionViewer,
     activeIsProject, activeIsUtility,
-    activeSessionKey, activeProjectPath, activeUtilityType,
     activeTopic, browserContextId,
+    draftTopics,
   } = active;
 
   // Build Pane[] for PaneTabBar (mix of chat topics, utility panes, project panes, browser panes, and terminal panes)
@@ -263,6 +269,43 @@ export function StandaloneChatGroup({
     }
     return map;
   }, [panes, getBadgeCount, activePaneId]);
+
+  // Keep-alive: track visited pane IDs so we can keep their React subtrees
+  // mounted across tab switches. Only the active pane is visible at any
+  // time (display:flex; the rest are display:none and removed from layout
+  // entirely). Preserves chat scroll, history caches, terminal buffers,
+  // draft text, expanded tool calls, etc. across tab navigation. Pruned
+  // when a pane is closed (no longer in `validatedOrderedIds`).
+  const [visitedPaneIds, setVisitedPaneIds] = useState<Set<string>>(() =>
+    activePaneId ? new Set([activePaneId]) : new Set(),
+  );
+  useEffect(() => {
+    setVisitedPaneIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      if (activePaneId && !next.has(activePaneId)) {
+        next.add(activePaneId);
+        changed = true;
+      }
+      const live = new Set(validatedOrderedIds);
+      for (const id of next) {
+        if (!live.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [activePaneId, validatedOrderedIds]);
+
+  // Always include the currently-active pane even if visitedPaneIds
+  // hasn't caught up yet — the visited set updates in the effect above
+  // which runs *after* render, so the very first render after a fresh
+  // activation would otherwise show no pane bodies for one frame.
+  const visitedPanes = useMemo(
+    () => panes.filter((p) => visitedPaneIds.has(p.id) || p.id === activePaneId),
+    [panes, visitedPaneIds, activePaneId],
+  );
 
   // Hook 2: action handlers (browser singleton, close, split, settings, etc.)
   const lifecycle = usePaneLifecycle({
@@ -454,6 +497,147 @@ export function StandaloneChatGroup({
 
   const settingsTopic = settingsTopicId ? topics[settingsTopicId] : null;
 
+  // Renders the BODY of a single pane (no header — the header lives once
+  // at the top of the standalone group). All visited panes render their
+  // body simultaneously so their React state survives tab switches; only
+  // the active body is visible (display:flex), the others are
+  // display:none and out of layout. `isPaneActive` lets us thread per-
+  // pane focus / browser-navigate-url props without leaking transient
+  // signals into hidden siblings.
+  const renderPaneBody = (pane: Pane, isPaneActive: boolean): React.ReactNode => {
+    const paneId = pane.id;
+    if (isTerminalPaneId(paneId)) {
+      const sessionId = getTerminalSessionFromPaneId(paneId);
+      if (!sessionId) return null;
+      return (
+        <Suspense fallback={LazySpinner}>
+          <SingleTerminalPane sessionId={sessionId} />
+        </Suspense>
+      );
+    }
+    if (isSessionViewerPaneId(paneId)) {
+      const sk = getSessionKeyFromViewerPaneId(paneId);
+      if (!sk) return null;
+      return (
+        <Suspense fallback={LazySpinner}>
+          <SessionViewerPane sessionKey={sk} onNavigateToTopic={(topicId) => onFocusPanel(topicId)} />
+        </Suspense>
+      );
+    }
+    if (isBrowserPaneId(paneId)) {
+      const ctx = getBrowserContextFromPaneId(paneId) || browserContextId;
+      return (
+        <Suspense fallback={LazySpinner}>
+          <RemoteBrowserPanel
+            contextId={ctx}
+            navigateUrl={isPaneActive && browserNavigateUrl ? browserNavigateUrl : undefined}
+            onNavigateConsumed={isPaneActive ? () => setBrowserNavigateUrl(null) : undefined}
+          />
+        </Suspense>
+      );
+    }
+    if (isProjectPaneId(paneId)) {
+      const projectPath = getProjectPathFromPaneId(paneId);
+      if (!projectPath) return null;
+      return (
+        <ProjectWindowPane
+          key={projectPath}
+          projectPath={projectPath}
+          topics={topics}
+          focusedPanelId={focusedPanelId}
+          onFocusPanel={onFocusPanel}
+          onClosePanel={onClosePanel}
+          getSessionMessages={getSessionMessages}
+          isSessionLoading={isSessionLoading}
+          isSessionStreaming={isSessionStreaming}
+          stopSession={stopSession}
+          sendMessage={sendMessage}
+          editMessage={editMessage}
+          switchBranch={switchBranch}
+          loadHistory={loadHistory}
+          chatError={chatError}
+          sendWS={sendWS}
+          onWSMessage={onWSMessage}
+          onUpdateTopic={onUpdateTopic}
+          pendingPane={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.type : undefined}
+          pendingTerminalSessionId={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalSessionId : undefined}
+          pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalType : undefined}
+          onPendingPaneConsumed={onPendingProjectPaneConsumed}
+          onNewChat={onNewChatInProject ? () => onNewChatInProject(projectPath) : undefined}
+          pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.topicId : null}
+          onPendingFocusConsumed={onPendingProjectFocusConsumed}
+          onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(projectPath, topicId) : undefined}
+          onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(projectPath, paneIds) : undefined}
+        />
+      );
+    }
+    if (isUtilityPanelId(paneId)) {
+      const utilityType = parseUtilityPanelType(paneId);
+      return (
+        <Suspense fallback={LazySpinner}>
+          {utilityType === 'activity' && <ActivityFeedPanel enabled />}
+          {utilityType === 'journal' && <JournalPanel enabled />}
+          {utilityType === 'agents' && (
+            <AgentsPane
+              onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
+              onOpenSessionViewer={handleOpenSessionViewer}
+              onMessage={onWSMessage}
+            />
+          )}
+          {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
+          {utilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} />}
+        </Suspense>
+      );
+    }
+    // Chat (real or draft).
+    const topic = topics[paneId] || draftTopics[paneId];
+    if (!topic) return null;
+    const isDraft = isDraftPaneId(paneId);
+    const isPinned = effectivePinnedIds.has(paneId);
+    const wrappedSendMessage = isDraft
+      ? async (_sk: string, content: string, options?: { planMode?: boolean }) => {
+          if (promoteDraft) {
+            await promoteDraft(paneId, content, options);
+          }
+          return true;
+        }
+      : !isPinned
+        ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
+            ordering.ops.pin(paneId);
+            return sendMessage(sk, content, options);
+          }
+        : sendMessage;
+    return (
+      <ChatPanel
+        bodyOnly
+        topic={topic}
+        isFocused={isPaneActive && focusedPanelId === paneId}
+        onFocus={() => onFocusPanel(paneId)}
+        onClose={() => onClosePanel(paneId)}
+        onDragStart={onDragStart(paneId)}
+        onToggleSidebar={onToggleSidebar}
+        isDragOver={false}
+        showCloseButton={false}
+        contextOpen={contextOpen}
+        onToggleContext={handleToggleContext}
+        getSessionMessages={getSessionMessages}
+        isSessionLoading={isSessionLoading}
+        isSessionStreaming={isSessionStreaming}
+        sendMessage={wrappedSendMessage}
+        editMessage={editMessage}
+        switchBranch={switchBranch}
+        loadHistory={loadHistory}
+        chatError={chatError}
+        sendWS={sendWS}
+        onWSMessage={onWSMessage}
+        onUpdateTopic={isDraft ? async () => null : onUpdateTopic}
+        initialTab={panelInitialTab?.[paneId]}
+        onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(paneId) : undefined}
+        onOpenSessionViewer={handleOpenSessionViewer}
+      />
+    );
+  };
+
   return (
     <>
       <div
@@ -467,159 +651,43 @@ export function StandaloneChatGroup({
         onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
       >
-        {activeIsTerminal ? (
-          /* ---- Terminal pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
+        {/* Single shared header — tab bar + (optional) sidebar toggle.
+            Previously every pane-type branch rendered its own copy of
+            this header; consolidating it lets the body switch underneath
+            without re-mounting the tab bar / re-running its hooks. */}
+        <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+          {onToggleSidebar && (
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1">
+              <SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" />
             </div>
-            <Suspense fallback={LazySpinner}>
-              <SingleTerminalPane sessionId={getTerminalSessionFromPaneId(activePaneId!)!} />
-            </Suspense>
-          </div>
-        ) : activeIsSessionViewer && activeSessionKey ? (
-          /* ---- Session viewer pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
-            </div>
-            <Suspense fallback={LazySpinner}>
-              <SessionViewerPane sessionKey={activeSessionKey} onNavigateToTopic={(topicId) => onFocusPanel(topicId)} />
-            </Suspense>
-          </div>
-        ) : activeIsBrowser ? (
-          /* ---- Browser pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
-            </div>
-            <Suspense fallback={LazySpinner}>
-              <RemoteBrowserPanel
-                contextId={browserContextId}
-                navigateUrl={browserNavigateUrl || undefined}
-                onNavigateConsumed={() => setBrowserNavigateUrl(null)}
-              />
-            </Suspense>
-          </div>
-        ) : activeIsProject && activeProjectPath ? (
-          /* ---- Project pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
-            </div>
-            <ProjectWindowPane
-              key={activeProjectPath}
-              projectPath={activeProjectPath}
-              topics={topics}
-              focusedPanelId={focusedPanelId}
-              onFocusPanel={onFocusPanel}
-              onClosePanel={onClosePanel}
-              getSessionMessages={getSessionMessages}
-              isSessionLoading={isSessionLoading}
-              isSessionStreaming={isSessionStreaming}
-              stopSession={stopSession}
-              sendMessage={sendMessage}
-              editMessage={editMessage}
-              switchBranch={switchBranch}
-              loadHistory={loadHistory}
-              chatError={chatError}
-              sendWS={sendWS}
-              onWSMessage={onWSMessage}
-              onUpdateTopic={onUpdateTopic}
-              pendingPane={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.type : undefined}
-              pendingTerminalSessionId={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.terminalSessionId : undefined}
-              pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === activeProjectPath ? pendingProjectPane.terminalType : undefined}
-              onPendingPaneConsumed={onPendingProjectPaneConsumed}
-              onNewChat={onNewChatInProject ? () => onNewChatInProject(activeProjectPath) : undefined}
-              pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === activeProjectPath ? pendingProjectFocus.topicId : null}
-              onPendingFocusConsumed={onPendingProjectFocusConsumed}
-              onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(activeProjectPath, topicId) : undefined}
-              onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(activeProjectPath, paneIds) : undefined}
-            />
-          </div>
-        ) : activeIsUtility ? (
-          /* ---- Utility pane content ---- */
-          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            {/* Header with tab bar */}
-            <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
-            </div>
-            {/* Utility panel body */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <Suspense fallback={LazySpinner}>
-                {activeUtilityType === 'activity' && <ActivityFeedPanel enabled />}
-                {activeUtilityType === 'journal' && <JournalPanel enabled />}
-                {activeUtilityType === 'agents' && <AgentsPane
-                  onNavigateToTopic={(topicId) => onFocusPanel(topicId)}
-                  onOpenSessionViewer={handleOpenSessionViewer}
-                  onMessage={onWSMessage}
-                />}
-                {activeUtilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
-                {activeUtilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} />}
-              </Suspense>
-            </div>
-          </div>
-        ) : activeTopic ? (
-          /* ---- Chat topic content ---- */
-          <ChatPanel
-            topic={activeTopic}
-            isFocused={focusedPanelId === activePaneId}
-            onFocus={() => onFocusPanel(activePaneId!)}
-            onClose={() => onClosePanel(activePaneId!)}
-            onDragStart={onDragStart(activePaneId!)}
-            onToggleSidebar={onToggleSidebar}
-            isDragOver={false}
-            headerLeft={tabBar}
-            showCloseButton={false}
-            contextOpen={contextOpen}
-            onToggleContext={handleToggleContext}
-            getSessionMessages={getSessionMessages}
-            isSessionLoading={isSessionLoading}
-            isSessionStreaming={isSessionStreaming}
-            sendMessage={
-              isDraftPaneId(activePaneId!)
-                ? async (_sk: string, content: string, options?: { planMode?: boolean }) => {
-                    if (promoteDraft) {
-                      await promoteDraft(activePaneId!, content, options);
-                    }
-                    return true;
-                  }
-                : !effectivePinnedIds.has(activePaneId!)
-                  ? async (sk: string, content: string, options?: { planMode?: boolean }) => {
-                      ordering.ops.pin(activePaneId!);
-                      return sendMessage(sk, content, options);
-                    }
-                  : sendMessage
-            }
-            editMessage={editMessage}
-            switchBranch={switchBranch}
-            loadHistory={loadHistory}
-            chatError={chatError}
-            sendWS={sendWS}
-            onWSMessage={onWSMessage}
-            onUpdateTopic={isDraftPaneId(activePaneId!)
-              ? async () => null
-              : onUpdateTopic
-            }
-            initialTab={panelInitialTab?.[activePaneId!]}
-            onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(activePaneId!) : undefined}
-            onOpenSessionViewer={handleOpenSessionViewer}
-          />
-        ) : (
-          /* ---- Empty state with header ---- */
-          <div className="flex flex-col flex-1 min-h-0 min-w-0 bg-surface overflow-hidden">
-            <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-              <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
-            </div>
-            <div className="flex-1" />
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Keep-alive body area — every visited pane stays mounted; only
+            the active one is `display: flex`, the rest are `display: none`
+            and removed from layout entirely. Preserves chat scroll,
+            history caches, terminal buffers, virtuoso state, and form
+            drafts across tab switches. */}
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-surface overflow-hidden relative">
+          {visitedPanes.length === 0 ? (
+            <div className="flex-1" aria-hidden="true" />
+          ) : (
+            visitedPanes.map((pane) => {
+              const isPaneActive = pane.id === activePaneId;
+              return (
+                <div
+                  key={pane.id}
+                  className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
+                  style={{ display: isPaneActive ? 'flex' : 'none' }}
+                  aria-hidden={!isPaneActive}
+                >
+                  {renderPaneBody(pane, isPaneActive)}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
       {settingsTopic && (
         <Suspense fallback={null}>

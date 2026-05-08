@@ -36,6 +36,14 @@ interface ChatPanelProps {
   onToggleContext?: () => void;
   /** Callback to open a session-viewer pane for a spawned agent */
   onOpenSessionViewer?: (sessionKey: string) => void;
+  /** Skip the header entirely — used when StandaloneChatGroup renders a
+   *  single shared header above a keep-alive ladder of pane bodies. The
+   *  body still renders banners, ChatPane, and the context inspector
+   *  slide-out; only the header chrome (icon/name, sidebar toggle,
+   *  context-inspector button, settings button, close button) is omitted.
+   *  Settings, pop-out, and close are reachable via the parent's tab
+   *  bar / context menu instead. */
+  bodyOnly?: boolean;
 }
 
 export function ChatPanel({
@@ -45,6 +53,7 @@ export function ChatPanel({
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
   onOpenSessionViewer,
+  bodyOnly = false,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
@@ -110,8 +119,9 @@ export function ChatPanel({
   return (
     <>
       <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
-        {/* Header — on mobile with tabs: floating overlay with blur for scroll-through effect */}
-        <div className={`flex items-center ${headerLeft
+        {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
+            with tabs: floating overlay with blur for scroll-through effect. */}
+        {!bodyOnly && <div className={`flex items-center ${headerLeft
           ? 'pr-0 h-12 md:h-10 md:border-b md:border-app-border'
           : 'gap-1.5 px-2 border-b border-app-border h-10'
         } select-none flex-shrink-0 bg-surface app-drag-region`}>
@@ -155,7 +165,7 @@ export function ChatPanel({
             </>
           )}
           {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
-        </div>
+        </div>}
 
         {/* Banners */}
         {suggestedProject && (
