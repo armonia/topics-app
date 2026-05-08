@@ -247,6 +247,77 @@ function createNativeBrowser(
   // 'persist:' prefix tells Electron to write to disk under userData.
   const topicSession = session.fromPartition(partitionId, { cache: true });
 
+  // Phase 30.1 polish — permissions handler. Without this, Chromium
+  // silently denies camera/mic/geolocation/notifications/clipboard requests
+  // (Electron defaults to deny for child sessions). Forward the prompt to
+  // the renderer so the React UI can show a Chrome-style permission bar.
+  // For now: auto-allow safe permissions (clipboard read, fullscreen) and
+  // forward sensitive ones (camera/mic/geo/notifications) to a renderer
+  // dialog via IPC.
+  topicSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const safeAllow = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen', 'pointerLock']);
+    const askUser = new Set(['media', 'geolocation', 'notifications', 'midi', 'midiSysex', 'display-capture']);
+
+    if (safeAllow.has(permission)) {
+      callback(true);
+      return;
+    }
+
+    if (askUser.has(permission)) {
+      // Forward to renderer for user decision. For MVP we allow without
+      // prompting (matches Chrome's "remember this site" behaviour for
+      // partitioned sessions). Future: render a React permission bar via
+      // IPC and await user click.
+      const url = (details && (details as { requestingUrl?: string }).requestingUrl) || wc.getURL();
+      console.log(`[BrowserNativeManager] Permission '${permission}' auto-granted for ${url} (partition ${partitionId})`);
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`browser-native:permission-granted`, { permission, url, partitionId });
+      }
+      callback(true);
+      return;
+    }
+
+    // Deny anything we don't explicitly understand (defense in depth).
+    console.warn(`[BrowserNativeManager] Permission '${permission}' denied (unknown category)`);
+    callback(false);
+  });
+
+  // Phase 30.1 polish — download manager. Forward each download to the
+  // renderer so the user sees a list with pause/resume/cancel/show-in-folder
+  // controls. Uses the standard Electron 'will-download' event on the session.
+  topicSession.on('will-download', (_e, item) => {
+    const id = `dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const url = item.getURL();
+    const filename = item.getFilename();
+    const totalBytes = item.getTotalBytes();
+
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('browser-native:download-start', { id, url, filename, totalBytes });
+    }
+
+    item.on('updated', (_evt, state) => {
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('browser-native:download-progress', {
+          id,
+          state, // 'progressing' | 'interrupted'
+          received: item.getReceivedBytes(),
+          total: item.getTotalBytes(),
+          isPaused: item.isPaused(),
+        });
+      }
+    });
+    item.once('done', (_evt, state) => {
+      const savedPath = item.getSavePath();
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('browser-native:download-done', {
+          id,
+          state, // 'completed' | 'cancelled' | 'interrupted'
+          savedPath,
+        });
+      }
+    });
+  });
+
   const view = new WebContentsView({
     webPreferences: {
       session: topicSession,
@@ -276,6 +347,24 @@ function createNativeBrowser(
   // Initial navigation — kicks off the page load AFTER attaching to the
   // window so DevTools / CDP picks it up.
   const wc = view.webContents;
+
+  // Phase 30.1 polish — window.open / target=_blank handler. Default
+  // Electron action is 'allow' which spawns a NEW BrowserWindow with no
+  // chrome — we want links to navigate IN-PLACE so users don't get
+  // surprise floating windows when they Cmd+click. Mimics Chrome's
+  // "open in new tab" but since Topics has a singleton browser pane per
+  // topic, we just navigate the same view. Future: open in a new browser
+  // pane (split) when modifier keys requested.
+  wc.setWindowOpenHandler(({ url, disposition }) => {
+    if (disposition === 'foreground-tab' || disposition === 'background-tab' || disposition === 'new-window') {
+      // Same-pane navigation — keep the user inside Topics.
+      wc.loadURL(url).catch(() => undefined);
+      return { action: 'deny' };
+    }
+    // For 'save-to-disk', 'other', etc., let Electron handle it (default
+    // is 'deny' but the original URL stays in scope).
+    return { action: 'deny' };
+  });
   if (initialUrl && initialUrl !== 'about:blank') {
     wc.loadURL(initialUrl).catch((err: unknown) => {
       console.error(`[BrowserNativeManager] initial loadURL failed:`, err);
@@ -404,6 +493,29 @@ function createWindow(): void {
   };
 
   mainWindow.on('resize', updateLayout);
+
+  // Phase 30.1 polish — re-fire layout updates on display moves and
+  // minimize/restore/show/hide so native WebContentsViews follow the
+  // window correctly. Without this, a minimized window can "leak" the
+  // browser pane fixed at its last bounds, and dragging the window
+  // between displays with different scaleFactor causes misalignment.
+  const refireLayoutEvents: string[] = [
+    'minimize', 'restore', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen',
+    'move', 'moved', 'show', 'hide',
+  ];
+  for (const evt of refireLayoutEvents) {
+    try {
+      mainWindow.on(evt as never, () => {
+        // Notify the renderer so its ResizeObserver/poll re-issues setBounds
+        // for every native browser view. Cheap signal — no payload needed.
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('browser-native:reflow');
+        }
+      });
+    } catch {
+      // Some events not supported on all platforms — ignore.
+    }
+  }
 
   mainWindow.loadURL(SERVER_URL);
 
@@ -1524,6 +1636,87 @@ ipcMain.handle('overlay:show-menu', async (
   const senderWin = BrowserWindow.fromWebContents(evt.sender);
   if (!senderWin) throw new Error('overlay:show-menu — no parent window');
   return await showOverlayMenu(senderWin, opts);
+});
+
+// Phase 30.1 polish — Cmd+Shift+E select-element in Electron native mode.
+// Resolves the DOM element at a given (x, y) viewport coordinate using
+// the WebContentsView's webContents.executeJavaScript (CDP would also work
+// but executeJavaScript is simpler + same access). Returns the same shape
+// as the existing /api/browsers/:id/inspect REST endpoint used by web mode.
+ipcMain.handle('browser-native:inspect-at-point', async (
+  _evt,
+  viewId: string,
+  x: number,
+  y: number,
+): Promise<null | {
+  domPath: string;
+  cssPath: string;
+  bbox: { x: number; y: number; w: number; h: number };
+  text?: string;
+  attributes?: Record<string, string>;
+}> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:inspect-at-point — view ${viewId} not found`);
+  const wc = entry.view.webContents;
+  // The injected script runs in the page context, so all DOM APIs are
+  // available natively. Returns null if no element at the point.
+  const script = `(() => {
+    function getDomPath(el) {
+      const path = [];
+      let cur = el;
+      while (cur && cur.nodeType === 1 && cur !== document.body) {
+        let part = cur.nodeName.toLowerCase();
+        if (cur.id) { part += '#' + cur.id; path.unshift(part); break; }
+        const parent = cur.parentNode;
+        if (parent) {
+          const sameTag = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+          if (sameTag.length > 1) part += '[' + (sameTag.indexOf(cur) + 1) + ']';
+        }
+        path.unshift(part);
+        cur = cur.parentNode;
+      }
+      return '/html/body/' + path.join('/');
+    }
+    function getCssPath(el) {
+      const parts = [];
+      let cur = el;
+      while (cur && cur.nodeType === 1 && cur !== document.body) {
+        let s = cur.nodeName.toLowerCase();
+        if (cur.id) { s += '#' + cur.id; parts.unshift(s); break; }
+        const cls = (cur.className || '').toString().trim().split(/\\s+/).filter(Boolean).slice(0, 2);
+        if (cls.length) s += '.' + cls.join('.');
+        parts.unshift(s);
+        cur = cur.parentNode;
+      }
+      return parts.join(' > ');
+    }
+    const el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)});
+    if (!el || !(el instanceof Element)) return null;
+    const r = el.getBoundingClientRect();
+    const attrs = {};
+    for (const a of el.attributes) attrs[a.name] = a.value;
+    const text = el.textContent ? el.textContent.trim().slice(0, 80) : '';
+    return {
+      domPath: getDomPath(el),
+      cssPath: getCssPath(el),
+      bbox: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+      text: text || undefined,
+      attributes: Object.keys(attrs).length ? attrs : undefined,
+    };
+  })()`;
+  try {
+    return await wc.executeJavaScript(script, true);
+  } catch (err) {
+    console.warn(`[browser-native:inspect-at-point] executeJavaScript failed:`, (err as Error).message);
+    return null;
+  }
+});
+
+// Phase 30.1 polish — show downloaded file in OS file manager (Cmd+R from
+// the download notification).
+ipcMain.handle('browser-native:show-download-in-folder', async (_evt, savedPath: string): Promise<void> => {
+  if (!savedPath) return;
+  shell.showItemInFolder(savedPath);
 });
 
 // Phase 30.1 polish — Find in page (Chrome's Cmd+F).

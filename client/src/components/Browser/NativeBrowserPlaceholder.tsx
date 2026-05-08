@@ -106,6 +106,15 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
     window.addEventListener('resize', updateBounds);
     window.addEventListener('scroll', updateBounds, { passive: true, capture: true });
 
+    // Phase 30.1 polish — main process emits 'reflow' on window move /
+    // minimize / restore / display change. Re-issue setBounds so the
+    // WebContentsView follows correctly across these transitions.
+    const offReflow = window.electronAPI?.browserNative?.onReflow?.(() => {
+      // Two-frame delay so the layout has settled (e.g. fullscreen
+      // transition animation) before we re-measure.
+      requestAnimationFrame(() => requestAnimationFrame(updateBounds));
+    });
+
     // MutationObserver on body: catches className toggles (theme, sidebar
     // open/close) that re-flow without firing RO.
     const mo = new MutationObserver(updateBounds);
@@ -129,6 +138,7 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', updateBounds);
       window.removeEventListener('scroll', updateBounds, { capture: true });
+      offReflow?.();
       // On unmount, hide the view (the destroy in useNativeBrowser will
       // remove it shortly after).
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });

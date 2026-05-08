@@ -39,6 +39,19 @@ export interface BrowserNativeAPI {
   stopFind(viewId: string): Promise<void>;
   onFindResult(viewId: string, callback: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
   setZoom(viewId: string, delta: number | 'reset'): Promise<number>;
+  onPermissionGranted(callback: (info: { permission: string; url: string; partitionId: string }) => void): () => void;
+  onDownloadStart(callback: (info: { id: string; url: string; filename: string; totalBytes: number }) => void): () => void;
+  onDownloadProgress(callback: (info: { id: string; state: string; received: number; total: number; isPaused: boolean }) => void): () => void;
+  onDownloadDone(callback: (info: { id: string; state: string; savedPath: string }) => void): () => void;
+  showDownloadInFolder(savedPath: string): Promise<void>;
+  inspectAtPoint(viewId: string, x: number, y: number): Promise<null | {
+    domPath: string;
+    cssPath: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    text?: string;
+    attributes?: Record<string, string>;
+  }>;
+  onReflow(callback: () => void): () => void;
 }
 
 // Phase 30.1 polish — Overlay menu API (transparent BrowserWindow above WebContentsView).

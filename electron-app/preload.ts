@@ -139,6 +139,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     setZoom: (viewId: string, delta: number | 'reset') =>
       ipcRenderer.invoke('browser-native:set-zoom', viewId, delta) as Promise<number>,
+    onPermissionGranted: (callback: (info: { permission: string; url: string; partitionId: string }) => void) => {
+      const listener = (_evt: unknown, info: { permission: string; url: string; partitionId: string }) => callback(info);
+      ipcRenderer.on('browser-native:permission-granted', listener);
+      return () => ipcRenderer.removeListener('browser-native:permission-granted', listener);
+    },
+    onDownloadStart: (callback: (info: { id: string; url: string; filename: string; totalBytes: number }) => void) => {
+      const listener = (_evt: unknown, info: { id: string; url: string; filename: string; totalBytes: number }) => callback(info);
+      ipcRenderer.on('browser-native:download-start', listener);
+      return () => ipcRenderer.removeListener('browser-native:download-start', listener);
+    },
+    onDownloadProgress: (callback: (info: { id: string; state: string; received: number; total: number; isPaused: boolean }) => void) => {
+      const listener = (_evt: unknown, info: { id: string; state: string; received: number; total: number; isPaused: boolean }) => callback(info);
+      ipcRenderer.on('browser-native:download-progress', listener);
+      return () => ipcRenderer.removeListener('browser-native:download-progress', listener);
+    },
+    onDownloadDone: (callback: (info: { id: string; state: string; savedPath: string }) => void) => {
+      const listener = (_evt: unknown, info: { id: string; state: string; savedPath: string }) => callback(info);
+      ipcRenderer.on('browser-native:download-done', listener);
+      return () => ipcRenderer.removeListener('browser-native:download-done', listener);
+    },
+    showDownloadInFolder: (savedPath: string) => ipcRenderer.invoke('browser-native:show-download-in-folder', savedPath),
+    inspectAtPoint: (viewId: string, x: number, y: number) =>
+      ipcRenderer.invoke('browser-native:inspect-at-point', viewId, x, y) as Promise<null | {
+        domPath: string;
+        cssPath: string;
+        bbox: { x: number; y: number; w: number; h: number };
+        text?: string;
+        attributes?: Record<string, string>;
+      }>,
+    onReflow: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('browser-native:reflow', listener);
+      return () => ipcRenderer.removeListener('browser-native:reflow', listener);
+    },
   },
 
   // Phase 30.1 polish — Overlay menu (transparent BrowserWindow above WebContentsView).

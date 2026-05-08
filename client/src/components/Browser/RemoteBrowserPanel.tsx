@@ -6,6 +6,7 @@ import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
+import { DownloadStrip } from './DownloadStrip';
 
 interface RemoteBrowserPanelProps {
   contextId: string;
@@ -306,6 +307,7 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
   const [findResult, setFindResult] = useState<{ activeMatchOrdinal: number; matches: number }>({ activeMatchOrdinal: 0, matches: 0 });
+  const [selectMode, setSelectMode] = useState(false);
 
   // Subscribe to find-in-page result events while find bar is open.
   useEffect(() => {
@@ -424,6 +426,12 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         browser.setZoom('reset');
         return;
       }
+      // Cmd+Shift+E — select element (Cursor-style)
+      if (e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setSelectMode((m) => !m);
+        return;
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -496,6 +504,77 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         </div>
       )}
       <NativeBrowserPlaceholder browser={browser} />
+      {selectMode && browser.viewId && (
+        <NativeSelectElementOverlay
+          viewId={browser.viewId}
+          contextId={contextId}
+          onClose={() => setSelectMode(false)}
+        />
+      )}
+      <DownloadStrip />
+    </div>
+  );
+}
+
+/**
+ * Phase 30.1 polish — Cmd+Shift+E select element in Electron native mode.
+ *
+ * In web mode (Phase 30 streaming), SelectElementOverlay handles this.
+ * Native mode needed its own component because the inspect call goes
+ * through Electron IPC (browser-native:inspect-at-point) which executes
+ * a script in the WebContentsView's page context — coords passed are in
+ * the page's CSS pixels, NOT screen pixels.
+ *
+ * Behavior: full-pane transparent overlay catches the next click. The
+ * click coordinates are translated from overlay-local CSS px to the
+ * WebContentsView's CSS px (same coordinate system since WebContentsView
+ * fills the placeholder slot 1:1). Result is dispatched as a
+ * 'chat:insert-text' CustomEvent — same protocol as the streaming variant
+ * so the chat input picks it up identically in both modes.
+ */
+function NativeSelectElementOverlay({
+  viewId,
+  contextId,
+  onClose,
+}: {
+  viewId: string;
+  contextId: string;
+  onClose: () => void;
+}) {
+  const handleClick = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLDivElement;
+    const rect = target.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+    const api = window.electronAPI?.browserNative;
+    if (!api) { onClose(); return; }
+    const info = await api.inspectAtPoint(viewId, x, y);
+    onClose();
+    if (!info) return;
+    // Mirror SelectElementOverlay's payload shape exactly for parity.
+    const payload = `Selected element on ${contextId}: ${info.cssPath} @ ${info.domPath} (bbox: ${info.bbox.x},${info.bbox.y},${info.bbox.w},${info.bbox.h})${info.text ? ` — "${info.text}"` : ''}`;
+    window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text: payload } }));
+  }, [viewId, contextId, onClose]);
+
+  // Esc closes without picking.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 cursor-crosshair"
+      style={{ background: 'rgba(0, 102, 255, 0.05)', backdropFilter: 'none' }}
+      onClick={handleClick}
+      data-testid="browser-native-select-overlay"
+    >
+      <div className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-primary text-white text-[11px] rounded-full shadow-lg pointer-events-none">
+        Click to select an element · Esc to cancel
+      </div>
     </div>
   );
 }
