@@ -108,14 +108,28 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     onClosePanel(paneId);
   }, [onClosePanel]);
 
-  // Determine if a pane type can be split to its own grid cell.
+  // Determine if a pane can be split into its own grid cell.
+  //
+  // Soft rules:
+  //   - Utility panes and unsaved draft panes can never be split (their
+  //     state model doesn't survive the move out of the standalone group).
+  //   - A pane already in its own solo cell can't be split again — it's
+  //     already as far out as it can go in the current grid model.
+  //
+  // Single-tab split is allowed: the standalone group is permitted to
+  // become temporarily empty while the moved pane lands in its own
+  // cell next to it. PanelGrid's empty-group rendering handles the
+  // transient state, and the user can immediately drag another tab
+  // into it or open a new chat. (Previously we required >=2 splittable
+  // panes, which made "Split right" silently disappear from the right-
+  // click menu when a user had a single chat open — the most common case
+  // and the moment they're most likely to want to split.)
   const isSplittable = useCallback((id: string) => {
     if (isUtilityPanelId(id) || isDraftPaneId(id)) return false;
     if (gridItemKey.startsWith('solo:')) return false;
-    const splittableCount = validatedOrderedIds.filter(pid =>
-      !isUtilityPanelId(pid) && !isDraftPaneId(pid)
-    ).length;
-    return splittableCount >= 2;
+    return validatedOrderedIds.some(pid =>
+      pid === id && !isUtilityPanelId(pid) && !isDraftPaneId(pid)
+    );
   }, [gridItemKey, validatedOrderedIds]);
 
   const handleSplitRight = useCallback((paneId: string) => {

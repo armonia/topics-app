@@ -433,8 +433,12 @@ export function StandaloneChatGroup({
       onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
-      onSplitRight={onSplitPane && !gridItemKey.startsWith('solo:') && validatedOrderedIds.length >= 2 ? handleSplitRight : undefined}
-      onSplitDown={onSplitPane && !gridItemKey.startsWith('solo:') && validatedOrderedIds.length >= 2 ? handleSplitDown : undefined}
+      // Single-tab splits are allowed: usePaneLifecycle's `isSplittable`
+      // gates the actual call. Hiding the menu items only when this group
+      // is already a solo cell (where there's nothing left to split out)
+      // and when we lack a split callback at all.
+      onSplitRight={onSplitPane && !gridItemKey.startsWith('solo:') ? handleSplitRight : undefined}
+      onSplitDown={onSplitPane && !gridItemKey.startsWith('solo:') ? handleSplitDown : undefined}
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}

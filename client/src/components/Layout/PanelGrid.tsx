@@ -493,6 +493,25 @@ export function PanelGrid({
    * one with [primary_height=0.5, new_height=0.5].
    */
   const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
+    // Single-tab UX: if `topicId` is the only regular (non-solo) panel in
+    // the standalone group, splitting it would leave the standalone group
+    // empty and the user would see no visible split — just a single solo
+    // cell. Spawn a fresh draft chat in standalone *before* splitting, so
+    // the result is two visible cells: the original topic (now solo)
+    // alongside the new draft (in standalone). Mirrors how editor "split
+    // right" creates a usable second pane instead of just relabeling the
+    // source cell. Skipped when `onNewChat` isn't wired (graceful fallback
+    // to the legacy "silent solo" behavior — preserves the original
+    // contract for any caller that opts out of auto-spawn).
+    const soloSet = new Set(soloTopicIds);
+    const regularPanelsCount = openPanels.filter(id => !soloSet.has(id)).length;
+    if (regularPanelsCount <= 1 && !soloSet.has(topicId) && onNewChat) {
+      // Synchronously inserts a draft pane id into openPanels via
+      // handleQuickCreateTopic → openPanel('permanent', autoFocus=true).
+      // The draft sits in standalone alongside what's about to be solo'd.
+      onNewChat();
+    }
+
     // Check grid limits BEFORE marking as solo to prevent orphaned soloTopicIds
     const currentRows = gridRowsRef.current;
     if (direction === 'right') {
@@ -684,7 +703,7 @@ export function PanelGrid({
 
     // Focus the split-out panel so the source group falls back to its first remaining tab
     onFocusPanel(topicId);
-  }, [onFocusPanel]);
+  }, [onFocusPanel, openPanels, soloTopicIds, onNewChat]);
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
   const handleUnsoloTopic = useCallback((topicId: string) => {
