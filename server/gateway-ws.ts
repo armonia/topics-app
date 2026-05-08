@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from "events";
+import type { ChatMessage } from "./providers/types";
 
 // --- Types ---
 
@@ -321,14 +322,24 @@ export class GatewayWS {
 
   // --- High-level API ---
 
-  async sendChat(sessionKey: string, message: string): Promise<{ runId?: string }> {
+  async sendChat(
+    sessionKey: string,
+    message: string,
+    history?: ChatMessage[],
+  ): Promise<{ runId?: string }> {
     const idempotencyKey = crypto.randomUUID();
-    const result = await this.request("chat.send", {
+    // `history` is sent as an optional field — gateways that don't know about
+    // it ignore it harmlessly (JSON-RPC strict-field gateways are not in
+    // scope; this is a passthrough WS request). When present, the gateway
+    // can rehydrate a lost session instead of replying out of context.
+    const params: Record<string, unknown> = {
       sessionKey,
       message,
       deliver: false,
       idempotencyKey,
-    });
+    };
+    if (history && history.length > 0) params.history = history;
+    const result = await this.request("chat.send", params);
     return { runId: result?.runId || idempotencyKey };
   }
 

@@ -53,6 +53,14 @@ export class OpenClawProvider implements AIProvider {
     "sessions",
     "abort",
     "context",
+    // Topics-app reconstructs the conversation from its local SQLite messages
+    // table on every turn and forwards it via `options.history`. The gateway
+    // can ignore the field for backwards compatibility (its existing
+    // session-resident state still works) but when the gateway loses state
+    // — process restart, session expiry, child respawn — the history we
+    // hand off lets it rehydrate the conversation. This is the openclaw
+    // counterpart to claude-code's `--resume` persistence (mem-6d9f7a9b0e3b).
+    "history",
   ]);
 
   private config: OpenClawProviderConfig;
@@ -96,12 +104,14 @@ export class OpenClawProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    _options?: { model?: string },
+    options?: { model?: string; history?: ChatMessage[] },
   ): Promise<{ runId?: string }> {
     // OpenClaw routes through the gateway which selects models server-side;
     // per-request `model` overrides aren't plumbed through the WS protocol yet.
+    // `history` is forwarded so the gateway can rehydrate after losing its
+    // session state (see capability comment above).
     this.ensureConnected();
-    const result = await this.gw!.sendChat(sessionKey, message);
+    const result = await this.gw!.sendChat(sessionKey, message, options?.history);
     registerSessionHandler(sessionKey, result.runId, toChatStreamHandler(handler));
     return result;
   }
