@@ -13,6 +13,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
+import { buildProviderHistory } from "../utils/build-provider-history";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -2198,22 +2199,29 @@ Wait for the user to approve the plan before executing any changes.` };
             let historyForProvider: ChatMessage[] | undefined;
 
             if (supportsHistory) {
-              // Stateless provider (claude, openai). Pass the full transcript
-              // EXCEPT the new user message — claude.ts/openai.ts append that
-              // themselves. System messages flow through history natively;
-              // no <context> wrapping needed.
+              // Stateless provider (claude, openai, codex, openclaw). The
+              // *DB* is the source of truth for conversation history — not
+              // the client POST body. This survives any restart of the bun
+              // server (or of an upstream gateway) because the messages
+              // table holds the full active branch and we rebuild from it
+              // on every turn. The user's brand-new turn was just persisted
+              // by appendLocalMessage above, so we exclude the last entry
+              // (the provider receives it as the fresh prompt via
+              // `userContent`, not duplicated in history).
               //
-              // `finalMessages` carries `role: string` (POST body is unvalidated).
-              // Narrow to ChatMessage["role"] so the provider interface stays
-              // honest — anything not in the canonical 3-tuple is collapsed
-              // to "user" rather than crashing the provider with a 400.
-              historyForProvider = finalMessages.slice(0, -1).map((m) => ({
-                role:
-                  m.role === "system" || m.role === "assistant" || m.role === "user"
-                    ? m.role
-                    : "user",
-                content: m.content,
-              }));
+              // System messages assembled server-side for *this* turn
+              // (SOUL.md, context files, plan-mode, pinned, browser-tool
+              // instructions, etc.) live only in `finalMessages` — they're
+              // not persisted in `messages`. Keep them at the head so the
+              // provider still receives them.
+              const dbHistory = buildProviderHistory(
+                loadLocalMessages(sessionKey),
+                { excludeLast: true },
+              );
+              const ephemeralSystems: ChatMessage[] = finalMessages
+                .filter((m) => m.role === "system")
+                .map((m) => ({ role: "system", content: m.content }));
+              historyForProvider = [...ephemeralSystems, ...dbHistory];
               userContent = lastUser;
             } else {
               // Process/gateway-resident provider (claude-code, codex,
