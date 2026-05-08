@@ -264,7 +264,7 @@ export function ProjectWindowPane({
 
   const primaryTopicId = chatSync.topicIds[0];
 
-  const renderPane = useCallback((pane: Pane, isFocused: boolean) => {
+  const renderPane = useCallback((pane: Pane, isFocused: boolean, isVisible: boolean) => {
     switch (pane.type) {
       case 'chat': {
         const topic = pane.topicId ? topics[pane.topicId] : null;
@@ -297,7 +297,12 @@ export function ProjectWindowPane({
       case 'browser':
         return (
           <Suspense fallback={LazySpinner}>
-            <RemoteBrowserPanel contextId={projectPath} />
+            {/* `isVisible` drives WebContentsView visibility — see the
+                same prop in StandaloneChatGroup.renderPaneBody for the
+                full rationale. The keep-alive wrapper in GroupLayout is
+                what hides this pane via display:none, but the OS-level
+                native browser overlay can't observe that. */}
+            <RemoteBrowserPanel contextId={projectPath} isVisible={isVisible} />
           </Suspense>
         );
       case 'terminal': {

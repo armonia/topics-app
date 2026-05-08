@@ -20,9 +20,16 @@ import type { NativeBrowserHandle } from '../../hooks/useNativeBrowser';
 
 interface NativeBrowserPlaceholderProps {
   browser: NativeBrowserHandle;
+  /** Whether the parent pane is currently visible. Defaults to true so
+   *  legacy callers behave unchanged. When false, force the WebContentsView
+   *  to zero bounds — `display:none` on a React ancestor doesn't reliably
+   *  fire ResizeObserver, so the OS-level overlay would otherwise stay at
+   *  its last-known rect and bleed through underneath the active pane in
+   *  a keep-alive ladder. */
+  isVisible?: boolean;
 }
 
-export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderProps) {
+export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBrowserPlaceholderProps) {
   const placeholderRef = useRef<HTMLDivElement>(null);
   // Phase 30.1 polish — global DnD state. WebContentsView is OS-level
   // and covers React DOM, so during a drag-and-drop the drop preview
@@ -81,9 +88,12 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
       const rect = el.getBoundingClientRect();
 
       // Hide while:
+      // - the parent pane is `display:none` in a keep-alive ladder
+      //   (display:none doesn't reliably fire ResizeObserver, so we
+      //   trust the explicit prop instead of relying on the rect)
       // - agent is controlling (React overlay covers the slot)
       // - a global drag is in progress (drop preview must be visible)
-      const next = (browser.agentActive || dragging)
+      const next = (!isVisible || browser.agentActive || dragging)
         ? { x: 0, y: 0, width: 0, height: 0 }
         : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
 
@@ -143,7 +153,7 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
       // remove it shortly after).
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
-  }, [browser.viewId, browser.agentActive, dragging, browser]);
+  }, [browser.viewId, browser.agentActive, dragging, isVisible, browser]);
 
   return (
     <div

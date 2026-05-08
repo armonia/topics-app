@@ -33,7 +33,15 @@ interface GroupLayoutProps {
   onReorderRows?: (newRowOrder: number[]) => void;
   onUpdateRows: (rows: GroupLayoutRow[]) => void;
   onUpdateRowHeights: (heights: number[]) => void;
-  renderPane: (pane: Pane, isFocused: boolean) => React.ReactNode;
+  /** Render a pane's body. `isFocused` reflects "this is the active pane
+   *  AND its group is the focused group AND the App-level panel is the
+   *  focused panel". `isVisible` reflects only "this is the active pane in
+   *  its group" — i.e. the keep-alive wrapper is `display:flex`, not
+   *  `display:none`. The two diverge in split view: a non-focused group's
+   *  active pane is still visible, just dimmed. Browser panes need
+   *  isVisible separately because their OS-level WebContentsView can't
+   *  observe the wrapper's display property. */
+  renderPane: (pane: Pane, isFocused: boolean, isVisible: boolean) => React.ReactNode;
   availableTypesForGroup: (groupType: PaneGroupType, groupId: string) => PaneType[];
   contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
@@ -499,7 +507,7 @@ export function GroupLayout({
                                 style={{ display: isPaneActive ? 'flex' : 'none' }}
                                 aria-hidden={!isPaneActive}
                               >
-                                {renderPane(pane, isFocusedGroup && isPaneActive)}
+                                {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
                               </div>
                             );
                           });

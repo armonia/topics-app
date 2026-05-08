@@ -532,6 +532,12 @@ export function StandaloneChatGroup({
             contextId={ctx}
             navigateUrl={isPaneActive && browserNavigateUrl ? browserNavigateUrl : undefined}
             onNavigateConsumed={isPaneActive ? () => setBrowserNavigateUrl(null) : undefined}
+            // Drives WebContentsView visibility — `display:none` on the
+            // keep-alive wrapper doesn't reach the OS-level overlay, so
+            // we tell it explicitly. Without this, the inactive browser's
+            // native view would stay at its last-known bounds and bleed
+            // through underneath the active pane.
+            isVisible={isPaneActive}
           />
         </Suspense>
       );

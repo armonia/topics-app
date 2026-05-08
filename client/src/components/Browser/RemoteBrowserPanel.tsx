@@ -14,6 +14,13 @@ interface RemoteBrowserPanelProps {
   navigateUrl?: string;
   onUrlChange?: (url: string) => void;
   onNavigateConsumed?: () => void;
+  /** True when this pane is the visible one in its parent's layout
+   *  (e.g. the active pane in a keep-alive ladder, or the active group's
+   *  active pane in split view). False when the React subtree is mounted
+   *  but hidden via `display:none`. Drives WebContentsView visibility
+   *  in the Electron native path — the OS-level overlay can't observe
+   *  CSS display state on its own. Defaults to true for legacy callers. */
+  isVisible?: boolean;
 }
 
 // Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
@@ -22,7 +29,7 @@ interface RemoteBrowserPanelProps {
 // error in this mode (acknowledged constraint).
 const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true }: RemoteBrowserPanelProps) {
   // Phase 30.1 BROWSER-CHAT-06 — Electron native render path.
   // Detect via window.electronAPI?.browserNative?.isAvailable. In Electron,
   // skip mounting useRemoteBrowser entirely (no WS streaming, no CDP screencast,
@@ -38,6 +45,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         navigateUrl={navigateUrl}
         onUrlChange={onUrlChange}
         onNavigateConsumed={onNavigateConsumed}
+        isVisible={isVisible}
       />
     );
   }
@@ -300,7 +308,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
  * NativeBrowserPlaceholder. Cmd+Shift+E select-element overlay is NOT
  * mounted in this mode (deferred — see SUMMARY for rationale).
  */
-function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true }: RemoteBrowserPanelProps) {
   const browser = useNativeBrowser(contextId, initialUrl);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const focusUrlBarRef = useRef<(() => void) | null>(null);
@@ -503,7 +511,7 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
           >×</button>
         </div>
       )}
-      <NativeBrowserPlaceholder browser={browser} />
+      <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       {selectMode && browser.viewId && (
         <NativeSelectElementOverlay
           viewId={browser.viewId}
