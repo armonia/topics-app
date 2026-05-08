@@ -131,13 +131,32 @@ try {
   console.error("[Startup] ui_state orphan cleanup failed:", err);
 }
 
-// Init AI provider (wraps gateway for openclaw, or uses Anthropic SDK for standalone)
+// Init AI provider — pick the boot default:
+//   1. AI_PROVIDER env override (explicit, always wins)
+//   2. claude (Anthropic SDK) if ANTHROPIC_API_KEY → stateless, sub-friendly,
+//      autonomous: history is rebuilt from the local SQLite messages table on
+//      every turn, so it survives `bun --watch` restarts and gateway outages.
+//   3. openai if OPENAI_API_KEY
+//   4. openclaw only if GATEWAY_URL is set (explicit opt-in to the gateway —
+//      conversation memory there lives on the gateway and was lost on restart)
+//   5. graceful fallback to "claude" so the picker UI still has a target;
+//      initProviders() below auto-registers anything else available.
+const providerType =
+  (process.env.AI_PROVIDER as any) ||
+  (process.env.ANTHROPIC_API_KEY ? 'claude' :
+   process.env.OPENAI_API_KEY ? 'openai' :
+   process.env.GATEWAY_URL ? 'openclaw' :
+   'claude');
+
 const aiProvider = initProvider({
-  type: (process.env.AI_PROVIDER as any) || (process.env.GATEWAY_URL ? 'openclaw' : process.env.ANTHROPIC_API_KEY ? 'claude' : 'openclaw'),
-  ...(process.env.GATEWAY_URL ? {
+  type: providerType,
+  ...(providerType === 'openclaw' ? {
     gatewayUrl: ctx.GATEWAY_URL,
     token: ctx.GATEWAY_TOKEN,
     refreshToken: () => ctx.refreshGatewayToken(),
+  } : providerType === 'openai' ? {
+    apiKey: process.env.OPENAI_API_KEY || '',
+    model: process.env.OPENAI_MODEL,
   } : {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
     model: process.env.CLAUDE_MODEL,
