@@ -169,6 +169,16 @@ interface NativeBrowserEntry {
 
 const nativeBrowsers = new Map<string, NativeBrowserEntry>();
 
+// Phase 30.1 polish — pending destroy timers keyed by viewId. Used to
+// implement a grace period: the renderer's destroy IPC schedules a
+// timeout instead of destroying immediately. If a `create` for the same
+// topicId arrives before the timer fires (= remount during DnD), the
+// timer is cancelled and the existing view is reused. Prevents glitches
+// during tab drag-and-drop, fast tab switch, and React Strict Mode
+// double-mount cycles.
+const pendingDestroys = new Map<string, ReturnType<typeof setTimeout>>();
+const DESTROY_GRACE_MS = 500;
+
 function generateNativeViewId(): string {
   return `nbv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1234,6 +1244,25 @@ ipcMain.handle('browser-native:create', async (
   if (typeof opts.partitionId !== 'string' || !opts.partitionId.startsWith('persist:')) {
     throw new Error('browser-native:create — partitionId must start with "persist:"');
   }
+  // Phase 30.1 polish — REUSE existing view for this topicId. DnD of the
+  // browser tab unmounts and remounts the React component within
+  // milliseconds; without reuse, every drag would destroy + recreate the
+  // WebContentsView (lose CDP target, lose loaded page, flash white).
+  // The view's bound IPC channels are keyed by viewId, so the renderer
+  // re-binding (subscribing to onUrlChange etc.) Just Works™.
+  for (const [existingViewId, existingEntry] of nativeBrowsers) {
+    if (existingEntry.topicId === opts.topicId) {
+      // Cancel any pending hide-then-destroy timer (set in destroy IPC handler).
+      const pending = pendingDestroys.get(existingViewId);
+      if (pending) {
+        clearTimeout(pending);
+        pendingDestroys.delete(existingViewId);
+      }
+      const cdpTargetId = await resolveCdpTargetIdForView(existingEntry.view).catch(() => '');
+      console.log(`[BrowserNativeManager] Reusing existing view ${existingViewId} for topic ${opts.topicId}`);
+      return { viewId: existingViewId, cdpTargetId };
+    }
+  }
   const viewId = generateNativeViewId();
   const initialUrl = opts.initialUrl || 'about:blank';
   const entry = createNativeBrowser(opts.topicId, opts.partitionId, initialUrl);
@@ -1298,6 +1327,35 @@ ipcMain.handle('browser-native:create', async (
 });
 
 ipcMain.handle('browser-native:destroy', async (_evt, viewId: string): Promise<void> => {
+  // Phase 30.1 polish — defer destroy by DESTROY_GRACE_MS. If a create()
+  // for the same topicId arrives within the grace period (DnD remount),
+  // the timer is cancelled and the existing view is reused. Otherwise
+  // the actual destroy fires after grace period elapses.
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) return;
+  // Hide immediately so user doesn't see the orphan during grace period.
+  try { entry.view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch { /* ignore */ }
+  // Cancel any prior pending destroy for this viewId (idempotent).
+  const prior = pendingDestroys.get(viewId);
+  if (prior) clearTimeout(prior);
+  const timer = setTimeout(() => {
+    pendingDestroys.delete(viewId);
+    actuallyDestroyNativeBrowser(viewId);
+  }, DESTROY_GRACE_MS);
+  pendingDestroys.set(viewId, timer);
+});
+
+// Internal — bypasses grace period (used by orphan sweep + reuse cancel).
+function actuallyDestroyNativeBrowser(viewId: string): void {
+  const pending = pendingDestroys.get(viewId);
+  if (pending) {
+    clearTimeout(pending);
+    pendingDestroys.delete(viewId);
+  }
+  destroyNativeBrowser(viewId);
+}
+
+ipcMain.handle('browser-native:destroy-immediate', async (_evt, viewId: string): Promise<void> => {
   destroyNativeBrowser(viewId);
 });
 
