@@ -27,6 +27,32 @@ import {
 import { isUtilityPanelId } from '../UtilityPanel';
 import { findPreviewInList, replaceInList } from '../../../lib/previewTabs';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
+import { usePaneStore } from '../../../state/pane/store';
+import { openPane } from '../../../state/pane/actions';
+
+/**
+ * Phase 30.1 polish — persist a browser pane in the global pane store so
+ * it survives renderer reload (Cmd+R, Vite HMR, dev restart). Without this
+ * the browser pane only lived in `usePaneOrdering`'s local `orderedIds`
+ * useState, and `loadPanelOrder()` (which seeds initial state from the
+ * store on mount) returned an array missing the browser pane → tab lost
+ * on every reload.
+ */
+function persistBrowserPane(paneId: string): void {
+  if (!isBrowserPaneId(paneId)) return;
+  try {
+    const state = usePaneStore.getState();
+    const group = state.groups['group:default'];
+    if (group?.paneIds.includes(paneId)) return; // Already persisted
+    state.dispatch(openPane({
+      id: paneId,
+      type: 'browser',
+      groupId: 'group:default',
+    }));
+  } catch (err) {
+    console.warn('[usePaneOrdering] persistBrowserPane failed:', err);
+  }
+}
 
 /**
  * Singleton reducer shared by `ensureBrowserPane` op and the WS
@@ -192,6 +218,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       return next;
     });
     queueMicrotask(() => { if (resolvedId) onFocusPanel(resolvedId); });
+    if (resolvedId) persistBrowserPane(resolvedId);
     return resolvedId;
   }, [onFocusPanel]);
 
@@ -215,7 +242,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           // Today's extra guard: msg.topicId must already be open in this group.
           if (msg.topicId && !prev.includes(msg.topicId)) return prev;
           const { next, resolvedId } = browserSingletonReducer(prev);
-          if (resolvedId) queueMicrotask(() => onFocusPanel(resolvedId));
+          if (resolvedId) {
+            queueMicrotask(() => onFocusPanel(resolvedId));
+            persistBrowserPane(resolvedId);
+          }
           return next;
         });
       }
@@ -244,7 +274,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       setOrderedIds(prev => {
         if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
         const { next, resolvedId } = browserSingletonReducer(prev);
-        if (resolvedId) queueMicrotask(() => onFocusPanel(resolvedId));
+        if (resolvedId) {
+          queueMicrotask(() => onFocusPanel(resolvedId));
+          persistBrowserPane(resolvedId);
+        }
         return next;
       });
     };
