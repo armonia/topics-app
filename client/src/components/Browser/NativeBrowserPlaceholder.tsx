@@ -142,12 +142,32 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     };
     rafId = requestAnimationFrame(poll);
 
+    // CSS transitions on ancestor elements (split-cell width changes,
+    // sidebar collapse, group reflow) interpolate between frames and
+    // their final state often lands AFTER the 500ms poll above. Listen
+    // for `transitionend` events bubbling up from the placeholder's
+    // ancestors and re-measure once they settle. The capture phase
+    // catches transitions on parent containers that don't bubble in
+    // the standard sense (some flex container transitions are pinned
+    // to specific elements). Idempotent: updateBounds short-circuits
+    // when the rect hasn't actually changed.
+    const onTransitionEnd = (e: TransitionEvent) => {
+      const target = e.target as Node | null;
+      if (target instanceof Element && (target.contains(placeholderRef.current) || placeholderRef.current?.contains(target))) {
+        // Two-frame defer so any compositing work settles before we
+        // hand the rect to the OS-level overlay.
+        requestAnimationFrame(() => requestAnimationFrame(updateBounds));
+      }
+    };
+    window.addEventListener('transitionend', onTransitionEnd, true);
+
     return () => {
       ro.disconnect();
       mo.disconnect();
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', updateBounds);
       window.removeEventListener('scroll', updateBounds, { capture: true });
+      window.removeEventListener('transitionend', onTransitionEnd, true);
       offReflow?.();
       // On unmount, hide the view (the destroy in useNativeBrowser will
       // remove it shortly after).
