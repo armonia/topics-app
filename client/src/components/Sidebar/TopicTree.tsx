@@ -1,15 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, GitBranch, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
+import { PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import { createPaneId, useProjectTabStatus } from '@/state/pane/adapters';
+import { createPaneId, useProjectTabStatus, getAddableTypesForScope } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
-import { useClaudeSkipPermissions } from '@/hooks/useClaudePrefs';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -123,7 +123,8 @@ export function TopicTree({
   onToggleProject,
   projectOpenPanes = {},
 }: TopicTreeProps) {
-  const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
+  // Claude "yolo" toggle state lives inside <PaneAddMenuItems> now (via
+  // useClaudeSkipPermissions). No longer threaded through here.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[] } | null>(null);
   const [projectAddMenu, setProjectAddMenu] = useState<string | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
@@ -378,41 +379,24 @@ export function TopicTree({
                   <div className="relative hidden group-hover/proj:block">
                     <button
                       onClick={(e) => { e.stopPropagation(); addBtnRef.current = e.currentTarget; setProjectAddMenu(projectAddMenu === pp ? null : pp); }}
-                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
                       title="Add to project"
                     >
-                      <Plus size={12} />
+                      <Plus size={14} />
                     </button>
                     <DropdownPortal open={projectAddMenu === pp} anchorRef={addBtnRef} onClose={() => setProjectAddMenu(null)}>
-                      {onNewTopicInProject && (
-                        <button onClick={() => { onNewTopicInProject(pp); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                          <MessageSquare size={14} /><span>New Chat</span>
-                        </button>
-                      )}
-                      {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'terminal'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                          <TerminalSquare size={14} /><span>Shell</span>
-                        </button>
-                      )}
-                      {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'terminal', 'claude-code'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                          <ClaudeIcon size={14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
-                          <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-                            <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-                            <span>yolo</span>
-                          </label>
-                        </button>
-                      )}
-                      {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'browser'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                          <Globe size={14} /><span>Browser</span>
-                        </button>
-                      )}
-                      {onAddProjectPane && (
-                        <button onClick={() => { onAddProjectPane(pp, 'git'); setProjectAddMenu(null); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-                          <GitBranch size={14} /><span>Git</span>
-                        </button>
-                      )}
+                      <PaneAddMenuItems
+                        onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
+                        onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
+                        // Project scope — same source PaneTabBar uses for an
+                        // in-project group, so the two menus stay in lockstep
+                        // when a new pane type becomes addable for projects.
+                        availableTypes={onAddProjectPane ? getAddableTypesForScope('project') : []}
+                        // Cmd+N targets the *focused* group's New Chat, not
+                        // this specific project's, so the kbd hint would lie.
+                        showShortcuts={false}
+                        onClose={() => setProjectAddMenu(null)}
+                      />
                     </DropdownPortal>
                   </div>
                 )}
@@ -423,8 +407,6 @@ export function TopicTree({
               <TouchProjectMenu
                 pp={pp}
                 allArchived={allArchived}
-                claudeSkipPermissions={claudeSkipPermissions}
-                setClaudeSkipPermissions={setClaudeSkipPermissions}
                 onNewTopicInProject={onNewTopicInProject}
                 onAddProjectPane={onAddProjectPane}
                 onOpenProjectBoard={onOpenProjectBoard}
@@ -732,68 +714,53 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
 interface TouchProjectMenuProps {
   pp: string;
   allArchived: boolean;
-  claudeSkipPermissions: boolean;
-  setClaudeSkipPermissions: (v: boolean) => void;
+  // Note: claudeSkipPermissions state is owned inside PaneAddMenuItems via
+  // useClaudeSkipPermissions(); we don't thread it through here anymore.
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
   onOpenProjectBoard?: (projectPath: string) => void;
   onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
 }
 
-function TouchProjectMenu({ pp, allArchived, claudeSkipPermissions, setClaudeSkipPermissions, onNewTopicInProject, onAddProjectPane, onOpenProjectBoard, onArchiveProject }: TouchProjectMenuProps) {
+function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPane, onOpenProjectBoard, onArchiveProject }: TouchProjectMenuProps) {
   const overflowBtnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+
+  const hasAddItems = !!(onNewTopicInProject || onAddProjectPane);
+  const hasProjectActions = !!(onOpenProjectBoard || onArchiveProject);
 
   return (
     <div className="relative">
       <button
         ref={overflowBtnRef}
         onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-app-text-tertiary hover:text-app-text transition-colors"
+        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
         title="More options"
       >
-        <MoreHorizontal size={12} />
+        <MoreHorizontal size={14} />
       </button>
-      <DropdownPortal open={open} anchorRef={overflowBtnRef} onClose={() => setOpen(false)}>
-        {onNewTopicInProject && (
-          <button onClick={() => { onNewTopicInProject(pp); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <MessageSquare size={14} className="flex-shrink-0" /><span>New Chat</span>
-          </button>
-        )}
-        {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'terminal'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <TerminalSquare size={14} className="flex-shrink-0" /><span>Shell</span>
-          </button>
-        )}
-        {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'terminal', 'claude-code'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <ClaudeIcon size={14} className="text-[#D97757] flex-shrink-0" /><span className="flex-1 text-left">Claude Code</span>
-            <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-              <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-              <span>yolo</span>
-            </label>
-          </button>
-        )}
-        {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'browser'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <Globe size={14} className="flex-shrink-0" /><span>Browser</span>
-          </button>
-        )}
-        {onAddProjectPane && (
-          <button onClick={() => { onAddProjectPane(pp, 'git'); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <GitBranch size={14} className="flex-shrink-0" /><span>Git</span>
-          </button>
-        )}
-        {(onOpenProjectBoard || onArchiveProject) && (onNewTopicInProject || onAddProjectPane) && <div className="h-px bg-app-border mx-2 my-1" />}
+      <DropdownPortal open={open} anchorRef={overflowBtnRef} onClose={close}>
+        {/* Add-pane rows: same shared component as the desktop "+" menu so a
+            new pane type added to PANE_CONFIG appears here automatically. */}
+        <PaneAddMenuItems
+          onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
+          onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
+          availableTypes={onAddProjectPane ? getAddableTypesForScope('project') : []}
+          showShortcuts={false}
+          onClose={close}
+        />
+        {/* Divider before project-level actions — only when both halves render. */}
+        {hasAddItems && hasProjectActions && <div className="h-px bg-app-border mx-2 my-1" />}
         {onOpenProjectBoard && (
-          <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(pp); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <LayoutGrid size={14} className="flex-shrink-0 text-emerald-500" /><span>Open Board</span>
+          <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(pp); close(); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+            <LayoutGrid size={14} className="flex-shrink-0 text-emerald-500" /><span className="flex-1 text-left">Open Board</span>
           </button>
         )}
         {onArchiveProject && (
-          <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); setOpen(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
+          <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); close(); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}
-            <span>{allArchived ? 'Restore Project' : 'Archive Project'}</span>
+            <span className="flex-1 text-left">{allArchived ? 'Restore Project' : 'Archive Project'}</span>
           </button>
         )}
       </DropdownPortal>

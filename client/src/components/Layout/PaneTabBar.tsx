@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, TerminalSquare, Columns2, Rows2 } from 'lucide-react';
+import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
+import { PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, type ProjectTabStatus } from '../../state/pane/adapters';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
-import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
@@ -97,7 +97,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
   const [edgeSplitZone, setEdgeSplitZone] = useState<'left' | 'right' | null>(null);
   const [crossGroupDragActive, setCrossGroupDragActive] = useState(false);
-  const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
+  // claudeSkipPermissions is now owned by <PaneAddMenuItems> (web mode) and
+  // by the Electron overlay menu's `selectedId` switch (native mode).
 
   const { isTouch, isMobile } = useMobile();
 
@@ -637,7 +638,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         </div>
       )}
 
-      {/* Add pane dropdown menu — portaled to avoid overflow clipping */}
+      {/* Add pane dropdown menu — portaled to avoid overflow clipping.
+          Items rendered by the shared <PaneAddMenuItems> so the visual
+          and behavioral contract matches the sidebar's project-add menu
+          row-for-row. The portal wrapper stays per-consumer because we
+          want overflow-flip + mobile bottom-sheet positioning here. */}
       {hasMenuItems && showAddMenu && (isMobile || menuPos) && createPortal(
         <>
           {isMobile && <div className="fixed inset-0 z-[9998]" onClick={() => setShowAddMenu(false)} />}
@@ -645,57 +650,17 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             ref={menuContentRef}
             className={isMobile
               ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-              : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[140px]'}
+              : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'}
             style={!isMobile ? { top: menuPos!.top, left: menuPos!.left } : { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
           >
-            {onNewChat && (
-              <button
-                onClick={() => { onNewChat(); setShowAddMenu(false); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-              >
-                <MessageSquare size={14} />
-                <span className="flex-1 text-left">New Chat</span>
-                {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>}
-              </button>
-            )}
-            {availableTypes.map(type => {
-              if (type === 'terminal') {
-                return (
-                  <div key={type}>
-                    <button
-                      onClick={() => { onAddPane('terminal', 'shell'); setShowAddMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                    >
-                      <TerminalSquare size={14} />
-                      <span>Shell</span>
-                    </button>
-                    <button
-                      onClick={() => { onAddPane('terminal', 'claude-code'); setShowAddMenu(false); }}
-                      className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                    >
-                      <ClaudeIcon size={14} className="text-[#D97757]" />
-                      <span className="flex-1 text-left">Claude Code</span>
-                      <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-                        <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-                        <span>yolo</span>
-                      </label>
-                    </button>
-                  </div>
-                );
-              }
-              const config = getPaneConfig(type);
-              const Icon = ICONS[config.icon];
-              return (
-                <button
-                  key={type}
-                  onClick={() => { onAddPane(type); setShowAddMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                >
-                  {Icon && <Icon size={14} />}
-                  <span>{config.label}</span>
-                </button>
-              );
-            })}
+            <PaneAddMenuItems
+              onNewChat={onNewChat}
+              onAddPane={onAddPane}
+              availableTypes={availableTypes}
+              // Cmd/Ctrl+N targets the focused group's New Chat — true here.
+              showShortcuts
+              onClose={() => setShowAddMenu(false)}
+            />
           </div>
         </>,
         document.body
