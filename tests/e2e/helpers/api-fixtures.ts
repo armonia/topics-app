@@ -159,6 +159,16 @@ export async function deleteTopic(
   request: APIRequestContext,
   id: string
 ): Promise<void> {
+  // Phase 30.1 polish — destroy the topic's BrowserContext (Playwright
+  // server-side Chromium pool, max 20 concurrent) BEFORE deleting the
+  // topic record. Each browser-* spec creates contexts via agent/open or
+  // navigate; without explicit cleanup, the pool fills up over the suite
+  // and subsequent specs fail with "Max contexts reached" 500s.
+  // 404 is fine — context might not exist for this topic. Catch to be safe
+  // either way (DELETE could 5xx during shutdown).
+  await request
+    .delete(`${BASE}/api/browsers/${id}`, { ignoreHTTPSErrors: true })
+    .catch(() => { /* best-effort */ });
   await request
     .delete(`${BASE}/api/topics/${id}`, {
       ignoreHTTPSErrors: true,

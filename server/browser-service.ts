@@ -380,10 +380,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         const intervalHandle = setInterval(() => {
           saver.flush().catch(err => console.warn(`[BrowserService] autosave flush failed for ${id}:`, err.message));
         }, 30_000);
-        context.on("close", async () => {
+        // On context close: stop timers only. Do NOT call saver.flush() —
+        // destroyContext explicitly saves before close (line 414-419), so a
+        // flush here would race against the closed context and surface as a
+        // noisy "Target page, context or browser has been closed" warning.
+        // For unexpected closures (crash, external close), accept up to 30s
+        // of state loss; the autosave interval is the safety net.
+        context.on("close", () => {
           clearInterval(intervalHandle);
           saver.cancel();
-          try { await saver.flush(); } catch {}
         });
         entry.autoSaveCleanup = () => {
           clearInterval(intervalHandle);

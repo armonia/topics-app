@@ -5,13 +5,15 @@ import { join, resolve as resolvePath } from "path";
 
 const BASE = "http://localhost:13334";
 
-// B1 FIX: server/browser-state-store.ts:14 hardcodes
-// BASE_DIR = join(process.cwd(), "data", "browser-state").
-// The test server's cwd is the repo root (start-test-server.sh runs
-// `bun run server.ts` from repo root). Resolve REPO_ROOT from this spec
-// file location (tests/e2e/ is two levels deep from repo root).
+// Phase 30.1 polish — server/browser-state-store.ts now resolves BASE_DIR
+// as `process.env.DATA_DIR ? join(DATA_DIR, "browser-state") : join(cwd, "data", "browser-state")`.
+// global-setup.ts propagates DATA_DIR=/tmp/topics-test-data to the runner so this
+// resolves to the same directory the test server writes to. Falling back to
+// `<repoRoot>/data/browser-state` matches the production default for solo runs.
 const REPO_ROOT = resolvePath(__dirname, "../..");
-const BROWSER_STATE_DIR = join(REPO_ROOT, "data", "browser-state");
+const BROWSER_STATE_DIR = process.env.DATA_DIR
+  ? join(process.env.DATA_DIR, "browser-state")
+  : join(REPO_ROOT, "data", "browser-state");
 
 // B1 FIX: mirror server/browser-state-store.ts:16-19 sanitize regex.
 function sanitize(topicId: string): string {

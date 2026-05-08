@@ -10,7 +10,12 @@ import {
 } from "./browser-state-store";
 
 const TEST_TOPIC = "test-topic-30-01";
-const TEST_DIR = join(process.cwd(), "data", "browser-state", TEST_TOPIC);
+// Resolve BASE_DIR the same way browser-state-store does — honors DATA_DIR
+// env var so unit tests pass whether or not DATA_DIR is set by the harness.
+const BASE_DIR = process.env.DATA_DIR
+  ? join(process.env.DATA_DIR, "browser-state")
+  : join(process.cwd(), "data", "browser-state");
+const TEST_DIR = join(BASE_DIR, TEST_TOPIC);
 
 const FIXTURE_STATE: BrowserStorageState = {
   cookies: [
@@ -86,8 +91,8 @@ test("deleteStorageState is idempotent on missing topic", async () => {
 test("topicId with unsafe chars is sanitized", async () => {
   const unsafe = "../../etc/passwd";
   await saveStorageState(unsafe, FIXTURE_STATE);
-  // Sanitized to "______etc_passwd" — file lands inside data/browser-state/, NOT /etc/.
-  const sanitizedDir = join(process.cwd(), "data", "browser-state", "______etc_passwd");
+  // Sanitized to "______etc_passwd" — file lands inside <BASE_DIR>/, NOT /etc/.
+  const sanitizedDir = join(BASE_DIR, "______etc_passwd");
   expect(existsSync(join(sanitizedDir, "storage.json"))).toBe(true);
   if (existsSync(sanitizedDir)) rmSync(sanitizedDir, { recursive: true, force: true });
 });

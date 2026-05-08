@@ -128,6 +128,15 @@ async function globalSetup() {
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
+  // Phase 30.1 polish — propagate DATA_DIR to the Playwright runner so specs
+  // that need to read files written by the test server (e.g.
+  // browser-persistence.spec.ts reading data/browser-state/<id>/storage.json)
+  // can resolve the same path the server uses. The spawned test server
+  // already gets DATA_DIR via startTestServer(); without this line the
+  // runner's process.env.DATA_DIR stays unset and specs would have to
+  // hardcode the path.
+  if (!process.env.DATA_DIR) process.env.DATA_DIR = "/tmp/topics-test-data";
+
   // Kill any stale test server processes on the test port before starting
   try {
     const stalePids = execSync(
@@ -139,6 +148,24 @@ async function globalSetup() {
       await new Promise((r) => setTimeout(r, 1000));
     }
   } catch {}
+
+  // Phase 30.1 polish — wipe per-topic browser-state from previous runs.
+  // BASE_DIR in browser-state-store.ts now honours DATA_DIR, but pre-fix
+  // runs (or runs with the old default) may have left files under
+  // <repo>/data/browser-state/. Belt-and-braces: clean both locations
+  // before the test server boots so restoreAllContexts doesn't re-hydrate
+  // a context with stale cookies that would skew BROWSER-CHAT-01 asserts.
+  const { rmSync } = await import("fs");
+  for (const dir of ["/tmp/topics-test-data/browser-state", join(process.cwd(), "data", "browser-state")]) {
+    try {
+      if (existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+        console.log(`[global-setup] Wiped stale browser-state: ${dir}`);
+      }
+    } catch (err) {
+      console.warn(`[global-setup] Failed to wipe ${dir}: ${(err as Error).message}`);
+    }
+  }
 
   // Start isolated test server
   await startTestServer();

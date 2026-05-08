@@ -11,7 +11,13 @@ import { join } from "path";
  */
 export type BrowserStorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
-const BASE_DIR = join(process.cwd(), "data", "browser-state");
+// Phase 30.1 polish — honor DATA_DIR env var (set by E2E test server) so
+// per-topic storage stays under the isolated test data dir instead of
+// polluting the repo's `data/` folder. Falls back to `<cwd>/data/...` for
+// production where DATA_DIR isn't set. Aligns with `topics.db` path.
+const BASE_DIR = process.env.DATA_DIR
+  ? join(process.env.DATA_DIR, "browser-state")
+  : join(process.cwd(), "data", "browser-state");
 
 function sanitize(topicId: string): string {
   // Same pattern as server/browser-service.ts:330. Prevents path traversal.
