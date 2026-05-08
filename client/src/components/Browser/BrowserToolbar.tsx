@@ -15,6 +15,10 @@ interface BrowserToolbarProps {
   history?: string[];
   /** Phase 30.1 polish — DevTools toggle for native WebContentsView. Hidden in web mode (undefined). */
   onToggleDevTools?: () => void;
+  /** Phase 30.1 polish — favicon URL emitted by Chromium. Empty during navigation; toolbar falls back to <Globe>. */
+  faviconUrl?: string;
+  /** Phase 30.1 polish — register a focus-the-URL-bar callback. Cmd+L wires here. */
+  onRegisterFocus?: (focusFn: () => void) => void;
 }
 
 export function BrowserToolbar({
@@ -29,11 +33,30 @@ export function BrowserToolbar({
   loading,
   history,
   onToggleDevTools,
+  faviconUrl,
+  onRegisterFocus,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyMenuRef = useRef<HTMLDivElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+  const [faviconError, setFaviconError] = useState(false);
+
+  // Reset favicon error state when URL changes (new favicon may load).
+  useEffect(() => { setFaviconError(false); }, [faviconUrl]);
+
+  // Phase 30.1 polish — register focus-bar callback so Cmd+L can focus
+  // the URL input even when the panel itself isn't focused.
+  useEffect(() => {
+    if (!onRegisterFocus) return;
+    onRegisterFocus(() => {
+      const el = urlInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    });
+  }, [onRegisterFocus]);
 
   // Close history dropdown on outside click.
   useEffect(() => {
@@ -66,7 +89,32 @@ export function BrowserToolbar({
   }, [url]);
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 bg-elevated dark:bg-app-panel border-b border-app-border">
+    <div className="relative flex items-center gap-1 px-2 py-1.5 bg-elevated dark:bg-app-panel border-b border-app-border">
+      {/* Phase 30.1 polish — Chrome-style indeterminate progress bar at the
+          bottom of the toolbar while loading. Inline keyframes + minimal
+          DOM (single absolutely-positioned bar, ~3 LOC). */}
+      {loading && (
+        <>
+          <style>{`
+            @keyframes browser-toolbar-progress {
+              0%   { transform: translateX(-100%) scaleX(0.4); }
+              50%  { transform: translateX(0%)    scaleX(0.6); }
+              100% { transform: translateX(100%)  scaleX(0.2); }
+            }
+            .browser-toolbar-progress-bar {
+              animation: browser-toolbar-progress 1.4s linear infinite;
+              transform-origin: left;
+            }
+          `}</style>
+          <div
+            className="absolute left-0 right-0 bottom-0 h-[2px] overflow-hidden pointer-events-none"
+            data-testid="browser-toolbar-progress"
+            aria-hidden
+          >
+            <div className="browser-toolbar-progress-bar absolute inset-0 bg-primary" />
+          </div>
+        </>
+      )}
       {/* Navigation buttons */}
       <button
         onClick={onBack}
@@ -102,14 +150,27 @@ export function BrowserToolbar({
       {/* URL bar */}
       <form onSubmit={handleSubmit} className="flex-1 min-w-0">
         <div className="relative flex items-center">
-          <Globe size={12} className="absolute left-2 text-app-text-tertiary" />
+          {/* Favicon (Electron native mode) or fallback Globe icon */}
+          {faviconUrl && !faviconError ? (
+            <img
+              src={faviconUrl}
+              alt=""
+              className="absolute left-2 w-3 h-3 object-contain"
+              onError={() => setFaviconError(true)}
+              data-testid="browser-favicon"
+            />
+          ) : (
+            <Globe size={12} className="absolute left-2 text-app-text-tertiary" />
+          )}
           <input
+            ref={urlInputRef}
             type="text"
             value={editing ? editUrl : url}
             onChange={(e) => { setEditUrl(e.target.value); setEditing(true); }}
             onFocus={() => { setEditUrl(url); setEditing(true); }}
             onBlur={() => { setTimeout(() => setEditing(false), 200); }}
             placeholder="Enter URL..."
+            data-testid="browser-url-input"
             className="w-full pl-7 pr-2 py-1 text-[12px] bg-surface dark:bg-elevated border border-app-border-input rounded-md focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint transition-colors"
           />
         </div>

@@ -3,7 +3,7 @@ import { Globe, Loader2 } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useNativeBrowser } from '../../hooks/useNativeBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 
@@ -302,6 +302,38 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
 function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
   const browser = useNativeBrowser(contextId, initialUrl);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
+  const focusUrlBarRef = useRef<(() => void) | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [findResult, setFindResult] = useState<{ activeMatchOrdinal: number; matches: number }>({ activeMatchOrdinal: 0, matches: 0 });
+
+  // Subscribe to find-in-page result events while find bar is open.
+  useEffect(() => {
+    if (!findOpen) return;
+    const unsub = browser.onFindResult((r) => {
+      setFindResult({ activeMatchOrdinal: r.activeMatchOrdinal, matches: r.matches });
+    });
+    return unsub;
+  }, [findOpen, browser]);
+
+  // Re-issue find when text or options change (debounced via React batching).
+  useEffect(() => {
+    if (!findOpen) return;
+    if (!findText) {
+      browser.stopFind();
+      setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+      return;
+    }
+    browser.findInPage(findText, { forward: true, findNext: false });
+  }, [findOpen, findText, browser]);
+
+  // Closing the find bar stops the search and clears highlight.
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindText('');
+    setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+    browser.stopFind();
+  }, [browser]);
 
   useEffect(() => {
     if (navigateUrl) {
@@ -317,18 +349,85 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
     }
   }, [browser.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Phase 30.1 polish — Cmd+Opt+I toggles WebContentsView DevTools.
-  // Window-level so it works even when toolbar input is focused.
+  // Phase 30.1 polish — keyboard shortcuts (Chrome parity):
+  //  - Cmd+Opt+I  : toggle DevTools (also wired via toolbar button)
+  //  - Cmd+L      : focus URL bar
+  //  - Cmd+R      : reload
+  //  - Cmd+[      : back
+  //  - Cmd+]      : forward
+  // Window-level so they fire even when sub-elements have focus. Skip
+  // when target is an input/textarea elsewhere in the app — those should
+  // own their own shortcuts (e.g. URL bar input handles Enter natively).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'i') {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      // Don't hijack shortcuts inside a different text input (chat input,
+      // settings form). Allow on the URL bar itself (browser-url-input).
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? '';
+      const isTextField = (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable);
+      const isUrlBar = (target as HTMLInputElement | null)?.dataset?.testid === 'browser-url-input';
+      if (isTextField && !isUrlBar) return;
+
+      // Cmd+Opt+I — DevTools
+      if (e.altKey && e.key.toLowerCase() === 'i') {
         e.preventDefault();
         browser.toggleDevTools();
+        return;
+      }
+      // Cmd+L — focus URL bar
+      if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        focusUrlBarRef.current?.();
+        return;
+      }
+      // Cmd+R — reload
+      if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        browser.reload();
+        return;
+      }
+      // Cmd+[ — back
+      if (!e.altKey && !e.shiftKey && e.key === '[') {
+        e.preventDefault();
+        browser.goBack();
+        return;
+      }
+      // Cmd+] — forward
+      if (!e.altKey && !e.shiftKey && e.key === ']') {
+        e.preventDefault();
+        browser.goForward();
+        return;
+      }
+      // Cmd+F — find in page
+      if (!e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindOpen(true);
+        return;
+      }
+      // Cmd++ / Cmd+= — zoom in
+      if (!e.shiftKey && (e.key === '+' || e.key === '=')) {
+        e.preventDefault();
+        browser.setZoom(0.5);
+        return;
+      }
+      // Cmd+- — zoom out
+      if (!e.shiftKey && e.key === '-') {
+        e.preventDefault();
+        browser.setZoom(-0.5);
+        return;
+      }
+      // Cmd+0 — zoom reset
+      if (!e.shiftKey && e.key === '0') {
+        e.preventDefault();
+        browser.setZoom('reset');
+        return;
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [browser.toggleDevTools]);
+  }, [browser]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-native-panel">
@@ -344,7 +443,58 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         loading={browser.loading}
         history={history}
         onToggleDevTools={browser.toggleDevTools}
+        faviconUrl={browser.faviconUrl}
+        onRegisterFocus={(fn) => { focusUrlBarRef.current = fn; }}
       />
+      {/* Phase 30.1 polish — Find-in-page bar. Opens on Cmd+F, closes on Esc
+          or "x" button. Sends each keystroke to the WebContentsView via
+          findInPage IPC; receives result count via onFindResult. */}
+      {findOpen && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 bg-elevated dark:bg-app-panel border-b border-app-border text-[12px]"
+          data-testid="browser-find-bar"
+        >
+          <input
+            autoFocus
+            type="text"
+            value={findText}
+            onChange={(e) => setFindText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+              else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (findText) browser.findInPage(findText, { forward: !e.shiftKey, findNext: true });
+              }
+            }}
+            placeholder="Find in page"
+            className="flex-1 px-2 py-1 bg-surface dark:bg-elevated border border-app-border-input rounded-md focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+            data-testid="browser-find-input"
+          />
+          <span className="text-app-text-muted text-[11px] tabular-nums min-w-[3rem] text-right" data-testid="browser-find-count">
+            {findText ? `${findResult.activeMatchOrdinal}/${findResult.matches}` : ''}
+          </span>
+          <button
+            type="button"
+            onClick={() => { if (findText) browser.findInPage(findText, { forward: false, findNext: true }); }}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
+            title="Previous (⇧⏎)"
+            disabled={!findResult.matches}
+          >‹</button>
+          <button
+            type="button"
+            onClick={() => { if (findText) browser.findInPage(findText, { forward: true, findNext: true }); }}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
+            title="Next (⏎)"
+            disabled={!findResult.matches}
+          >›</button>
+          <button
+            type="button"
+            onClick={closeFind}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
+            title="Close (Esc)"
+          >×</button>
+        </div>
+      )}
       <NativeBrowserPlaceholder browser={browser} />
     </div>
   );

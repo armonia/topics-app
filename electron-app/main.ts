@@ -1292,11 +1292,99 @@ ipcMain.handle('browser-native:create', async (
     }
   };
 
+  // Phase 30.1 polish — favicon updates pushed to renderer for the toolbar
+  // icon. Electron emits page-favicon-updated with an array of candidates
+  // (favicon.ico, apple-touch-icon, etc.); take the first.
+  const sendFavicon = (_e: unknown, favicons: string[]) => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(`browser-native:favicon-change:${viewId}`, favicons[0] ?? '');
+    }
+  };
+
+  // Phase 30.1 polish — find-in-page result events forwarded to renderer
+  // so the find bar can show "M of N matches" + active match highlight.
+  const sendFindResult = (_e: unknown, result: Electron.Result) => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(`browser-native:find-result:${viewId}`, {
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+        finalUpdate: result.finalUpdate,
+      });
+    }
+  };
+
+  // Phase 30.1 polish — right-click context menu for the WebContentsView.
+  // Provides Chrome-style entries: Back / Forward / Reload / Copy / Paste /
+  // Cut / Select All / Inspect Element / Open Link / Copy Image, etc.
+  // Uses MenuItem roles where possible (proper localization + Mac shortcuts).
+  const onContextMenu = (_e: unknown, params: Electron.ContextMenuParams) => {
+    const items: MenuItemConstructorOptions[] = [];
+
+    // Link-specific
+    if (params.linkURL) {
+      items.push({
+        label: 'Open Link in New Window',
+        click: () => { shell.openExternal(params.linkURL).catch(() => undefined); },
+      });
+      items.push({ label: 'Copy Link Address', click: () => { require('electron').clipboard.writeText(params.linkURL); } });
+      items.push({ type: 'separator' });
+    }
+
+    // Image-specific
+    if (params.hasImageContents && params.srcURL) {
+      items.push({ label: 'Copy Image Address', click: () => { require('electron').clipboard.writeText(params.srcURL); } });
+      items.push({
+        label: 'Save Image As…',
+        click: () => { wc.downloadURL(params.srcURL); },
+      });
+      items.push({ type: 'separator' });
+    }
+
+    // Edit (text input / contenteditable)
+    if (params.isEditable) {
+      items.push({ role: 'cut', enabled: params.editFlags.canCut });
+      items.push({ role: 'copy', enabled: params.editFlags.canCopy });
+      items.push({ role: 'paste', enabled: params.editFlags.canPaste });
+      items.push({ type: 'separator' });
+      items.push({ role: 'selectAll' });
+    } else if (params.selectionText.length > 0) {
+      items.push({ role: 'copy' });
+    }
+
+    if (items.length > 0) items.push({ type: 'separator' });
+
+    // Navigation
+    items.push({ label: 'Back', enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() });
+    items.push({ label: 'Forward', enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() });
+    items.push({ label: 'Reload', click: () => wc.reload() });
+    items.push({ type: 'separator' });
+
+    // DevTools — opens docked on right inside Topics window.
+    items.push({
+      label: wc.isDevToolsOpened() ? 'Close DevTools' : 'Inspect Element',
+      click: () => {
+        if (wc.isDevToolsOpened()) {
+          wc.closeDevTools();
+        } else {
+          wc.openDevTools({ mode: 'right' });
+          wc.inspectElement(params.x, params.y);
+        }
+      },
+    });
+
+    if (mainWindow) {
+      Menu.buildFromTemplate(items).popup({ window: mainWindow });
+    }
+  };
+
   wc.on('did-navigate', sendUrl);
   wc.on('did-navigate-in-page', sendUrl);
   wc.on('page-title-updated', sendTitle);
   wc.on('did-start-loading', sendLoadingStart);
   wc.on('did-stop-loading', sendLoadingEnd);
+  wc.on('page-favicon-updated', sendFavicon);
+  wc.on('context-menu', onContextMenu);
+  wc.on('found-in-page', sendFindResult);
 
   entry.cleanup = () => {
     wc.removeListener('did-navigate', sendUrl);
@@ -1304,6 +1392,9 @@ ipcMain.handle('browser-native:create', async (
     wc.removeListener('page-title-updated', sendTitle);
     wc.removeListener('did-start-loading', sendLoadingStart);
     wc.removeListener('did-stop-loading', sendLoadingEnd);
+    wc.removeListener('page-favicon-updated', sendFavicon);
+    wc.removeListener('context-menu', onContextMenu);
+    wc.removeListener('found-in-page', sendFindResult);
   };
 
   // Wait for first paint before resolving CDP targetId — otherwise
@@ -1433,6 +1524,54 @@ ipcMain.handle('overlay:show-menu', async (
   const senderWin = BrowserWindow.fromWebContents(evt.sender);
   if (!senderWin) throw new Error('overlay:show-menu — no parent window');
   return await showOverlayMenu(senderWin, opts);
+});
+
+// Phase 30.1 polish — Find in page (Chrome's Cmd+F).
+// findInPage starts/continues a search; returns immediately, results delivered
+// via 'found-in-page' event which we forward to the renderer via IPC.
+ipcMain.handle('browser-native:find-in-page', async (
+  _evt,
+  viewId: string,
+  text: string,
+  options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }
+): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:find-in-page — view ${viewId} not found`);
+  if (!text) {
+    entry.view.webContents.stopFindInPage('clearSelection');
+    return;
+  }
+  entry.view.webContents.findInPage(text, {
+    forward: options?.forward ?? true,
+    matchCase: options?.matchCase ?? false,
+    findNext: options?.findNext ?? false,
+  });
+});
+
+ipcMain.handle('browser-native:stop-find', async (_evt, viewId: string): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) return; // idempotent
+  entry.view.webContents.stopFindInPage('clearSelection');
+});
+
+// Phase 30.1 polish — Zoom controls (Cmd+ / Cmd- / Cmd0).
+// Electron stores zoom as 'zoom level' (integer-ish, 0 = 100%). Each step
+// is roughly a 20% delta. Clamp to [-3, 5] to match Chrome's Cmd+/- range.
+ipcMain.handle('browser-native:set-zoom', async (
+  _evt,
+  viewId: string,
+  delta: number | 'reset'
+): Promise<number> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:set-zoom — view ${viewId} not found`);
+  const wc = entry.view.webContents;
+  if (delta === 'reset') {
+    wc.setZoomLevel(0);
+    return 0;
+  }
+  const next = Math.max(-3, Math.min(5, wc.getZoomLevel() + delta));
+  wc.setZoomLevel(next);
+  return next;
 });
 
 // Phase 30.1 BROWSER-CHAT-06 polish — DevTools toggle for native WebContentsView.

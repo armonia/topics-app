@@ -122,6 +122,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on(channel, listener);
       return () => ipcRenderer.removeListener(channel, listener);
     },
+    onFaviconChange: (viewId: string, callback: (faviconUrl: string) => void) => {
+      const channel = `browser-native:favicon-change:${viewId}`;
+      const listener = (_evt: unknown, faviconUrl: string) => callback(faviconUrl);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
+    findInPage: (viewId: string, text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }) =>
+      ipcRenderer.invoke('browser-native:find-in-page', viewId, text, options),
+    stopFind: (viewId: string) => ipcRenderer.invoke('browser-native:stop-find', viewId),
+    onFindResult: (viewId: string, callback: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) => {
+      const channel = `browser-native:find-result:${viewId}`;
+      const listener = (_evt: unknown, r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => callback(r);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
+    setZoom: (viewId: string, delta: number | 'reset') =>
+      ipcRenderer.invoke('browser-native:set-zoom', viewId, delta) as Promise<number>,
   },
 
   // Phase 30.1 polish — Overlay menu (transparent BrowserWindow above WebContentsView).

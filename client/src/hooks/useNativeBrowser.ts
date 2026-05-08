@@ -23,12 +23,21 @@ export interface NativeBrowserHandle {
   agentActive: boolean;
   ready: boolean;             // viewId resolved + cdpTargetId registered
   viewId: string | null;
+  /** Favicon URL emitted by Chromium page-favicon-updated. Empty during navigation. */
+  faviconUrl: string;
   navigate(url: string): Promise<void>;
   goBack(): Promise<void>;
   goForward(): Promise<void>;
   reload(): Promise<void>;
   goHome(): Promise<void>;
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void;
+  toggleDevTools(): Promise<void>;
+  /** Phase 30.1 — Find in page (Cmd+F). Pass empty string + findNext=false to clear. */
+  findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
+  stopFind(): Promise<void>;
+  onFindResult(cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
+  /** Phase 30.1 — Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
+  setZoom(delta: number | 'reset'): Promise<number>;
 }
 
 export function useNativeBrowser(contextId: string, initialUrl?: string): NativeBrowserHandle {
@@ -38,6 +47,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   const [loading, setLoading] = useState<boolean>(false);
   const [agentActive, setAgentActive] = useState<boolean>(false);
   const [ready, setReady] = useState<boolean>(false);
+  const [faviconUrl, setFaviconUrl] = useState<string>('');
 
   const cleanupsRef = useRef<Array<() => void>>([]);
   const mountedRef = useRef(true);
@@ -78,10 +88,13 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
           }
         }
 
-        // Wire url/title/loading streams.
+        // Wire url/title/loading/favicon streams.
         cleanupsRef.current.push(api.onUrlChange(result.viewId, (u) => mountedRef.current && setUrl(u)));
         cleanupsRef.current.push(api.onTitleChange(result.viewId, (t) => mountedRef.current && setTitle(t)));
         cleanupsRef.current.push(api.onLoadingChange(result.viewId, (l) => mountedRef.current && setLoading(l)));
+        // Reset favicon on URL change so we don't show stale icon during navigation.
+        cleanupsRef.current.push(api.onUrlChange(result.viewId, () => mountedRef.current && setFaviconUrl('')));
+        cleanupsRef.current.push(api.onFaviconChange(result.viewId, (f) => mountedRef.current && setFaviconUrl(f)));
 
         setReady(true);
       } catch (err) {
@@ -182,5 +195,37 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     await api.toggleDevTools(viewId).catch(() => {});
   }, [viewId]);
 
-  return { url, title, loading, agentActive, ready, viewId, navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools };
+  // Phase 30.1 polish — Find in page (Cmd+F). Returns the unsubscribe to
+  // stop receiving find result events when the find bar closes.
+  const findInPage = useCallback(async (
+    text: string,
+    options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }
+  ) => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return;
+    await api.findInPage(viewId, text, options).catch(() => {});
+  }, [viewId]);
+  const stopFind = useCallback(async () => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return;
+    await api.stopFind(viewId).catch(() => {});
+  }, [viewId]);
+  const onFindResult = useCallback((cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): (() => void) => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return () => undefined;
+    return api.onFindResult(viewId, cb);
+  }, [viewId]);
+
+  // Phase 30.1 polish — Zoom controls. delta -1 / +1 / 'reset'.
+  const setZoom = useCallback(async (delta: number | 'reset'): Promise<number> => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return 0;
+    return await api.setZoom(viewId, delta).catch(() => 0);
+  }, [viewId]);
+
+  return {
+    url, title, loading, agentActive, ready, viewId, faviconUrl,
+    navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools,
+    findInPage, stopFind, onFindResult, setZoom,
+  };
 }

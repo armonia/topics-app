@@ -34,6 +34,11 @@ export interface BrowserNativeAPI {
   onUrlChange(viewId: string, callback: (url: string) => void): () => void;
   onTitleChange(viewId: string, callback: (title: string) => void): () => void;
   onLoadingChange(viewId: string, callback: (loading: boolean) => void): () => void;
+  onFaviconChange(viewId: string, callback: (faviconUrl: string) => void): () => void;
+  findInPage(viewId: string, text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
+  stopFind(viewId: string): Promise<void>;
+  onFindResult(viewId: string, callback: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
+  setZoom(viewId: string, delta: number | 'reset'): Promise<number>;
 }
 
 // Phase 30.1 polish — Overlay menu API (transparent BrowserWindow above WebContentsView).
