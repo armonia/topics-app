@@ -14,7 +14,7 @@
  * does NOT expose setVisible. setBounds with zero dimensions is the
  * documented hide pattern (verified via context7 + Electron docs).
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from '../../hooks/useNativeBrowser';
 
@@ -24,6 +24,41 @@ interface NativeBrowserPlaceholderProps {
 
 export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderProps) {
   const placeholderRef = useRef<HTMLDivElement>(null);
+  // Phase 30.1 polish — global DnD state. WebContentsView is OS-level
+  // and covers React DOM, so during a drag-and-drop the drop preview
+  // overlay (drag image, drop indicator, ghost) gets clipped behind
+  // the browser. We hide the view for the duration of the drag, then
+  // restore it on dragend/drop.
+  const [dragging, setDragging] = useState(false);
+
+  // Track HTML5 drag operations globally. dragstart fires once when the
+  // user begins dragging anything (a tab in PaneTabBar, an item from a
+  // list, a file from outside, …). dragend fires when the drag concludes
+  // (drop or cancel). We hide the WebContentsView for the duration so
+  // React-rendered drag previews/indicators are visible.
+  useEffect(() => {
+    let count = 0;
+    const onStart = () => {
+      count += 1;
+      if (count === 1) setDragging(true);
+    };
+    const onEnd = () => {
+      count = Math.max(0, count - 1);
+      if (count === 0) {
+        // Tiny defer so the drop animation completes before the view
+        // re-mounts at full bounds (avoids a 1-frame flicker).
+        setTimeout(() => setDragging(false), 60);
+      }
+    };
+    window.addEventListener('dragstart', onStart, true);
+    window.addEventListener('dragend', onEnd, true);
+    window.addEventListener('drop', onEnd, true);
+    return () => {
+      window.removeEventListener('dragstart', onStart, true);
+      window.removeEventListener('dragend', onEnd, true);
+      window.removeEventListener('drop', onEnd, true);
+    };
+  }, []);
 
   // Drive setBounds from layout. ResizeObserver catches size changes on the
   // placeholder itself, but split-layout drag, sidebar collapse, sibling
@@ -32,8 +67,8 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
   //  1. ResizeObserver on the placeholder (size changes)
   //  2. ResizeObserver on document.body (sibling/parent resize)
   //  3. window resize + scroll (capture: true catches inner scroll)
-  //  4. requestAnimationFrame poll for ~500ms after viewId/agentActive
-  //     change (smoothes split transition while CSS animations settle)
+  //  4. requestAnimationFrame poll for ~500ms after viewId/agentActive/
+  //     dragging change (smoothes split transition while CSS animations settle)
   //  5. MutationObserver on body class — picks up theme/sidebar toggles
   //     that re-flow without firing RO
   useEffect(() => {
@@ -45,7 +80,10 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
       if (!el) return;
       const rect = el.getBoundingClientRect();
 
-      const next = browser.agentActive
+      // Hide while:
+      // - agent is controlling (React overlay covers the slot)
+      // - a global drag is in progress (drop preview must be visible)
+      const next = (browser.agentActive || dragging)
         ? { x: 0, y: 0, width: 0, height: 0 }
         : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
 
@@ -95,7 +133,7 @@ export function NativeBrowserPlaceholder({ browser }: NativeBrowserPlaceholderPr
       // remove it shortly after).
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
-  }, [browser.viewId, browser.agentActive, browser]);
+  }, [browser.viewId, browser.agentActive, dragging, browser]);
 
   return (
     <div
