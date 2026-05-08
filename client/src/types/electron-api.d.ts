@@ -30,7 +30,7 @@ export interface BrowserNativeAPI {
   reload(viewId: string): Promise<void>;
   setBounds(viewId: string, bounds: BrowserNativeBounds): Promise<void>;
   getCdpTargetId(viewId: string): Promise<string>;
-  toggleDevTools(viewId: string): Promise<void>;
+  toggleDevTools(viewId: string, mode?: 'right' | 'bottom' | 'left' | 'undocked' | 'detach'): Promise<void>;
   onUrlChange(viewId: string, callback: (url: string) => void): () => void;
   onTitleChange(viewId: string, callback: (title: string) => void): () => void;
   onLoadingChange(viewId: string, callback: (loading: boolean) => void): () => void;

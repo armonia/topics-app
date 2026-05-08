@@ -1353,15 +1353,22 @@ ipcMain.handle('overlay:show-menu', async (
 });
 
 // Phase 30.1 BROWSER-CHAT-06 polish — DevTools toggle for native WebContentsView.
-// Opens detached so it doesn't steal pane real estate. Idempotent: closes if open.
-ipcMain.handle('browser-native:toggle-devtools', async (_evt, viewId: string): Promise<void> => {
+// Default mode: 'right' — DevTools docks inside the Topics window next to the
+// browser pane. User can switch to 'undocked' (separate window) from the
+// DevTools UI itself (icon in top-right of the DevTools panel).
+// Idempotent: closes if open.
+ipcMain.handle('browser-native:toggle-devtools', async (
+  _evt,
+  viewId: string,
+  mode?: 'right' | 'bottom' | 'left' | 'undocked' | 'detach'
+): Promise<void> => {
   const entry = nativeBrowsers.get(viewId);
   if (!entry) throw new Error(`browser-native:toggle-devtools — view ${viewId} not found`);
   const wc = entry.view.webContents;
   if (wc.isDevToolsOpened()) {
     wc.closeDevTools();
   } else {
-    wc.openDevTools({ mode: 'detach' });
+    wc.openDevTools({ mode: mode ?? 'right' });
   }
 });
 
