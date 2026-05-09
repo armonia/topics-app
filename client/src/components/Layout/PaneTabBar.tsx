@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
-import { PaneAddMenuItems } from '../Shared/PaneAddMenu';
+import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, type ProjectTabStatus } from '../../state/pane/adapters';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
@@ -88,36 +88,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
-  const [showAddMenu, setShowAddMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuContentRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  // Add-pane menu (button + portal + items + Electron overlay path) is
+  // entirely owned by <PaneAddMenu>. PaneTabBar used to inline the
+  // button + click handler + portal + outside-click effect — all of that
+  // moved into the shared component so the sidebar's "+" button and this
+  // one are byte-identical.
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
   const [edgeSplitZone, setEdgeSplitZone] = useState<'left' | 'right' | null>(null);
   const [crossGroupDragActive, setCrossGroupDragActive] = useState(false);
-  // claudeSkipPermissions is now owned by <PaneAddMenuItems> (web mode) and
-  // by the Electron overlay menu's `selectedId` switch (native mode).
 
-  const { isTouch, isMobile } = useMobile();
+  const { isTouch } = useMobile();
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!showAddMenu) return;
-    const h = (e: Event) => {
-      const target = e.target as Node;
-      if (menuContentRef.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      setShowAddMenu(false);
-    };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('touchstart', h, { passive: true });
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
-  }, [showAddMenu]);
 
   // Auto-scroll active tab into view when it changes
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -560,136 +545,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         />
       )}
 
-      {/* Add pane button — floating at the right edge with fade mask */}
+      {/* Add-pane affordance — single canonical component. Owns the
+          trigger button, the click handler (web portal AND Electron
+          native overlay), the items, and the mobile bottom-sheet. The
+          sidebar's project-header "+" renders the SAME component with
+          different `availableTypes` and a hover-revealed trigger. */}
       {hasMenuItems && (
-        <div
-          className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1"
-          ref={menuRef}
-        >
-          <button
-            ref={buttonRef}
-            onClick={async () => {
-              // Phase 30.1 polish — when Electron's native browser is in use,
-              // the WebContentsView is OS-level and covers any DOM portal.
-              // Use the transparent overlay BrowserWindow API instead so the
-              // menu appears ABOVE the WebContentsView. Web mode (no
-              // electronAPI.overlay) falls through to the existing portal.
-              const overlayApi = window.electronAPI?.overlay;
-              const hasNativeBrowser = !!window.electronAPI?.browserNative?.isAvailable;
-              if (overlayApi && hasNativeBrowser && buttonRef.current && !showAddMenu) {
-                const rect = buttonRef.current.getBoundingClientRect();
-                const items: Array<{ id: string; label: string; iconName?: 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square'; divider?: boolean }> = [];
-                if (onNewChat) {
-                  items.push({ id: 'new-chat', label: 'New Chat', iconName: 'message-square' });
-                }
-                for (const type of availableTypes) {
-                  if (type === 'terminal') {
-                    items.push({ id: 'terminal-shell', label: 'Shell', iconName: 'terminal', divider: items.length > 0 });
-                    items.push({ id: 'terminal-claude-code', label: 'Claude Code', iconName: 'bot' });
-                  } else {
-                    const cfg = getPaneConfig(type);
-                    // Map lucide icon name → overlay icon keyword (subset).
-                    const iconMap: Record<string, 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square'> = {
-                      Globe: 'globe',
-                      Terminal: 'terminal',
-                      TerminalSquare: 'terminal',
-                      MessageSquare: 'message-square',
-                      Folder: 'folder',
-                      FolderOpen: 'folder',
-                      Bot: 'bot',
-                      FileText: 'file-text',
-                      Layout: 'layout',
-                      List: 'list',
-                    };
-                    const iconName = iconMap[cfg.icon] ?? 'plus-square';
-                    items.push({ id: type, label: cfg.label, iconName, divider: type !== availableTypes[0] && availableTypes[0] !== 'terminal' });
-                  }
-                }
-                const isDark = document.documentElement.classList.contains('dark');
-                // Extract live CSS variables from the app theme so the overlay
-                // window matches the active palette (vibrancy, dark mode, etc.).
-                const cs = getComputedStyle(document.documentElement);
-                const get = (name: string, fallback: string) =>
-                  (cs.getPropertyValue(name).trim() || fallback);
-                const colors = {
-                  bg: get('--bg-surface', isDark ? '#1f2937' : '#ffffff'),
-                  text: get('--text', isDark ? '#e5e7eb' : '#1a1a1a'),
-                  muted: get('--text-muted', isDark ? '#9ca3af' : '#6b7280'),
-                  border: get('--border', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-                  hover: get('--bg-hover', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-                };
-                const selectedId = await overlayApi.showMenu({
-                  anchor: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-                  items,
-                  side: 'bottom',
-                  theme: isDark ? 'dark' : 'light',
-                  estimatedWidth: 180,
-                  estimatedItemHeight: 28,
-                  gap: 4,
-                  colors,
-                });
-                if (!selectedId) return;
-                if (selectedId === 'new-chat') {
-                  onNewChat?.();
-                } else if (selectedId === 'terminal-shell') {
-                  onAddPane('terminal', 'shell');
-                } else if (selectedId === 'terminal-claude-code') {
-                  onAddPane('terminal', 'claude-code');
-                } else {
-                  onAddPane(selectedId as PaneType);
-                }
-                return;
-              }
-              // Web mode (or no native browser active) — original portal logic.
-              if (!showAddMenu && buttonRef.current) {
-                const rect = buttonRef.current.getBoundingClientRect();
-                const menuWidth = 160;
-                const menuHeight = 200;
-                const left = Math.min(rect.left, window.innerWidth - menuWidth - 8);
-                // Flip menu above button if it would overflow the viewport bottom
-                const fitsBelow = rect.bottom + 4 + menuHeight <= window.innerHeight - 8;
-                const top = fitsBelow
-                  ? rect.bottom + 4
-                  : Math.max(8, rect.top - menuHeight - 4);
-                setMenuPos({ top, left: Math.max(8, left) });
-              }
-              setShowAddMenu(!showAddMenu);
-            }}
-            className="w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors app-no-drag"
-            title="Add pane"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            <Plus size={14} />
-          </button>
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1">
+          <PaneAddMenu
+            onNewChat={onNewChat}
+            onAddPane={onAddPane}
+            availableTypes={availableTypes}
+            // Cmd/Ctrl+N targets the focused group's New Chat — true here.
+            showShortcuts
+            noElectronDrag
+          />
         </div>
-      )}
-
-      {/* Add pane dropdown menu — portaled to avoid overflow clipping.
-          Items rendered by the shared <PaneAddMenuItems> so the visual
-          and behavioral contract matches the sidebar's project-add menu
-          row-for-row. The portal wrapper stays per-consumer because we
-          want overflow-flip + mobile bottom-sheet positioning here. */}
-      {hasMenuItems && showAddMenu && (isMobile || menuPos) && createPortal(
-        <>
-          {isMobile && <div className="fixed inset-0 z-[9998]" onClick={() => setShowAddMenu(false)} />}
-          <div
-            ref={menuContentRef}
-            className={isMobile
-              ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-              : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'}
-            style={!isMobile ? { top: menuPos!.top, left: menuPos!.left } : { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
-          >
-            <PaneAddMenuItems
-              onNewChat={onNewChat}
-              onAddPane={onAddPane}
-              availableTypes={availableTypes}
-              // Cmd/Ctrl+N targets the focused group's New Chat — true here.
-              showShortcuts
-              onClose={() => setShowAddMenu(false)}
-            />
-          </div>
-        </>,
-        document.body
       )}
 
       {/* Right-click context menu — portaled so position:fixed escapes transformed ancestors */}

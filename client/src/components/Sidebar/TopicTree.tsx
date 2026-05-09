@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Plus, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
 import { usePendingActionStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
-import { PaneAddMenuItems } from '../Shared/PaneAddMenu';
+import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
 import { createPaneId, useProjectTabStatus, getAddableTypesForScope } from '@/state/pane/adapters';
@@ -123,12 +123,13 @@ export function TopicTree({
   onToggleProject,
   projectOpenPanes = {},
 }: TopicTreeProps) {
-  // Claude "yolo" toggle state lives inside <PaneAddMenuItems> now (via
-  // useClaudeSkipPermissions). No longer threaded through here.
+  // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
+  // useClaudeSkipPermissions in PaneAddMenuItems). No longer threaded
+  // through here. The legacy `projectAddMenu` / `addBtnRef` state is
+  // also gone — the canonical <PaneAddMenu> component owns its own
+  // button ref and open/close state.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[] } | null>(null);
-  const [projectAddMenu, setProjectAddMenu] = useState<string | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
-  const addBtnRef = useRef<HTMLButtonElement>(null);
   const { isTouch } = useMobile();
 
   const toggleProject = useCallback((projectId: string) => {
@@ -376,28 +377,21 @@ export function TopicTree({
                   />
                 )}
                 {(onNewTopicInProject || onAddProjectPane) && (
-                  <div className="relative hidden group-hover/proj:block">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); addBtnRef.current = e.currentTarget; setProjectAddMenu(projectAddMenu === pp ? null : pp); }}
-                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
-                      title="Add to project"
-                    >
-                      <Plus size={14} />
-                    </button>
-                    <DropdownPortal open={projectAddMenu === pp} anchorRef={addBtnRef} onClose={() => setProjectAddMenu(null)}>
-                      <PaneAddMenuItems
-                        onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
-                        onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
-                        // Project scope — same source PaneTabBar uses for an
-                        // in-project group, so the two menus stay in lockstep
-                        // when a new pane type becomes addable for projects.
-                        availableTypes={onAddProjectPane ? getAddableTypesForScope('project') : []}
-                        // Cmd+N targets the *focused* group's New Chat, not
-                        // this specific project's, so the kbd hint would lie.
-                        showShortcuts={false}
-                        onClose={() => setProjectAddMenu(null)}
-                      />
-                    </DropdownPortal>
+                  <div className="relative hidden group-hover/proj:flex">
+                    {/* Same canonical add-pane affordance as the top tab
+                        bar's "+" — single component, single rendering
+                        contract. Trigger button visibility is the only
+                        thing the parent customises (hover-revealed here,
+                        always-visible in the tab bar). */}
+                    <PaneAddMenu
+                      onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
+                      onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
+                      availableTypes={onAddProjectPane ? getAddableTypesForScope('project') : []}
+                      // Cmd+N targets the focused group's New Chat, not
+                      // this specific project's — kbd hint would lie.
+                      showShortcuts={false}
+                      triggerTitle="Add to project"
+                    />
                   </div>
                 )}
               </>
