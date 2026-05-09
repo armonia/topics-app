@@ -145,6 +145,23 @@ export function PaneAddMenuItems({
     onClose();
   };
 
+  // Curated render order. `getAddableTypesForScope` returns types in
+  // PANE_CONFIG iteration order, which is fine for code structure but
+  // wrong for menu UX: it puts low-frequency entries (Files, Board
+  // Memory) above high-frequency ones (Shell, Claude Code). Match the
+  // pre-unification hand-rolled menus' order — terminals first, then
+  // Browser, Git, then less-frequent project utilities. Unknown types
+  // (any future PaneType not in this list) appear at the end in their
+  // declared order so adding a new addableScopes entry still surfaces
+  // it without a code change here.
+  const SORTED_AVAILABLE: PaneType[] = ['terminal', 'browser', 'git', 'files', 'board-memory'];
+  const orderedTypes = availableTypes
+    ? [
+        ...SORTED_AVAILABLE.filter((t) => availableTypes.includes(t)),
+        ...availableTypes.filter((t) => !SORTED_AVAILABLE.includes(t)),
+      ]
+    : [];
+
   return (
     <>
       {onNewChat && (
@@ -160,7 +177,7 @@ export function PaneAddMenuItems({
           )}
         </button>
       )}
-      {onAddPane && availableTypes?.map((type) => {
+      {onAddPane && orderedTypes.map((type) => {
         if (type === 'terminal') {
           return (
             <Fragment key={type}>
