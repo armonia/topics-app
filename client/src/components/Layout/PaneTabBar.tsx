@@ -330,7 +330,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // removed; we keep the badges wired up so users still see ⌘N hints, but
   // the indices now reflect the global tab order, not the per-group order.
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
-  const isElectron = !!(window as any).electronAPI?.isElectron;
+  // `window.electronAPI` is typed in client/src/types/electron.d.ts.
+  const isElectron = !!window.electronAPI?.isElectron;
 
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 

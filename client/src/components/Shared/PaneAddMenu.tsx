@@ -97,7 +97,8 @@ export function PaneAddMenuItems({
 }: PaneAddMenuItemsProps) {
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
-  const isElectron = typeof window !== 'undefined' && !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
+  // `window.electronAPI` is declared globally in client/src/types/electron.d.ts.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
   const choose = (fn: () => void) => () => { fn(); onClose(); };
 

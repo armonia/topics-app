@@ -270,41 +270,61 @@ export function StandaloneChatGroup({
     return map;
   }, [panes, getBadgeCount, activePaneId]);
 
-  // Keep-alive: track visited pane IDs so we can keep their React subtrees
-  // mounted across tab switches. Only the active pane is visible at any
-  // time (display:flex; the rest are display:none and removed from layout
-  // entirely). Preserves chat scroll, history caches, terminal buffers,
-  // draft text, expanded tool calls, etc. across tab navigation. Pruned
-  // when a pane is closed (no longer in `validatedOrderedIds`).
-  const [visitedPaneIds, setVisitedPaneIds] = useState<Set<string>>(() =>
-    activePaneId ? new Set([activePaneId]) : new Set(),
-  );
+  // Keep-alive: track visited pane keys so we can keep their React
+  // subtrees mounted across tab switches. Only the active pane is
+  // visible at any time (display:flex; the rest are display:none and
+  // removed from layout entirely). Preserves chat scroll, history
+  // caches, terminal buffers, draft text, expanded tool calls, etc.
+  // across tab navigation. Pruned when a pane is closed (no longer in
+  // `validatedOrderedIds`).
+  //
+  // Naming + algorithm match `GroupLayout`'s keep-alive. Top-level
+  // panes don't currently set `pane.stableKey`, so the helper falls
+  // back to `pane.id`; if the reducer-side stableKey ever propagates
+  // here (e.g. for draft → real promotion), the visited set continues
+  // to work without remounting the subtree.
+  const stableKeyOf = useCallback((p: Pane) => p.stableKey ?? p.id, []);
+  const [visitedKeys, setVisitedKeys] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    const lookup = new Map(panes.map((p) => [p.id, p]));
+    if (activePaneId) {
+      const p = lookup.get(activePaneId);
+      if (p) initial.add(p.stableKey ?? p.id);
+    }
+    return initial;
+  });
   useEffect(() => {
-    setVisitedPaneIds((prev) => {
+    setVisitedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;
-      if (activePaneId && !next.has(activePaneId)) {
-        next.add(activePaneId);
-        changed = true;
+      if (activePaneId) {
+        const p = panes.find((q) => q.id === activePaneId);
+        if (p) {
+          const k = stableKeyOf(p);
+          if (!next.has(k)) {
+            next.add(k);
+            changed = true;
+          }
+        }
       }
-      const live = new Set(validatedOrderedIds);
-      for (const id of next) {
-        if (!live.has(id)) {
-          next.delete(id);
+      const liveKeys = new Set(panes.map(stableKeyOf));
+      for (const k of next) {
+        if (!liveKeys.has(k)) {
+          next.delete(k);
           changed = true;
         }
       }
       return changed ? next : prev;
     });
-  }, [activePaneId, validatedOrderedIds]);
+  }, [activePaneId, panes, stableKeyOf]);
 
-  // Always include the currently-active pane even if visitedPaneIds
+  // Always include the currently-active pane even if visitedKeys
   // hasn't caught up yet — the visited set updates in the effect above
   // which runs *after* render, so the very first render after a fresh
   // activation would otherwise show no pane bodies for one frame.
   const visitedPanes = useMemo(
-    () => panes.filter((p) => visitedPaneIds.has(p.id) || p.id === activePaneId),
-    [panes, visitedPaneIds, activePaneId],
+    () => panes.filter((p) => visitedKeys.has(stableKeyOf(p)) || p.id === activePaneId),
+    [panes, visitedKeys, activePaneId, stableKeyOf],
   );
 
   // Hook 2: action handlers (browser singleton, close, split, settings, etc.)
@@ -683,7 +703,10 @@ export function StandaloneChatGroup({
               const isPaneActive = pane.id === activePaneId;
               return (
                 <div
-                  key={pane.id}
+                  // `stableKey` (when set by the pane reducer) survives
+                  // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
+                  // and GroupLayout's keep-alive wrapper.
+                  key={stableKeyOf(pane)}
                   className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
                   style={{ display: isPaneActive ? 'flex' : 'none' }}
                   aria-hidden={!isPaneActive}
