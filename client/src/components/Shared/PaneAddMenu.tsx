@@ -197,11 +197,12 @@ export function PaneAddMenuItems({
         }
         const cfg = getPaneConfig(type);
         const Icon = ICON_MAP[cfg.icon];
-        // Brand-coloured panes get their canonical accent (matches the
-        // pre-unification hand-rolled menus where Claude was orange and
-        // the others were defaults). Sourced from `cfg.color` so any
-        // future per-pane palette tweak in PANE_CONFIG flows through.
-        const iconStyle = cfg.color ? { color: cfg.color } : undefined;
+        // Default text colour — matches the pre-unification menus,
+        // which only Claude Code (above) and the file-mention chip
+        // (elsewhere) ever applied a brand tint to. Tabs themselves
+        // also leave the icon at default text colour for browser /
+        // git / files panes (StandaloneChatGroup builds them without
+        // a `pane.color`), so the menu preview stays in lockstep.
         return (
           <button
             key={type}
@@ -209,7 +210,7 @@ export function PaneAddMenuItems({
             className={ROW_CLASS}
             data-testid={`pane-add-menu-${type}`}
           >
-            {Icon ? <Icon size={iconSize} className="flex-shrink-0" style={iconStyle} /> : null}
+            {Icon ? <Icon size={iconSize} className="flex-shrink-0" /> : null}
             <span className="flex-1 text-left">{cfg.label}</span>
           </button>
         );
