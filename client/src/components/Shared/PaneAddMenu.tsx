@@ -211,6 +211,18 @@ export function PaneAddMenuItems({
 export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'> {
   /** Tooltip on the trigger button. Defaults to "Add pane". */
   triggerTitle?: string;
+  /** Trigger button visual preset. Two flavours so the menu sits naturally
+   *  alongside differently-sized neighbours without divergent code paths:
+   *
+   *   - `'pill'` (default) — 6×6 with a `bg-surface` plate that's visible
+   *     at rest. Matches the tab bar's "+" and the sidebar project header
+   *     "+" (both sit next to other 6×6 affordances).
+   *   - `'ghost'` — 7×7 desktop / 10×10 mobile with no resting background,
+   *     hover `bg-black/5`. Matches the global sidebar header icons
+   *     (Settings, Remote, etc.).
+   *
+   *  The size also drives the inner `Plus` icon (14px / 18px). */
+  triggerVariant?: 'pill' | 'ghost';
   /** Optional class to layer on top of the default trigger styling. The
    *  sidebar uses this to make the button hover-revealed on the project
    *  header row (`'hidden group-hover/proj:flex'`); the top tab bar leaves
@@ -222,7 +234,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
   noElectronDrag?: boolean;
 }
 
-const TRIGGER_CLASS_BASE =
+const TRIGGER_CLASS_PILL =
   'w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors';
 
 /** Estimated menu dimensions for viewport overflow math. The actual menu
@@ -238,6 +250,7 @@ export function PaneAddMenu({
   availableTypes,
   showShortcuts,
   triggerTitle = 'Add pane',
+  triggerVariant = 'pill',
   triggerClassName = '',
   noElectronDrag,
 }: PaneAddMenuProps) {
@@ -307,17 +320,28 @@ export function PaneAddMenu({
     setOpen((prev) => !prev);
   };
 
+  // Trigger preset selection. The 'ghost' variant matches sidebar
+  // header icons (Settings, Remote, etc.) — same 7×7 / 10×10 footprint,
+  // transparent at rest, hover bg-black/5. The 'pill' variant matches
+  // tab-bar / sidebar-project-row affordances — 6×6 with bg-surface.
+  // Inner icon size scales with the variant + isMobile to look right.
+  const triggerBase =
+    triggerVariant === 'ghost'
+      ? `${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
+      : TRIGGER_CLASS_PILL;
+  const triggerIconSize = triggerVariant === 'ghost' && isMobile ? 18 : 14;
+
   return (
     <>
       <button
         ref={buttonRef}
         onClick={handleClick}
-        className={`${TRIGGER_CLASS_BASE} ${noElectronDrag ? 'app-no-drag' : ''} ${triggerClassName}`}
+        className={`${triggerBase} ${noElectronDrag ? 'app-no-drag' : ''} ${triggerClassName}`}
         title={triggerTitle}
         style={noElectronDrag ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         data-testid="pane-add-menu-trigger"
       >
-        <Plus size={14} />
+        <Plus size={triggerIconSize} />
       </button>
       {open && (isMobile || anchorRect) && createPortal(
         <>

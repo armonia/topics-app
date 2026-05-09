@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Settings as SettingsIcon, X, MessageSquare, TerminalSquare, ChevronDown, Cpu, Activity, BarChart3, Radio, Globe, Timer } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
-import { ClaudeIcon } from './components/Shared/ClaudeIcon';
 import type { SidebarTab } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
@@ -31,10 +30,10 @@ import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
 import { flushPaneStoreNow } from './state/pane/middleware';
+import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
-import { DropdownPortal } from './components/Shared/DropdownPortal';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -171,12 +170,17 @@ function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showFileSearch, setShowFileSearch] = useState<false | { projectPath: string }>(false);
   const [assignAgentsTarget, setAssignAgentsTarget] = useState<{ topicId: string; topicName: string } | null>(null);
-  const [showNewMenu, setShowNewMenu] = useState(false);
-  const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
+  // The sidebar header "New" button used to track its dropdown via a
+  // local `showNewMenu` boolean and a `newMenuBtnRef`. Both moved into
+  // <PaneAddMenu> when we unified the three add-menu implementations
+  // (top tab bar, sidebar project header, sidebar global header).
+  // The yolo-toggle setter lived here while App owned the New menu; it
+  // moved into <PaneAddMenu> when we unified, so we only need the
+  // current value here for the spawn arg.
+  const [claudeSkipPermissions] = useClaudeSkipPermissions();
   // Re-apply the user's saved Claude Code model preference once the providers
   // snapshot is available; resets each session unless localStorage has been set.
   useClaudeCodeModelSync();
-  const newMenuBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
@@ -602,16 +606,28 @@ function App() {
             >
               <Radio size={isMobile ? 18 : 14} />
             </button>
-            <button
-              ref={newMenuBtnRef}
-              onClick={(e) => { e.stopPropagation(); setShowNewMenu(!showNewMenu); }}
-              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`}
-              style={{ pointerEvents: 'auto' }}
-              title="New (⌘N)"
-              aria-label="New"
-            >
-              <Plus size={isMobile ? 18 : 14} />
-            </button>
+            {/* Same canonical add-pane affordance as the top tab bar's
+                "+" and the sidebar project header's "+" — single
+                <PaneAddMenu> component, single rendering contract. The
+                'ghost' trigger variant matches the other sidebar header
+                icons (Settings, Remote, etc.) at 7×7 / 10×10 mobile. */}
+            <PaneAddMenu
+              onNewChat={() => handleQuickCreateTopic()}
+              onAddPane={(type, subType) => {
+                if (type === 'terminal') {
+                  handleQuickCreateTerminal(
+                    subType === 'claude-code' ? 'claude-code' : 'shell',
+                    claudeSkipPermissions,
+                  );
+                } else if (type === 'browser') {
+                  openBrowserPane(`new-${Date.now()}`);
+                }
+              }}
+              availableTypes={['terminal', 'browser']}
+              showShortcuts
+              triggerVariant="ghost"
+              triggerTitle="New (⌘N)"
+            />
           </div>
         </div>
 
@@ -813,25 +829,11 @@ function App() {
         document.body
       )}
 
-      <DropdownPortal open={showNewMenu} anchorRef={newMenuBtnRef} onClose={() => setShowNewMenu(false)}>
-        <button onClick={() => { handleQuickCreateTopic(); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <MessageSquare size={isMobile ? 18 : 14} /><span className="flex-1 text-left">New Chat</span>
-          {isElectron && <kbd className="kbd text-app-text-muted">⌘N</kbd>}
-        </button>
-        <button onClick={() => { handleQuickCreateTerminal('shell'); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <TerminalSquare size={isMobile ? 18 : 14} /><span>Shell</span>
-        </button>
-        <button onClick={() => { handleQuickCreateTerminal('claude-code', claudeSkipPermissions); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <ClaudeIcon size={isMobile ? 18 : 14} className="text-[#D97757]" /><span className="flex-1 text-left">Claude Code</span>
-          <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
-            <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
-            <span>yolo</span>
-          </label>
-        </button>
-        <button onClick={() => { openBrowserPane(`new-${Date.now()}`); setShowNewMenu(false); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-          <Globe size={isMobile ? 18 : 14} /><span>Browser</span>
-        </button>
-      </DropdownPortal>
+      {/* The "New" sidebar header menu used to live here as a hand-rolled
+          DropdownPortal + 4 hard-coded items. It now renders inline above
+          via <PaneAddMenu triggerVariant="ghost" />, so the trigger button
+          AND the dropdown are the canonical components — no third menu
+          implementation. */}
 
       {expandedTool === 'remote' && !showTopicsMenu && remoteAccessBtnRef.current && createPortal(
         <div
