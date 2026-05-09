@@ -22,6 +22,7 @@ import {
   type ProjectTabStatus,
 } from '../../state/pane/adapters';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
+import { useTerminalActivity } from '../../hooks/useTerminalActivity';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
@@ -439,18 +440,32 @@ export function StandaloneChatGroup({
     return map;
   }, [validatedOrderedIds, projectStatusByPath]);
 
-  // Build set of pane IDs that are currently streaming (only real chat panes stream, not drafts)
+  // Build set of pane IDs that should pulse the "in progress" spinner
+  // in their tab. Two sources:
+  //   - chat panes streaming an LLM response (server-tracked via
+  //     `isSessionStreaming(sessionKey)`, never drafts)
+  //   - terminal panes whose pty has produced output recently (window
+  //     `terminal:activity` events from <SingleTerminalPane>, decayed
+  //     by useTerminalActivity after ~1.5 s of idle)
+  // PaneTabBar's `isPaneStreaming` check still gates by pane type, so
+  // a stray entry here for an unsupported type is a no-op.
+  const activeTerminalIds = useTerminalActivity();
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const id of validatedOrderedIds) {
-      if (isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) continue;
+      if (isTerminalPaneId(id)) {
+        const sessionId = getTerminalSessionFromPaneId(id);
+        if (sessionId && activeTerminalIds.has(sessionId)) ids.add(id);
+        continue;
+      }
+      if (isUtilityPanelId(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) continue;
       const topic = topics[id];
       if (topic && isSessionStreaming(topic.sessionKey)) {
         ids.add(id);
       }
     }
     return ids;
-  }, [validatedOrderedIds, topics, isSessionStreaming]);
+  }, [validatedOrderedIds, topics, isSessionStreaming, activeTerminalIds]);
 
   const handleToggleContext = useCallback(() => {
     setContextOpen(prev => !prev);

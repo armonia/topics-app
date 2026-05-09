@@ -225,6 +225,19 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
         } else {
           term.write(data);
         }
+        // Per-frame activity pulse — the tab bar listens for this to
+        // light up the "in progress" spinner on the terminal's tab,
+        // matching how chat tabs pulse during an LLM stream. No server
+        // changes needed: the WS data is already flowing into the
+        // (mounted, possibly hidden via keep-alive) pane; we just
+        // re-broadcast a minimal event for non-pane consumers.
+        try {
+          window.dispatchEvent(
+            new CustomEvent('terminal:activity', { detail: { sessionId } }),
+          );
+        } catch {
+          /* CustomEvent unsupported — old polyfill path; harmless */
+        }
       };
 
       ws.onclose = (event) => {

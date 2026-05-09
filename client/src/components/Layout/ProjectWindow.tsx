@@ -14,6 +14,7 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
+import { useTerminalActivity } from '../../hooks/useTerminalActivity';
 import { ToastOutlet } from '../Shared/Toast';
 import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
@@ -194,6 +195,12 @@ export function ProjectWindowPane({
   }, [panes]);
   const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
 
+  // Two sources for the tab "in progress" spinner — chat panes
+  // streaming an LLM, terminal panes producing pty output. See
+  // StandaloneChatGroup for the full rationale; the project window
+  // mirrors the same wiring so terminal tabs inside a project pulse
+  // the same way as terminal tabs at top-level.
+  const activeTerminalIds = useTerminalActivity();
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const p of panes) {
@@ -202,10 +209,15 @@ export function ProjectWindowPane({
         if (topic && isSessionStreaming(topic.sessionKey)) {
           ids.add(p.id);
         }
+      } else if (p.type === 'terminal') {
+        const sessionId = getTerminalSessionFromPaneId(p.id);
+        if (sessionId && activeTerminalIds.has(sessionId)) {
+          ids.add(p.id);
+        }
       }
     }
     return ids;
-  }, [panes, topics, isSessionStreaming]);
+  }, [panes, topics, isSessionStreaming, activeTerminalIds]);
 
   const handleStopStreaming = layout.handlers.stopStreaming;
 
