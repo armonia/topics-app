@@ -274,29 +274,37 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     });
   }
 
-  // ── 5. Browser contexts — only if tab is open ────────────────────────────
-
-  for (const bc of browserContexts) {
-    const paneId = `browser:${bc.id}`;
-    if (!openPanelSet.has(paneId)) continue;
-    // Resolution order:
-    //   1. live page title (set when the WebContents fires `page-title-updated`)
-    //   2. hostname of a real URL (skip `about:blank` so a fresh pane reads
-    //      "Browser" instead of "blank")
-    //   3. the literal label "Browser" — the raw context id (`new-1234567`,
-    //      a UUID, or `persist:topic-…`) is for internals, not for the
-    //      sidebar; showing it confuses users into thinking the row is a
-    //      stuck/unparseable item.
-    const hostname = bc.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
+  // ── 5. Browser panes — driven by `openPanels`, NOT by `browserContexts` ──
+  //
+  // The sidebar must mirror every open tab. Driving the loop from
+  // `browserContexts` (server-side state) caused a real desync: a freshly-
+  // opened pane lands in `openPanels` synchronously, but the server-side
+  // context registration takes a network round-trip to come back from
+  // `/api/browser/status`. During that window the tab bar shows the new
+  // browser tab and the sidebar doesn't — until the next poll.
+  //
+  // Now we iterate every `browser:` paneId in openPanels. If a matching
+  // `BrowserContextInfo` exists, use its title / url for the row label;
+  // if not, fall back to "Browser". Either way the sidebar always lists
+  // every open browser pane.
+  const browserContextById = new Map(browserContexts.map((bc) => [bc.id, bc]));
+  for (const paneId of openPanelSet) {
+    if (!paneId.startsWith('browser:')) continue;
+    const contextId = paneId.slice('browser:'.length);
+    const bc = browserContextById.get(contextId);
+    // Resolution order: live page title → hostname of real URL →
+    // literal "Browser". Raw context ids (`new-1234567`, UUIDs,
+    // `persist:topic-…`) are internals, never user-facing.
+    const hostname = bc?.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
     items.push({
-      id: `browser:${bc.id}`,
+      id: paneId,
       type: 'browser',
-      name: bc.title || hostname || 'Browser',
+      name: bc?.title || hostname || 'Browser',
       icon: 'globe',
-      lastActivity: bc.lastActivity || 0,
+      lastActivity: bc?.lastActivity || 0,
       unreadCount: 0,
       archived: false,
-      browser: bc,
+      browser: bc ?? { id: contextId, url: '', title: '', lastActivity: 0 },
     });
   }
 

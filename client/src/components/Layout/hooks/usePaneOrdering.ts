@@ -122,11 +122,22 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
   // 3. Validated ordered IDs (ISSUE 2 guard) — orderedIds must NEVER contain
   // an ID not in openPanels (topicIds). Returns ref unchanged when no prune.
+  //
+  // Strict filter: an entry survives ONLY if its id is in `topicIds`. The
+  // earlier code added `|| isBrowserPaneId(id) || isSessionViewerPaneId(id)`
+  // to bridge a hypothetical race where `ensureBrowserPane` mutated local
+  // `orderedIds` *before* the parent's `topicIds` prop caught up via the
+  // store sync. In practice the dispatch+setState pair is batched by React,
+  // so the parent re-renders in the same commit with `topicIds` already
+  // including the new browser/session id. The allowance was actively harmful
+  // when a browser pane was solo'd by `PanelGrid.handleSplitPane`: the
+  // standalone group's `topicIds` (which is `regularPanels` filtered
+  // against `soloTopicIds`) drops the solo'd browser, but the allowance
+  // kept the same id alive in `orderedIds` here, leaving the pane
+  // duplicated across the standalone tab bar AND the new solo cell.
   const validatedOrderedIds = useMemo(() => {
     const openSet = new Set(topicIds);
-    const filtered = orderedIds.filter(id =>
-      openSet.has(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id)
-    );
+    const filtered = orderedIds.filter(id => openSet.has(id));
     return filtered.length === orderedIds.length ? orderedIds : filtered;
   }, [orderedIds, topicIds]);
 

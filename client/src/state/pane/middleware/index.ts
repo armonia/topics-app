@@ -6,7 +6,7 @@
  * Callers invoke each `init*()` exactly once during bootstrap.
  */
 export { initLocalPersistence, PANE_STORE_LOCAL_KEY, loadLocalFocusedPaneId } from './persistLocal';
-export { initServerSync, PANE_STORE_REMOTE_KEY } from './syncServer';
+export { initServerSync, PANE_STORE_REMOTE_KEY, flushPaneStoreNow } from './syncServer';
 export { initWSSync, __getLastAppliedServerSeq } from './syncWS';
 export type { WSFrame } from './syncWS';
 export { initCrossTabSync, getTabId } from './syncCrossTab';

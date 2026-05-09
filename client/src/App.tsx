@@ -30,6 +30,7 @@ import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
+import { flushPaneStoreNow } from './state/pane/middleware';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
@@ -399,20 +400,35 @@ function App() {
       kind: 'close-browser',
       label: 'Browser',
       commit: async () => {
-        // Two writes: server-side context teardown AND remove the pane
-        // from `openPanels` so the layout actually drops the cell.
-        // Without the second call the sidebar's own delete (which also
-        // calls `closeContext`) leaves a "stuck" tab — the context
-        // disappears from the sidebar list because `contexts` no longer
-        // includes it, but the pane id stays in `openPanels` and the
-        // group still tries to render `browser:${contextId}`. Result:
-        // a broken row that can't be re-clicked or re-closed.
-        // Order: panel close first so the renderer drops the React
-        // subtree (and therefore destroys the WebContentsView via the
-        // useNativeBrowser cleanup) before we tell the server to forget
-        // the context — avoids a beat where the renderer holds a
-        // dangling viewId.
+        // Three writes, in order:
+        //
+        //  1. `handleClosePanel(browser:${contextId})` — drops the pane
+        //     id from `openPanels` and dispatches `CLOSE_PANE` to the
+        //     pane-store so the React subtree unmounts (which in turn
+        //     destroys the WebContentsView via `useNativeBrowser`'s
+        //     cleanup). Has to be first: tearing down the context
+        //     before the renderer is gone leaves a dangling viewId
+        //     for one frame.
+        //
+        //  2. `flushPaneStoreNow()` — bypass the 500 ms debounce on
+        //     `/api/ui-state/pane-store-v2` and PUT the new snapshot
+        //     synchronously. Without this, a fast Cmd+R while the
+        //     debounce is still buffering means the server snapshot
+        //     still has `browser:${contextId}` in it; the next boot
+        //     hydrates that snapshot, `<RemoteBrowserPanel>` mounts,
+        //     `useNativeBrowser` calls `api.create(contextId)`, and
+        //     Electron re-creates the partition session from disk —
+        //     "ressuscitating" the tab the user just closed.
+        //     `flushPaneStoreNow` returns a promise we don't await
+        //     (fire-and-forget — the keepalive/beacon path picks up
+        //     any retry on pagehide).
+        //
+        //  3. `browserCtx.closeContext(contextId)` — server DELETE
+        //     for the context. Final because it's the destructive
+        //     action and we want every layer above to be quiescent
+        //     before the context teardown actually runs.
         handleClosePanel(`browser:${contextId}`);
+        void flushPaneStoreNow();
         await browserCtx.closeContext(contextId);
       },
     });

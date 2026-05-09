@@ -58,7 +58,21 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handleClosePane = useCallback((paneId: string) => {
     if (isBrowserPaneId(paneId)) {
+      // Three writes:
+      //  1. local order — drops the pane from this group's tab bar
+      //     immediately (no race with the store→openPanels round trip).
+      //  2. App-level openPanels via `onClosePanel` — without this, the
+      //     pane id survives in the persisted ui-state snapshot, the
+      //     server-side context's `persist:topic-…` partition stays on
+      //     disk, and the next page reload re-creates everything: pane
+      //     re-renders, `useNativeBrowser` hits `api.create`, Electron
+      //     loads the persisted session, and the closed tab "comes
+      //     back". Mirrors the chat/terminal close path two branches
+      //     down — the browser branch just had this missing.
+      //  3. server DELETE — destroys the live context (the persisted
+      //     partition on disk is GC'd separately by Electron).
       ordering.ops.removeLocalPane(paneId);
+      onClosePanel(paneId);
       const paneContextId = getBrowserContextFromPaneId(paneId);
       if (paneContextId) {
         fetch(`/api/browsers/${encodeURIComponent(paneContextId)}`, { method: 'DELETE' }).catch(() => {});
@@ -69,6 +83,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       }
     } else if (isSessionViewerPaneId(paneId)) {
       ordering.ops.removeLocalPane(paneId);
+      onClosePanel(paneId);
       if (activePaneId === paneId) {
         const remaining = validatedOrderedIds.filter(id => id !== paneId);
         if (remaining.length > 0) onFocusPanel(remaining[0]);

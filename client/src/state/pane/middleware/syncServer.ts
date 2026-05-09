@@ -304,6 +304,33 @@ export function initServerSync(): void {
 
 export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
 
+/**
+ * Force-flush the current pane-store snapshot to the server, bypassing the
+ * 500 ms debounce. Use sparingly — only when a state mutation MUST be
+ * durable before the user is likely to reload (e.g. closing a browser
+ * pane: if the pane id is still in the persisted snapshot at boot,
+ * `<RemoteBrowserPanel>` mounts and `useNativeBrowser` re-creates the
+ * server-side context from its persisted partition, "resurrecting" the
+ * tab the user just closed). Cancels any pending debounce timer so the
+ * forced PUT is the canonical write for this seq.
+ *
+ * Idempotent: if `hasReceivedServerHydrate` is false (boot guard) we
+ * silently no-op; the regular debounce flow will catch up once hydration
+ * completes. Returns the inflight promise so callers can `await` durability
+ * if they need to (e.g. before a navigation), but most callers can fire-
+ * and-forget.
+ */
+export function flushPaneStoreNow(): Promise<void> {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  if (!hasReceivedServerHydrate()) return Promise.resolve();
+  const state = usePaneStore.getState();
+  const snap = selectSyncableSnapshot(state);
+  return pushSnapshot(REMOTE_KEY, snap, state.lastSeq);
+}
+
 // ─── test-only exports ────────────────────────────────────────────────────
 /** Test/diagnostic — returns the inflight entries keyed by remote key. */
 export function __getInflightKeys(): string[] {
