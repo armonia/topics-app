@@ -130,8 +130,15 @@ export function PaneAddMenuItems({
   onClose,
 }: PaneAddMenuItemsProps) {
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
+  const { isMobile } = useMobile();
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+
+  // Touch targets are bigger on mobile, so the icons need to scale up to
+  // stay legible inside the larger row. Matches the pre-unification
+  // behaviour of the three hand-rolled menus that all used
+  // `size={isMobile ? 18 : 14}`.
+  const iconSize = isMobile ? 18 : 14;
 
   const choose = (fn: () => void) => () => {
     fn();
@@ -146,7 +153,7 @@ export function PaneAddMenuItems({
           className={ROW_CLASS}
           data-testid="pane-add-menu-new-chat"
         >
-          <MessageSquare size={14} className="flex-shrink-0" />
+          <MessageSquare size={iconSize} className="flex-shrink-0" />
           <span className="flex-1 text-left">New Chat</span>
           {showShortcuts && isElectron && (
             <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>
@@ -162,7 +169,7 @@ export function PaneAddMenuItems({
                 className={ROW_CLASS}
                 data-testid="pane-add-menu-shell"
               >
-                <TerminalSquare size={14} className="flex-shrink-0" />
+                <TerminalSquare size={iconSize} className="flex-shrink-0" />
                 <span className="flex-1 text-left">Shell</span>
               </button>
               <button
@@ -170,7 +177,7 @@ export function PaneAddMenuItems({
                 className={ROW_CLASS}
                 data-testid="pane-add-menu-claude-code"
               >
-                <ClaudeIcon size={14} className="text-[#D97757] flex-shrink-0" />
+                <ClaudeIcon size={iconSize} className="text-[#D97757] flex-shrink-0" />
                 <span className="flex-1 text-left">Claude Code</span>
                 <label
                   className="flex items-center gap-1 text-[10px] text-app-text-muted"
@@ -190,6 +197,11 @@ export function PaneAddMenuItems({
         }
         const cfg = getPaneConfig(type);
         const Icon = ICON_MAP[cfg.icon];
+        // Brand-coloured panes get their canonical accent (matches the
+        // pre-unification hand-rolled menus where Claude was orange and
+        // the others were defaults). Sourced from `cfg.color` so any
+        // future per-pane palette tweak in PANE_CONFIG flows through.
+        const iconStyle = cfg.color ? { color: cfg.color } : undefined;
         return (
           <button
             key={type}
@@ -197,7 +209,7 @@ export function PaneAddMenuItems({
             className={ROW_CLASS}
             data-testid={`pane-add-menu-${type}`}
           >
-            {Icon ? <Icon size={14} className="flex-shrink-0" /> : null}
+            {Icon ? <Icon size={iconSize} className="flex-shrink-0" style={iconStyle} /> : null}
             <span className="flex-1 text-left">{cfg.label}</span>
           </button>
         );
