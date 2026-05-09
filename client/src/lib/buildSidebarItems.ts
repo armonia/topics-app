@@ -279,10 +279,19 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   for (const bc of browserContexts) {
     const paneId = `browser:${bc.id}`;
     if (!openPanelSet.has(paneId)) continue;
+    // Resolution order:
+    //   1. live page title (set when the WebContents fires `page-title-updated`)
+    //   2. hostname of a real URL (skip `about:blank` so a fresh pane reads
+    //      "Browser" instead of "blank")
+    //   3. the literal label "Browser" — the raw context id (`new-1234567`,
+    //      a UUID, or `persist:topic-…`) is for internals, not for the
+    //      sidebar; showing it confuses users into thinking the row is a
+    //      stuck/unparseable item.
+    const hostname = bc.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
     items.push({
       id: `browser:${bc.id}`,
       type: 'browser',
-      name: bc.title || (bc.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : bc.id),
+      name: bc.title || hostname || 'Browser',
       icon: 'globe',
       lastActivity: bc.lastActivity || 0,
       unreadCount: 0,

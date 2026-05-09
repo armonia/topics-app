@@ -481,8 +481,26 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const [pendingSoloPanelId, setPendingSoloPanelId] = useState<string | null>(null);
   const handlePendingSoloConsumed = useCallback(() => setPendingSoloPanelId(null), []);
   const openBrowserPane = useCallback((contextId: string) => {
+    const paneId = `browser:${contextId}`;
+    // If this browser pane is already open somewhere (standalone group or
+    // a solo split cell), don't queue another `pendingBrowserPane` — that
+    // path runs `ensureBrowserPane` inside the *standalone* group's
+    // singleton reducer, which would create a second `browser:${contextId}`
+    // entry there even when an identically-keyed pane already lives in a
+    // solo cell. The duplicate then mounts two `useNativeBrowser` hooks
+    // for the same contextId and Electron's view-reuse logic
+    // (electron-app/main.ts: `browser-native:create` reuses by topicId)
+    // hands them the SAME viewId. Both placeholders race to set bounds,
+    // and clicks land on whichever placeholder won the last setBounds.
+    // Focus-only is the right behaviour — the existing pane comes back
+    // to the front in whichever cell hosts it.
+    if (openPanelsRef.current.includes(paneId)) {
+      setFocusedPanelId(paneId);
+      if (isMobile) setSidebarCollapsed(true);
+      return;
+    }
     setPendingBrowserPane(contextId);
-    setPendingSoloPanelId(`browser:${contextId}`);
+    setPendingSoloPanelId(paneId);
     if (isMobile) {
       setSidebarCollapsed(true);
     }

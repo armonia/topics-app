@@ -398,9 +398,25 @@ function App() {
       key: `close-browser:${contextId}`,
       kind: 'close-browser',
       label: 'Browser',
-      commit: async () => { await browserCtx.closeContext(contextId); },
+      commit: async () => {
+        // Two writes: server-side context teardown AND remove the pane
+        // from `openPanels` so the layout actually drops the cell.
+        // Without the second call the sidebar's own delete (which also
+        // calls `closeContext`) leaves a "stuck" tab — the context
+        // disappears from the sidebar list because `contexts` no longer
+        // includes it, but the pane id stays in `openPanels` and the
+        // group still tries to render `browser:${contextId}`. Result:
+        // a broken row that can't be re-clicked or re-closed.
+        // Order: panel close first so the renderer drops the React
+        // subtree (and therefore destroys the WebContentsView via the
+        // useNativeBrowser cleanup) before we tell the server to forget
+        // the context — avoids a beat where the renderer holds a
+        // dangling viewId.
+        handleClosePanel(`browser:${contextId}`);
+        await browserCtx.closeContext(contextId);
+      },
     });
-  }, [browserCtx, enqueueAndTick]);
+  }, [browserCtx, enqueueAndTick, handleClosePanel]);
 
   // Keyboard shortcuts (Phase 3 hook 4 — ref-mirror pattern fixes
   // CRITIQUE C2 listener churn). Snapshot args mirrored into refs
