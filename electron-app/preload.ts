@@ -51,9 +51,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     status: () => ipcRenderer.invoke('daemon:status'),
   },
 
-  // Phase E — auto-updater
+  // Phase E — auto-updater (opt-in; see electron-app/main.ts § "Auto-update")
   updater: {
     checkForUpdates: () => ipcRenderer.invoke('updater:check-for-updates'),
+    // NEW (2026-05-11): explicit download trigger. With autoDownload disabled
+    // server-side, the UI MUST call this for the update to actually fetch.
+    downloadUpdate: () => ipcRenderer.invoke('updater:download-update'),
     status: () => ipcRenderer.invoke('updater:status'),
     quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
     onStatus: (handler: (status: { state: string; progress?: number; error?: string }) => void) => {

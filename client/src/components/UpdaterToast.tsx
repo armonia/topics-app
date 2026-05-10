@@ -1,13 +1,15 @@
 /**
- * Phase E · UpdaterToast — sticky-when-ready notification.
+ * Phase E · UpdaterToast — opt-in update notifications.
  *
  * Listens to `updater:status` events broadcast from `electron-app/main.ts`
  * and renders a small fixed-position toast in the bottom-right corner.
  *
- * Behaviour mirrors the reference desktop client we studied:
+ * Behaviour (revised 2026-05-11 — opt-in only, no surprise downloads):
  *   · `idle`              → nothing rendered
  *   · `checking`          → small "Checking for updates…" hint
- *   · `update-available`  → "An update is available — downloading…"
+ *   · `update-available`  → "Update vX.Y.Z available" + "Download" CTA
+ *                           (the user MUST click to actually download —
+ *                           server has `autoDownload: false`)
  *   · `downloading {pct}` → progress badge
  *   · `ready`             → STICKY (cannot dismiss) "A new version is
  *                           ready" + "Restart to Update" CTA
@@ -28,6 +30,8 @@ interface UpdaterStatus {
 
 interface ElectronUpdater {
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string }>;
+  /** Explicit download trigger — required when `autoDownload: false` server-side. */
+  downloadUpdate?: () => Promise<{ ok: boolean; reason?: string }>;
   status: () => Promise<UpdaterStatus>;
   quitAndInstall: () => Promise<{ ok: boolean; reason?: string }>;
   onStatus: (cb: (s: UpdaterStatus) => void) => () => void;
@@ -71,7 +75,28 @@ export function UpdaterToast() {
         {isError && <AlertCircle size={14} className="mt-0.5" />}
         <div className="flex-1 text-[12px]">
           {status.state === 'checking' && 'Checking for updates…'}
-          {status.state === 'update-available' && 'An update is available — downloading…'}
+          {status.state === 'update-available' && (
+            <>
+              <div className="font-medium">An update is available</div>
+              <button
+                onClick={async () => {
+                  const api = (window as any).electronAPI?.updater as ElectronUpdater | undefined;
+                  if (api?.downloadUpdate) {
+                    await api.downloadUpdate();
+                  } else {
+                    // Fallback for older preloads that don't expose downloadUpdate:
+                    // re-running checkForUpdates with the legacy autoDownload=true
+                    // would have triggered a fetch. With opt-in flow this is just
+                    // a no-op safety net.
+                    await api?.checkForUpdates();
+                  }
+                }}
+                className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
+              >
+                Download update
+              </button>
+            </>
+          )}
           {status.state === 'downloading' && (
             <>Downloading update{status.progress !== undefined ? `… ${Math.round(status.progress)}%` : '…'}</>
           )}

@@ -2471,6 +2471,31 @@ app.on('before-quit', () => {
 });
 
 // ─── Phase E · Auto-update (electron-updater) ──────────────────────────────
+//
+// FULLY OPT-IN UPDATE FLOW (since 2026-05-11). Requested behaviour:
+// the app must NEVER download or install updates without explicit user
+// consent.
+//
+// Old (removed) behaviour:
+//   · `autoDownload = true`         → silently downloaded any update found
+//   · `autoInstallOnAppQuit = true` → silently installed on next quit
+//   · Background `tryCheck` polling every 30 s / 60 s / 5 min / 15 min /
+//     30 min — surfaced "downloading…" toasts unprompted.
+//
+// New behaviour (this file):
+//   · `autoDownload = false`         → an `update-available` event is
+//     fired but NOTHING is downloaded. The toast surfaces a "Download" CTA.
+//   · `autoInstallOnAppQuit = false` → never modify the install on quit.
+//   · NO background polling. The renderer triggers checks via the IPC
+//     `updater:check-for-updates` (currently driven by the user's "Check
+//     for updates" action).
+//   · Three explicit steps gated by IPC:
+//       1. updater:check-for-updates → metadata only
+//       2. updater:download-update   → starts the actual download
+//       3. updater:quit-and-install  → installs and restarts
+//   · On startup we still register the listeners and run ONE check after
+//     a 30 s grace so the toast can offer the CTA — but never auto-act.
+//
 // Lazy-import inside handlers so dev (where the dep may not yet be installed
 // or the file is being type-checked without the module) doesn't crash.
 type UpdaterState =
@@ -2483,7 +2508,6 @@ type UpdaterState =
 
 let updaterReady = false;
 let lastUpdaterStatus: { state: UpdaterState; progress?: number; error?: string } = { state: 'idle' };
-const RETRY_BACKOFF_MS = [30_000, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 
 function broadcastUpdaterStatus(status: typeof lastUpdaterStatus) {
   lastUpdaterStatus = status;
@@ -2502,8 +2526,9 @@ async function setupAutoUpdater() {
   }
   try {
     const { autoUpdater } = await import('electron-updater');
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // ─── Opt-in flags ────────────────────────────────────────────────
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.on('checking-for-update', () => broadcastUpdaterStatus({ state: 'checking' }));
     autoUpdater.on('update-available', () => broadcastUpdaterStatus({ state: 'update-available' }));
     autoUpdater.on('update-not-available', () => broadcastUpdaterStatus({ state: 'idle' }));
@@ -2515,16 +2540,13 @@ async function setupAutoUpdater() {
 
     updaterReady = true;
 
-    // Background check + retry backoff. We don't `throw` from the chain —
-    // electron-updater emits 'error' which we already capture.
-    let attempt = 0;
-    const tryCheck = () => {
-      autoUpdater.checkForUpdates().catch(() => {});
-      const next = RETRY_BACKOFF_MS[Math.min(attempt, RETRY_BACKOFF_MS.length - 1)];
-      attempt++;
-      setTimeout(tryCheck, next);
-    };
-    setTimeout(tryCheck, 10_000); // first check 10 s after startup
+    // ONE silent metadata-only check 30 s after launch. With autoDownload
+    // disabled this only fires `update-available` (no download), so the
+    // UI can present the "Download update" CTA. NEVER repeats — any
+    // subsequent check is user-initiated via IPC.
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(() => { /* surfaced via 'error' */ });
+    }, 30_000);
   } catch (err) {
     console.warn('[Updater] electron-updater unavailable:', err);
   }
@@ -2543,6 +2565,20 @@ ipcMain.handle('updater:check-for-updates', async () => {
 });
 
 ipcMain.handle('updater:status', async () => lastUpdaterStatus);
+
+// Explicit download trigger — gated behind a user click in the toast.
+// With `autoDownload: false` this is the ONLY path that actually fetches
+// the new binary.
+ipcMain.handle('updater:download-update', async () => {
+  if (!updaterReady) return { ok: false, reason: 'not-ready' };
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message || String(err) };
+  }
+});
 
 ipcMain.handle('updater:quit-and-install', async () => {
   if (!updaterReady) return { ok: false, reason: 'not-ready' };
