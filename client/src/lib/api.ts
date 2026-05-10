@@ -999,6 +999,110 @@ export const contextAnalysisApi = {
   },
 };
 
+// ─── Canonical Context Envelope (introduced by `topic-context-canonical`) ──
+//
+// Preview endpoint returns the *exact* envelope the chat streaming path
+// would build right now, plus the `payload` that would be handed to
+// `provider.sendChat`. The legacy `contextAnalysisApi.analyze` is a thin
+// projection of this same data — both are produced by `assembleTopicContext`
+// server-side. Inspector components SHOULD prefer the preview API for any
+// new functionality (history visibility, adaptation notes, last-sent diff)
+// while the legacy `analyze` keeps existing behaviour.
+
+export type EnvelopeSystemBlockCategory =
+  | 'openclaw' | 'memory' | 'prompt' | 'template' | 'file' | 'pinned' | 'synthetic';
+export type EnvelopeProviderStrategy =
+  | 'history-aware' | 'inline-system' | 'gateway-stateful';
+
+export interface EnvelopeSystemBlock {
+  id: string;
+  label: string;
+  category: EnvelopeSystemBlockCategory;
+  content: string;
+  tokens: number;
+  enabled: boolean;
+  countInBudget: boolean;
+  sourceUri?: string;
+  editable: boolean;
+  injectedByTopicsApp: boolean;
+  adapterHints?: Record<string, string>;
+}
+
+export interface EnvelopeChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface EnvelopeHistoryEntry {
+  storedMessageId: string;
+  role: 'user' | 'assistant';
+  strippedMarkers: string[];
+  bytesDropped: number;
+  excluded: boolean;
+  excludeReason?: 'limit' | 'context-message' | 'partial' | 'empty-after-strip' | 'duplicate-last-user';
+}
+
+export interface EnvelopeSessionMeta {
+  topicName?: string;
+  modelName?: string | null;
+  projectPath?: string | null;
+  workingDir?: string | null;
+  worktreeId?: string | null;
+  totalStoredMessages?: number;
+  planMode?: boolean;
+}
+
+export interface ContextEnvelope {
+  topicId: string;
+  sessionKey: string;
+  providerName: string;
+  providerStrategy: EnvelopeProviderStrategy;
+  sessionMeta?: EnvelopeSessionMeta;
+  systemBlocks: EnvelopeSystemBlock[];
+  history: EnvelopeChatMessage[];
+  userMessage: { content: string; messageId?: string };
+  diagnostics: {
+    totalTokens: number;
+    budgetLimit: number;
+    budgetPercent: number;
+    droppedHistoryTurns: number;
+    historyEntries: EnvelopeHistoryEntry[];
+    warnings: { type: string; detail: string }[];
+    assembledAt: number;
+  };
+}
+
+export interface EnvelopeProviderPayload {
+  userContent: string;
+  history?: EnvelopeChatMessage[];
+  options?: { model?: string };
+  adaptationNotes: string[];
+}
+
+export interface ContextPreview {
+  envelope: ContextEnvelope;
+  payload: EnvelopeProviderPayload;
+}
+
+export const contextPreviewApi = {
+  async fetch(topicId: string, providerName?: string): Promise<ContextPreview> {
+    const qp = providerName ? `?provider=${encodeURIComponent(providerName)}` : '';
+    return request<ContextPreview>(`/topics/${encodeURIComponent(topicId)}/context-preview${qp}`);
+  },
+};
+
+export const contextSnapshotsApi = {
+  async list(topicId: string): Promise<{ snapshots: ContextEnvelope[] }> {
+    return request<{ snapshots: ContextEnvelope[] }>(`/topics/${encodeURIComponent(topicId)}/context-snapshots`);
+  },
+  async clear(topicId: string): Promise<{ ok: boolean; removed: number }> {
+    return request<{ ok: boolean; removed: number }>(
+      `/topics/${encodeURIComponent(topicId)}/context-snapshots`,
+      { method: 'DELETE' },
+    );
+  },
+};
+
 // Usage API
 export interface UsageRecord {
   timestamp: number;

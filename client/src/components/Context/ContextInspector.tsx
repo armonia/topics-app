@@ -8,6 +8,7 @@ import { uploadApi, type MemoryTreeNode } from '../../lib/api';
 import { ContextBudgetBar } from './ContextBudgetBar';
 import { ContextWarnings } from './ContextWarnings';
 import { ContextSourceRow } from './ContextSourceRow';
+import { ContextEnvelopeView } from './ContextEnvelopeView';
 
 interface ContextInspectorProps {
   topic: Topic;
@@ -309,6 +310,22 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                 <div className="px-4 py-2 text-[11px] text-app-text-muted italic">No pinned messages</div>
               )}
             </div>
+
+            {/*
+              Canonical envelope view (change `topic-context-canonical`).
+              Surfaces what the model ACTUALLY receives — provider strategy,
+              composed system messages, history with stripped markers visible,
+              and the snapshot ring of the last sends.
+
+              Strictly additive: rendered below the existing source list so
+              the legacy UI is unaffected. Hidden automatically when no
+              envelope data is available (loading / error / not configured).
+            */}
+            <ContextEnvelopeView
+              topicId={topic.id}
+              providerName={topic.provider ?? undefined}
+              onMessage={onMessage}
+            />
           </div>
         )}
       </div>

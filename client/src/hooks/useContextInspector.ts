@@ -1,6 +1,45 @@
 import { useState, useCallback, useEffect } from 'react';
-import { contextAnalysisApi, type ContextAnalysis } from '../lib/api';
+import {
+  contextAnalysisApi,
+  contextPreviewApi,
+  contextSnapshotsApi,
+  type ContextAnalysis,
+  type ContextEnvelope,
+  type ContextPreview,
+} from '../lib/api';
 import type { WSMessage } from '../types';
+
+/**
+ * Type guard + topic-affinity check used by every context-related hook
+ * below. A WS message "affects" a topic when it's a `stream:end` for that
+ * topic OR a `topic:updated` for that topic.
+ *
+ * Centralised here because the discriminated `WSMessage` union doesn't
+ * always narrow cleanly across `&&` branches in TS; the explicit cast
+ * inside this helper isolates the unsafety to one place.
+ */
+function affectsTopic(msg: WSMessage, topicId: string): boolean {
+  if (msg.type === 'stream:end') {
+    return (msg as { topicId?: string }).topicId === topicId;
+  }
+  if (msg.type === 'topic:updated') {
+    const t = (msg as { topic?: { id?: string } }).topic;
+    return t?.id === topicId;
+  }
+  return false;
+}
+
+function affectsAnyTopic(msg: WSMessage, topicIds: Set<string>): boolean {
+  if (msg.type === 'stream:end') {
+    const t = (msg as { topicId?: string }).topicId;
+    return t !== undefined && topicIds.has(t);
+  }
+  if (msg.type === 'topic:updated') {
+    const id = (msg as { topic?: { id?: string } }).topic?.id;
+    return id !== undefined && topicIds.has(id);
+  }
+  return false;
+}
 
 /**
  * Lightweight hook that fetches budgetPercent for multiple topics.
@@ -44,10 +83,7 @@ export function useMultiContextPercent(
     if (!onMessage) return;
     const topicIds = new Set(Object.values(paneToTopicId));
     const unsub = onMessage((msg: WSMessage) => {
-      if (
-        (msg.type === 'stream:end' && topicIds.has(msg.topicId)) ||
-        (msg.type === 'topic:updated' && topicIds.has(msg.topic?.id))
-      ) {
+      if (affectsAnyTopic(msg, topicIds)) {
         // Debounce slightly to avoid fetching mid-update
         setTimeout(fetchAll, 500);
       }
@@ -88,10 +124,7 @@ export function useContextInspector(
   useEffect(() => {
     if (!onMessage || !topicId) return;
     const unsub = onMessage((msg: WSMessage) => {
-      if (
-        (msg.type === 'stream:end' && msg.topicId === topicId) ||
-        (msg.type === 'topic:updated' && msg.topic?.id === topicId)
-      ) {
+      if (affectsTopic(msg, topicId)) {
         setTimeout(load, 500);
       }
     });
@@ -108,4 +141,111 @@ export function useContextInspector(
     error,
     reload: load,
   };
+}
+
+// ─── Canonical envelope hooks (change `topic-context-canonical`) ──────────
+//
+// These hooks expose the new `/context-preview` and `/context-snapshots`
+// endpoints. They are SEPARATE from `useContextInspector` so existing
+// consumers keep working unchanged. New UI sections (Provider, History,
+// Adaptation Notes, Last sent) opt in by calling these hooks.
+
+/**
+ * Fetches the canonical preview envelope + adapted payload for a topic.
+ * Refreshes on stream:end and topic:updated WS events. The envelope mirrors
+ * what the model would receive if the user posted right now.
+ */
+export function useContextPreview(
+  topicId: string | null,
+  providerName?: string,
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void,
+) {
+  const [preview, setPreview] = useState<ContextPreview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!topicId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await contextPreviewApi.fetch(topicId, providerName);
+      setPreview(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch context preview');
+    } finally {
+      setLoading(false);
+    }
+  }, [topicId, providerName]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!onMessage || !topicId) return;
+    const unsub = onMessage((msg: WSMessage) => {
+      if (affectsTopic(msg, topicId)) {
+        setTimeout(load, 500);
+      }
+    });
+    return unsub;
+  }, [onMessage, topicId, load]);
+
+  return { preview, loading, error, reload: load };
+}
+
+/**
+ * Fetches the per-topic snapshot ring (in-memory, last 5 sends). Refreshes
+ * on stream:end so the inspector "Last sent" tab is always up to date.
+ *
+ * Snapshots reset on server restart by design (no disk persistence). The
+ * UI should show an empty state explaining this when the list is empty.
+ */
+export function useContextSnapshots(
+  topicId: string | null,
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void,
+) {
+  const [snapshots, setSnapshots] = useState<ContextEnvelope[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!topicId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await contextSnapshotsApi.list(topicId);
+      setSnapshots(result.snapshots);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load snapshots');
+    } finally {
+      setLoading(false);
+    }
+  }, [topicId]);
+
+  const clear = useCallback(async () => {
+    if (!topicId) return;
+    try {
+      await contextSnapshotsApi.clear(topicId);
+      setSnapshots([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear snapshots');
+    }
+  }, [topicId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!onMessage || !topicId) return;
+    const unsub = onMessage((msg: WSMessage) => {
+      // Snapshots are only updated when a stream completes — topic config
+      // changes don't push a new envelope. Use the stream-end leg of the
+      // generic helper for consistency.
+      if (msg.type === 'stream:end' && (msg as { topicId?: string }).topicId === topicId) {
+        setTimeout(load, 500);
+      }
+    });
+    return unsub;
+  }, [onMessage, topicId, load]);
+
+  return { snapshots, loading, error, reload: load, clear };
 }
