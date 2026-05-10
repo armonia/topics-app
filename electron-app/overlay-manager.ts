@@ -23,6 +23,11 @@ interface OverlayMenuItem {
   id: string;
   label: string;
   iconName?: string;
+  /** Optional brand colour for the icon (CSS string, e.g. '#D97757' for
+   *  Claude orange). Forwarded as-is to the overlay renderer which sets
+   *  it as the SVG's currentColor. Mirrors the web menu's inline
+   *  `style={{ color: cfg.color }}` on lucide icons. */
+  iconColor?: string;
   divider?: boolean;
 }
 

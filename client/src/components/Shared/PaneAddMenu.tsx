@@ -84,18 +84,46 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
 /** Subset accepted by the Electron overlay's `iconName` field (server-side
  *  renders SVG by name). Mapping mirrors ICON_MAP but with overlay-side
- *  string keys. Returns `'plus-square'` for any name we don't have. */
-type OverlayIconName = 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square';
+ *  string keys. Returns `'plus-square'` for any name we don't have.
+ *
+ *  Mirrors the lucide icons in `ICON_MAP` above so the Electron overlay and
+ *  the web portal paint the same brand icons. Pre-fix the overlay only
+ *  knew a small subset (`globe`, `terminal`, `bot`, `folder`, …) so Files /
+ *  Git / Board Memory all fell through to the generic `plus-square` and
+ *  Claude Code rendered a generic "bot" instead of the Anthropic glyph —
+ *  which is exactly what made the user say the menus look different. */
+type OverlayIconName =
+  | 'globe'
+  | 'terminal'
+  | 'terminal-square'
+  | 'message-square'
+  | 'folder'
+  | 'folder-tree'
+  | 'git-branch'
+  | 'brain'
+  | 'file-code'
+  | 'claude'
+  | 'bot'
+  | 'file-text'
+  | 'layout'
+  | 'list'
+  | 'plus-square';
 const OVERLAY_ICON_BY_LUCIDE: Record<string, OverlayIconName> = {
   Globe: 'globe',
   Terminal: 'terminal',
-  TerminalSquare: 'terminal',
+  TerminalSquare: 'terminal-square',
   MessageSquare: 'message-square',
   Folder: 'folder',
   FolderOpen: 'folder',
+  FolderTree: 'folder-tree',
+  GitBranch: 'git-branch',
+  Brain: 'brain',
+  FileCode: 'file-code',
   Bot: 'bot',
   FileText: 'file-text',
   Layout: 'layout',
+  // No native overlay icon for kanban/grid yet — fall back to layout.
+  Kanban: 'layout',
   LayoutGrid: 'layout',
   List: 'list',
 };
@@ -162,6 +190,14 @@ export function PaneAddMenuItems({
       ]
     : [];
 
+  // Brand-tint the "New Chat" row with the chat pane's canonical accent
+  // (PANE_CONFIG.chat.color = #0066ff) so it reads as part of the same
+  // family as Claude Code's orange glyph and the brand-coloured rows
+  // below. Without this New Chat alone stayed mono-ink and the menu
+  // looked half-finished. Also matches the overlay's iconColor for the
+  // 'new-chat' item — the two surfaces now paint identical icons.
+  const chatColor = getPaneConfig('chat').color;
+
   return (
     <>
       {onNewChat && (
@@ -170,7 +206,11 @@ export function PaneAddMenuItems({
           className={ROW_CLASS}
           data-testid="pane-add-menu-new-chat"
         >
-          <MessageSquare size={iconSize} className="flex-shrink-0" />
+          <MessageSquare
+            size={iconSize}
+            className="flex-shrink-0"
+            style={{ color: chatColor }}
+          />
           <span className="flex-1 text-left">New Chat</span>
           {showShortcuts && isElectron && (
             <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>
@@ -445,11 +485,40 @@ async function openElectronOverlayMenu({
   if (!overlayApi) return null;
 
   const items: OverlayMenuItem[] = [];
-  if (onNewChat) items.push({ id: 'new-chat', label: 'New Chat', iconName: 'message-square' });
+  // Match the web menu's brand-tinted icons by passing `iconColor` to the
+  // overlay. Without this Claude Code shows the Anthropic glyph but in
+  // mono ink, Shell stays grey instead of terminal-purple, etc. — which is
+  // the divergence the user kept seeing between the sidebar (overlay path
+  // when a WebContentsView browser is open) and the tab bar (web portal).
+  const chatCfg = getPaneConfig('chat');
+  if (onNewChat) {
+    items.push({
+      id: 'new-chat',
+      label: 'New Chat',
+      iconName: 'message-square',
+      iconColor: chatCfg.color,
+    });
+  }
   for (const type of availableTypes ?? []) {
     if (type === 'terminal') {
-      items.push({ id: 'terminal-shell', label: 'Shell', iconName: 'terminal', divider: items.length > 0 });
-      items.push({ id: 'terminal-claude-code', label: 'Claude Code', iconName: 'bot' });
+      const terminalCfg = getPaneConfig('terminal');
+      // Shell uses the boxed terminal-square (matches web <TerminalSquare/>)
+      // and the terminal-family purple. Claude Code gets the actual
+      // Anthropic glyph (`claude`) in Claude orange — same as the web
+      // <ClaudeIcon className="text-[#D97757]" />.
+      items.push({
+        id: 'terminal-shell',
+        label: 'Shell',
+        iconName: 'terminal-square',
+        iconColor: terminalCfg.color,
+        divider: items.length > 0,
+      });
+      items.push({
+        id: 'terminal-claude-code',
+        label: 'Claude Code',
+        iconName: 'claude',
+        iconColor: '#D97757',
+      });
     } else {
       const cfg = getPaneConfig(type);
       const iconName = OVERLAY_ICON_BY_LUCIDE[cfg.icon] ?? 'plus-square';
@@ -457,6 +526,10 @@ async function openElectronOverlayMenu({
         id: type,
         label: cfg.label,
         iconName,
+        // PANE_CONFIG.color is the canonical brand accent per pane type:
+        // browser → green, git → red, files → amber, board-memory → green.
+        // Same value the web menu reads via getPaneConfig(type).color.
+        iconColor: cfg.color,
         divider: type !== availableTypes?.[0] && availableTypes?.[0] !== 'terminal',
       });
     }

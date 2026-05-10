@@ -58,8 +58,33 @@ export interface BrowserNativeAPI {
 export interface OverlayMenuItem {
   id: string;
   label: string;
-  /** Predefined icon name; mapped to SVG in overlay-renderer. Unknown names render no icon. */
-  iconName?: 'globe' | 'terminal' | 'message-square' | 'folder' | 'bot' | 'file-text' | 'layout' | 'list' | 'plus-square';
+  /** Predefined icon name; mapped to SVG in overlay-renderer. Unknown names
+   *  render no icon. Mirrors the lucide-react icons used in the web menu so
+   *  every PaneAddMenu surface — Electron overlay AND web portal — paints
+   *  the same icon set (Claude logo, Shell terminal-square, Browser globe,
+   *  Git git-branch, Files folder-tree, Board Memory brain). */
+  iconName?:
+    | 'globe'
+    | 'terminal'
+    | 'terminal-square'
+    | 'message-square'
+    | 'folder'
+    | 'folder-tree'
+    | 'git-branch'
+    | 'brain'
+    | 'file-code'
+    | 'claude'
+    | 'bot'
+    | 'file-text'
+    | 'layout'
+    | 'list'
+    | 'plus-square';
+  /** Optional brand colour for the icon (CSS string). The overlay sets it
+   *  as the SVG's currentColor, matching the web menu's
+   *  `style={{ color: cfg.color }}` on lucide icons. Without this the
+   *  overlay rendered everything mono-colour while the web portal showed
+   *  brand-tinted icons — the two surfaces looked like different menus. */
+  iconColor?: string;
   divider?: boolean;
 }
 

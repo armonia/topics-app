@@ -180,7 +180,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   overlay: {
     showMenu: (opts: {
       anchor: { x: number; y: number; width: number; height: number };
-      items: Array<{ id: string; label: string; iconName?: string; divider?: boolean }>;
+      items: Array<{ id: string; label: string; iconName?: string; iconColor?: string; divider?: boolean }>;
       side?: 'bottom' | 'top' | 'right' | 'left';
       theme?: 'light' | 'dark';
       estimatedWidth?: number;
