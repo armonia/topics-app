@@ -15,6 +15,33 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { buildProviderHistory } from "../utils/build-provider-history";
+import {
+  logStreamSoftTimeout,
+  logStreamHardTimeout,
+  logStreamComplete,
+  logStreamAborted,
+  logStreamError,
+  logStreamRecovered,
+} from "../db/activity-log";
+
+/**
+ * Marker appended to a partial assistant message when the soft inactivity
+ * timeout fires but we are still listening for the provider to recover.
+ * Visible to the client so the user knows we noticed the slowness, but
+ * intentionally NOT a hard "[Response timed out]" — the stream may still
+ * resume during the grace period.
+ *
+ * The leading `\n\n---\n*` and trailing `*` brackets are how we round-trip:
+ * `addSlowAnnotation()` appends, `stripSlowAnnotation()` removes by suffix
+ * match, with no risk of clobbering legitimate content. Keep the entire
+ * substring stable — modifying it requires updating both helpers.
+ */
+const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento — il provider è ancora connesso]*";
+
+function stripSlowAnnotation(content: string): string {
+  if (!content.endsWith(STREAM_SLOW_ANNOTATION)) return content;
+  return content.slice(0, -STREAM_SLOW_ANNOTATION.length);
+}
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1842,31 +1869,214 @@ Wait for the user to approve the plan before executing any changes.` };
             try { await writer.close(); } catch { clientDisconnected = true; }
           };
 
-          // Stream inactivity timeout
-          let streamInactivityTimer: ReturnType<typeof setTimeout> | null = null;
-          const STREAM_TIMEOUT_MS = 120000; // 2 min for WS (tool calls can take time)
-          const resetStreamTimer = () => {
-            if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
-            streamInactivityTimer = setTimeout(() => {
-              console.warn(`[StreamWS] Timeout: no data for ${STREAM_TIMEOUT_MS / 1000}s on ${sessionKey}`);
-              const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
-              if (!fullContent.trim()) fullContent = timeoutMsg;
-              else fullContent += "\n\n---\n*[Response timed out]*";
-              updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
-              endStream(sessionKey);
-              topicProvider.unregisterStreamHandler?.(sessionKey);
-              if (matchedTopic) {
-                broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
-                broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-                updateUnreadCount(matchedTopic.id);
-              }
-              writeSSE("[DONE]").then(() => closeClient());
-            }, STREAM_TIMEOUT_MS);
+          // ── Stream timeout state machine (resilience layer) ────────────
+          //
+          // We split the old single-timer design into three layered timers
+          // because the previous "any 2 min of silence → kill the stream"
+          // rule was too aggressive for multi-agent flows where the parent
+          // legitimately waits on Task() sub-agents that may not emit events
+          // for minutes at a time (e.g. a Bash inside a sub-agent).
+          //
+          //   SOFT (STREAM_TIMEOUT_MS, 2 min)
+          //     The provider has gone quiet. Annotate the partial message
+          //     with a "stream slow" marker, log a warn to activity_log,
+          //     keep the handler registered, and start the GRACE timer.
+          //     CRUCIAL: while ≥1 tool call is in `running` state, this
+          //     timer is suspended (we are not in a true silence — we are
+          //     waiting on a tool by design).
+          //
+          //   GRACE (STREAM_GRACE_MS, 60 s)
+          //     Final window after a soft timeout to receive ANY provider
+          //     event. If one arrives, we strip the annotation and resume
+          //     normal streaming. Otherwise the stream is finalized as
+          //     timed-out (the old behavior).
+          //
+          //   HARD (STREAM_HARD_TIMEOUT_MS, 30 min)
+          //     Absolute upper bound, armed once at stream start and never
+          //     reset. Protects against a provider that keeps emitting
+          //     dust events forever; logs `error` to activity_log.
+          //
+          // The state variable below tracks where we are; resetStreamTimer
+          // is the single entry point called by every onTextDelta /
+          // onToolStart / onSubAgentUpdate / etc. handler.
+          const STREAM_TIMEOUT_MS = 120_000;       // 2 min soft
+          const STREAM_GRACE_MS = 60_000;          // 1 min grace
+          const STREAM_HARD_TIMEOUT_MS = 30 * 60_000; // 30 min hard upper-bound
+          let streamState: "streaming" | "soft-timed-out" | "finalized" = "streaming";
+          let softTimer: ReturnType<typeof setTimeout> | null = null;
+          let graceTimer: ReturnType<typeof setTimeout> | null = null;
+          let hardTimer: ReturnType<typeof setTimeout> | null = null;
+          let softTimedOutAtMs: number | null = null;
+
+          const clearAllTimers = () => {
+            if (softTimer) { clearTimeout(softTimer); softTimer = null; }
+            if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+            if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
           };
+
+          const armSoftTimer = () => {
+            if (streamState !== "streaming") return;
+            if (softTimer) clearTimeout(softTimer);
+            // Suspend while ≥1 tool call is `running`. The next
+            // resetStreamTimer (fired on onToolResult / new event) will
+            // re-arm if needed.
+            if (trackedToolCallIds.length > 0) { softTimer = null; return; }
+            softTimer = setTimeout(handleSoftTimeout, STREAM_TIMEOUT_MS);
+          };
+
+          const handleSoftTimeout = () => {
+            if (streamState !== "streaming") return;
+            console.warn(`[StreamWS] Soft timeout: no data for ${STREAM_TIMEOUT_MS / 1000}s on ${sessionKey} (grace ${STREAM_GRACE_MS / 1000}s)`);
+            streamState = "soft-timed-out";
+            softTimedOutAtMs = Date.now();
+            // Annotate but keep streaming flagged on — the message is still
+            // partial; we are NOT closing the SSE writer or unregistering.
+            if (fullContent.trim()) {
+              fullContent = stripSlowAnnotation(fullContent) + STREAM_SLOW_ANNOTATION;
+            } else {
+              fullContent = STREAM_SLOW_ANNOTATION.trimStart();
+            }
+            updateLastMessage(sessionKey, { content: fullContent });
+            if (matchedTopic) {
+              broadcastToAll({
+                type: "stream:slow",
+                sessionKey,
+                topicId: matchedTopic.id,
+                messageId: partialMsg.id,
+                graceMs: STREAM_GRACE_MS,
+              });
+            }
+            logStreamSoftTimeout({
+              sessionKey,
+              topicId: matchedTopic?.id,
+              durationMs: Date.now() - requestStartMs,
+              toolCallCount: trackedToolCallIds.length,
+            });
+            // Start grace window. If the provider emits ANYTHING in this
+            // window, resetStreamTimer's recovery branch fires and we
+            // return to "streaming". Otherwise we finalize as timeout.
+            graceTimer = setTimeout(handleGraceExpiry, STREAM_GRACE_MS);
+          };
+
+          const handleGraceExpiry = () => {
+            if (streamState !== "soft-timed-out") return;
+            console.warn(`[StreamWS] Grace expired without recovery on ${sessionKey} → finalize as timeout`);
+            streamState = "finalized";
+            const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
+            // Replace the soft annotation with the hard timeout marker.
+            fullContent = stripSlowAnnotation(fullContent);
+            if (!fullContent.trim()) fullContent = timeoutMsg;
+            else fullContent += "\n\n---\n*[Response timed out]*";
+            updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
+            endStream(sessionKey);
+            topicProvider.unregisterStreamHandler?.(sessionKey);
+            if (matchedTopic) {
+              broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+              updateUnreadCount(matchedTopic.id);
+            }
+            // No separate "grace expired" log line — the soft-timeout entry
+            // already exists; recovery would have logged on the way out.
+            // Failing to recover IS the absence of a recovery log entry.
+            writeSSE("[DONE]").then(() => closeClient());
+            clearAllTimers();
+          };
+
+          const handleHardTimeout = () => {
+            if (streamState === "finalized") return;
+            console.error(`[StreamWS] Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) on ${sessionKey}`);
+            streamState = "finalized";
+            const msg = `⚠️ Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached. The provider stopped responding.`;
+            fullContent = stripSlowAnnotation(fullContent);
+            if (!fullContent.trim()) fullContent = msg;
+            else fullContent += `\n\n---\n*[Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached]*`;
+            updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
+            endStream(sessionKey);
+            topicProvider.unregisterStreamHandler?.(sessionKey);
+            if (matchedTopic) {
+              broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+              updateUnreadCount(matchedTopic.id);
+            }
+            logStreamHardTimeout({
+              sessionKey,
+              topicId: matchedTopic?.id,
+              durationMs: Date.now() - requestStartMs,
+              toolCallCount: trackedToolCallIds.length,
+            });
+            writeSSE("[DONE]").then(() => closeClient());
+            clearAllTimers();
+          };
+
+          const recoverFromSoftTimeout = () => {
+            // A provider event arrived during the grace window. Strip the
+            // annotation and return to "streaming". Future events resume
+            // normal handling.
+            if (streamState !== "soft-timed-out") return;
+            console.log(`[StreamWS] Recovered from soft timeout on ${sessionKey} after ${Date.now() - (softTimedOutAtMs ?? Date.now())}ms`);
+            if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+            streamState = "streaming";
+            fullContent = stripSlowAnnotation(fullContent);
+            updateLastMessage(sessionKey, { content: fullContent });
+            if (matchedTopic) {
+              broadcastToAll({
+                type: "stream:resumed",
+                sessionKey,
+                topicId: matchedTopic.id,
+                messageId: partialMsg.id,
+              });
+            }
+            logStreamRecovered({
+              sessionKey,
+              topicId: matchedTopic?.id,
+              durationMs: softTimedOutAtMs ? Date.now() - softTimedOutAtMs : undefined,
+            });
+            softTimedOutAtMs = null;
+          };
+
+          /** Single entry point called by every provider event handler. */
+          const resetStreamTimer = () => {
+            if (streamState === "finalized") return;
+            if (streamState === "soft-timed-out") recoverFromSoftTimeout();
+            armSoftTimer();
+          };
+
+          // Hard timer is armed once at stream start and is the only timer
+          // never reset by events. Soft timer arms lazily on first event /
+          // when no tools are running.
+          hardTimer = setTimeout(handleHardTimeout, STREAM_HARD_TIMEOUT_MS);
+          // Provide a back-compat reference so any future `streamInactivityTimer`
+          // checks (used to exist) won't break — it's now a synthetic getter.
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          let streamInactivityTimer: ReturnType<typeof setTimeout> | null = null;
 
           // Helper: finalize the stream (called on done/error/abort)
           const finalizeStream = async (reason: "done" | "error" | "aborted", errorMsg?: string) => {
-            if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
+            // Always cancel pending timers — the stream is over.
+            clearAllTimers();
+            // Recovery path: if the provider succeeded after the soft
+            // timeout fired, we want the user to see the real content,
+            // not the "[stream slow]" annotation. Strip it and emit a
+            // recovered log entry so we have telemetry on near-misses.
+            if (streamState === "soft-timed-out") {
+              const beforeStrip = fullContent;
+              fullContent = stripSlowAnnotation(fullContent);
+              if (beforeStrip !== fullContent && matchedTopic) {
+                broadcastToAll({
+                  type: "stream:resumed",
+                  sessionKey,
+                  topicId: matchedTopic.id,
+                  messageId: partialMsg.id,
+                });
+              }
+              logStreamRecovered({
+                sessionKey,
+                topicId: matchedTopic?.id,
+                durationMs: softTimedOutAtMs ? Date.now() - softTimedOutAtMs : undefined,
+                extra: { finalizeReason: reason },
+              });
+            }
+            streamState = "finalized";
 
             if (reason === "error" && errorMsg) {
               if (!fullContent.trim()) fullContent = `⚠️ ${errorMsg}`;
@@ -1953,6 +2163,23 @@ Wait for the user to approve the plan before executing any changes.` };
               });
               updateUnreadCount(matchedTopic.id);
             }
+
+            // Activity log (Fix E): one row per stream lifecycle event so
+            // future timeouts/aborts/errors leave a queryable trail. The
+            // helper swallows DB errors so a logging failure can never
+            // break the stream finalization path.
+            const logCtx = {
+              sessionKey,
+              topicId: matchedTopic?.id,
+              durationMs: latencyMs,
+              toolCallCount: trackedToolCallIds.length,
+              promptTokens: usagePromptTokens,
+              completionTokens: usageCompletionTokens,
+              costCents,
+            };
+            if (reason === "done") logStreamComplete(logCtx);
+            else if (reason === "aborted") logStreamAborted(logCtx);
+            else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
             // Topic switch handling
             if (topicSwitchDetected && switchTargetTopicId) {

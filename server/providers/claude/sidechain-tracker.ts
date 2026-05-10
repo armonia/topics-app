@@ -193,6 +193,22 @@ export class SidechainTracker {
     this.childToActionIdx.clear();
   }
 
+  /**
+   * Iterate the parent ids that are still in-flight (registered but not
+   * `finished`). The heartbeat loop in `claude-code.ts` uses this to know
+   * which parents need a keep-alive snapshot when the provider has gone
+   * quiet for ≥ 30s while sub-agents are still running.
+   *
+   * Returns a fresh array — callers may mutate without racing the tracker.
+   */
+  listPendingParents(): string[] {
+    const out: string[] = [];
+    for (const [id, state] of this.states) {
+      if (!state.finished) out.push(id);
+    }
+    return out;
+  }
+
   private appendAction(
     state: SidechainState,
     toolName: string,

@@ -42,6 +42,15 @@ const MAX_LIFETIME_MS = 2 * 60 * 60 * 1000;      // 2 hours
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000;        // 30 min
 const RATE_LIMIT_GRACE_MS = 10_000;               // 10s grace after rate limit detection
 const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIGKILL
+// Heartbeat (Fix B in stream-timeout-resilience):
+//   Re-emit `onSubAgentUpdate` snapshots when the provider has gone quiet
+//   for ≥ HEARTBEAT_QUIET_MS while Task() sub-agents are still pending.
+//   Tick frequency is independent of quiet window — we tick every 10s and
+//   check the elapsed-since-last-event inside the interval. This keeps the
+//   timer cost trivial (one setInterval per active stream) while giving
+//   responsive heartbeats once we cross the quiet threshold.
+const HEARTBEAT_TICK_MS = 10_000;                  // 10s tick (cheap)
+const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silence
 
 // ============ CLI Path Resolution ============
 
@@ -342,6 +351,21 @@ interface PersistentProcess {
   inactivityTimer: ReturnType<typeof setTimeout> | null;
   lifetimeTimer: ReturnType<typeof setTimeout> | null;
   /**
+   * Per-stream heartbeat interval that re-emits `onSubAgentUpdate` snapshots
+   * for any pending Task() parents when no provider event has occurred for
+   * ≥ HEARTBEAT_INTERVAL_MS. Prevents the route's stream inactivity timer
+   * from firing during long sub-agent tool runs (Bash builds, WebFetch, etc.)
+   * where the SDK is silent for minutes by design.
+   *
+   * Idempotent: emits the LAST KNOWN snapshot, so a client that already
+   * rendered the same actions sees no change beyond the keep-alive bump.
+   * Cleared on every stream finalization path (done/error/aborted/exit).
+   */
+  heartbeatInterval: ReturnType<typeof setInterval> | null;
+  /** Wall-clock time of the last event emitted to the StreamHandler (text,
+   *  tool, sub-agent). Used by the heartbeat to decide whether to fire. */
+  lastEventAt: number;
+  /**
    * Set when this process was spawned with `--session-id` because the prior
    * `claude_session_id` was either missing on disk or never existed, but the
    * topics-app DB *does* contain prior user/assistant turns for this
@@ -444,6 +468,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // Sidechain state belongs to a single turn — fresh tracker per sendChat
     // so a Task() called in turn N doesn't leak state into turn N+1.
     pp.sidechain.clear();
+    // Start the per-turn heartbeat — keep-alives flow only while a stream
+    // handler is registered. Cleared in every finalization path below.
+    this.startHeartbeat(pp, sessionKey);
 
     // Resilience: if the process was respawned fresh (e.g. after a doomed
     // `--resume`) and the DB carries prior turns, prepend a markdown recap
@@ -500,6 +527,7 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.streamHandler = null;
       pp.pendingResolve = null;
       pp.pendingReject = null;
+      this.stopHeartbeat(pp);
 
       // User-initiated abort: `abort()` already invoked `handler.onAborted` and
       // rejected this promise so the serial-queue lock can release. Returning
@@ -535,6 +563,10 @@ export class ClaudeCodeProvider implements AIProvider {
       return { runId };
     }
 
+    // Successful turn — heartbeat is no longer needed; the resolution of
+    // messagePromise above means the SDK signaled `result` and the handler
+    // already received `onDone`.
+    this.stopHeartbeat(pp);
     this.resetInactivityTimer(sessionKey, pp);
     return { runId };
   }
@@ -634,6 +666,7 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.streamHandler.onAborted?.();
       pp.streamHandler = null;
     }
+    this.stopHeartbeat(pp);
 
     // Critical: `sendChatInternal` is awaiting a `messagePromise` whose
     // resolve/reject were captured in a closure. Setting `pp.pendingResolve`
@@ -787,6 +820,8 @@ export class ClaudeCodeProvider implements AIProvider {
       activeToolCalls: new Set(),
       inactivityTimer: null,
       lifetimeTimer: null,
+      heartbeatInterval: null,
+      lastEventAt: Date.now(),
       needsHistoryReplay,
       sidechain: new SidechainTracker(),
     };
@@ -890,6 +925,11 @@ export class ClaudeCodeProvider implements AIProvider {
     // Filter noise
     if (event.type === "system" || event.type === "rate_limit_event") return;
 
+    // Mark "real activity from provider" — heartbeats consult this to
+    // decide whether to fire. Any event that gets past the noise filter
+    // counts (assistant text, tool_use, tool_result, sub-agent, result).
+    pp.lastEventAt = Date.now();
+
     // Result event: stream is done for this turn
     if (event.type === "result") {
       const resultText = event.result ?? "";
@@ -911,6 +951,10 @@ export class ClaudeCodeProvider implements AIProvider {
           costUsd: event.total_cost_usd,
         });
         pp.streamHandler = null;
+        // Stream finished — drop heartbeat. The sendChatInternal `finally`
+        // path also clears it, but doing it here avoids one tick of
+        // unnecessary keep-alive between `result` and the await resolution.
+        this.stopHeartbeat(pp);
       }
 
       if (pp.pendingResolve) {
@@ -1073,6 +1117,59 @@ export class ClaudeCodeProvider implements AIProvider {
   private cleanupTimers(pp: PersistentProcess): void {
     if (pp.inactivityTimer) { clearTimeout(pp.inactivityTimer); pp.inactivityTimer = null; }
     if (pp.lifetimeTimer) { clearTimeout(pp.lifetimeTimer); pp.lifetimeTimer = null; }
+    this.stopHeartbeat(pp);
+  }
+
+  /**
+   * Start the per-stream sub-agent heartbeat. Runs every HEARTBEAT_TICK_MS
+   * (10s). On each tick, if (a) the provider has had no events for
+   * ≥ HEARTBEAT_QUIET_MS (30s) AND (b) at least one Task() parent is still
+   * pending, re-emit the last snapshot for each pending parent. The route's
+   * `onSubAgentUpdate` handler resets its own inactivity timer on receipt,
+   * so this is enough to keep the route alive during long sub-agent waits.
+   *
+   * Snapshot is identical to the last persisted one — the UI dedupes on
+   * `actions.length` and content offsets, so the user sees nothing.
+   */
+  private startHeartbeat(pp: PersistentProcess, sessionKey: string): void {
+    this.stopHeartbeat(pp); // idempotent
+    pp.lastEventAt = Date.now();
+    pp.heartbeatInterval = setInterval(() => {
+      try {
+        const handler = pp.streamHandler;
+        if (!handler || !handler.onSubAgentUpdate) return;
+        if (Date.now() - pp.lastEventAt < HEARTBEAT_QUIET_MS) return;
+        const pending = pp.sidechain.listPendingParents();
+        if (pending.length === 0) return;
+        for (const parentId of pending) {
+          const snap = pp.sidechain.snapshot(parentId);
+          if (!snap) continue;
+          handler.onSubAgentUpdate(parentId, {
+            subAgentType: snap.subAgentType,
+            description: snap.description,
+            actions: snap.actions,
+            finished: snap.finished,
+            result: snap.fullText || undefined,
+          });
+        }
+        // Note: do NOT bump lastEventAt — these are heartbeats, not real
+        // events. We want the next real event to still mark "fresh data".
+        // The route side sees the snapshot and resets its inactivity timer,
+        // which is the whole point.
+        if (process.env.DEBUG_CLAUDE_CODE) {
+          console.log(`[claude-code] heartbeat: ${pending.length} pending parent(s) for ${sessionKey}`);
+        }
+      } catch (err) {
+        console.warn("[claude-code] heartbeat error:", (err as Error)?.message || err);
+      }
+    }, HEARTBEAT_TICK_MS);
+  }
+
+  private stopHeartbeat(pp: PersistentProcess): void {
+    if (pp.heartbeatInterval) {
+      clearInterval(pp.heartbeatInterval);
+      pp.heartbeatInterval = null;
+    }
   }
 
   private resetInactivityTimer(key: string, pp: PersistentProcess): void {
