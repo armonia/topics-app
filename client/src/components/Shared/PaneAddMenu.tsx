@@ -179,6 +179,11 @@ export function PaneAddMenuItems({
       )}
       {onAddPane && orderedTypes.map((type) => {
         if (type === 'terminal') {
+          // Shell uses the terminal palette accent (purple #8b5cf6 from
+          // PANE_CONFIG.terminal.color) so it reads as "the same family
+          // as Claude Code" — both are pty-based panes, both should
+          // feel branded in the menu the way Claude does.
+          const terminalCfg = getPaneConfig('terminal');
           return (
             <Fragment key={type}>
               <button
@@ -186,7 +191,7 @@ export function PaneAddMenuItems({
                 className={ROW_CLASS}
                 data-testid="pane-add-menu-shell"
               >
-                <TerminalSquare size={iconSize} className="flex-shrink-0" />
+                <TerminalSquare size={iconSize} className="flex-shrink-0" style={{ color: terminalCfg.color }} />
                 <span className="flex-1 text-left">Shell</span>
               </button>
               <button
@@ -214,12 +219,13 @@ export function PaneAddMenuItems({
         }
         const cfg = getPaneConfig(type);
         const Icon = ICON_MAP[cfg.icon];
-        // Default text colour — matches the pre-unification menus,
-        // which only Claude Code (above) and the file-mention chip
-        // (elsewhere) ever applied a brand tint to. Tabs themselves
-        // also leave the icon at default text colour for browser /
-        // git / files panes (StandaloneChatGroup builds them without
-        // a `pane.color`), so the menu preview stays in lockstep.
+        // Brand-coloured every row — same idea as Claude Code's orange,
+        // generalised. Each pane type carries a canonical accent in
+        // `PANE_CONFIG.color` (browser → green, git → red, files →
+        // amber, board-memory → green). Threading it through to the
+        // icon makes the menu visually scannable and matches what the
+        // user expects from a polished add-pane affordance.
+        const iconStyle = cfg.color ? { color: cfg.color } : undefined;
         return (
           <button
             key={type}
@@ -227,7 +233,7 @@ export function PaneAddMenuItems({
             className={ROW_CLASS}
             data-testid={`pane-add-menu-${type}`}
           >
-            {Icon ? <Icon size={iconSize} className="flex-shrink-0" /> : null}
+            {Icon ? <Icon size={iconSize} className="flex-shrink-0" style={iconStyle} /> : null}
             <span className="flex-1 text-left">{cfg.label}</span>
           </button>
         );

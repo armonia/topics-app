@@ -606,11 +606,13 @@ function App() {
             >
               <Radio size={isMobile ? 18 : 14} />
             </button>
-            {/* Same canonical add-pane affordance as the top tab bar's
-                "+" and the sidebar project header's "+" — single
-                <PaneAddMenu> component, single rendering contract. The
-                'ghost' trigger variant matches the other sidebar header
-                icons (Settings, Remote, etc.) at 7×7 / 10×10 mobile. */}
+            {/* Single canonical <PaneAddMenu> — same trigger button,
+                same opened menu, same brand-tinted icons (Claude
+                orange, Shell purple, Browser green, Git red, Files
+                amber) as the top tab bar and the sidebar project
+                header. The trigger is the default 'pill' variant
+                (6×6 with `bg-surface` plate) so all three "+" buttons
+                across the app look identical. */}
             <PaneAddMenu
               onNewChat={() => handleQuickCreateTopic()}
               onAddPane={(type, subType) => {
@@ -625,7 +627,6 @@ function App() {
               }}
               availableTypes={['terminal', 'browser']}
               showShortcuts
-              triggerVariant="ghost"
               triggerTitle="New (⌘N)"
             />
           </div>

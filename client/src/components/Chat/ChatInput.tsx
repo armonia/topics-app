@@ -139,6 +139,140 @@ function OverflowMenu({
   );
 }
 
+// ---- Message Queue Badge (clickable popover) ----
+//
+// The queue is a `string[]` owned by the parent ChatPane (mirrored to
+// localStorage). This component just renders the badge + popover; mutations
+// flow back through the callbacks so the parent keeps a single source of
+// truth and the auto-dispatch effect on `messageQueue` keeps firing on
+// stream:end. Each row is a small auto-resizing textarea so users can edit
+// the queued prompt before it ships, plus an X to drop it. Outside-click
+// closes the popover (mirrors OverflowMenu).
+
+function MessageQueueBadge({
+  queue,
+  onUpdateItem,
+  onRemoveItem,
+  onClear,
+}: {
+  queue: string[];
+  onUpdateItem: (index: number, content: string) => void;
+  onRemoveItem: (index: number) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const count = queue.length;
+
+  // Close the popover when the queue empties (last message dispatched while
+  // open). Without this the panel lingers as an empty box until clicked away.
+  useEffect(() => {
+    if (count === 0 && open) setOpen(false);
+  }, [count, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative px-3 pb-1.5" ref={popoverRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-1.5 transition-colors"
+        title={open ? 'Hide queued messages' : 'Show queued messages'}
+        aria-expanded={open}
+      >
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+        ({count} message{count > 1 ? 's' : ''} queued)
+        <span className="text-app-text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-3 right-3 mb-1 bg-surface dark:bg-app-panel border border-app-border-light rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
+          <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
+            <span className="text-[11px] font-medium text-app-text">
+              Queued message{count > 1 ? 's' : ''} ({count})
+            </span>
+            <button
+              type="button"
+              onClick={() => { onClear(); setOpen(false); }}
+              className="text-[11px] text-app-text-muted hover:text-red-500 transition-colors"
+              title="Clear all queued messages"
+            >
+              Clear all
+            </button>
+          </div>
+          <ul className="py-1.5">
+            {queue.map((content, idx) => (
+              <QueuedRow
+                key={idx}
+                index={idx}
+                content={content}
+                onChange={(next) => onUpdateItem(idx, next)}
+                onRemove={() => onRemoveItem(idx)}
+              />
+            ))}
+          </ul>
+          <div className="px-3 pb-2 pt-1 text-[10px] text-app-text-muted">
+            Sent automatically when the current response finishes.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QueuedRow({
+  index,
+  content,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  content: string;
+  onChange: (next: string) => void;
+  onRemove: () => void;
+}) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  // Auto-grow textarea so multi-line queued prompts are visible without scroll.
+  const resize = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  }, []);
+  useEffect(() => { resize(); }, [content, resize]);
+
+  return (
+    <li className="px-3 py-1.5 grid grid-cols-[20px_1fr_auto] gap-2 items-start group">
+      <span className="text-[10px] font-mono text-app-text-muted pt-1.5 select-none">{index + 1}.</span>
+      <textarea
+        ref={taRef}
+        value={content}
+        onChange={(e) => onChange(e.target.value)}
+        rows={1}
+        className="resize-none w-full text-[12px] leading-snug px-2 py-1 rounded-md bg-app-hover/40 border border-transparent focus:border-app-border-input focus:bg-surface focus:outline-none text-app-text"
+        spellCheck={false}
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        className="w-6 h-6 mt-0.5 flex items-center justify-center rounded-md text-app-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors opacity-60 group-hover:opacity-100"
+        title="Remove from queue"
+        aria-label={`Remove queued message ${index + 1}`}
+      >
+        <X size={12} />
+      </button>
+    </li>
+  );
+}
+
 // ---- ChatInput ----
 
 interface ChatInputProps {
@@ -170,6 +304,9 @@ interface ChatInputProps {
   chatError: string | null;
   sendMessageDirect: (content: string) => Promise<boolean>;
   messageQueue: string[];
+  onUpdateQueueItem: (index: number, content: string) => void;
+  onRemoveQueueItem: (index: number) => void;
+  onClearQueue: () => void;
   othersTyping: boolean;
   othersTypingText: string;
   mentionedFiles: MentionedFile[];
@@ -213,6 +350,9 @@ export function ChatInput({
   chatError,
   sendMessageDirect,
   messageQueue,
+  onUpdateQueueItem,
+  onRemoveQueueItem,
+  onClearQueue,
   othersTyping,
   othersTypingText,
   mentionedFiles,
@@ -835,9 +975,12 @@ export function ChatInput({
         )}
         {chatError && <div className="text-red-500 text-[11px] px-3 pb-1.5">{chatError}</div>}
         {messageQueue.length > 0 && (
-          <div className="text-[11px] px-3 pb-1.5 text-orange-500 flex items-center gap-1.5">
-            ({messageQueue.length} message{messageQueue.length > 1 ? 's' : ''} queued)
-          </div>
+          <MessageQueueBadge
+            queue={messageQueue}
+            onUpdateItem={onUpdateQueueItem}
+            onRemoveItem={onRemoveQueueItem}
+            onClear={onClearQueue}
+          />
         )}
       </form>
     </>

@@ -487,6 +487,16 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingResolve = null;
       pp.pendingReject = null;
 
+      // User-initiated abort: `abort()` already invoked `handler.onAborted` and
+      // rejected this promise so the serial-queue lock can release. Returning
+      // here lets `sendChat`'s `finally` call `resolveQueue()`, unblocking the
+      // next `sendChat` for this session. Without this branch a follow-up
+      // message hangs on `await prev` until MESSAGE_TIMEOUT_MS (30 min) — the
+      // exact symptom of "stop on the tab kills the topic".
+      if (errMsg === "ABORTED") {
+        return { runId };
+      }
+
       if (errMsg === "TIMEOUT") {
         console.warn(`[claude-code] Message timed out for ${sessionKey}, killing process`);
         this.killProcess(pp);
@@ -604,13 +614,29 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.proc.kill("SIGINT");
     } catch {}
 
-    // Clean up pending state
+    // Notify the stream handler so the route flushes any partial assistant
+    // content as a finalized message instead of an error stub.
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.();
       pp.streamHandler = null;
     }
-    pp.pendingResolve = null;
-    pp.pendingReject = null;
+
+    // Critical: `sendChatInternal` is awaiting a `messagePromise` whose
+    // resolve/reject were captured in a closure. Setting `pp.pendingResolve`
+    // / `pp.pendingReject` to null on the object does NOT call those captured
+    // callbacks — they would stay pending until the 30-minute MESSAGE_TIMEOUT
+    // and the per-session serial queue (`this.queues`) would block every
+    // follow-up `sendChat` on `await prev`. Reject the captured callback
+    // first so the queue's `resolveQueue()` runs in `sendChat`'s `finally`.
+    if (pp.pendingReject) {
+      const reject = pp.pendingReject;
+      pp.pendingResolve = null;
+      pp.pendingReject = null;
+      reject(new Error("ABORTED"));
+    } else {
+      pp.pendingResolve = null;
+      pp.pendingReject = null;
+    }
   }
 
   // --- Diagnostics ---
