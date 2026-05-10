@@ -1,0 +1,224 @@
+/**
+ * Tool detail normalizer.
+ *
+ * Translates a raw tool name + args (as emitted by the Claude Code CLI, the
+ * Codex CLI, the OpenClaw gateway, etc.) into the typed `ToolCallDetail`
+ * union the renderer branches on. Done at the provider boundary so:
+ *   1. The wire format the client sees is uniform across providers.
+ *   2. Tool-name aliases (`Bash` / `bash` / `shell` / `exec_command`) collapse
+ *      into one `detail.type === "shell"` shape.
+ *   3. The renderer doesn't have to JSON-grovel `args` for every tool kind.
+ *
+ * The mapping is intentionally permissive: when a tool name doesn't match a
+ * known kind we return `{ type: "unknown", raw: { args, result? } }` so the
+ * renderer falls back to a generic JSON view instead of dropping the call.
+ *
+ * Mirrored (read-only) on the client at
+ * `client/src/components/Chat/toolDetail.ts` for legacy messages whose
+ * `detail` was never built server-side. Keep the mapping in sync.
+ */
+
+import type { ToolCall, ToolCallDetail } from "../../types";
+
+/** Lowercase + strip leading/trailing punctuation for alias match. */
+function canon(name: string): string {
+  return (name || "").toLowerCase().trim();
+}
+
+function asRecord(args: unknown): Record<string, unknown> {
+  return args && typeof args === "object" && !Array.isArray(args)
+    ? (args as Record<string, unknown>)
+    : {};
+}
+
+function s(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+function n(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Build a `ToolCallDetail` from a tool name + args. Result string optional —
+ * caller passes it on tool_result events to enrich `output`/`content`/`result`
+ * fields per detail kind.
+ */
+export function deriveToolDetail(
+  name: string,
+  args: Record<string, unknown> | undefined,
+  result?: string,
+): ToolCallDetail {
+  const c = canon(name);
+  const a = asRecord(args);
+
+  // Shell variants — Claude Code, Codex, MCP shell tools.
+  if (
+    c === "bash" ||
+    c === "shell" ||
+    c === "exec_command" ||
+    c === "run_command" ||
+    c === "terminal" ||
+    c === "exec"
+  ) {
+    return {
+      type: "shell",
+      command: s(a.command) ?? s(a.cmd) ?? s(a.input) ?? "",
+      ...(s(a.cwd) ? { cwd: s(a.cwd)! } : {}),
+      ...(result ? { output: result } : {}),
+    };
+  }
+
+  // Read variants
+  if (c === "read" || c === "read_file" || c === "view_file" || c === "view") {
+    return {
+      type: "read",
+      filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "",
+      ...(result ? { content: result } : {}),
+      ...(n(a.offset) != null ? { offset: n(a.offset)! } : {}),
+      ...(n(a.limit) != null ? { limit: n(a.limit)! } : {}),
+    };
+  }
+
+  // Edit variants — single Edit, MultiEdit (concat), apply_patch, str_replace
+  if (
+    c === "edit" ||
+    c === "multiedit" ||
+    c === "apply_patch" ||
+    c === "apply_diff" ||
+    c === "str_replace_editor" ||
+    c === "str_replace"
+  ) {
+    // MultiEdit packs an `edits` array — render the first edit's old/new and
+    // count the remainder via the diff field which the renderer can show.
+    if (c === "multiedit" && Array.isArray(a.edits)) {
+      const edits = a.edits as Array<Record<string, unknown>>;
+      const first = edits[0] ?? {};
+      const tail = edits.length > 1 ? `\n… and ${edits.length - 1} more edit(s)` : "";
+      return {
+        type: "edit",
+        filePath: s(a.file_path) ?? s(a.filePath) ?? "",
+        ...(s(first.old_string) ? { oldString: (s(first.old_string) ?? "") + tail } : {}),
+        ...(s(first.new_string) ? { newString: (s(first.new_string) ?? "") + tail } : {}),
+      };
+    }
+    return {
+      type: "edit",
+      filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "",
+      ...(s(a.old_string) ? { oldString: s(a.old_string)! } : {}),
+      ...(s(a.new_string) ? { newString: s(a.new_string)! } : {}),
+      ...(s(a.unified_diff) ? { unifiedDiff: s(a.unified_diff)! } : {}),
+    };
+  }
+
+  // Write variants
+  if (c === "write" || c === "write_file" || c === "create_file") {
+    return {
+      type: "write",
+      filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "",
+      ...(s(a.content) ? { content: s(a.content)! } : {}),
+    };
+  }
+
+  // Search variants — distinguish by sub-kind so the UI can show the right
+  // count format ("12 files" vs "47 matches").
+  if (c === "grep") {
+    return {
+      type: "search",
+      toolName: "grep",
+      query: s(a.pattern) ?? s(a.query) ?? "",
+      ...(s(a.output_mode) === "files_with_matches" ? { mode: "files_with_matches" } : {}),
+      ...(s(a.output_mode) === "count" ? { mode: "count" } : {}),
+      ...(s(a.output_mode) === "content" ? { mode: "content" } : {}),
+      ...(result ? { content: result } : {}),
+    };
+  }
+  if (c === "glob") {
+    return {
+      type: "search",
+      toolName: "glob",
+      query: s(a.pattern) ?? s(a.query) ?? "",
+      ...(result ? { content: result } : {}),
+    };
+  }
+  if (c === "search" || c === "websearch" || c === "web_search") {
+    return {
+      type: "search",
+      toolName: "web_search",
+      query: s(a.query) ?? s(a.q) ?? "",
+      ...(result ? { content: result } : {}),
+    };
+  }
+
+  // Fetch variants — Claude Code WebFetch, MCP firecrawl, etc.
+  if (c === "webfetch" || c === "web_fetch" || c === "fetch") {
+    return {
+      type: "fetch",
+      url: s(a.url) ?? "",
+      ...(s(a.prompt) ? { prompt: s(a.prompt)! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Todo
+  if (c === "todowrite" || c === "todo_write") {
+    if (Array.isArray(a.todos)) {
+      const items = (a.todos as Array<Record<string, unknown>>).map((t) => ({
+        content: s(t.content) ?? "",
+        status: ((s(t.status) ?? "pending") as "pending" | "in_progress" | "completed"),
+        ...(s(t.activeForm) ? { activeForm: s(t.activeForm)! } : {}),
+      }));
+      return { type: "todo", items };
+    }
+  }
+
+  // Plan exit / plan tools — show the proposed plan body.
+  if (c === "exitplanmode" || c === "exit_plan_mode") {
+    return { type: "plan", text: s(a.plan) ?? s(a.text) ?? "" };
+  }
+
+  // Sub-agent (Task tool). The actions[] is filled in by the SidechainTracker
+  // via onSubAgentUpdate; here we just seed the metadata so the parent row
+  // shows description/subAgentType while the sub-agent runs.
+  if (c === "task") {
+    return {
+      type: "sub_agent",
+      ...(s(a.subagent_type) ? { subAgentType: s(a.subagent_type)! } : {}),
+      ...(s(a.description) ? { description: s(a.description)! } : {}),
+      actions: [],
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // MCP namespaced tool. Names look like `mcp__<server>__<tool>`. Strip the
+  // namespace so the renderer can show "<server> · <tool>" with a chip-style
+  // label instead of the full ugly name.
+  if (c.startsWith("mcp__")) {
+    const parts = name.split("__");
+    return {
+      type: "mcp",
+      server: parts[1] ?? "mcp",
+      tool: parts.slice(2).join("__") || name,
+      ...(args ? { args: a } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Fallback — unknown kind, render generic.
+  return {
+    type: "unknown",
+    raw: {
+      ...(args ? { args: a } : {}),
+      ...(result ? { result } : {}),
+    },
+  };
+}
+
+/**
+ * Convenience: derive detail from a ToolCall, merging args + result. Used by
+ * provider/route code that already has a ToolCall in hand and wants to attach
+ * `detail` to it before broadcasting.
+ */
+export function deriveToolDetailFromCall(tc: ToolCall): ToolCallDetail {
+  return deriveToolDetail(tc.name, tc.args, tc.result);
+}

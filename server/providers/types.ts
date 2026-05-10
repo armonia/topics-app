@@ -88,6 +88,12 @@ export interface ToolResultEvent {
   type: "tool_result";
   toolCallId: string;
   result: string;
+  /**
+   * True when the tool failed (Claude SDK sets this on `tool_result` blocks
+   * whose content is an error message). Drives the UI to render a red ✗ and
+   * status: 'error' instead of green ✓.
+   */
+  isError?: boolean;
 }
 
 /** Stream completed successfully */
@@ -183,7 +189,32 @@ export interface StreamHandler {
   onThinkingDelta?: (text: string) => void;
   onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;
   onToolUpdate?: (toolCallId: string, partialResult: string) => void;
-  onToolResult: (toolCallId: string, result: string) => void;
+  /**
+   * Tool finished. `isError = true` means the tool reported a failure (Claude
+   * SDK's `tool_result.is_error`). Default false; existing callers that pass
+   * only 2 args remain valid.
+   */
+  onToolResult: (toolCallId: string, result: string, isError?: boolean) => void;
+  /**
+   * Sub-agent (Task tool) activity update. Fired when a Claude Code sidechain
+   * emits a child event tagged with `parent_tool_use_id`. The provider's
+   * SidechainTracker accumulates child events into an `actions[]` log keyed
+   * by parent tool id; this callback delivers the latest snapshot so the
+   * route can patch the parent Task call's `detail.sub_agent` and re-broadcast.
+   *
+   * `actions` is the full current log (snapshot, not a delta) — consumers
+   * replace, not append. Bounded at 200 entries by the tracker.
+   */
+  onSubAgentUpdate?: (
+    parentToolCallId: string,
+    snapshot: {
+      subAgentType?: string;
+      description?: string;
+      actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
+      finished: boolean;
+      result?: string;
+    },
+  ) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;

@@ -375,7 +375,7 @@ export function useChat() {
 
       case 'stream:tool_call':
         if (event.toolCall) {
-          addToolCallToLastMessage(sessionKey, event.toolCall);
+          addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall);
         }
         break;
 
@@ -396,6 +396,83 @@ export function useChat() {
                     ...oldTc,
                     status: ((event.status as ToolCall['status']) || 'success'),
                     result: event.result as string | undefined,
+                    error: (event.error as string | undefined) ?? oldTc.error,
+                    detail: (event.detail as ToolCall['detail']) ?? oldTc.detail,
+                  };
+                  const nextToolCalls = msgs[i].toolCalls!.slice();
+                  nextToolCalls[tcIdx] = newTc;
+                  let nextBlocks = msgs[i].blocks;
+                  if (nextBlocks) {
+                    nextBlocks = nextBlocks.map(b =>
+                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
+                        ? { kind: 'tool' as const, toolCall: newTc }
+                        : b,
+                    );
+                  }
+                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
+                  break;
+                }
+              }
+            }
+            return { ...prev, [sessionKey]: msgs };
+          });
+        }
+        break;
+
+      case 'stream:tool_update':
+        // Live partial result from a long-running tool (e.g. a Bash that
+        // streams output). Server's openclaw provider emits these via
+        // gateway-ws; claude-code currently doesn't (it only sees cumulative
+        // assistant snapshots). Patch the running tool's `result` field with
+        // the partial so the user sees output flowing in instead of staring
+        // at a spinner. Status stays 'running' — the terminal status comes
+        // later via stream:tool_result.
+        if (event.toolCallId && typeof event.partialResult === 'string') {
+          setMessages(prev => {
+            const msgs = [...(prev[sessionKey] || [])];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
+                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
+                if (tcIdx >= 0) {
+                  const oldTc = msgs[i].toolCalls![tcIdx];
+                  const partialResult = event.partialResult as string;
+                  const newTc: ToolCall = { ...oldTc, result: partialResult };
+                  const nextToolCalls = msgs[i].toolCalls!.slice();
+                  nextToolCalls[tcIdx] = newTc;
+                  let nextBlocks = msgs[i].blocks;
+                  if (nextBlocks) {
+                    nextBlocks = nextBlocks.map(b =>
+                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
+                        ? { kind: 'tool' as const, toolCall: newTc }
+                        : b,
+                    );
+                  }
+                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
+                  break;
+                }
+              }
+            }
+            return { ...prev, [sessionKey]: msgs };
+          });
+        }
+        break;
+
+      case 'stream:tool_detail':
+        // Sub-agent (Task) snapshot update from the server's SidechainTracker.
+        // Patches the parent Task tool's `detail` field with the latest
+        // actions[] log so the renderer's <SubAgentCard> can show live progress.
+        // Snapshot, not delta — replace the whole detail.
+        if (event.toolCallId && event.detail) {
+          setMessages(prev => {
+            const msgs = [...(prev[sessionKey] || [])];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
+                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
+                if (tcIdx >= 0) {
+                  const oldTc = msgs[i].toolCalls![tcIdx];
+                  const newTc: ToolCall = {
+                    ...oldTc,
+                    detail: event.detail as ToolCall['detail'],
                   };
                   const nextToolCalls = msgs[i].toolCalls!.slice();
                   nextToolCalls[tcIdx] = newTc;

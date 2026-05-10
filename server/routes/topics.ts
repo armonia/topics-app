@@ -3,6 +3,7 @@ import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, ContentBlock, RouteHandler, StoredMessage, ToolCall, Topic } from "../types";
 import { getProvider, getDefaultProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
+import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
@@ -1780,8 +1781,20 @@ Wait for the user to approve the plan before executing any changes.` };
             if (last && last.kind === "thinking") last.text += delta;
             else blocks.push({ kind: "thinking", text: delta });
           };
+          // Persist `blocks` immediately on every tool lifecycle event (start,
+          // result, abort). Without this, mid-stream reload misses tool calls:
+          // `addToolCallToLastMessage` writes the legacy `tool_calls` column
+          // synchronously but `blocks` only persists every SAVE_INTERVAL=10
+          // text chunks. The renderer prefers `blocks` when present, so any
+          // reload between text saves shows stale rows. This helper closes
+          // that race — the cost is one extra UPDATE per tool event, which is
+          // small relative to the model's tool-call cadence.
+          const persistBlocks = () => {
+            updateLastMessage(sessionKey, { blocks: blocks.length > 0 ? blocks : undefined });
+          };
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
+            persistBlocks();
           };
           const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
             for (let i = 0; i < blocks.length; i++) {
@@ -1796,6 +1809,7 @@ Wait for the user to approve the plan before executing any changes.` };
                   kind: "tool",
                   toolCall: { ...b.toolCall, ...patch },
                 };
+                persistBlocks();
                 return;
               }
             }
@@ -1871,18 +1885,38 @@ Wait for the user to approve the plan before executing any changes.` };
             }
 
             // Finalize any tool calls that the provider started but never
-            // emitted a result for (claude-code/openclaw can do this when a
-            // tool is fire-and-forget). Mark them success in BOTH the legacy
-            // tool_calls bucket and the chronological blocks timeline so a
-            // post-stream history reload doesn't show them stuck on
-            // "running". Status string must be one of the client-typed
-            // values ('success' | 'error') — the legacy 'completed' wasn't
-            // recognised by ToolCallRow.
+            // emitted a result for. Three failure modes share this loop:
+            //   - "done":     fire-and-forget tools (ExitPlanMode, tools that
+            //                 don't return a result). Mark as success but with
+            //                 NO result string — the previous code passed
+            //                 'success' as the result, which persisted the
+            //                 literal "success" into the row's body.
+            //   - "error":    a stream-level error. Tool was probably mid-run
+            //                 when things broke — mark as error.
+            //   - "aborted":  user clicked stop. Tools did not complete; mark
+            //                 as error with reason so the UI doesn't show a
+            //                 misleading green ✓.
+            const finalizeStatus: 'success' | 'error' = reason === 'done' ? 'success' : 'error';
+            const finalizeError = reason === 'aborted'
+              ? 'Aborted by user'
+              : reason === 'error'
+              ? (errorMsg || 'Stream ended with error')
+              : undefined;
             for (const tcId of trackedToolCallIds) {
-              updateToolCallResult(sessionKey, tcId, 'success');
-              updateBlockTool(tcId, { status: 'success' });
-              broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success' });
-              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
+              if (finalizeStatus === 'error') {
+                // updateToolCallResult sets status='error' when error is provided.
+                updateToolCallResult(sessionKey, tcId, '', finalizeError);
+                updateBlockTool(tcId, { status: 'error', error: finalizeError });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'error', error: finalizeError } } }] }));
+              } else {
+                // Fire-and-forget success. Empty result so the UI shows just
+                // the green ✓ without a literal "success" body.
+                updateToolCallResult(sessionKey, tcId, '');
+                updateBlockTool(tcId, { status: 'success' });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success' });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
+              }
             }
 
             const latencyMs = Date.now() - requestStartMs;
@@ -2036,9 +2070,17 @@ Wait for the user to approve the plan before executing any changes.` };
             onToolStart: (toolCallId: string, name: string, args?: Record<string, unknown>) => {
               resetStreamTimer();
               console.log(`[StreamWS] Tool start: ${name} (${toolCallId.slice(0,8)}) for ${sessionKey}`);
+              // Build a typed `detail` at the boundary so the renderer doesn't
+              // have to JSON-grovel `args`. Bash → shell, Read → read, Task →
+              // sub_agent (empty actions, populated later by SidechainTracker
+              // updates), `mcp__*` → mcp with namespace stripped, etc. See
+              // `providers/claude/tool-detail.ts`. Unknown names fall through
+              // to `{ type: 'unknown' }` so the legacy generic row still works.
+              const detail = deriveToolDetail(name, args);
               const toolCall: ToolCall = {
                 id: toolCallId, name, args: args || {},
                 status: 'running', contentOffset: fullContent.length,
+                detail,
               };
               trackedToolCallIds.push(toolCallId);
               addToolCallToLastMessage(sessionKey, toolCall);
@@ -2108,14 +2150,66 @@ Wait for the user to approve the plan before executing any changes.` };
               broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult });
             },
 
-            onToolResult: (toolCallId: string, result: string) => {
+            onSubAgentUpdate: (parentToolCallId, snapshot) => {
               resetStreamTimer();
-              console.log(`[StreamWS] Tool result: ${toolCallId.slice(0,8)} for ${sessionKey}`);
-              updateToolCallResult(sessionKey, toolCallId, result);
-              updateBlockTool(toolCallId, { status: 'success', result });
-              broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result });
-              // Also send as SSE for the HTTP client
-              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
+              // Patch the parent Task tool's `detail` with the latest sub-agent
+              // snapshot. Each call replaces the full actions[] (snapshot, not
+              // delta) so the renderer always shows the current truth. Same
+              // callId used as the regular tool_call channel — the client
+              // matches by id and merges. We also persist via updateBlockTool
+              // so a mid-stream reload sees the in-progress sub-agent activity.
+              const detail: import("../types").ToolCallDetail = {
+                type: "sub_agent",
+                ...(snapshot.subAgentType ? { subAgentType: snapshot.subAgentType } : {}),
+                ...(snapshot.description ? { description: snapshot.description } : {}),
+                actions: snapshot.actions,
+                ...(snapshot.result ? { result: snapshot.result } : {}),
+              };
+              updateBlockTool(parentToolCallId, { detail });
+              broadcastToAll({
+                type: "stream:tool_detail",
+                sessionKey,
+                topicId: matchedTopic?.id,
+                toolCallId: parentToolCallId,
+                detail,
+                finished: snapshot.finished,
+              });
+            },
+
+            onToolResult: (toolCallId: string, result: string, isError?: boolean) => {
+              resetStreamTimer();
+              const status = isError ? 'error' : 'success';
+              console.log(`[StreamWS] Tool result: ${toolCallId.slice(0,8)} ${status} for ${sessionKey}`);
+
+              // Re-derive detail with result so per-kind body fields (shell.output,
+              // read.content, fetch.result) are populated for the renderer. We
+              // need the original tool name + args to build it — read them off
+              // the in-memory blocks (the running ToolCall is already there
+              // courtesy of onToolStart).
+              let detail: import("../types").ToolCallDetail | undefined;
+              for (let i = blocks.length - 1; i >= 0; i--) {
+                const b = blocks[i];
+                if (b.kind === "tool" && b.toolCall.id === toolCallId) {
+                  detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result);
+                  break;
+                }
+              }
+
+              if (isError) {
+                // Pass result as the error so updateToolCallResult sets status='error'
+                // and the row renders red ✗ + error body. The Claude SDK puts the
+                // failure message inside `tool_result.content` so `result` IS the
+                // error text — passing it as both result and error is intentional.
+                updateToolCallResult(sessionKey, toolCallId, result, result);
+                updateBlockTool(toolCallId, { status: 'error', result, error: result, ...(detail ? { detail } : {}) });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
+              } else {
+                updateToolCallResult(sessionKey, toolCallId, result);
+                updateBlockTool(toolCallId, { status: 'success', result, ...(detail ? { detail } : {}) });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail });
+                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
+              }
               // Remove from tracked list (it's already finalized)
               const idx = trackedToolCallIds.indexOf(toolCallId);
               if (idx >= 0) trackedToolCallIds.splice(idx, 1);

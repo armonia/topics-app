@@ -21,6 +21,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
+import { SidechainTracker } from "./claude/sidechain-tracker";
 
 // ============ Config ============
 
@@ -348,6 +349,16 @@ interface PersistentProcess {
    * doesn't lose the conversation thread. Cleared after one use.
    */
   needsHistoryReplay: boolean;
+  /**
+   * Sidechain (Task tool sub-agent) tracker. The Claude Code CLI emits
+   * sub-agent events with a `parent_tool_use_id` field on the same NDJSON
+   * stream as the parent. We intercept those events and aggregate them into
+   * the parent Task call's `detail.sub_agent.actions[]` log instead of
+   * letting them be silently routed to the parent agent's text/tool
+   * handlers. One tracker per process — sub-agents are scoped to a single
+   * topic/session so this is the right granularity.
+   */
+  sidechain: SidechainTracker;
 }
 
 // ============ Provider ============
@@ -430,6 +441,9 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.fullText = "";
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
+    // Sidechain state belongs to a single turn — fresh tracker per sendChat
+    // so a Task() called in turn N doesn't leak state into turn N+1.
+    pp.sidechain.clear();
 
     // Resilience: if the process was respawned fresh (e.g. after a doomed
     // `--resume`) and the DB carries prior turns, prepend a markdown recap
@@ -774,6 +788,7 @@ export class ClaudeCodeProvider implements AIProvider {
       inactivityTimer: null,
       lifetimeTimer: null,
       needsHistoryReplay,
+      sidechain: new SidechainTracker(),
     };
 
     // --- NDJSON stdout parsing ---
@@ -921,7 +936,7 @@ export class ClaudeCodeProvider implements AIProvider {
       | { type: "text"; text: string }
       | { type: "thinking"; thinking: string }
       | { type: "tool_use"; id?: string; name: string; input: unknown }
-      | { type: "tool_result"; tool_use_id?: string; content: unknown }
+      | { type: "tool_result"; tool_use_id?: string; content: unknown; is_error?: boolean }
       | { type: string; [k: string]: unknown };
     const assistantContent: AssistantBlock[] | null =
       event.type === "assistant"
@@ -929,6 +944,58 @@ export class ClaudeCodeProvider implements AIProvider {
             : Array.isArray(event.content) ? (event.content as AssistantBlock[])
             : null)
         : null;
+
+    // ── Sub-agent (Task tool) sidechain detection ──
+    // Claude Code marks events emitted by a sub-agent with a top-level
+    // `parent_tool_use_id` field naming the parent Task() call. We route
+    // those events to the SidechainTracker, accumulate them as actions on
+    // the parent's `detail.sub_agent.actions[]`, and emit a single
+    // `onSubAgentUpdate` for each child event so the UI shows the parent
+    // Task row live-growing instead of a black box. The events are NOT
+    // forwarded to onTextDelta/onToolStart — they belong to a different
+    // logical agent and would otherwise pollute the parent's text and
+    // double-count tool calls.
+    const parentToolUseId =
+      typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id
+        ? event.parent_tool_use_id
+        : null;
+    if (parentToolUseId && assistantContent && handler) {
+      // Lazy registration: sub-agent emits before the parent tool_use block
+      // arrives in the cumulative snapshot can happen on the very first
+      // sidechain event. Register a placeholder so events aren't dropped;
+      // the real input fields are filled when the parent tool_use shows up
+      // in a later non-sidechain `assistant` event.
+      if (!pp.sidechain.has(parentToolUseId)) {
+        pp.sidechain.registerParent(parentToolUseId, {});
+      }
+      for (const block of assistantContent) {
+        if (block.type === "text" && typeof block.text === "string" && block.text) {
+          pp.sidechain.recordChildText(parentToolUseId, block.text);
+        } else if (block.type === "tool_use") {
+          const childId = typeof block.id === "string" ? block.id : crypto.randomUUID();
+          pp.sidechain.recordChildToolUse(parentToolUseId, childId, String(block.name ?? ""), block.input);
+        } else if (block.type === "tool_result") {
+          const childId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+          if (childId) {
+            const result = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
+            pp.sidechain.recordChildToolResult(childId, result, block.is_error === true);
+          }
+        }
+        // thinking blocks: ignore (not surfaced in sub-agent action log)
+      }
+      const snap = pp.sidechain.snapshot(parentToolUseId);
+      if (snap && handler.onSubAgentUpdate) {
+        handler.onSubAgentUpdate(parentToolUseId, {
+          subAgentType: snap.subAgentType,
+          description: snap.description,
+          actions: snap.actions,
+          finished: snap.finished,
+          result: snap.fullText || undefined,
+        });
+      }
+      return; // sidechain events do NOT also fire parent text/tool callbacks
+    }
+
     if (assistantContent && handler) {
       // The Claude CLI emits cumulative `assistant` events: each event's
       // `message.content` is a snapshot containing ALL blocks accumulated so
@@ -953,14 +1020,47 @@ export class ClaudeCodeProvider implements AIProvider {
           const toolId = (typeof block.id === "string" ? block.id : null) ?? crypto.randomUUID();
           if (pp.activeToolCalls.has(toolId) || settled.has(toolId)) continue;
           pp.activeToolCalls.add(toolId);
-          handler.onToolStart(toolId, String(block.name ?? ""), block.input as Record<string, unknown> | undefined);
+          // Sidechain bookkeeping: if this is a Task() call, register it as a
+          // sub-agent parent so its child events get aggregated. We do this
+          // before onToolStart so the route handler sees the right state if
+          // it queries the tracker.
+          const toolName = String(block.name ?? "");
+          if (toolName === "Task") {
+            pp.sidechain.registerParent(toolId, block.input);
+          }
+          handler.onToolStart(toolId, toolName, block.input as Record<string, unknown> | undefined);
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (!toolId || settled.has(toolId)) continue;
           const resultContent = typeof block.content === "string"
             ? block.content
             : JSON.stringify(block.content);
-          handler.onToolResult(toolId, resultContent);
+          // Propagate the SDK's `is_error` flag so the route can persist
+          // status='error' and the UI renders red ✗ instead of green ✓.
+          // Claude Code emits `is_error: true` on tool results whose tool
+          // returned a failure (Bash exit≠0, Read on missing file, WebFetch
+          // 4xx/5xx, etc.). Without this every failed tool reports as success.
+          const isError = block.is_error === true;
+
+          // Sidechain finalization: a tool_result whose tool_use_id matches a
+          // tracked parent Task() means the sub-agent finished. Emit one last
+          // onSubAgentUpdate snapshot with finished=true and the actual result
+          // body before the standard onToolResult path runs (so the parent
+          // Task row also gets its terminal `success`/`error` from below).
+          if (pp.sidechain.has(toolId) && handler.onSubAgentUpdate) {
+            const finalSnap = pp.sidechain.finish(toolId, resultContent);
+            if (finalSnap) {
+              handler.onSubAgentUpdate(toolId, {
+                subAgentType: finalSnap.subAgentType,
+                description: finalSnap.description,
+                actions: finalSnap.actions,
+                finished: true,
+                result: finalSnap.fullText || resultContent,
+              });
+            }
+            pp.sidechain.delete(toolId);
+          }
+          handler.onToolResult(toolId, resultContent, isError);
           pp.activeToolCalls.delete(toolId);
           settled.add(toolId);
         }

@@ -13,6 +13,42 @@ export interface WSData {
   _browserCleanup?: () => Promise<void>;
 }
 
+/**
+ * Per-tool typed detail. Built at the provider boundary so the UI doesn't
+ * have to JSON-grovel `args` to figure out what to render. Inspired by
+ * Paseo's `ToolCallDetail` taxonomy: every Claude/Codex/MCP tool maps to one
+ * of these shapes (with `unknown` as the catch-all).
+ *
+ * Renderer contract: branch on `detail.type` to pick the per-kind component
+ * (Shell terminal, Read code-with-line-numbers, Edit diff, Sub-agent log…).
+ * Absent for older messages and stateless providers — the renderer falls
+ * back to the generic args/result row.
+ */
+export type ToolCallDetail =
+  | { type: "shell"; command: string; cwd?: string; output?: string; exitCode?: number | null }
+  | { type: "read"; filePath: string; content?: string; offset?: number; limit?: number }
+  | { type: "edit"; filePath: string; oldString?: string; newString?: string; unifiedDiff?: string }
+  | { type: "write"; filePath: string; content?: string }
+  | { type: "search"; query: string; toolName?: "search" | "grep" | "glob" | "web_search"; content?: string; filePaths?: string[]; numFiles?: number; numMatches?: number; mode?: "content" | "files_with_matches" | "count" }
+  | { type: "fetch"; url: string; prompt?: string; result?: string; statusCode?: number; bytes?: number }
+  | { type: "todo"; items: Array<{ content: string; status: "pending" | "in_progress" | "completed"; activeForm?: string }> }
+  | {
+      type: "sub_agent";
+      subAgentType?: string;
+      description?: string;
+      /**
+       * Flattened, growing log of the sub-agent's activity. Each entry is one
+       * tool/text emission from the child. Cap at 200 entries / 160 chars per
+       * summary to keep UI performant (Paseo's heuristic).
+       */
+      actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
+      /** Final result text (set when sub-agent completes). */
+      result?: string;
+    }
+  | { type: "plan"; text: string }
+  | { type: "mcp"; server: string; tool: string; args?: Record<string, unknown>; result?: string }
+  | { type: "unknown"; raw: { args?: Record<string, unknown>; result?: string } };
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -26,6 +62,13 @@ export interface ToolCall {
   result?: string;
   error?: string;
   contentOffset?: number;
+  /**
+   * Optional typed detail built at the provider boundary. Renderers branch on
+   * `detail.type` for per-tool UI. When absent, fall back to generic rendering
+   * via `args` + `result`. Sub-agents (Task) accumulate child activity in
+   * `detail.actions[]` rather than emitting separate timeline items.
+   */
+  detail?: ToolCallDetail;
 }
 
 /**
