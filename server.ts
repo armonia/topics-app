@@ -25,6 +25,7 @@ import { createAgentsRouter } from "./server/routes/agents";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createSpacesRouter } from "./server/routes/spaces";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
+import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createBrowserService, type BrowserService } from "./server/browser-service";
 import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
 import { setBrowserCdpDispatcher } from "./server/browser-tools-handler";
@@ -247,6 +248,10 @@ const agentsRouter = createAgentsRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
 const spacesRouter = createSpacesRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
+// Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
+// Independent of which provider is the default — every provider benefits
+// from the canonical envelope inspector (change `topic-context-canonical`).
+const contextPreviewRouter = createContextPreviewRouter(ctx);
 const boardsRouter = createBoardsRouter(ctx);
 const tagsRouter = createTagsRouter(ctx);
 const approvalsRouter = createApprovalsRouter(ctx);
@@ -582,6 +587,7 @@ const server = Bun.serve<WSData>({
         || await journalRouter(req, url, pathname, method)
         || await spacesRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
+        || await contextPreviewRouter(req, url, pathname, method)
         || await boardsRouter(req, url, pathname, method)
         || await approvalsRouter(req, url, pathname, method)
         || await tagsRouter(req, url, pathname, method)
