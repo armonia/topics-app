@@ -16,6 +16,14 @@ import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { buildProviderHistory } from "../utils/build-provider-history";
 import {
+  adaptEnvelope,
+  assembleTopicContext,
+  composeSystemMessages,
+  getProviderStrategy,
+  pushSnapshot,
+  type ContextEnvelope,
+} from "../context";
+import {
   logStreamSoftTimeout,
   logStreamHardTimeout,
   logStreamComplete,
@@ -1590,148 +1598,62 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
       }
 
-      const finalMessages = [...messages];
-      if (matchedTopic) {
-        const disabled = matchedTopic.disabledContextSources || [];
-        const isSourceEnabled = (id: string) => !disabled.includes(id);
+      // ─── Canonical context envelope ─────────────────────────────────
+      // Replaces the inline finalMessages assembly that used to live here
+      // (≈140 lines of category-aware splice() calls). The envelope is the
+      // single source of truth for what the model will see — both the
+      // `streamEditResponse` send path AND the inspector preview consume
+      // it via `assembleTopicContext`.
+      //
+      // Provider-specific shaping (history vs inline preamble) happens
+      // later via `adaptEnvelope`, after we resolve the actual provider.
+      // For now we use a placeholder strategy; the *system block contents*
+      // and *history* are strategy-independent so the FS reads happen once.
+      //
+      // `includeLastUserInHistory: false` — the new user turn (just persisted
+      // by appendLocalMessage above) is passed separately via
+      // `payload.userContent`, not duplicated inside `payload.history`.
+      const envelope: ContextEnvelope = matchedTopic
+        ? assembleTopicContext(ctx, {
+            sessionKey,
+            providerName: "(pending)",
+            providerStrategy: "history-aware",
+            userMessageOverride: { content: lastUserMsg?.content ?? "", messageId: lastUserMsg?.id },
+            includeLastUserInHistory: false,
+            planMode,
+          })
+        : {
+            // No topic bound to this sessionKey — emit a degenerate envelope
+            // so the legacy HTTP fallback path still has *something* to
+            // serialise. Mirrors the pre-refactor behaviour where
+            // `if (matchedTopic)` skipped all the system block injection.
+            topicId: "",
+            sessionKey,
+            providerName: "(pending)",
+            providerStrategy: "history-aware",
+            systemBlocks: [],
+            history: messages
+              .filter((m: any) => m.role === "user" || m.role === "assistant")
+              .slice(0, -1)
+              .map((m: any) => ({ role: m.role, content: m.content })),
+            userMessage: { content: lastUserMsg?.content ?? "" },
+            diagnostics: {
+              totalTokens: 0, budgetLimit: 200_000, budgetPercent: 0,
+              droppedHistoryTurns: 0, historyEntries: [],
+              warnings: [], assembledAt: Date.now(),
+            },
+          };
 
-        if (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) {
-          finalMessages.unshift({ role: "system", content: matchedTopic.systemPrompt });
-        }
-        if (matchedTopic.contextFiles && matchedTopic.contextFiles.length > 0) {
-          const contextParts: string[] = [];
-          for (const filePath of matchedTopic.contextFiles) {
-            if (!isSourceEnabled(`file:${filePath}`)) continue;
-            if (existsSync(filePath)) {
-              try {
-                const content = readFileSync(filePath, "utf-8");
-                const fileName = filePath.split("/").pop() || filePath;
-                contextParts.push(`--- File: ${fileName} ---\n${content}`);
-              } catch (err) { console.warn(`[Context] Failed to read context file ${filePath}:`, err); }
-            }
-          }
-          if (contextParts.length > 0) {
-            const contextMsg = { role: "system", content: `Context files for this topic:\n\n${contextParts.join("\n\n")}` };
-            const insertIdx = (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) ? 1 : 0;
-            finalMessages.splice(insertIdx, 0, contextMsg);
-          }
-        }
-        // Phase A: prefer worktree.absPath; fall back to projectPath. The
-        // user-facing label still references the project (so the agent
-        // talks about the project, not the worktree directory).
-        {
-          const projectDir = resolveTopicCwd(matchedTopic);
-          if (projectDir && existsSync(projectDir)) {
-            const projectName = (matchedTopic.projectPath || projectDir).split("/").pop() || matchedTopic.projectPath || projectDir;
-            const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-            const templateParts: string[] = [];
-            for (const name of TEMPLATE_FILES) {
-              if (!isSourceEnabled(`template:${name}`)) continue;
-              let filePath = join(projectDir, name);
-              let displayName = name;
-              if (!existsSync(filePath) && name === "CLAUDE.md") {
-                const altPath = join(projectDir, ".claude", "CLAUDE.md");
-                if (existsSync(altPath)) { filePath = altPath; displayName = ".claude/CLAUDE.md"; }
-              }
-              if (existsSync(filePath)) {
-                try {
-                  const content = readFileSync(filePath, "utf-8");
-                  templateParts.push(`--- Project file: ${displayName} ---\n${content}`);
-                } catch (err) { console.warn(`[Context] Failed to read ${filePath}:`, err); }
-              }
-            }
-
-            // Always inject project awareness (even without template files).
-            // Use projectPath as the user-facing label when present; fall
-            // back to projectDir (which equals the worktree absPath when
-            // bound, the project path otherwise).
-            const projectLabelPath = matchedTopic.projectPath || projectDir;
-            let projectContext = `You are working in the project "${projectName}" at ${projectLabelPath}.`;
-            if (templateParts.length > 0) {
-              projectContext += `\n\nProject context files:\n\n${templateParts.join("\n\n")}`;
-            } else {
-              // No template files — provide a basic file listing for awareness
-              try {
-                const entries = readdirSync(projectDir, { withFileTypes: true }).slice(0, 30);
-                const listing = entries.map(e => e.isDirectory() ? `${e.name}/` : e.name).join(", ");
-                projectContext += `\n\nProject root files: ${listing}`;
-              } catch {}
-            }
-            const templateMsg = { role: "system", content: projectContext };
-            const insertIdx = finalMessages.findIndex(m => m.role !== "system");
-            finalMessages.splice(insertIdx >= 0 ? insertIdx : finalMessages.length, 0, templateMsg);
-          }
-        }
-        // Browser auto-navigate: instruct the AI to use structured markers
-        const browserInstruction = { role: "system", content: `When you want to open a URL or file in the embedded browser panel, include the marker {{BROWSER:url}} in your response. Examples:
-- After creating an HTML file: {{BROWSER:file:///path/to/file.html}}
-- After starting a dev server: {{BROWSER:http://localhost:3000}}
-- To show a webpage: {{BROWSER:https://example.com}}
-The marker will be automatically processed and removed from the visible output. Do not mention the marker to the user.` };
-        const browserInsertIdx = finalMessages.findIndex(m => m.role !== "system");
-        finalMessages.splice(browserInsertIdx >= 0 ? browserInsertIdx : finalMessages.length, 0, browserInstruction);
-
-        // Project management markers: instruct AI to create/open projects via markers
-        const projectInstruction = { role: "system", content: `You can create or open projects for the user. When the user asks to create a new project, include {{PROJECT_CREATE:project-name}} in your response — this creates a directory in the workspace and binds it to this topic. When the user asks to open or switch to an existing project, include {{PROJECT_OPEN:project-name-or-path}} (workspace name or absolute path). The marker is automatically processed and removed from visible output. Do not mention the marker to the user. Only use these when the user explicitly asks to create or open a project.` };
-        const projectInsertIdx = finalMessages.findIndex(m => m.role !== "system");
-        finalMessages.splice(projectInsertIdx >= 0 ? projectInsertIdx : finalMessages.length, 0, projectInstruction);
-
-        // Phase 30 BROWSER-CHAT-03 — OpenClaw browser bridge removed; agent now
-        // controls the browser via 5 native tools at /api/browsers/:id/agent/*.
-
-        // Topic auto-switch: inject directory of available topics
-        const topicDirectory = buildTopicDirectory(matchedTopic.id);
-        {
-          const currentTopicInfo = `You are currently in topic: "${matchedTopic.name}"${matchedTopic.projectPath ? ` (project: ${matchedTopic.projectPath.split('/').pop()})` : ''}.\n\n`;
-          const directorySection = topicDirectory ? `Here are the available topics:\n${topicDirectory}\n\nIf the user's message CLEARLY belongs to a different topic (not just a casual reference), include the marker {{TOPIC_SWITCH:topicId}} at the VERY BEGINNING of your response, using the target topic's id. Then respond normally to the user's message after the marker.\n` : '';
-          const topicSwitchInstruction = { role: "system", content: `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches\n- When in doubt, stay in the current topic` };
-          const switchInsertIdx = finalMessages.findIndex(m => m.role !== "system");
-          finalMessages.splice(switchInsertIdx >= 0 ? switchInsertIdx : finalMessages.length, 0, topicSwitchInstruction);
-        }
-
-        // Inject memory content into system prompt (respect disabled sources)
-        if (isSourceEnabled("memory:global") || isSourceEnabled("memory:topic")) {
-          const memoryContent = loadMemoryForTopic(ctx.BASE_DIR, matchedTopic.id, {
-            includeGlobal: isSourceEnabled("memory:global"),
-            includeTopic: isSourceEnabled("memory:topic"),
-          });
-          if (memoryContent) {
-            const memoryMsg = { role: "system", content: memoryContent };
-            const memInsertIdx = finalMessages.findIndex(m => m.role !== "system");
-            finalMessages.splice(memInsertIdx >= 0 ? memInsertIdx : finalMessages.length, 0, memoryMsg);
-          }
-        }
-
-        // Inject pinned messages as context
-        if (isSourceEnabled("pinned:messages") && matchedTopic.pinnedMessages && matchedTopic.pinnedMessages.length > 0) {
-          const localMsgs = loadLocalMessages(matchedTopic.sessionKey);
-          const pinned = localMsgs.filter(m => matchedTopic.pinnedMessages!.includes(m.id));
-          if (pinned.length > 0) {
-            const pinnedContent = pinned.map(m => `[${m.role}]: ${m.content}`).join("\n\n");
-            const pinnedMsg = { role: "system", content: `Pinned messages from this conversation (important context):\n\n${pinnedContent}` };
-            const pinnedInsertIdx = finalMessages.findIndex(m => m.role !== "system");
-            finalMessages.splice(pinnedInsertIdx >= 0 ? pinnedInsertIdx : finalMessages.length, 0, pinnedMsg);
-          }
-        }
-      }
-
-      // Plan Mode: prepend instruction to analyze and propose a plan instead of executing
-      if (planMode) {
-        const planInstruction = { role: "system", content: `IMPORTANT: You are in PLAN MODE. Analyze the user's request and provide a detailed implementation plan. Do NOT execute any changes yet. Format your response as follows:
-
-## Plan
-
-1. **Step title** — Description of what this step does
-2. **Step title** — Description of what this step does
-3. ...
-
-## Summary
-Brief summary of the approach and any considerations.
-
-Wait for the user to approve the plan before executing any changes.` };
-        const planInsertIdx = finalMessages.findIndex(m => m.role !== "system");
-        finalMessages.splice(planInsertIdx >= 0 ? planInsertIdx : finalMessages.length, 0, planInstruction);
-      }
+      // Build the legacy `finalMessages: { role; content }[]` array for the
+      // HTTP fallback path further down. Composed from the envelope so the
+      // shape matches what providers used to receive (system messages
+      // followed by the full user/assistant transcript).
+      const composedSystemMessages = composeSystemMessages(envelope.systemBlocks);
+      const finalMessages: { role: string; content: string }[] = [
+        ...composedSystemMessages.map((m) => ({ role: m.role, content: m.content })),
+        ...envelope.history.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content: envelope.userMessage.content },
+      ];
 
       // ─── Resolve provider for this topic (with optional per-message override) ───
       let topicProvider: AIProvider;
@@ -2514,49 +2436,36 @@ Wait for the user to approve the plan before executing any changes.` };
 
           // Send chat via WS
           try {
-            const supportsHistory = topicProvider.capabilities.has("history");
-            const lastUser = lastUserMsg?.content || messages[messages.length - 1]?.content || "";
-            let userContent: string;
-            let historyForProvider: ChatMessage[] | undefined;
+            // Re-shape the canonical envelope for the actual provider strategy.
+            // The system blocks and history were already assembled in one
+            // pass by `assembleTopicContext` above (with a placeholder
+            // strategy); `adaptEnvelope` is a pure function so the second
+            // call is essentially free.
+            //
+            // The dual-output here mirrors what the legacy supportsHistory
+            // branch produced:
+            //   - history-aware (claude, openai, codex):
+            //       payload.history = [composed system msgs..., ...stripped DB history]
+            //       payload.userContent = the new user turn verbatim
+            //   - inline-system (claude-code):
+            //       payload.userContent = "<context>...</context>\n\n${user}"
+            //       payload.history = undefined (CLI session keeps its own state)
+            //   - gateway-stateful (openclaw):
+            //       same shape as history-aware; gateway may ignore `history`
+            //       on the happy path and use its session state instead.
+            const envForProvider: ContextEnvelope = {
+              ...envelope,
+              providerName: topicProvider.name,
+              providerStrategy: getProviderStrategy(topicProvider),
+            };
+            // Push the envelope to the in-memory snapshot ring BEFORE the
+            // adapter so what the inspector shows is exactly what we hand
+            // to the provider. Best-effort — never throws.
+            try { pushSnapshot(envForProvider); } catch (e) { console.warn("[Context] pushSnapshot failed:", e); }
 
-            if (supportsHistory) {
-              // Stateless provider (claude, openai, codex, openclaw). The
-              // *DB* is the source of truth for conversation history — not
-              // the client POST body. This survives any restart of the bun
-              // server (or of an upstream gateway) because the messages
-              // table holds the full active branch and we rebuild from it
-              // on every turn. The user's brand-new turn was just persisted
-              // by appendLocalMessage above, so we exclude the last entry
-              // (the provider receives it as the fresh prompt via
-              // `userContent`, not duplicated in history).
-              //
-              // System messages assembled server-side for *this* turn
-              // (SOUL.md, context files, plan-mode, pinned, browser-tool
-              // instructions, etc.) live only in `finalMessages` — they're
-              // not persisted in `messages`. Keep them at the head so the
-              // provider still receives them.
-              const dbHistory = buildProviderHistory(
-                loadLocalMessages(sessionKey),
-                { excludeLast: true },
-              );
-              const ephemeralSystems: ChatMessage[] = finalMessages
-                .filter((m) => m.role === "system")
-                .map((m) => ({ role: "system", content: m.content }));
-              historyForProvider = [...ephemeralSystems, ...dbHistory];
-              userContent = lastUser;
-            } else {
-              // Process/gateway-resident provider (claude-code, codex,
-              // openclaw): keeps its own conversation state. We still inject
-              // any system messages we built up by inlining them in the
-              // user turn — this is the legacy behavior and the only way
-              // to surface SOUL.md, pinned messages, plan-mode, etc.
-              const contextMessages = finalMessages.filter(m => m.role === "system");
-              userContent = lastUser;
-              if (contextMessages.length > 0) {
-                const preamble = contextMessages.map(m => m.content).join("\n\n---\n\n");
-                userContent = `<context>\n${preamble}\n</context>\n\n${userContent}`;
-              }
-            }
+            const payload = adaptEnvelope(envForProvider);
+            const userContent = payload.userContent;
+            const historyForProvider = payload.history;
 
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.

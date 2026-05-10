@@ -2,13 +2,22 @@ import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { loadMemoryForTopic } from "./memory";
+import { assembleTopicContext, getProviderStrategy } from "../context";
+import { getProvider, getDefaultProvider } from "../providers";
 
 // ── Context analysis cache (15s TTL) ─────────────────────────────────────
 const CONTEXT_CACHE_TTL = 15000;
 const contextAnalysisCache = new Map<string, { data: any; timestamp: number }>();
 
 export function invalidateContextCache(topicId: string) {
-  contextAnalysisCache.delete(topicId);
+  // Cache keys are `${topicId}::${providerName}` since change
+  // `topic-context-canonical` (provider strategy can shape the envelope).
+  // Clear every entry for this topic regardless of provider.
+  for (const key of contextAnalysisCache.keys()) {
+    if (key === topicId || key.startsWith(`${topicId}::`)) {
+      contextAnalysisCache.delete(key);
+    }
+  }
 }
 
 export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
@@ -132,232 +141,81 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
       });
     }
 
-    // GET /api/context/analyze?topicId=xxx — aggregate all context sources for a topic
+    // GET /api/context/analyze?topicId=xxx — aggregate all context sources for a topic.
+    //
+    // BACK-COMPAT WRAPPER (since change `topic-context-canonical`).
+    // Delegates to the canonical `assembleTopicContext()` so the inspector and
+    // the chat streaming path can never drift. The legacy response shape is
+    // preserved exactly so the existing client (`useContextInspector` ➝
+    // `contextAnalysisApi.analyze`) keeps working without modifications.
+    //
+    // Field mapping envelope.SystemBlock → legacy source:
+    //   { id, label, category, tokens, enabled, editable, countInBudget }
+    //   `preview` = content.slice(0, 200) (legacy field, optional)
+    //
+    // The "project:awareness" legacy id is mapped from the canonical
+    // "template:project-awareness" id and re-labelled to match the original
+    // shape clients render.
     if (method === "GET" && pathname === "/api/context/analyze") {
       const topicId = url.searchParams.get("topicId");
       if (!topicId) return json({ error: "topicId parameter required" }, 400);
-
-      // Server-side cache check (15s TTL)
-      const cached = contextAnalysisCache.get(topicId);
-      if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
-        return json(cached.data);
-      }
 
       const topicsData = loadTopics();
       const topic = topicsData.topics[topicId];
       if (!topic) return json({ error: "Topic not found" }, 404);
 
-      const sources: {
-        id: string;
-        label: string;
-        category: "openclaw" | "memory" | "prompt" | "template" | "file" | "pinned";
-        tokens: number;
-        enabled: boolean;
-        editable: boolean;
-        preview?: string;
-        countInBudget: boolean;
-      }[] = [];
-      const warnings: { type: string; detail: string }[] = [];
-      const disabledSources = topic.disabledContextSources || [];
-
-      // 1. OpenClaw workspace files (always-on, read-only)
-      for (const name of WORKSPACE_FILES) {
-        const filePath = join(WORKSPACE_DIR, name);
-        const content = readSafe(filePath);
-        if (content) {
-          sources.push({
-            id: `openclaw:${name}`,
-            label: name,
-            category: "openclaw",
-            tokens: estimateTokens(content),
-            enabled: true,
-            editable: false,
-            preview: content.slice(0, 200),
-            countInBudget: true,
-          });
-        }
+      // Resolve provider strategy so the envelope is shaped accurately even
+      // for the inspector preview (matters in case a future composer adds
+      // strategy-dependent blocks).
+      const providerName = topic.provider ?? null;
+      let strategyName = "history-aware" as ReturnType<typeof getProviderStrategy>;
+      try {
+        const provider = providerName ? getProvider(providerName) : getDefaultProvider();
+        strategyName = getProviderStrategy(provider);
+      } catch {
+        /* provider not registered yet — keep the default */
       }
 
-      // 2. OpenClaw memory tree (counted as single source)
-      const memoryDir = join(WORKSPACE_DIR, "memory");
-      if (existsSync(memoryDir)) {
-        let memTokens = 0;
-        const countDir = (dir: string) => {
-          try {
-            for (const entry of readdirSync(dir, { withFileTypes: true })) {
-              if (entry.name.startsWith(".")) continue;
-              const full = join(dir, entry.name);
-              if (entry.isDirectory()) { countDir(full); continue; }
-              const c = readSafe(full);
-              if (c) memTokens += estimateTokens(c);
-            }
-          } catch {}
+      const cacheKey = `${topicId}::${providerName ?? "default"}`;
+      const cached = contextAnalysisCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
+        return json(cached.data);
+      }
+
+      // includeLastUserInHistory: true — the inspector wants to display the
+      // CURRENT state of the conversation, not "what we'd send next".
+      const envelope = assembleTopicContext(ctx, {
+        sessionKey: topic.sessionKey,
+        providerName: providerName ?? "(default)",
+        providerStrategy: strategyName,
+        includeLastUserInHistory: true,
+      });
+
+      // Project envelope.systemBlocks → legacy `sources[]` shape.
+      const sources = envelope.systemBlocks.map((b) => {
+        // Re-label the project-awareness block to match the legacy id used by
+        // the client ("project:awareness" — note: NOT "template:project-awareness").
+        const legacyId = b.id === "template:project-awareness" ? "project:awareness" : b.id;
+        return {
+          id: legacyId,
+          label: b.label,
+          category: b.category,
+          tokens: b.tokens,
+          enabled: b.enabled,
+          editable: b.editable,
+          preview: b.content ? b.content.slice(0, 200) : undefined,
+          countInBudget: b.countInBudget,
         };
-        countDir(memoryDir);
-        if (memTokens > 0) {
-          sources.push({
-            id: "openclaw:memory-tree",
-            label: "OpenClaw Memory Archive",
-            category: "openclaw",
-            tokens: memTokens,
-            enabled: true,
-            editable: false,
-            countInBudget: false,
-          });
-        }
-      }
+      });
 
-      // 3. Global memory
-      const MEMORY_DIR = join(ctx.BASE_DIR, "memory");
-      const globalPath = join(MEMORY_DIR, "_global.md");
-      const globalContent = readSafe(globalPath) || "";
-      if (globalContent) {
-        sources.push({
-          id: "memory:global",
-          label: "Global Memory",
-          category: "memory",
-          tokens: estimateTokens(globalContent),
-          enabled: !disabledSources.includes("memory:global"),
-          editable: true,
-          preview: globalContent.slice(0, 200),
-          countInBudget: true,
-        });
-      }
-
-      // 4. Topic memory
-      const topicMemPath = join(MEMORY_DIR, `${topicId}.md`);
-      const topicMemContent = readSafe(topicMemPath) || "";
-      if (topicMemContent) {
-        sources.push({
-          id: "memory:topic",
-          label: "Topic Memory",
-          category: "memory",
-          tokens: estimateTokens(topicMemContent),
-          enabled: !disabledSources.includes("memory:topic"),
-          editable: true,
-          preview: topicMemContent.slice(0, 200),
-          countInBudget: true,
-        });
-      }
-
-      // 5. System prompt
-      if (topic.systemPrompt) {
-        sources.push({
-          id: "prompt:system",
-          label: "System Prompt",
-          category: "prompt",
-          tokens: estimateTokens(topic.systemPrompt),
-          enabled: !disabledSources.includes("prompt:system"),
-          editable: true,
-          preview: topic.systemPrompt.slice(0, 200),
-          countInBudget: true,
-        });
-      }
-
-      // 6. Context templates (project files)
-      if (topic.projectPath) {
-        const projectDir = ctx.resolveProjectPath(topic.projectPath);
-        if (projectDir && existsSync(projectDir)) {
-          const projectName = projectDir.split("/").pop() || topic.projectPath;
-          // Always-on project awareness entry
-          sources.push({
-            id: "project:awareness",
-            label: `Project: ${projectName}`,
-            category: "template",
-            tokens: estimateTokens(`Project "${projectName}" at ${topic.projectPath}`),
-            enabled: true,
-            editable: false,
-            preview: `Working in project "${projectName}" at ${topic.projectPath}`,
-            countInBudget: true,
-          });
-          const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-          for (const name of TEMPLATE_FILES) {
-            let filePath = join(projectDir, name);
-            let displayName = name;
-            if (!existsSync(filePath) && name === "CLAUDE.md") {
-              const altPath = join(projectDir, ".claude", "CLAUDE.md");
-              if (existsSync(altPath)) { filePath = altPath; displayName = ".claude/CLAUDE.md"; }
-            }
-            if (existsSync(filePath)) {
-              const content = readSafe(filePath);
-              if (content) {
-                sources.push({
-                  id: `template:${name}`,
-                  label: displayName,
-                  category: "template",
-                  tokens: estimateTokens(content),
-                  enabled: !disabledSources.includes(`template:${name}`),
-                  editable: false,
-                  preview: content.slice(0, 200),
-                  countInBudget: true,
-                });
-              }
-            }
-          }
-        }
-      }
-
-      // 7. Context files (uploads)
-      if (topic.contextFiles && topic.contextFiles.length > 0) {
-        for (const filePath of topic.contextFiles) {
-          if (existsSync(filePath)) {
-            const content = readSafe(filePath);
-            const fileName = filePath.split("/").pop() || filePath;
-            sources.push({
-              id: `file:${filePath}`,
-              label: fileName,
-              category: "file",
-              tokens: content ? estimateTokens(content) : 0,
-              enabled: !disabledSources.includes(`file:${filePath}`),
-              editable: false,
-              countInBudget: true,
-            });
-          }
-        }
-      }
-
-      // 8. Pinned messages
-      if (topic.pinnedMessages && topic.pinnedMessages.length > 0) {
-        const localMsgs = ctx.loadLocalMessages(topic.sessionKey);
-        const pinned = localMsgs.filter(m => topic.pinnedMessages!.includes(m.id));
-        if (pinned.length > 0) {
-          const pinnedText = pinned.map(m => m.content).join("\n\n");
-          sources.push({
-            id: "pinned:messages",
-            label: `Pinned Messages (${pinned.length})`,
-            category: "pinned",
-            tokens: estimateTokens(pinnedText),
-            enabled: !disabledSources.includes("pinned:messages"),
-            editable: false,
-            preview: pinnedText.slice(0, 200),
-            countInBudget: true,
-          });
-        }
-      }
-
-      // Calculate totals (only sources that count in budget)
-      const totalTokens = sources.filter(s => s.enabled && s.countInBudget).reduce((sum, s) => sum + s.tokens, 0);
-      const budgetLimit = 200000; // Typical context budget
-
-      // Generate warnings
-      const budgetPercent = Math.round((totalTokens / budgetLimit) * 100);
-      if (budgetPercent > 80) {
-        warnings.push({
-          type: "budget",
-          detail: `Context usage is at ${budgetPercent}% of budget (${totalTokens} / ${budgetLimit} tokens)`,
-        });
-      }
-
-      const largeSources = sources.filter(s => s.enabled && s.tokens > 10000);
-      for (const s of largeSources) {
-        warnings.push({
-          type: "large-source",
-          detail: `"${s.label}" is very large (${s.tokens} tokens)`,
-        });
-      }
-
-      const result = { sources, totalTokens, budgetLimit, budgetPercent, warnings };
-      contextAnalysisCache.set(topicId, { data: result, timestamp: Date.now() });
+      const result = {
+        sources,
+        totalTokens: envelope.diagnostics.totalTokens,
+        budgetLimit: envelope.diagnostics.budgetLimit,
+        budgetPercent: envelope.diagnostics.budgetPercent,
+        warnings: envelope.diagnostics.warnings,
+      };
+      contextAnalysisCache.set(cacheKey, { data: result, timestamp: Date.now() });
       return json(result);
     }
 
