@@ -62,6 +62,10 @@ export class OpenClawProvider implements AIProvider {
     // counterpart to claude-code's `--resume` persistence (mem-6d9f7a9b0e3b).
     "history",
   ]);
+  // Gateway is stateful but accepts `options.history` for restart rehydration.
+  // The inspector should communicate this duality (gateway may ignore the
+  // field on the happy path). See `server/context/adapt.ts`.
+  readonly contextStrategy = "gateway-stateful" as const;
 
   private config: OpenClawProviderConfig;
   private gw: GatewayWS | null = null;

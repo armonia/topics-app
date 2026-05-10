@@ -238,6 +238,9 @@ export class CodexProvider implements AIProvider {
     // exactly the behavior the user reported as "topics losing history".
     "history",
   ]);
+  // Codex `exec` mode is one-shot stateless: full transcript per turn via
+  // `options.history`. See `server/context/adapt.ts`.
+  readonly contextStrategy = "history-aware" as const;
 
   private config: CodexProviderConfig;
   private started = false;

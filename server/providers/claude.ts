@@ -49,6 +49,9 @@ const KNOWN_MODELS = [
 export class ClaudeProvider implements AIProvider {
   readonly name = "claude";
   readonly capabilities: Set<ProviderCapability> = new Set(["streaming", "thinking", "history"]);
+  // Stateless Anthropic SDK call — system messages and prior turns flow via
+  // `options.history`. See `server/context/adapt.ts`.
+  readonly contextStrategy = "history-aware" as const;
 
   private client: Anthropic | null = null;
   private config: ClaudeProviderConfig;

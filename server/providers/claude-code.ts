@@ -395,6 +395,12 @@ export class ClaudeCodeProvider implements AIProvider {
     "sessions",
     "abort",
   ]);
+  // The CLI is process-resident with its own session state; it does NOT accept
+  // an `options.history` field. System blocks are inlined into the user turn
+  // as a `<context>...</context>` preamble. See `server/context/adapt.ts`.
+  // Behavior preserved verbatim from the previous inline branch in
+  // `streamEditResponse` (server/routes/topics.ts).
+  readonly contextStrategy = "inline-system" as const;
 
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();

@@ -148,6 +148,34 @@ export type ProviderCapability =
                      // Providers without this flag manage history internally
                      // (process-resident CLI, gateway-side session, etc.).
 
+/**
+ * How a provider expects topic context (system blocks + history) to be
+ * shaped. Read by `adaptEnvelope()` in `server/context/adapt.ts`.
+ *
+ * Lives here (not in `server/context/envelope.ts`) so the provider interface
+ * can declare it without forcing `providers/types.ts` to import from the
+ * context module — that would create a cycle, since `provider-strategy.ts`
+ * needs to import `AIProvider` from here.
+ *
+ * - `history-aware`     System messages and prior turns are passed via
+ *                       `options.history`. Stateless backends: claude,
+ *                       openai, codex.
+ * - `inline-system`     Provider does not accept history; system blocks are
+ *                       inlined into the user turn as a `<context>...</context>`
+ *                       preamble (claude-code CLI). Process-resident session.
+ * - `gateway-stateful`  Gateway uses its own session state but ALSO accepts
+ *                       `history` as a fallback for restart rehydration
+ *                       (openclaw gateway).
+ *
+ * If a provider does not declare `contextStrategy`, the registry helper
+ * `getProviderStrategy()` falls back to:
+ *   capabilities.has("history") ? "history-aware" : "inline-system"
+ */
+export type ProviderContextStrategy =
+  | "history-aware"
+  | "inline-system"
+  | "gateway-stateful";
+
 // ============ Status & Diagnostics ============
 
 /** 4-state provider status (pattern from Paseo) */
@@ -228,6 +256,15 @@ export interface AIProvider {
 
   /** What this provider supports */
   readonly capabilities: Set<ProviderCapability>;
+
+  /**
+   * How `adaptEnvelope()` should shape a `ContextEnvelope` for this provider.
+   * Optional for backwards compatibility — when absent, the registry helper
+   * `getProviderStrategy()` derives the strategy from `capabilities.has("history")`.
+   * Providers SHOULD declare it explicitly so the policy is visible at the
+   * provider level, not buried in route handler conditionals.
+   */
+  readonly contextStrategy?: ProviderContextStrategy;
 
   /** Whether the provider is currently connected/ready */
   readonly connected: boolean;

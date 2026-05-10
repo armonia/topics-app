@@ -40,6 +40,9 @@ function sanitizeUpstreamError(status: number): string {
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
   readonly capabilities: Set<ProviderCapability> = new Set(["streaming", "history"]);
+  // Stateless OpenAI HTTP — system messages and prior turns flow via
+  // `options.history` (mapped to OpenAI message format internally).
+  readonly contextStrategy = "history-aware" as const;
 
   private config: OpenAIProviderConfig;
   private active = new Map<string, AbortController>();
