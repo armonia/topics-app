@@ -966,13 +966,21 @@ export class ClaudeCodeProvider implements AIProvider {
       return;
     }
 
-    // Assistant content events.
+    // Assistant + user content events.
     // Wire format from `claude --print --output-format stream-json` is:
-    //   { type: "assistant", message: { content: [...blocks] }, ... }
+    //   { type: "assistant", message: { content: [...blocks] }, ... }   ← text/thinking/tool_use
+    //   { type: "user",      message: { content: [...blocks] }, ... }   ← tool_result (one per tool)
     // Earlier code read `event.content` directly which is always undefined,
     // so onTextDelta was never fired → fullContent stayed empty → the chat
     // route's finalizeStream("done") emitted the "No response received" stub.
     // Accept both shapes defensively in case a future CLI version flattens it.
+    //
+    // CRITICAL: we must process `user` events too — the CLI emits
+    // tool_result blocks there, NOT inside cumulative assistant snapshots.
+    // Without this, every tool stays in `running` until the final `result`
+    // event fires the finalize-loop in the route handler, so cascading tools
+    // all show a spinner long after they actually finished. The dedup via
+    // `pp.settledToolCalls` keeps re-deliveries idempotent.
     // Block shapes the Claude CLI emits inside `message.content`. Marked as
     // discriminated union so the loop below narrows on `type` instead of
     // riding through with `any`.
@@ -982,8 +990,8 @@ export class ClaudeCodeProvider implements AIProvider {
       | { type: "tool_use"; id?: string; name: string; input: unknown }
       | { type: "tool_result"; tool_use_id?: string; content: unknown; is_error?: boolean }
       | { type: string; [k: string]: unknown };
-    const assistantContent: AssistantBlock[] | null =
-      event.type === "assistant"
+    const eventContent: AssistantBlock[] | null =
+      (event.type === "assistant" || event.type === "user")
         ? (Array.isArray(event.message?.content) ? (event.message.content as AssistantBlock[])
             : Array.isArray(event.content) ? (event.content as AssistantBlock[])
             : null)
@@ -1003,7 +1011,7 @@ export class ClaudeCodeProvider implements AIProvider {
       typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id
         ? event.parent_tool_use_id
         : null;
-    if (parentToolUseId && assistantContent && handler) {
+    if (parentToolUseId && eventContent && handler) {
       // Lazy registration: sub-agent emits before the parent tool_use block
       // arrives in the cumulative snapshot can happen on the very first
       // sidechain event. Register a placeholder so events aren't dropped;
@@ -1012,7 +1020,7 @@ export class ClaudeCodeProvider implements AIProvider {
       if (!pp.sidechain.has(parentToolUseId)) {
         pp.sidechain.registerParent(parentToolUseId, {});
       }
-      for (const block of assistantContent) {
+      for (const block of eventContent) {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
           pp.sidechain.recordChildText(parentToolUseId, block.text);
         } else if (block.type === "tool_use") {
@@ -1040,7 +1048,7 @@ export class ClaudeCodeProvider implements AIProvider {
       return; // sidechain events do NOT also fire parent text/tool callbacks
     }
 
-    if (assistantContent && handler) {
+    if (eventContent && handler) {
       // The Claude CLI emits cumulative `assistant` events: each event's
       // `message.content` is a snapshot containing ALL blocks accumulated so
       // far, NOT a delta. Iterating naively re-fires onToolStart /
@@ -1054,7 +1062,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // (`pp.activeToolCalls`) and which we've already settled
       // (`pp.settledToolCalls`). Both are per-process-instance Sets.
       const settled = (pp.settledToolCalls ??= new Set<string>());
-      for (const block of assistantContent) {
+      for (const block of eventContent) {
         if (block.type === "text" && typeof block.text === "string" && block.text) {
           pp.fullText += block.text;
           handler.onTextDelta(block.text, pp.fullText);
