@@ -22,6 +22,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
+import { detectUserInputRequest } from "./ask-user-detector";
 
 // ============ Config ============
 
@@ -383,6 +384,21 @@ interface PersistentProcess {
    * topic/session so this is the right granularity.
    */
   sidechain: SidechainTracker;
+  /**
+   * Tool calls that asked the user for input via `AskUserQuestion` /
+   * MCP elicitation. Keyed by `tool_use.id`. Each entry pins the
+   * sessionKey (for cross-stream lookup from the route handler) and the
+   * resolved schema so we can rebuild the WS broadcast if a client
+   * reconnects mid-pause. The heartbeat treats these the same as a
+   * running Task() parent — keeps the soft timer suspended while we
+   * wait for the human.
+   *
+   * The provider is the source of truth; the route handler queries this
+   * map via `resumeWithToolResponse` to validate that a submission
+   * matches a still-pending request, then drops the entry once the
+   * `tool_result` line is written to stdin.
+   */
+  pendingInputs: Map<string, { sessionKey: string; schema: import("../types").UserInputSchema; awaitingSince: number }>;
 }
 
 // ============ Provider ============
@@ -666,6 +682,11 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.proc.kill("SIGINT");
     } catch {}
 
+    // The aborted turn may have had outstanding human-input requests. Drop
+    // them so a stale `POST /api/chat/tool-response` can't write a tool
+    // result to a stream that the user just cancelled.
+    pp.pendingInputs.clear();
+
     // Notify the stream handler so the route flushes any partial assistant
     // content as a finalized message instead of an error stub.
     if (pp.streamHandler) {
@@ -830,6 +851,7 @@ export class ClaudeCodeProvider implements AIProvider {
       lastEventAt: Date.now(),
       needsHistoryReplay,
       sidechain: new SidechainTracker(),
+      pendingInputs: new Map(),
     };
 
     // --- NDJSON stdout parsing ---
@@ -1087,6 +1109,24 @@ export class ClaudeCodeProvider implements AIProvider {
             pp.sidechain.registerParent(toolId, block.input);
           }
           handler.onToolStart(toolId, toolName, block.input as Record<string, unknown> | undefined);
+          // Detect "I am asking the user a question" tools (AskUserQuestion,
+          // MCP elicitation). When matched, the CLI is now sitting on its
+          // stdin waiting for a `tool_result` line; the route handler must
+          // pause the soft inactivity timer, broadcast the form schema, and
+          // wait for `POST /api/chat/tool-response`. We surface the request
+          // via the optional `onUserInputRequired` callback so the route can
+          // also stamp the corresponding `ToolCall.status` to
+          // `waiting_for_input`.
+          {
+            const schema = detectUserInputRequest({ name: toolName, input: block.input });
+            if (schema) {
+              const sessionKey = this.findSessionKeyForProcess(pp);
+              if (sessionKey) {
+                pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
+              }
+              handler.onUserInputRequired?.(toolId, toolName, schema);
+            }
+          }
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (!toolId || settled.has(toolId)) continue;
@@ -1201,5 +1241,98 @@ export class ClaudeCodeProvider implements AIProvider {
     try { pp.readline.close(); } catch {}
     try { pp.proc.kill("SIGTERM"); } catch {}
     setTimeout(() => { try { pp.proc.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+  }
+
+  /**
+   * Reverse lookup: given a PersistentProcess, find the sessionKey under
+   * which it was registered in `this.processes`. Used by the
+   * `tool_use` detector path which only has the `pp` in scope.
+   */
+  private findSessionKeyForProcess(pp: PersistentProcess): string | null {
+    for (const [key, value] of this.processes) {
+      if (value === pp) return key;
+    }
+    return null;
+  }
+
+  /**
+   * Resume a paused turn by writing the user's tool answer to the CLI's
+   * stdin in the stream-json input format the CLI already accepts (same
+   * shape `sendChat` uses for normal user messages, but `content` is a
+   * single `tool_result` block instead of a string).
+   *
+   * Idempotent on the absence side: if no pending input matches the
+   * (sessionKey, toolCallId) pair we throw — the route handler should
+   * have validated already. If the process is dead we also throw so the
+   * caller fails the tool fast.
+   */
+  async resumeWithToolResponse(
+    sessionKey: string,
+    toolCallId: string,
+    response: import("../types").ToolUserResponse,
+  ): Promise<void> {
+    const pp = this.processes.get(sessionKey);
+    if (!pp || !pp.alive) {
+      throw new Error(`claude-code: no live process for ${sessionKey}`);
+    }
+    const pending = pp.pendingInputs.get(toolCallId);
+    if (!pending) {
+      throw new Error(`claude-code: no pending input for tool ${toolCallId}`);
+    }
+
+    // Serialise the answer to plain text the model can read in the
+    // tool_result block. `questions` → JSON-encoded answers map (mirrors
+    // the SDK's own format when AskUserQuestion runs in the official
+    // Claude Code UI). `elicitation` → JSON-encoded value. `raw` → the
+    // verbatim string.
+    let serialized: string;
+    switch (response.kind) {
+      case "questions":
+        serialized = JSON.stringify({
+          answers: response.answers,
+          ...(response.metadata ? { metadata: response.metadata } : {}),
+        });
+        break;
+      case "elicitation":
+        serialized = JSON.stringify(response.value);
+        break;
+      case "raw":
+        serialized = response.text;
+        break;
+      default: {
+        // Exhaustiveness check — narrows `response` to `never`.
+        const _never: never = response;
+        throw new Error(`unreachable: ${String(_never)}`);
+      }
+    }
+
+    const input =
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolCallId,
+              content: [{ type: "text", text: serialized }],
+              is_error: false,
+            },
+          ],
+        },
+      }) + "\n";
+
+    pp.lastActivity = Date.now();
+    pp.lastEventAt = Date.now();
+    pp.pendingInputs.delete(toolCallId);
+
+    try {
+      pp.proc.stdin!.write(input);
+    } catch (err: any) {
+      // Restore the entry so a retry from the route can succeed if the
+      // stdin transient hiccups (rare; mostly here as defence-in-depth).
+      pp.pendingInputs.set(toolCallId, pending);
+      throw new Error(`claude-code: stdin write failed — ${err?.message ?? err}`);
+    }
   }
 }

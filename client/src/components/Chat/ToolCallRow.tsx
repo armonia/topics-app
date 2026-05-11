@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
-import type { ToolCall } from '../../types';
+import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
+import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody, iconForDetail } from './ToolCards';
+import { ToolInputForm } from './ToolInputForm';
+import { chatApi } from '../../lib/api';
 
 interface Props {
   toolCall: ToolCall;
@@ -12,6 +14,12 @@ interface Props {
    * "Shell"). Provider-specific renderers can pass a richer label.
    */
   label?: string;
+  /**
+   * Session key the tool belongs to — required to submit the user's
+   * answer when `toolCall.status === 'waiting_for_input'`. Absent
+   * disables the input form (the row still renders, with a hint).
+   */
+  sessionKey?: string;
 }
 
 /**
@@ -25,7 +33,7 @@ interface Props {
  * `<ToolCardBody>` dispatcher so a Bash tool from 6 months ago and one
  * streaming right now render identically.
  */
-export function ToolCallRow({ toolCall, label }: Props) {
+export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
   const [open, setOpen] = useState(false);
 
   // Resolve the detail (server-provided or fallback derivation) and the
@@ -37,13 +45,16 @@ export function ToolCallRow({ toolCall, label }: Props) {
   const Icon = iconForDetail(detail);
   const status = toolCall.status ?? 'pending';
   const isRunning = status === 'pending' || status === 'running';
+  const isWaiting = status === 'waiting_for_input';
   const isError = status === 'error';
 
-  // Auto-open sub-agent rows so the action log is visible by default
-  // (otherwise the entire benefit of the SidechainTracker is hidden behind
-  // a chevron). Honor user toggles afterwards.
+  // Auto-open rows that NEED to be open: sub-agent (action log is the
+  // primary signal) and waiting_for_input (the form is the row's whole
+  // reason for showing). Honor user toggles afterwards.
   const [userToggled, setUserToggled] = useState(false);
-  const effectiveOpen = userToggled ? open : (open || detail.type === 'sub_agent');
+  const effectiveOpen = userToggled
+    ? open
+    : (open || detail.type === 'sub_agent' || isWaiting);
 
   const onToggle = () => {
     setUserToggled(true);
@@ -66,6 +77,12 @@ export function ToolCallRow({ toolCall, label }: Props) {
           </span>
         )}
         <span className="ml-auto flex-shrink-0" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
+          {/* `waiting_for_input` is the new state: spinner is misleading
+              ("we're working on it") because we're actually blocked on
+              the user. Show a help-circle accent instead, matching the
+              banner inside the form. Falls back to spinner for the
+              pending/running cases that still mean the agent is busy. */}
+          {isWaiting && <HelpCircle size={11} className="text-amber-500" />}
           {isRunning && <Loader2 size={11} className="animate-spin text-app-text-muted" />}
           {status === 'success' && <Check size={11} className="text-green-500" />}
           {status === 'error' && <X size={11} className="text-red-500" />}
@@ -73,7 +90,42 @@ export function ToolCallRow({ toolCall, label }: Props) {
       </button>
       {effectiveOpen && (
         <div className="ml-5 pb-1.5">
-          <ToolCardBody detail={detail} isError={isError} />
+          {/* Pending input form takes precedence: when the agent is asking
+              the user, the regular ToolCardBody (args/result preview) is
+              not the primary signal — the form is. We still render the
+              args summary above for context. */}
+          {isWaiting && toolCall.userInputSchema && sessionKey ? (
+            <ToolInputForm
+              schema={toolCall.userInputSchema}
+              toolCallId={toolCall.id}
+              onSubmit={async (response: ToolUserResponse) => {
+                // The WS broadcast that follows will flip status →
+                // 'running' and persist `userResponse`; we don't need
+                // to update local state here. If the server rejects
+                // (404/502/503) the chatApi throws an ApiError with the
+                // message attached, which `ToolInputForm` surfaces inline.
+                await chatApi.toolResponse(sessionKey, toolCall.id, response);
+              }}
+            />
+          ) : isWaiting && !sessionKey ? (
+            <div className="text-[11px] text-amber-600 bg-amber-500/10 rounded px-2 py-1">
+              The agent is asking for input but this view has no session context. Reload to answer.
+            </div>
+          ) : (
+            <ToolCardBody detail={detail} isError={isError} />
+          )}
+          {toolCall.userResponse && status !== 'waiting_for_input' && (
+            <div className="mt-1.5 text-[10px] text-app-text-muted">
+              <span className="uppercase tracking-wide">Answered</span>
+              <span className="ml-1 font-mono">
+                {toolCall.userResponse.kind === 'questions'
+                  ? Object.values(toolCall.userResponse.answers).join(' · ')
+                  : toolCall.userResponse.kind === 'raw'
+                    ? toolCall.userResponse.text
+                    : JSON.stringify(toolCall.userResponse.value)}
+              </span>
+            </div>
+          )}
           {toolCall.error && status === 'error' && detail.type !== 'shell' && (
             <div className="mt-1.5">
               <div className="text-[10px] uppercase tracking-wide text-red-500 mb-0.5">Error</div>

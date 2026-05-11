@@ -147,6 +147,31 @@ export const chatApi = {
     });
   },
 
+  /**
+   * Submit the user's answer to a tool that paused the stream (the
+   * `AskUserQuestion`/elicitation flow). The server validates against
+   * its in-memory pending-input registry, persists the response onto
+   * the assistant message, and re-injects the result into the provider
+   * stream so the existing turn resumes — no new model round-trip.
+   *
+   * Errors map to specific HTTP codes:
+   *   - 404 `no pending input` — already submitted, or aborted
+   *   - 503                    — provider missing the capability
+   *   - 502                    — provider rejected the resume
+   * Callers should surface these inline (form stays editable on 502,
+   * collapses with a "already answered" hint on 404).
+   */
+  async toolResponse(
+    sessionKey: string,
+    toolCallId: string,
+    response: import('../types').ToolUserResponse,
+  ): Promise<{ ok: boolean; submittedAt: string }> {
+    return request<{ ok: boolean; submittedAt: string }>('/chat/tool-response', {
+      method: 'POST',
+      body: JSON.stringify({ sessionKey, toolCallId, response }),
+    });
+  },
+
   async getHistory(sessionKey: string, data: HistoryRequest = {}): Promise<HistoryResponse> {
     return request<HistoryResponse>(`/history/${encodeURIComponent(sessionKey)}`, {
       method: 'POST',

@@ -506,6 +506,49 @@ export function useChat() {
         }
         break;
 
+      case 'stream:tool_user_input_required':
+        // The provider paused the stream waiting for a human answer.
+        // Patch the matching ToolCall on the last assistant message so
+        // <ToolCallRow> can swap its spinner for <ToolInputForm>. We
+        // intentionally do NOT clear the streaming flag — the turn is
+        // still in flight; the composer's unified Stop button must stay
+        // available as an escape hatch (see composerAction.ts). The
+        // soft-timeout watchdog is reset because we just heard from the
+        // provider, but it won't fire as long as a tool is open.
+        if (event.toolCallId) {
+          resetStreamTimeout(sessionKey);
+          setMessages(prev => {
+            const msgs = [...(prev[sessionKey] || [])];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
+                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
+                if (tcIdx >= 0) {
+                  const oldTc = msgs[i].toolCalls![tcIdx];
+                  const newTc: ToolCall = {
+                    ...oldTc,
+                    status: 'waiting_for_input',
+                    userInputSchema: event.schema,
+                  };
+                  const nextToolCalls = msgs[i].toolCalls!.slice();
+                  nextToolCalls[tcIdx] = newTc;
+                  let nextBlocks = msgs[i].blocks;
+                  if (nextBlocks) {
+                    nextBlocks = nextBlocks.map(b =>
+                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
+                        ? { kind: 'tool' as const, toolCall: newTc }
+                        : b,
+                    );
+                  }
+                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
+                  break;
+                }
+              }
+            }
+            return { ...prev, [sessionKey]: msgs };
+          });
+        }
+        break;
+
       case 'stream:error':
         clearStreamTimeout(sessionKey);
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));

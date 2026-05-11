@@ -243,6 +243,26 @@ export interface StreamHandler {
       result?: string;
     },
   ) => void;
+  /**
+   * The most recently announced `tool_use` is one that semantically requires
+   * a human answer (Claude Agent SDK's `AskUserQuestion`, MCP elicitation).
+   * Provider has paused the turn and the route SHOULD:
+   *   1. Mark the corresponding `ToolCall.status = 'waiting_for_input'`
+   *      and persist `userInputSchema` onto the row.
+   *   2. Broadcast `stream:tool_user_input_required` so the client renders
+   *      the form.
+   *   3. Suspend its inactivity / soft-timeout timers until either
+   *      `POST /api/chat/tool-response` or `POST /api/chat/abort` arrives.
+   * If the provider that fired this callback does not implement
+   * `resumeWithToolResponse`, the route MUST fail the tool fast with
+   * `status: 'error'` and let the stream finalise — never leave it
+   * hanging on an unanswerable request.
+   */
+  onUserInputRequired?: (
+    toolCallId: string,
+    toolName: string,
+    schema: import("../types").UserInputSchema,
+  ) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;
@@ -339,6 +359,28 @@ export interface AIProvider {
   // --- Session Management (optional) ---
 
   abort?(sessionKey: string, runId?: string): Promise<void>;
+
+  /**
+   * Re-inject the user's answer to a tool that paused the stream (via the
+   * detector in `ask-user-detector.ts`, today only `AskUserQuestion` and
+   * MCP elicitation). Implemented by providers that own a long-running
+   * subprocess waiting on stdin (claude-code) or a paused gateway session.
+   *
+   * Contract:
+   *   - The stream must already be open; this call resumes the existing
+   *     turn, it does NOT start a new model round-trip.
+   *   - Providers that don't support in-band user input leave this
+   *     undefined; the route handler will refuse the suspend and the
+   *     tool will fail-fast with `status: 'error'` instead of hanging.
+   *   - The serialised payload is provider-defined: claude-code writes a
+   *     stream-json `tool_result` line to stdin, MCP would post an
+   *     `elicitation/result` notification, etc.
+   */
+  resumeWithToolResponse?(
+    sessionKey: string,
+    toolCallId: string,
+    response: import("../types").ToolUserResponse,
+  ): Promise<void>;
   getHistory?(sessionKey: string, limit?: number): Promise<unknown>;
   pauseSession?(sessionKey: string): Promise<void>;
   resumeSession?(sessionKey: string): Promise<void>;

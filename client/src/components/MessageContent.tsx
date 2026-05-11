@@ -817,11 +817,19 @@ interface MessageContentProps {
   onPlanReject?: () => void;
   // Session viewer
   onOpenSessionViewer?: (sessionKey: string) => void;
+  /**
+   * The session key this message belongs to. Threaded down to
+   * `<ToolCallRow>` so the inline `ToolInputForm` (rendered when a tool
+   * pauses on AskUserQuestion / MCP elicitation) can POST the answer
+   * via `chatApi.toolResponse(sessionKey, ...)`. Without it the form
+   * downgrades to a read-only "reload to answer" hint.
+   */
+  sessionKey?: string;
   // WebSocket message subscription (for AgentSpawnCard real-time updates)
   onMessage?: (handler: (msg: any) => void) => () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -943,6 +951,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                   <ToolCallRow
                     key={`b-${g.startIdx + j}-${(b as any).toolCall.id}`}
                     toolCall={(b as any).toolCall}
+                    sessionKey={sessionKey}
                   />
                 ))}
               </div>
@@ -1027,7 +1036,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               <div className="space-y-0 mb-1.5">
                 {thinking && <ReasoningRow content={thinking} partial={partial} />}
                 {legacyTools.map((tc) => (
-                  <ToolCallRow key={tc.id} toolCall={tc} />
+                  <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} />
                 ))}
               </div>
             )}

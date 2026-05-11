@@ -136,7 +136,17 @@ export interface ToolCall {
    * narrowing before use.
    */
   args: Record<string, unknown>;
-  status?: 'pending' | 'running' | 'success' | 'error';
+  /**
+   * `waiting_for_input` is the new state for tools that paused the stream
+   * to ask the user a question (Claude Agent SDK's `AskUserQuestion`, MCP
+   * elicitation). It sits between `running` and the terminal `success`/
+   * `error`: the provider has emitted the `tool_use` block, the stream is
+   * suspended, and the client renders a form (`ToolInputForm`) instead of
+   * a spinner. Transitions to `running` when the user submits via
+   * `POST /api/chat/tool-response`, then to terminal status when the
+   * provider acknowledges.
+   */
+  status?: 'pending' | 'running' | 'waiting_for_input' | 'success' | 'error';
   result?: string;
   error?: string;
   contentOffset?: number;
@@ -147,7 +157,59 @@ export interface ToolCall {
    * `detail.actions[]` rather than emitting separate timeline items.
    */
   detail?: ToolCallDetail;
+  /**
+   * When `status === 'waiting_for_input'`, the structured request the
+   * provider made. The UI renders one of three forms based on `kind`:
+   *   - `questions`   → radio fieldsets (Claude SDK `AskUserQuestion`)
+   *   - `elicitation` → typed form from a JSON Schema (MCP)
+   *   - `raw`         → free-text textarea fallback
+   * Stays populated even after submit so re-renders / scroll-back show the
+   * original prompt next to `userResponse`.
+   */
+  userInputSchema?: UserInputSchema;
+  /**
+   * The answer the user submitted. Persisted onto the message blob so the
+   * exchange survives session restart and is auditable in scroll-back.
+   * Absent until the user submits.
+   */
+  userResponse?: ToolUserResponse;
 }
+
+// --- User-input request / response shapes (shared with `server/types.ts`) ---
+//
+// MUST stay in lockstep with the same names in `server/types.ts`. The
+// dispatcher persists `userResponse` and re-injects it into the provider
+// stream verbatim, so any divergence here silently corrupts the on-wire
+// payload. When you change a variant, update both files in the same
+// commit.
+
+export interface AskUserQuestionItem {
+  question: string;
+  /** Short label, ≤ 12 chars by SDK convention. */
+  header: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+}
+
+export type UserInputSchema =
+  | { kind: 'questions'; questions: AskUserQuestionItem[] }
+  | {
+      kind: 'elicitation';
+      requestedSchema: unknown; // JSON Schema — opaque here, narrowed by form runtime
+      message?: string;
+    }
+  | { kind: 'raw'; rawInput: unknown };
+
+export type ToolUserResponse =
+  | {
+      kind: 'questions';
+      /** Keyed by `question` text; values are the selected label or free text. */
+      answers: Record<string, string>;
+      metadata?: Record<string, unknown>;
+      submittedAt: string;
+    }
+  | { kind: 'elicitation'; value: unknown; submittedAt: string }
+  | { kind: 'raw'; text: string; submittedAt: string };
 
 /**
  * Chronological content block emitted during assistant streaming. The
@@ -486,6 +548,19 @@ export interface WSStreamErrorMessage {
   error?: string;
 }
 /**
+ * A tool call paused the stream and is asking the user for input.
+ * The client opens the inline `ToolInputForm` against `schema`; on
+ * submission it `POST /api/chat/tool-response` with the resolved
+ * `ToolUserResponse`. See `ToolCall.userInputSchema` for the lifecycle.
+ */
+export interface WSStreamToolUserInputRequiredMessage {
+  type: 'stream:tool_user_input_required';
+  sessionKey: string;
+  topicId?: string;
+  toolCallId: string;
+  schema: UserInputSchema;
+}
+/**
  * Sent by the server when a client reconnects mid-stream. Carries the
  * accumulated buffer so the late joiner doesn't see a blank assistant
  * message until the next chunk arrives.
@@ -794,6 +869,7 @@ export type WSMessage =
   | WSStreamToolUpdateMessage
   | WSStreamToolDetailMessage
   | WSStreamErrorMessage
+  | WSStreamToolUserInputRequiredMessage
   | WSStreamCatchupMessage
   | WSTypingMessage
   | WSMessageNewMessage

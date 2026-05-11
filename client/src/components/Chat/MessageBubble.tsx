@@ -210,6 +210,7 @@ export const MessageBubble = memo(function MessageBubble({
                 onPlanApprove={onPlanApprove}
                 onPlanReject={onPlanReject}
                 onOpenSessionViewer={onOpenSessionViewer}
+                sessionKey={topic.sessionKey}
                 onMessage={onMessage}
               />
             </div>

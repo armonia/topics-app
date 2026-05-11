@@ -58,7 +58,13 @@ export interface ToolCall {
    * `unknown` over `any` so callers must narrow before use.
    */
   args: Record<string, unknown>;
-  status?: 'pending' | 'running' | 'success' | 'error';
+  /**
+   * `waiting_for_input` — the tool paused the stream to ask the user.
+   * See `client/src/types/index.ts:ToolCall` for the full lifecycle
+   * narrative; this comment intentionally short to keep the file
+   * scannable. Keep the union in lockstep with the client.
+   */
+  status?: 'pending' | 'running' | 'waiting_for_input' | 'success' | 'error';
   result?: string;
   error?: string;
   contentOffset?: number;
@@ -69,7 +75,42 @@ export interface ToolCall {
    * `detail.actions[]` rather than emitting separate timeline items.
    */
   detail?: ToolCallDetail;
+  /** See client mirror for full semantics. Populated for tools that
+   *  request human input; lives on the row so re-renders + scrollback
+   *  show the original prompt. */
+  userInputSchema?: UserInputSchema;
+  /** Persisted user answer; absent until submitted via
+   *  `POST /api/chat/tool-response`. */
+  userResponse?: ToolUserResponse;
 }
+
+// --- User-input shapes (mirror of `client/src/types/index.ts`) -------------
+//
+// Keep this block byte-identical to the client mirror except for the leading
+// `export`. The dispatcher re-injects `userResponse` into the provider stream
+// verbatim; any drift here silently corrupts the wire payload.
+
+export interface AskUserQuestionItem {
+  question: string;
+  header: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+}
+
+export type UserInputSchema =
+  | { kind: 'questions'; questions: AskUserQuestionItem[] }
+  | { kind: 'elicitation'; requestedSchema: unknown; message?: string }
+  | { kind: 'raw'; rawInput: unknown };
+
+export type ToolUserResponse =
+  | {
+      kind: 'questions';
+      answers: Record<string, string>;
+      metadata?: Record<string, unknown>;
+      submittedAt: string;
+    }
+  | { kind: 'elicitation'; value: unknown; submittedAt: string }
+  | { kind: 'raw'; text: string; submittedAt: string };
 
 /**
  * One element in a message's chronological content timeline.
@@ -325,6 +366,14 @@ export interface AppContext {
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
   addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall) => StoredMessage | null;
   updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string) => StoredMessage | null;
+  /**
+   * Patch arbitrary fields on a single ToolCall of the last assistant
+   * message. Used by the user-input flow (status='waiting_for_input',
+   * userInputSchema in; userResponse out) so the on-disk row reflects
+   * non-terminal state — a client reloading mid-pause re-renders the
+   * form instead of an open spinner.
+   */
+  updateToolCallFields: (sessionKey: string, toolCallId: string, patch: Partial<ToolCall>) => StoredMessage | null;
   startStream: (sessionKey: string, messageId: string, abortController?: AbortController) => void;
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;

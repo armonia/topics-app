@@ -741,6 +741,35 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
+  /**
+   * Generic patch for a single ToolCall on the last assistant message.
+   * Used for non-terminal mutations that `updateToolCallResult` doesn't
+   * cover — currently `status: 'waiting_for_input'` + `userInputSchema`
+   * on the way in, and `userResponse` on the way out when the user
+   * answers a paused tool. `status` patching here goes through the same
+   * SQLite row so a reload renders the pending form correctly.
+   */
+  function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): StoredMessage | null {
+    const row = stmts.getLastMessage.get(sessionKey) as any;
+    if (!row) return null;
+    const msg = rowToMessage(row);
+    const tc = msg.toolCalls?.find(t => t.id === toolCallId);
+    if (!tc) return msg;
+    Object.assign(tc, patch);
+    stmts.updateMessage.run({
+      $id: msg.id,
+      $content: msg.content,
+      $thinking: msg.thinking || null,
+      $tool_calls: JSON.stringify(msg.toolCalls),
+      $media: msg.media ? JSON.stringify(msg.media) : null,
+      $partial: msg.partial ? 1 : 0,
+      $streamed_at: msg.streamedAt || null,
+      $plan_status: msg.planStatus || null,
+      ...metaParams({}),
+    });
+    return msg;
+  }
+
   // --- Streams (in-memory, unchanged) ---
   function startStream(sessionKey: string, messageId: string, abortController?: AbortController) {
     activeStreams.set(sessionKey, { sessionKey, startedAt: new Date().toISOString(), isThinking: false, lastActivity: new Date().toISOString(), content: "", thinking: "", messageId, abortController });
@@ -1130,7 +1159,7 @@ export function createAppContext(baseDir: string): AppContext {
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, appendToLastMessage,
-    finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult,
+    finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveSafePath, resolveProjectPath, resolveTopicCwd, getMimeType, isPathAllowed,

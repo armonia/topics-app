@@ -143,7 +143,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
-    createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult,
+    createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
@@ -2300,6 +2300,35 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
               broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult });
             },
 
+            onUserInputRequired: (toolCallId, _toolName, schema) => {
+              // A tool paused the stream to ask the user a question. The
+              // detector in `server/providers/ask-user-detector.ts` already
+              // validated the shape; here we just (1) mutate the on-disk
+              // ToolCall row to flip status + persist the schema so a mid-
+              // pause refresh re-renders the form, (2) update the chat
+              // blocks timeline in-memory for the current stream, and
+              // (3) broadcast a typed WS event so connected clients open
+              // the form immediately. The soft inactivity timer stays
+              // suspended naturally because `trackedToolCallIds` still
+              // contains this id — see the `running` invariant in
+              // `stream-timer.test.ts`.
+              updateToolCallFields(sessionKey, toolCallId, {
+                status: 'waiting_for_input',
+                userInputSchema: schema,
+              });
+              updateBlockTool(toolCallId, {
+                status: 'waiting_for_input',
+                userInputSchema: schema,
+              });
+              broadcastToAll({
+                type: 'stream:tool_user_input_required',
+                sessionKey,
+                topicId: matchedTopic?.id,
+                toolCallId,
+                schema,
+              });
+            },
+
             onSubAgentUpdate: (parentToolCallId, snapshot) => {
               resetStreamTimer();
               // Patch the parent Task tool's `detail` with the latest sub-agent
@@ -2857,6 +2886,110 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort" });
 
       return json({ ok: true, cleared: clearedForReal });
+    }
+
+    // --- Tool response (resume a paused AskUserQuestion / MCP elicitation) ---
+    //
+    // Companion endpoint to the `onUserInputRequired` callback wired into
+    // the stream handler above. The provider has paused the turn waiting
+    // for a `tool_result` block on its stdin; we validate the submission
+    // against the still-pending request on its side, persist the user's
+    // answer onto the assistant message's tool_calls blob (so the
+    // exchange survives reload), and ask the provider to inject the
+    // result. Status transitions waiting_for_input → running; the next
+    // `tool_result` from the CLI will flip it to success/error normally.
+    if (method === "POST" && pathname === "/api/chat/tool-response") {
+      const body = await readJSON(req);
+      const sessionKey = body?.sessionKey;
+      const toolCallId = body?.toolCallId;
+      const response = body?.response;
+      if (!sessionKey || !toolCallId || !response || typeof response.kind !== 'string') {
+        return errorResponse(400, "sessionKey, toolCallId, and response{kind,...} required");
+      }
+      // Provider lookup mirrors abort: O(1) by sessionKey instead of a topics scan.
+      const topic = getTopicBySessionKey(sessionKey);
+      const provider = resolveProvider(topic);
+      if (!provider.connected || !provider.resumeWithToolResponse) {
+        // Fail the tool fast — the route never leaves a waiting_for_input
+        // status orphaned on the row.
+        const errMsg = provider.resumeWithToolResponse
+          ? `provider ${provider.name} is not connected`
+          : `provider ${provider.name} does not support user input`;
+        updateToolCallFields(sessionKey, toolCallId, {
+          status: 'error',
+          error: errMsg,
+        });
+        broadcastToAll({
+          type: 'stream:tool_result',
+          sessionKey,
+          topicId: topic?.id,
+          toolCallId,
+          status: 'error',
+          error: errMsg,
+        });
+        return errorResponse(503, errMsg);
+      }
+
+      const submittedAt = new Date().toISOString();
+      // Normalize the payload — accept partial shapes from the client so
+      // a forgetful caller (no `submittedAt`) still gets a record we can
+      // persist and replay.
+      const normalised =
+        response.kind === 'questions'
+          ? {
+              kind: 'questions' as const,
+              answers: (response.answers || {}) as Record<string, string>,
+              metadata: response.metadata as Record<string, unknown> | undefined,
+              submittedAt,
+            }
+          : response.kind === 'elicitation'
+            ? { kind: 'elicitation' as const, value: response.value, submittedAt }
+            : response.kind === 'raw'
+              ? { kind: 'raw' as const, text: String(response.text ?? ''), submittedAt }
+              : null;
+      if (!normalised) {
+        return errorResponse(400, `unsupported response kind: ${String(response.kind)}`);
+      }
+
+      try {
+        await provider.resumeWithToolResponse(sessionKey, toolCallId, normalised);
+      } catch (err: any) {
+        const msg = err?.message ?? String(err);
+        // Provider rejected (no pending input, process dead, stdin write
+        // failed). Flag the tool as errored so the UI unblocks; the next
+        // user turn can retry from scratch.
+        updateToolCallFields(sessionKey, toolCallId, {
+          status: 'error',
+          error: msg,
+        });
+        broadcastToAll({
+          type: 'stream:tool_result',
+          sessionKey,
+          topicId: topic?.id,
+          toolCallId,
+          status: 'error',
+          error: msg,
+        });
+        // 404 specifically for "no pending input" so the client can show
+        // a friendly "this question was already answered" toast.
+        const status = /no pending input/i.test(msg) ? 404 : 502;
+        return errorResponse(status, msg);
+      }
+
+      updateToolCallFields(sessionKey, toolCallId, {
+        status: 'running',
+        userResponse: normalised,
+      });
+      broadcastToAll({
+        type: 'stream:tool_update',
+        sessionKey,
+        topicId: topic?.id,
+        toolCallId,
+        // No partialResult — this is just a status transition. The next
+        // tool_result event will carry the actual content from the model.
+      });
+
+      return json({ ok: true, submittedAt });
     }
 
     // --- Edit message (create branch) ---
