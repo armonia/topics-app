@@ -467,6 +467,10 @@ interface OverlayMenuItem {
   id: string;
   label: string;
   iconName?: OverlayIconName;
+  /** Optional brand accent for the icon. Mirrors `PANE_CONFIG[type].color`
+   *  so the Electron overlay paints the same hue as the web menu. The
+   *  overlay-renderer ignores it if absent. */
+  iconColor?: string;
   divider?: boolean;
 }
 

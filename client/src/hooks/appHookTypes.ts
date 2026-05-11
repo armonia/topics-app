@@ -12,15 +12,21 @@
  * (`pruneStaleTerminalPanes`) and the panel hook calls it from its own effect.
  */
 
-import type { Message, TerminalSessionInfo } from '../types';
+import type { ChatMessage, TerminalSessionInfo } from '../types';
 
 /**
  * Stream / WS callbacks the panel hook needs from useChat.
  * All read-only or append-only — no mutating setters cross the seam.
+ *
+ * `getSessionMessages` is the SAME callable that `useChat` returns: it
+ * yields `ChatMessage[]` (id, partial, latencyMs, etc.), not the bare
+ * server-side `Message` shape. The earlier type leaked `Message` here,
+ * which made consumers (e.g. usePanelLifecycle's dedupe-by-id) compile-
+ * fail on `m.id`. Keep this aligned with the useChat return signature.
  */
 export interface ChatStreamHandlers {
   isOwnStream: (sessionKey: string) => boolean;
-  getSessionMessages: (sessionKey: string) => Message[];
+  getSessionMessages: (sessionKey: string) => ChatMessage[];
   addMessageFromWS: (
     sessionKey: string,
     msg: { role: 'user' | 'assistant'; content: string; timestamp: string; id?: string },

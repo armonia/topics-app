@@ -71,14 +71,18 @@ export function useServerState<T>(
     return onMessage((msg: WSMessage) => {
       if (msg.type === 'ui-state:updated' && msg.key === key) {
         isFromServerRef.current = true;
-        setValueRaw(msg.value);
+        // The server-side store is opaque to the type system; this hook is
+        // typed generic on `T` per-key. Casting is the cost of having a
+        // single dispatcher route every keyed value type through one
+        // WSMessage variant — alternative is one variant per key.
+        setValueRaw(msg.value as T);
         if (localStorageKey) {
           try { localStorage.setItem(localStorageKey, JSON.stringify(msg.value)); } catch {}
         }
       }
       if (msg.type === 'ui-state:init' && msg.data && key in msg.data) {
         isFromServerRef.current = true;
-        setValueRaw(msg.data[key]);
+        setValueRaw(msg.data[key] as T);
         if (localStorageKey) {
           try { localStorage.setItem(localStorageKey, JSON.stringify(msg.data[key])); } catch {}
         }

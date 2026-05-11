@@ -397,8 +397,10 @@ export interface WSOpenProjectMessage {
 
 export interface WSDragMessage {
   type: 'drag:start' | 'drag:end' | 'drag:accepted' | 'drag:drop';
-  sourceWindowId: string;
-  /** Window that initiated the drop (mirror of sourceWindowId for drag:drop). */
+  /** Originating window id. Some emit sites only set `windowId`; receivers
+   *  treat the two as synonyms. Both optional so the type accepts every
+   *  current emit shape without forcing back-fill. */
+  sourceWindowId?: string;
   windowId?: string;
   topicId?: string;
 }
@@ -427,6 +429,85 @@ export interface WSStreamEndMessage {
   costCents?: number;
   /** Free-form reason carried on non-success terminations (e.g. `user_abort`). */
   reason?: string;
+}
+
+// Per-event slices of a streaming assistant turn. The server's chat
+// pipeline broadcasts these for cross-window sync; the local SSE stream
+// that originated the turn ignores them (see `localSSESessionsRef` in
+// `useChat.handleStreamEvent`) to avoid duplicate content. Every variant
+// carries `sessionKey` so the receiver can route to the right pane.
+export interface WSStreamThinkingStartMessage {
+  type: 'stream:thinking_start';
+  sessionKey: string;
+}
+export interface WSStreamThinkingChunkMessage {
+  type: 'stream:thinking_chunk';
+  sessionKey: string;
+  content: string;
+}
+export interface WSStreamThinkingEndMessage {
+  type: 'stream:thinking_end';
+  sessionKey: string;
+}
+export interface WSStreamContentChunkMessage {
+  type: 'stream:content_chunk';
+  sessionKey: string;
+  content: string;
+}
+export interface WSStreamToolCallMessage {
+  type: 'stream:tool_call';
+  sessionKey: string;
+  toolCall: ToolCall;
+}
+export interface WSStreamToolResultMessage {
+  type: 'stream:tool_result';
+  sessionKey: string;
+  toolCallId: string;
+  status?: ToolCall['status'];
+  result?: string;
+  error?: string;
+  detail?: ToolCall['detail'];
+}
+export interface WSStreamToolUpdateMessage {
+  type: 'stream:tool_update';
+  sessionKey: string;
+  toolCallId: string;
+  partialResult?: string;
+}
+export interface WSStreamToolDetailMessage {
+  type: 'stream:tool_detail';
+  sessionKey: string;
+  toolCallId: string;
+  detail: ToolCall['detail'];
+}
+export interface WSStreamErrorMessage {
+  type: 'stream:error';
+  sessionKey: string;
+  error?: string;
+}
+/**
+ * Sent by the server when a client reconnects mid-stream. Carries the
+ * accumulated buffer so the late joiner doesn't see a blank assistant
+ * message until the next chunk arrives.
+ */
+export interface WSStreamCatchupMessage {
+  type: 'stream:catchup';
+  sessionKey: string;
+  content?: string;
+  thinking?: string;
+  isThinking?: boolean;
+  messageId?: string;
+}
+
+/**
+ * Lightweight presence event — another window in the same browser session
+ * (or another connected client) is composing a reply on `topicId`. The
+ * UI shows an "X is typing…" hint for ~2s.
+ */
+export interface WSTypingMessage {
+  type: 'typing';
+  topicId: string;
+  text?: string;
 }
 
 export interface WSMessageNewMessage {
@@ -481,6 +562,11 @@ export interface WSTerminalSessionsMessage {
 }
 
 // --- Notifications -----------------------------------------------------------
+/** Initial unread snapshot sent on WS connect. Keyed by topicId. */
+export interface WSUnreadInitMessage {
+  type: 'unread:init';
+  data?: Record<string, { lastReadAt: string; unreadCount: number }>;
+}
 export interface WSUnreadUpdatedMessage {
   type: 'unread:updated';
   topicId: string;
@@ -493,26 +579,85 @@ export interface WSUnreadUpdatedMessage {
 // then read `msg.task.id`, `...msg.task`, etc.
 import type { BoardTask, Approval, BoardMemory } from '../lib/api';
 
-export interface WSTaskMessage {
-  type: 'task:created' | 'task:updated' | 'task:moved' | 'task:deleted'
-       | 'task:archived' | 'task:unarchived';
+// `WSTaskMessage` used to be a single shape with everything optional
+// (`task?`, `taskId?`) — that meant every consumer had to defensively
+// narrow `msg.task` even after checking `msg.type`. Split into two narrow
+// variants so the discriminator does the work for us: upsert events
+// always carry `task`, delete events always carry `taskId`.
+export interface WSTaskUpsertMessage {
+  type: 'task:created' | 'task:updated' | 'task:moved' | 'task:unarchived';
   projectId: string;
-  task?: BoardTask;
-  taskId?: string;
+  task: BoardTask;
+}
+export interface WSTaskDeleteMessage {
+  type: 'task:deleted' | 'task:archived';
+  projectId: string;
+  taskId: string;
 }
 
-export interface WSApprovalMessage {
-  type: 'approval:created' | 'approval:resolved';
+export interface WSApprovalCreatedMessage {
+  type: 'approval:created';
   projectId: string;
-  approval?: Approval;
-  approvalId?: string;
+  approval: Approval;
+}
+/**
+ * Server emits one of these literal names depending on the resolution.
+ * Code paths that need to distinguish branch on `type`; paths that just
+ * want "the approval is gone" treat both alike.
+ */
+export interface WSApprovalResolvedMessage {
+  type: 'approval:resolved' | 'approval:approved' | 'approval:rejected';
+  projectId?: string;
+  approvalId: string;
 }
 
-export interface WSBoardMemoryMessage {
-  type: 'board-memory:created' | 'board-memory:updated' | 'board-memory:deleted';
+export interface WSBoardMemoryUpsertMessage {
+  type: 'board-memory:created' | 'board-memory:updated' | 'board:memory_added';
   projectId: string;
-  memory?: BoardMemory;
-  memoryId?: string;
+  memory: BoardMemory;
+}
+export interface WSBoardMemoryDeleteMessage {
+  type: 'board-memory:deleted';
+  projectId: string;
+  memoryId: string;
+}
+
+/**
+ * Periodic ping from a worker telling the board "I'm alive". Used to grey
+ * out tasks whose owner has gone silent.
+ */
+export interface WSAgentHeartbeatMessage {
+  type: 'agent:heartbeat';
+  agentId: string;
+  /** Optional project scoping — heartbeats from agents NOT bound to a
+   *  project still need to clear stale entries everywhere. */
+  projectId?: string;
+}
+
+/**
+ * Worker is asking the human for help — surfaces as a banner. Payload
+ * mirrors `WSAgentNudgeMessage` because the UI renders them the same
+ * way, but the literal is distinct so handlers can choose to ignore one.
+ */
+export interface WSAgentEscalationMessage {
+  type: 'agent:escalation';
+  agentId: string;
+  agentName: string;
+  message: string;
+  taskId: string | null;
+  projectId: string;
+  timestamp?: number;
+}
+
+/**
+ * Lightweight "is doing something" presence ping per agent. Distinct from
+ * heartbeat because consumers may want to update activity UI more often
+ * than they refresh the heartbeat map.
+ */
+export interface WSAgentActiveMessage {
+  type: 'agent_active';
+  agentId: string;
+  projectId?: string;
 }
 
 export interface WSAgentNudgeMessage {
@@ -527,6 +672,59 @@ export interface WSAgentNudgeMessage {
 
 export interface WSDashboardUpdatedMessage {
   type: 'dashboard:updated' | 'cron:updated';
+}
+
+// --- Misc resource-update broadcasts ---------------------------------------
+/** Memory store changed — consumers refetch. `scope` narrows the refresh
+ *  (e.g. only the global memory or a specific topic's memory); when absent
+ *  consumers refresh everything. */
+export interface WSMemoryUpdatedMessage {
+  type: 'memory:updated';
+  projectId?: string;
+  scope?: 'global' | 'topic';
+  topicId?: string;
+}
+/** Repo git status snapshot updated. */
+export interface WSGitStatusMessage {
+  type: 'git:status';
+  projectPath?: string;
+  projectId?: string;
+  status?: unknown;
+}
+/** Scripts list (package.json scripts etc.) changed. */
+export interface WSScriptsUpdatedMessage {
+  type: 'scripts:updated';
+  projectPath?: string;
+  projectId?: string;
+  /** Full scripts payload — opaque to the type system; consumers cast. */
+  scripts?: unknown;
+}
+/** Browser pane navigation broadcast. */
+export interface WSBrowserNavigateMessage {
+  type: 'browser:navigate';
+  contextId: string;
+  url: string;
+}
+/**
+ * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
+ * Split into init (full snapshot keyed by store key) vs updated (single
+ * key/value pair) so consumers can narrow without optional-field casts.
+ */
+export interface WSUIStateInitMessage {
+  type: 'ui-state:init';
+  /** Full snapshot keyed by `useServerState` key. */
+  data?: Record<string, unknown>;
+  seq?: number;
+  originId?: string;
+}
+export interface WSUIStateUpdatedMessage {
+  type: 'ui-state:updated';
+  /** The store key that changed. */
+  key: string;
+  /** The new value for that key. Opaque to the type system. */
+  value: unknown;
+  seq?: number;
+  originId?: string;
 }
 
 // --- Project + Worktree (Phase A · migrations 016-018) ----------------------
@@ -557,6 +755,20 @@ export interface WSMachineMessage {
  * broadcast to add a typed variant first. Index sig is `unknown` (not `any`)
  * so reads require explicit casts — visible churn is the point.
  */
+/**
+ * Catch-all kept OUTSIDE the `WSMessage` union below. Including it in the
+ * union widens `WSMessage['type']` to plain `string` (the `string & {}`
+ * brand trick collapses back to `string` once it touches another string-
+ * literal field, see microsoft/TypeScript#29729) and destroys literal
+ * narrowing on every handler — `msg.task` becomes `unknown` because the
+ * post-narrow type still contains `WSUnknownMessage`.
+ *
+ * Forward-compatibility is preserved without it: at runtime the server
+ * can emit any `{type, ...}` shape, and handlers already gate on
+ * `if (msg.type === '<literal>')` so unknown types fall through silently.
+ * If a call site needs to introspect an unknown message it can cast to
+ * `WSUnknownMessage` explicitly.
+ */
 export interface WSUnknownMessage {
   type: string;
   [key: string]: unknown;
@@ -573,6 +785,17 @@ export type WSMessage =
   | WSDragMessage
   | WSStreamStartMessage
   | WSStreamEndMessage
+  | WSStreamThinkingStartMessage
+  | WSStreamThinkingChunkMessage
+  | WSStreamThinkingEndMessage
+  | WSStreamContentChunkMessage
+  | WSStreamToolCallMessage
+  | WSStreamToolResultMessage
+  | WSStreamToolUpdateMessage
+  | WSStreamToolDetailMessage
+  | WSStreamErrorMessage
+  | WSStreamCatchupMessage
+  | WSTypingMessage
   | WSMessageNewMessage
   | WSMessageMediaMessage
   | WSClearMessage
@@ -580,19 +803,32 @@ export type WSMessage =
   | WSAgentsSpawnedMessage
   | WSAgentsStoppedMessage
   | WSTerminalSessionsMessage
+  | WSUnreadInitMessage
   | WSUnreadUpdatedMessage
-  | WSTaskMessage
-  | WSApprovalMessage
-  | WSBoardMemoryMessage
+  | WSTaskUpsertMessage
+  | WSTaskDeleteMessage
+  | WSApprovalCreatedMessage
+  | WSApprovalResolvedMessage
+  | WSBoardMemoryUpsertMessage
+  | WSBoardMemoryDeleteMessage
+  | WSAgentHeartbeatMessage
+  | WSAgentEscalationMessage
+  | WSAgentActiveMessage
   | WSAgentNudgeMessage
   | WSDashboardUpdatedMessage
+  | WSMemoryUpdatedMessage
+  | WSGitStatusMessage
+  | WSScriptsUpdatedMessage
+  | WSBrowserNavigateMessage
+  | WSUIStateInitMessage
+  | WSUIStateUpdatedMessage
   | WSProjectMessage
   | WSWorktreeMessage
-  | WSMachineMessage
-  | WSUnknownMessage;
-// `WSUnknownMessage` is the catch-all — its `type: string` field WIDENS
-// `WSMessage['type']` to `string`, which means literal-narrowing
-// (`if (msg.type === 'task:created')`) won't tighten msg's static type.
+  | WSMachineMessage;
+// (Historical note: an earlier shape had `WSUnknownMessage.type: string`
+// which widened the union's `type` to plain `string` and broke literal
+// narrowing across every handler. The `string & {}` brand above fixed it
+// without losing the catch-all behavior.)
 // This was the contract before Phase A and the consumers we don't own
 // (useBoard.ts, useChat.ts, …) still assume the wider shape. The new
 // typed members above (WSProjectMessage, WSWorktreeMessage, …) are

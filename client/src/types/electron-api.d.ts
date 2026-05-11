@@ -111,6 +111,18 @@ declare global {
     electronAPI?: {
       browserNative?: BrowserNativeAPI;
       overlay?: OverlayAPI;
+      /** Whether the page is running inside the Electron shell. Some callsites
+       *  branch on this to short-circuit reload / cache-bust paths in favor
+       *  of the native equivalents below. */
+      isElectron?: boolean;
+      /**
+       * App lifecycle bridge. Currently only `relaunch()` is consumed by
+       * `SidebarStatusBar` to perform a hard-restart that bypasses the
+       * service worker; expand as more native commands are needed.
+       */
+      app?: {
+        relaunch(): Promise<void>;
+      };
       // existing fields stay typed via the ad-hoc shape already used in App.tsx
       // (see client/src/types/electron.d.ts). We don't lock them down here to
       // avoid touching unrelated callsites.

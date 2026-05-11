@@ -126,7 +126,12 @@ export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: Us
       if (msg.type === 'agents:sessions' && Array.isArray(msg.sessions)) {
         const now = Date.now();
         lastUpdateRef.current = now;
-        const incoming: AgentSession[] = msg.sessions;
+        // The WSAgentsSessionsMessage type declares a minimal shape on
+        // the wire (`key`, `status`, optional metadata). The server
+        // actually sends the full `AgentSession` payload; the wire type
+        // is conservative to avoid duplicating the rich shape in the
+        // WSMessage union. We trust the server's shape here.
+        const incoming = msg.sessions as unknown as AgentSession[];
         setSessions(prev => {
           // Merge: for each session, keep whichever has a newer updatedAt
           const incomingMap = new Map(incoming.map(s => [s.key, s]));

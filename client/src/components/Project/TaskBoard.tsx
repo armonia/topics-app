@@ -32,14 +32,24 @@ export function TaskBoard({ topicId, projectId, onWSMessage, onOpenBoard }: Task
   // WS sync
   useEffect(() => {
     const unsub = onWSMessage((msg: WSMessage) => {
+      // Pre-filter on type so the subsequent reads see narrowed payloads
+      // and the project-id check operates on a known field. The earlier
+      // shape did `msg.projectId !== projectId` against the whole union,
+      // which TS rightly rejected because most variants don't carry one.
+      if (
+        msg.type !== 'task:created' &&
+        msg.type !== 'task:updated' &&
+        msg.type !== 'task:moved' &&
+        msg.type !== 'task:deleted'
+      ) {
+        return;
+      }
       if (msg.projectId !== projectId) return;
       if (msg.type === 'task:created') {
         setTasks(prev => prev.some(t => t.id === msg.task.id) ? prev : [...prev, msg.task]);
-      }
-      if (msg.type === 'task:updated' || msg.type === 'task:moved') {
+      } else if (msg.type === 'task:updated' || msg.type === 'task:moved') {
         setTasks(prev => prev.map(t => t.id === msg.task.id ? msg.task : t));
-      }
-      if (msg.type === 'task:deleted') {
+      } else if (msg.type === 'task:deleted') {
         setTasks(prev => prev.filter(t => t.id !== msg.taskId));
       }
     });

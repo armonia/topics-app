@@ -656,7 +656,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return onWSMessage((msg) => {
       if (msg.type === 'drag:start' && msg.sourceWindowId !== windowId) {
         setExternalDragTopicId(msg.topicId ?? null);
-        setExternalDragSourceWindow(msg.sourceWindowId);
+        // `sourceWindowId` is now optional on the wire (some emit sites only
+        // set `windowId`); coalesce so the state setter, which is
+        // `string | null`, never sees `undefined`.
+        setExternalDragSourceWindow(msg.sourceWindowId ?? null);
       }
       if (msg.type === 'drag:end' && msg.sourceWindowId !== windowId) {
         setExternalDragTopicId(null);

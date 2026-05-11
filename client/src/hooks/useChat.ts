@@ -325,7 +325,11 @@ export function useChat() {
 
   // Handle WebSocket stream events (cross-window sync)
   const handleStreamEvent = useCallback((event: WSMessage) => {
-    const sessionKey = event.sessionKey;
+    // Every stream:* and message:media variant carries a sessionKey, but the
+    // dispatcher upstream accepts the full WSMessage union (which includes
+    // events that don't). Narrow via `in` so the rest of this function can
+    // use `sessionKey` without per-case re-narrowing on each switch arm.
+    const sessionKey = 'sessionKey' in event ? (event as { sessionKey?: string }).sessionKey : undefined;
     if (!sessionKey) return;
 
     // Skip WS stream events for sessions with an active local SSE stream

@@ -93,8 +93,14 @@ export function SidebarStatusBar() {
 
   const handleRefresh = async () => {
     if (isElectron) {
-      await window.electronAPI!.app.relaunch();
-      return;
+      // `app` is declared optional on the electron API surface — older
+      // builds didn't expose it. Fall through to the web reload path
+      // when missing so the button is never inert.
+      const relaunch = window.electronAPI?.app?.relaunch;
+      if (relaunch) {
+        await relaunch();
+        return;
+      }
     }
     setRefreshing(true);
     try {
