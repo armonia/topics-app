@@ -2137,18 +2137,27 @@ let assetWatcher: fs.FSWatcher | null = null;
 let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startAssetWatcher(): void {
-  // DEV-ONLY (since 2026-05-11). In packaged production builds the
-  // electron-updater is the canonical channel for new versions; an asset
-  // watcher there would silently reload the window every time the user
-  // builds the client locally (or every time `bun --watch` flushed a new
-  // bundle), wiping tab/panel state without the user understanding why.
+  // OPT-IN ONLY (since 2026-05-11, third-pass — definitive).
   //
-  // Override with `TOPICS_AUTO_RELOAD=1` if you genuinely want the old
-  // production behaviour back (e.g. an internal kiosk that needs to track
-  // the latest deploy without restarting).
-  const envForce = process.env.TOPICS_AUTO_RELOAD === '1';
-  if (app.isPackaged && !envForce) {
-    console.log('[Topics Electron] Asset watcher disabled in packaged build (set TOPICS_AUTO_RELOAD=1 to override)');
+  // The previous gates (`app.isPackaged`, `NODE_ENV === 'production'`)
+  // both produced false negatives in our prod launchd workflow
+  // (com.armonia.topics-electron-prod → start-electron-prod.sh
+  // → start-prod.sh launches Electron via the bare `electron <appdir>`
+  // binary). Combined with `start-prod.sh`'s own `fswatch + vite build`
+  // loop, every edit to `client/src/**` produced a forced reload of the
+  // user's open Electron window — wiping tab/panel state without any
+  // intent on their part.
+  //
+  // New default: the watcher is OFF unless the user explicitly opts in.
+  //   · `TOPICS_AUTO_RELOAD=1`  →  watcher enabled (dev workflow)
+  //   · anything else            →  watcher disabled (user keeps control)
+  //
+  // The `start-prod.sh` script's vite-rebuild-on-change loop still runs
+  // and keeps `public/index.html` fresh; the user just sees the new
+  // bundle on the next manual reload (sidebar Reload button or app
+  // relaunch). No silent surprises.
+  if (process.env.TOPICS_AUTO_RELOAD !== '1') {
+    console.log('[Topics Electron] Asset watcher disabled by default — set TOPICS_AUTO_RELOAD=1 to enable hot reload on rebuild');
     return;
   }
 
