@@ -13,7 +13,19 @@ const blankState = (): PaneState => ({
 });
 
 describe("selectSyncableSnapshot (PANE-02)", () => {
-  test("strips scrollOffset from project nested panes", () => {
+  test("omits the projects map entirely (it's no longer cross-device synced)", () => {
+    // History: this test used to assert that nested
+    // `snapshot.projects[path].panes[id].scrollOffset` was stripped.
+    // PANE-02 evolved past that — `projects` was found to be the wrong
+    // scope (per `projectLayoutSync.ts` header) and the synced result
+    // wasn't authoritative anywhere, so `buildSnapshot` now drops the
+    // whole `projects` field. Inner-project layouts persist locally via
+    // `topics-project-panes-<hash>` instead.
+    //
+    // The invariant we still care about is the user-visible one: no
+    // device-local field can leak across devices. Verifying that
+    // `projects` simply isn't in the snapshot covers it more strongly
+    // than the old per-field assertion.
     const state = blankState();
     const pane: Pane = {
       id: "chat:t1",
@@ -34,11 +46,7 @@ describe("selectSyncableSnapshot (PANE-02)", () => {
 
     const snapshot = selectSyncableSnapshot(state);
 
-    expect(snapshot.projects["proj-a"].panes["chat:t1"].scrollOffset).toBeUndefined();
-    // Other fields must survive
-    expect(snapshot.projects["proj-a"].panes["chat:t1"].id).toBe("chat:t1");
-    expect(snapshot.projects["proj-a"].panes["chat:t1"].type).toBe("chat");
-    expect(snapshot.projects["proj-a"].panes["chat:t1"].topicId).toBe("t1");
+    expect((snapshot as { projects?: unknown }).projects).toBeUndefined();
   });
 
   test("strips BOTH outer and nested scrollOffset from closedStack records", () => {

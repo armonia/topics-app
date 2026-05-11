@@ -1,0 +1,11 @@
+# Bun configuration.
+#
+# Notes on test discovery: `bun test` does NOT support an `exclude` /
+# `testIgnore` glob (verified against bun 1.3.8, `bun test --help`). Its
+# discovery walks the working dir and runs every `*.test.ts(x)` and
+# `*.spec.ts(x)` it finds, which inevitably picks up the Playwright specs
+# under `tests/e2e/*.spec.ts` and crashes with "Playwright Test did not
+# expect test.describe() to be called here.". The unit/integration runner
+# is kept under `bun test:unit` (see package.json scripts) with an
+# explicit positional path list. This file exists for future bunfig keys
+# but stays minimal so it doesn't fail to parse.

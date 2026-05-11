@@ -29,7 +29,8 @@
     "check:any": "bun run scripts/check-any.ts",
     "test": "npx playwright test",
     "test:ui": "npx playwright test --ui",
-    "test:report": "npx playwright show-report test-results/html-report"
+    "test:report": "npx playwright show-report test-results/html-report",
+    "test:unit": "bun test client/src server/ tests/unit tests/integration"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",

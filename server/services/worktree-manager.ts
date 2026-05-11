@@ -241,15 +241,31 @@ export function createWorktreeManager(
     chainOnProjectQueue(input.projectId, async () => {
       try {
         await materialiseOnDisk(project.path, absPath, branchName, input);
-        const updated = deps.worktreeStore.update(row.id, { status: "ready" });
-        if (updated) ctx.broadcastToAll({ type: "worktree:updated", worktree: updated, payload_version: 1 });
+        // Wrap the DB write: when this async runs AFTER `closeDatabase()`
+        // (e.g. a peer test in the same process has torn down the
+        // singleton between scheduling and execution), the prepared
+        // statement throws SQLITE_NOMEM. We don't want to crash the
+        // entire process for a best-effort status update on a worktree
+        // that's already going stale anyway.
+        try {
+          const updated = deps.worktreeStore.update(row.id, { status: "ready" });
+          if (updated) ctx.broadcastToAll({ type: "worktree:updated", worktree: updated, payload_version: 1 });
+        } catch (dbErr) {
+          console.warn(`[WorktreeManager] post-materialise update skipped (DB unavailable):`, dbErr);
+        }
       } catch (err: any) {
         const stderr = err?.stderr || String(err?.message || err);
-        const updated = deps.worktreeStore.update(row.id, {
-          status: "error",
-          errorMessage: stderr.slice(0, 4000),
-        });
-        if (updated) ctx.broadcastToAll({ type: "worktree:updated", worktree: updated, payload_version: 1 });
+        // Same guard as above — recording the failure shouldn't crash the
+        // outer process if the DB is gone.
+        try {
+          const updated = deps.worktreeStore.update(row.id, {
+            status: "error",
+            errorMessage: stderr.slice(0, 4000),
+          });
+          if (updated) ctx.broadcastToAll({ type: "worktree:updated", worktree: updated, payload_version: 1 });
+        } catch (dbErr) {
+          console.warn(`[WorktreeManager] error-status update skipped (DB unavailable):`, dbErr);
+        }
         console.error(
           `[WorktreeManager] create failed { project_slug: ${project.slug}, worktree_name: ${name} }`,
           err,
