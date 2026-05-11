@@ -2,6 +2,43 @@
 # Start prod server with auto-reload for both server and client
 cd /Users/user/Projects/topics-app
 
+# ─── Single-instance guard (2026-05-11) ────────────────────────────────────
+# Without this, every `launchctl bootout`/`bootstrap` cycle (or any glitchy
+# `KeepAlive=true` restart) leaves a SECOND `start-prod.sh` running in
+# parallel. Each instance spawns its own fswatch + bun --watch, so every
+# real change fires N builds — AND fswatch can emit phantom events at a
+# steady cadence (~10 s in our case), which manifested as "the app
+# refreshes by itself every 10 seconds". Holding a PID lockfile keeps
+# exactly one instance alive.
+LOCKFILE="/tmp/topics-start-prod.lock"
+if [ -f "$LOCKFILE" ]; then
+  OLD_PID=$(cat "$LOCKFILE" 2>/dev/null)
+  if [ -n "$OLD_PID" ] && [ "$OLD_PID" != "$$" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "[start-prod] Another instance is already running (PID $OLD_PID). Exiting."
+    exit 0
+  fi
+  # Stale lockfile — clean up
+  rm -f "$LOCKFILE"
+fi
+echo $$ > "$LOCKFILE"
+
+# Atomic-write check: only proceed if we won the race
+sleep 0.2
+WINNER=$(cat "$LOCKFILE" 2>/dev/null)
+if [ "$WINNER" != "$$" ]; then
+  echo "[start-prod] Lost race to PID $WINNER. Exiting."
+  exit 0
+fi
+
+# Clean up the lockfile + any child processes on exit so a future restart
+# isn't blocked by a stale PID. SIGTERM from launchd lands here.
+cleanup() {
+  rm -f "$LOCKFILE"
+  # Kill the background fswatch loop subshell + bun --watch
+  jobs -p | xargs -r kill 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
 # Initial client build
 (cd client && npx vite build 2>&1 | tail -3)
 
