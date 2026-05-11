@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ChatRequest, ContentBlock, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
+import { decideClientWipeOnStop } from './stopSessionPolicy';
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
@@ -109,6 +110,13 @@ export function useChat() {
   // window elapses the next mount refetches normally.
   const lastHistoryFetchAtRef = useRef<Map<string, number>>(new Map());
   const HISTORY_DEDUP_MS = 5_000;
+  // Sessions whose `messages[sessionKey]` map has been populated at least
+  // once from the server's authoritative history endpoint (or an equivalent
+  // server-truth path like editMessage's post-edit thread reload). Until
+  // that's true the local user-message count is not reliable, and we MUST
+  // NOT use it to decide whether `stopSession` is allowed to wipe the
+  // conversation. See `stopSessionPolicy.ts` for the full rationale.
+  const hydratedSessionsRef = useRef<Set<string>>(new Set());
   // Per-session send lock — prevents concurrent sendMessage calls for the same session
   // Stores timestamp of lock acquisition; auto-expires after SEND_LOCK_TIMEOUT_MS
   const sendLockRef = useRef<Map<string, number>>(new Map());
@@ -857,6 +865,7 @@ export function useChat() {
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
         setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
+        hydratedSessionsRef.current.add(sessionKey);
       } catch {}
 
       // Auto-send next queued message (Claude Code-style queue drain)
@@ -977,10 +986,17 @@ export function useChat() {
       controller.abort();
     }
 
-    // Check if this is the first exchange (1 user + 1 partial assistant)
+    // Decide whether this is a brand-new chat that can be wiped client-side.
+    // We MUST consult `hydratedSessionsRef`: until `loadHistory` has run for
+    // this session, `messagesRef.current[sessionKey]` is empty for non-content
+    // reasons (initial mount race, hot reload, WS reconnect) and would
+    // falsely claim "first message" on a thread the server has on disk.
+    // See `stopSessionPolicy.ts` for the full rationale and the matching
+    // server-side guard in `server/routes/abortClearPolicy.ts`.
+    const hydrated = hydratedSessionsRef.current.has(sessionKey);
     const msgs = messagesRef.current[sessionKey] || [];
     const userMsgs = msgs.filter(m => m.role === 'user');
-    const isFirstMessage = userMsgs.length <= 1;
+    const isFirstMessage = decideClientWipeOnStop(hydrated, userMsgs.length);
 
     // Tell the server to abort — also clear server-side messages if first message
     chatApi.abort(sessionKey, isFirstMessage).catch(() => {});
@@ -989,6 +1005,9 @@ export function useChat() {
       // Clear session entirely — the chat is brand new
       setMessages(prev => ({ ...prev, [sessionKey]: [] }));
       clearCachedMessages(sessionKey);
+      // We just emptied the local map; future stop clicks on this key
+      // must re-hydrate from the server before they can wipe again.
+      hydratedSessionsRef.current.delete(sessionKey);
     } else {
       updateLastMessage(sessionKey, { partial: false });
     }
@@ -1052,6 +1071,11 @@ export function useChat() {
       // Mark this session as freshly loaded — subsequent re-mounts within
       // HISTORY_DEDUP_MS will short-circuit instead of re-fetching.
       lastHistoryFetchAtRef.current.set(sessionKey, Date.now());
+      // The local messages map for this session is now backed by the
+      // server's authoritative response; `stopSession` may rely on its
+      // count to decide whether this is a brand-new chat that can be
+      // wiped. Until this point a Stop click MUST refuse to wipe.
+      hydratedSessionsRef.current.add(sessionKey);
 
       // Clear any queued outbound messages for this session — the server already has them
       const queue = getOutboundQueue();
@@ -1149,6 +1173,7 @@ export function useChat() {
         ...prev,
         [sessionKey]: chatMessages,
       }));
+      hydratedSessionsRef.current.add(sessionKey);
 
       // Now process the SSE stream for the assistant response
       let reader: ReadableStreamDefaultReader<Uint8Array>;

@@ -15,6 +15,7 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { buildProviderHistory } from "../utils/build-provider-history";
+import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
   assembleTopicContext,
@@ -2825,20 +2826,20 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // in-memory state — which is empty during initial load, after WS
       // reconnect, and after a hot-reload race. Trusting the client here
       // would let `saveLocalMessages([])` wipe entire conversation histories
-      // when the client guess is wrong. We re-check from the DB authoritative
-      // copy: only honor the wipe when there's actually ≤1 user message AND
-      // ≤1 assistant message stored.
+      // when the client guess is wrong. We re-derive the decision from the
+      // DB authoritative copy via `shouldHonorClearMessages` (see
+      // `abortClearPolicy.ts` for the rationale and the matching client-side
+      // guard in `stopSessionPolicy.ts`).
       let clearedForReal = false;
       if (body?.clearMessages) {
         const stored = loadLocalMessages(sessionKey);
-        const userCount = stored.filter((m) => m.role === "user").length;
-        const assistantCount = stored.filter((m) => m.role === "assistant").length;
-        if (userCount <= 1 && assistantCount <= 1) {
+        const decision = shouldHonorClearMessages(stored);
+        if (decision.shouldWipe) {
           saveLocalMessages(sessionKey, []);
           clearedForReal = true;
         } else {
           console.warn(
-            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${userCount} user / ${assistantCount} assistant messages, not first-message`
+            `[Abort] Ignored clearMessages=true for ${sessionKey} — DB has ${decision.userCount} user / ${decision.assistantCount} assistant messages, not first-message`
           );
           // Fall through to the normal finalize path so we don't lose the
           // partial assistant content the user was about to abort.
