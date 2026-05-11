@@ -2137,27 +2137,36 @@ let assetWatcher: fs.FSWatcher | null = null;
 let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startAssetWatcher(): void {
-  // OPT-IN ONLY (since 2026-05-11, third-pass — definitive).
+  // DEFAULT ON, OPT-OUT via env var (revised 2026-05-11, fourth pass).
   //
-  // The previous gates (`app.isPackaged`, `NODE_ENV === 'production'`)
-  // both produced false negatives in our prod launchd workflow
-  // (com.armonia.topics-electron-prod → start-electron-prod.sh
-  // → start-prod.sh launches Electron via the bare `electron <appdir>`
-  // binary). Combined with `start-prod.sh`'s own `fswatch + vite build`
-  // loop, every edit to `client/src/**` produced a forced reload of the
-  // user's open Electron window — wiping tab/panel state without any
-  // intent on their part.
+  // Earlier passes had two failure modes:
+  //   · `app.isPackaged` gate (v1) — false in our prod workflow that
+  //     launches Electron via the bare binary, so the watcher fired
+  //     during Claude-session edits and the user saw apparent random
+  //     reloads.
+  //   · default-OFF (v3) — killed the legitimate dev workflow where a
+  //     developer expects the window to refresh after they save a
+  //     file. Throwing the baby out with the bathwater.
   //
-  // New default: the watcher is OFF unless the user explicitly opts in.
-  //   · `TOPICS_AUTO_RELOAD=1`  →  watcher enabled (dev workflow)
-  //   · anything else            →  watcher disabled (user keeps control)
+  // What the user actually wants:
+  //   · When *they* edit code → reload                  (this is fine)
+  //   · When the app is idle  → NO reload               (no surprises)
   //
-  // The `start-prod.sh` script's vite-rebuild-on-change loop still runs
-  // and keeps `public/index.html` fresh; the user just sees the new
-  // bundle on the next manual reload (sidebar Reload button or app
-  // relaunch). No silent surprises.
-  if (process.env.TOPICS_AUTO_RELOAD !== '1') {
-    console.log('[Topics Electron] Asset watcher disabled by default — set TOPICS_AUTO_RELOAD=1 to enable hot reload on rebuild');
+  // The on-disk trigger (`public/index.html` mtime change) is the same
+  // in both cases, so the watcher can't tell them apart from the
+  // filesystem alone. Instead we keep the watcher ON by default — the
+  // *cause* of an idle reload was always an external rebuild (a Claude
+  // session editing many files via the `start-prod.sh` fswatch loop,
+  // a `git pull`, etc.), and those still propagate. When the user wants
+  // a no-reload window (e.g. a long pair-programming session with
+  // Claude that's about to touch dozens of files), they set
+  // `TOPICS_AUTO_RELOAD=0` and the watcher stays asleep.
+  //
+  //   · TOPICS_AUTO_RELOAD unset    → watcher ON  (default, dev-friendly)
+  //   · TOPICS_AUTO_RELOAD=1        → watcher ON  (explicit force)
+  //   · TOPICS_AUTO_RELOAD=0        → watcher OFF (pause mode)
+  if (process.env.TOPICS_AUTO_RELOAD === '0') {
+    console.log('[Topics Electron] Asset watcher disabled by TOPICS_AUTO_RELOAD=0');
     return;
   }
 
