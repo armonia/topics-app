@@ -2137,6 +2137,21 @@ let assetWatcher: fs.FSWatcher | null = null;
 let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startAssetWatcher(): void {
+  // DEV-ONLY (since 2026-05-11). In packaged production builds the
+  // electron-updater is the canonical channel for new versions; an asset
+  // watcher there would silently reload the window every time the user
+  // builds the client locally (or every time `bun --watch` flushed a new
+  // bundle), wiping tab/panel state without the user understanding why.
+  //
+  // Override with `TOPICS_AUTO_RELOAD=1` if you genuinely want the old
+  // production behaviour back (e.g. an internal kiosk that needs to track
+  // the latest deploy without restarting).
+  const envForce = process.env.TOPICS_AUTO_RELOAD === '1';
+  if (app.isPackaged && !envForce) {
+    console.log('[Topics Electron] Asset watcher disabled in packaged build (set TOPICS_AUTO_RELOAD=1 to override)');
+    return;
+  }
+
   // __dirname is electron-app/dist/, /public lives at workspace root
   // (topics-app/public). Earlier path joined to electron-app/public, which
   // never exists, so the watcher silently no-op'd — auto-reload was dead.
@@ -2159,12 +2174,12 @@ function startAssetWatcher(): void {
       if (filename !== 'index.html') return;
       if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
       reloadDebounceTimer = setTimeout(() => {
-        console.log(`[Topics Electron] index.html updated, reloading...`);
+        console.log(`[Topics Electron] index.html updated, reloading... (dev mode)`);
         reloadAllAppWindows();
       }, 500);
     });
 
-    console.log('[Topics Electron] Asset watcher started on /public/index.html');
+    console.log('[Topics Electron] Asset watcher started on /public/index.html (dev mode)');
   } catch (err: unknown) {
     console.error('[Topics Electron] Failed to start asset watcher:', (err as Error).message);
   }

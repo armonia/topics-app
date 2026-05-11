@@ -1,21 +1,34 @@
 // Topics PWA Service Worker
-// Bump this version to force cache refresh
-const CACHE_VERSION = 8;
+// Bump this version to force cache refresh.
+// v9 (2026-05-11): removed self.skipWaiting() + self.clients.claim() so
+// the SW no longer hijacks open tabs. Combined with the same-day fix to
+// useServiceWorkerUpdate.ts (no polling, no auto-reload) and to the
+// Electron asset-watcher (dev-only), this kills the "the app refreshes
+// by itself" behaviour. The new SW now stays in `waiting` state until
+// the user explicitly clicks the sidebar Reload button (which posts a
+// SKIP_WAITING message — handler at the bottom of this file).
+const CACHE_VERSION = 9;
 const CACHE_NAME = `topics-v${CACHE_VERSION}`;
 
-// Install: skip waiting immediately
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
+// Install: register the SW. We DO NOT call self.skipWaiting() — the
+// browser keeps the OLD SW in control until either the user closes every
+// tab OR our app posts SKIP_WAITING via the sidebar Reload button. This
+// preserves the user's session across silent backend rebuilds.
+self.addEventListener('install', () => {
+  // intentionally empty
 });
 
-// Activate: clean old caches + claim clients immediately
+// Activate: clean old caches. We DO NOT call self.clients.claim() — the
+// new SW only takes control of pages on next navigation/reload. Pages
+// that are already open keep using the old SW until they navigate or
+// reload manually. The user stays in control.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
       );
-    }).then(() => self.clients.claim())
+    })
   );
 });
 
