@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe } from 'lucide-react';
+import { decideComposerAction } from './composerAction';
 import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
@@ -293,6 +294,12 @@ interface ChatInputProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   onSubmit: (e?: React.FormEvent) => void;
+  /**
+   * Abort the in-flight assistant turn. Wired to `useChat.stopSession` via
+   * `ChatPane`. The unified composer button calls this when the agent owns
+   * the turn AND the composer is empty (see `composerAction.ts`).
+   */
+  onStop: () => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   removePendingFile: (index: number) => void;
@@ -339,6 +346,7 @@ export function ChatInput({
   fileInputRef,
   textareaRef,
   onSubmit,
+  onStop,
   onKeyDown: parentOnKeyDown,
   onFileSelect,
   removePendingFile,
@@ -900,27 +908,76 @@ export function ChatInput({
                     }}
                   />
                 )}
-                <button
-                  type="submit"
-                  disabled={(!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) || uploading}
-                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
-                    uploading
-                      ? 'bg-primary text-white'
-                      : currentStreaming && message.trim()
-                        ? 'bg-orange-500 text-white hover:bg-orange-600'
-                        : (message.trim() || pendingFiles.length > 0 || pendingImages.length > 0)
-                          ? 'bg-primary text-white hover:bg-primary-hover'
-                          : 'bg-transparent text-app-placeholder'
-                  }`}
-                  title={currentStreaming && message.trim() ? 'Queue message (Enter)' : 'Send (Enter)'}
-                  aria-label="Send message"
-                >
-                  {uploading ? (
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Send size={14} />
-                  )}
-                </button>
+                {/*
+                  Unified composer button. The four states resolve via the
+                  pure `decideComposerAction` helper so this JSX no longer
+                  buries the rules in nested ternaries (the previous version
+                  hand-coded the send / queue / disabled split inline and
+                  had no notion of "stop"). Rules:
+
+                    busy & empty   → Stop (abort the turn)
+                    busy & filled  → Queue (orange Send; text auto-flushes
+                                     when the stream ends, no token loss)
+                    idle & filled  → Send
+                    idle & empty   → Disabled
+
+                  `Enter` keeps its existing semantics in `ChatPane.handleKeyDown`
+                  (which calls `onSubmit` → `handleSendMessage`, and that
+                  function already routes to the queue when streaming). Stop
+                  is only reachable via click, never via the keyboard, so a
+                  stray Enter can't accidentally cancel a turn.
+                */}
+                {(() => {
+                  const hasContent =
+                    message.trim().length > 0 ||
+                    pendingFiles.length > 0 ||
+                    pendingImages.length > 0;
+                  const action = decideComposerAction({
+                    busy: currentStreaming,
+                    hasContent,
+                  });
+
+                  if (action.kind === 'stop') {
+                    return (
+                      <button
+                        type="button"
+                        onClick={onStop}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-app-text/15 text-app-text hover:bg-app-text/25 transition-all"
+                        title="Stop streaming"
+                        aria-label="Stop streaming"
+                      >
+                        <Square size={12} fill="currentColor" />
+                      </button>
+                    );
+                  }
+
+                  const isQueue = action.kind === 'queue';
+                  const isDisabled = action.kind === 'disabled' || uploading;
+
+                  return (
+                    <button
+                      type="submit"
+                      disabled={isDisabled && !uploading}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
+                        uploading
+                          ? 'bg-primary text-white'
+                          : isQueue
+                            ? 'bg-orange-500 text-white hover:bg-orange-600'
+                            : action.kind === 'send'
+                              ? 'bg-primary text-white hover:bg-primary-hover'
+                              : 'bg-transparent text-app-placeholder'
+                      }`}
+                      title={isQueue ? 'Queue message (Enter)' : 'Send (Enter)'}
+                      aria-label={isQueue ? 'Queue message' : 'Send message'}
+                    >
+                      {uploading ? (
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Send size={14} />
+                      )}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
 

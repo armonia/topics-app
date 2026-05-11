@@ -294,6 +294,7 @@ export function ProjectWindowPane({
             getSessionMessages={getSessionMessages}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
+            stopSession={stopSession}
             sendMessage={wrappedSendMessage}
             editMessage={editMessage}
             switchBranch={switchBranch}

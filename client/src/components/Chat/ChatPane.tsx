@@ -32,6 +32,13 @@ export interface ChatPaneProps {
   getSessionMessages: (sk: string) => ChatMessage[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
+  /**
+   * Stop the in-flight assistant turn for this session. Threaded down to
+   * `ChatInput` so the unified composer button can present "Stop" when the
+   * agent owns the turn. See `composerAction.ts` for the decision rules
+   * and `stopSessionPolicy.ts` for the wipe-safety guard.
+   */
+  stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: SendMessageOptions) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -50,7 +57,7 @@ export interface ChatPaneProps {
 
 export function ChatPane({
   topic, isFocused,
-  getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, loadHistory,
+  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, switchBranch, onOpenSessionViewer,
@@ -464,7 +471,7 @@ export function ChatPane({
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
+        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
       </div>
     </div>
   );

@@ -20,6 +20,14 @@ interface ChatPanelProps {
   onDragStart: (e: React.DragEvent) => void; onToggleSidebar?: () => void; isDragOver: boolean;
   getSessionMessages: (sk: string) => ChatMessage[]; isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
+  /**
+   * Abort the in-flight assistant turn for `sessionKey`. Returns true iff
+   * the chat was a brand-new throwaway (one-user-message thread) — the
+   * caller may then discard the topic. Threaded through to `ChatInput` so
+   * the unified composer button can offer Stop without going through the
+   * sidebar `TopicItem` route. See `composerAction.ts`.
+   */
+  stopSession: (sk: string) => boolean;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>; chatError: string | null;
@@ -48,7 +56,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   topic, isFocused, onFocus, onClose, onDragStart, onToggleSidebar, isDragOver,
-  getSessionMessages, isSessionLoading, isSessionStreaming, sendMessage, editMessage, switchBranch, loadHistory,
+  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
@@ -192,6 +200,7 @@ export function ChatPanel({
                 getSessionMessages={getSessionMessages}
                 isSessionLoading={isSessionLoading}
                 isSessionStreaming={isSessionStreaming}
+                stopSession={stopSession}
                 sendMessage={sendMessage}
                 editMessage={editMessage}
                 switchBranch={switchBranch}
