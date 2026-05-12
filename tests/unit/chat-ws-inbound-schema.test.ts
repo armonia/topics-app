@@ -80,8 +80,8 @@ describe('parseChatWsInbound — malformed', () => {
 });
 
 describe('schema completeness', () => {
-  test('exactly 6 variants', () => {
-    expect(chatWsInboundSchema.options.length).toBe(6);
+  test('exactly 7 variants (6 chat/topic + hello WS-02)', () => {
+    expect(chatWsInboundSchema.options.length).toBe(7);
   });
 
   test('variants cover the documented client emit sites', () => {
@@ -91,7 +91,29 @@ describe('schema completeness', () => {
       return shape.type.value;
     });
     expect(new Set(literals)).toEqual(
-      new Set(['focus', 'typing', 'ping', 'drag:start', 'drag:end', 'drag:drop']),
+      new Set(['focus', 'typing', 'ping', 'drag:start', 'drag:end', 'drag:drop', 'hello']),
     );
+  });
+});
+
+describe('hello variant (WS-02 handshake)', () => {
+  test('parses a valid hello', () => {
+    const r = parseChatWsInbound({
+      type: 'hello',
+      clientVersion: '0.0.0-dev',
+      protocolVersion: 1,
+      capabilities: ['tool-detail-v1'],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test('rejects hello missing protocolVersion', () => {
+    const r = parseChatWsInbound({
+      type: 'hello',
+      clientVersion: 'x',
+      capabilities: [],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('protocolVersion');
   });
 });

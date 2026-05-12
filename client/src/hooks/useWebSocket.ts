@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
 import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
+import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -58,6 +59,20 @@ export function useWebSocket(): UseWebSocketReturn {
       // monotonic seq gate on reconnect — without this the first
       // `ui-state:init` of a post-restart connection is silently dropped).
       dispatchLifecycle('open');
+
+      // v3 foundations WS-02 — send `hello` so the server learns the client's
+      // version + capabilities. Backward-compat: server tolerates clients
+      // that don't send hello and treats them as legacy.
+      try {
+        ws.send(JSON.stringify({
+          type: 'hello',
+          clientVersion: CLIENT_VERSION,
+          protocolVersion: CLIENT_PROTOCOL_VERSION,
+          capabilities: Array.from(CLIENT_CAPABILITIES),
+        }));
+      } catch {
+        // Best-effort; if send fails the server proceeds without handshake info.
+      }
 
       // Start ping interval
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);

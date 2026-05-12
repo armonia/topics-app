@@ -31,6 +31,7 @@ import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
 import { setBrowserCdpDispatcher } from "./server/browser-tools-handler";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
+import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
 import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
@@ -667,6 +668,15 @@ const server = Bun.serve<WSData>({
       wsClients.add(ws);
       console.log(`[WS] Client connected: ${ws.data.id} (total: ${wsClients.size})`);
       ws.send(JSON.stringify({ type: "connected", clientId: ws.data.id }));
+      // v3 foundations WS-02 — handshake welcome (additive; old clients ignore unknown types).
+      ws.send(JSON.stringify({
+        type: "welcome",
+        serverVersion: SERVER_VERSION,
+        protocolVersion: SERVER_PROTOCOL_VERSION,
+        capabilities: SERVER_CAPABILITIES,
+        serverTime: Date.now(),
+        clientId: ws.data.id,
+      }));
       ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
       { const __ui = loadAllUiState(db); ws.send(JSON.stringify({ type: "ui-state:init", data: __ui.data, meta: __ui.meta })); }
       // Initial provider snapshot — keeps the picker / settings page in sync without an extra HTTP fetch.
@@ -780,6 +790,12 @@ const server = Bun.serve<WSData>({
             break;
           case 'drag:drop':
             broadcastToAll({ type: 'drag:accepted', topicId: data.topicId, targetWindowId: data.windowId, sourceWindowId: data.sourceWindowId });
+            break;
+          case 'hello':
+            // v3 foundations WS-02 handshake — log client version + capabilities
+            // for observability. Future protocol versions may use this to emit
+            // an `upgrade-required` frame when clientProtocolVersion < SERVER_PROTOCOL_VERSION.
+            console.log(`[WS][handshake] hello from ${ws.data.id}: client v${data.clientVersion} (proto ${data.protocolVersion}), caps=[${data.capabilities.join(', ')}]`);
             break;
         }
       } catch (err) { console.warn(`[WS] Failed to parse message from ${ws.data.id}:`, err); }

@@ -53,6 +53,16 @@ const dragDropSchema = z.object({
   sourceWindowId: z.string().optional(),
 });
 
+// WS-02 handshake: client → server hello after connection.open.
+// Defined here (rather than imported from ws-handshake.ts) so the main
+// inbound dispatch can validate it with the same parser as the other types.
+const helloSchema = z.object({
+  type: z.literal('hello'),
+  clientVersion: z.string(),
+  protocolVersion: z.number().int(),
+  capabilities: z.array(z.string()),
+});
+
 export const chatWsInboundSchema = z.discriminatedUnion('type', [
   focusSchema,
   typingSchema,
@@ -60,6 +70,7 @@ export const chatWsInboundSchema = z.discriminatedUnion('type', [
   dragStartSchema,
   dragEndSchema,
   dragDropSchema,
+  helloSchema,
 ]);
 
 export type ChatWsInbound = z.infer<typeof chatWsInboundSchema>;
