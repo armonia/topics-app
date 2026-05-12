@@ -11,6 +11,7 @@
  */
 
 import type { ToolCall, ToolCallDetail } from '../../types';
+import { parseToolCallDetail } from '../../schemas/tool-call-detail';
 
 function canon(name: string): string {
   return (name || '').toLowerCase().trim();
@@ -175,7 +176,16 @@ export function deriveToolDetail(
 }
 
 export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
-  if (tc.detail) return tc.detail;
+  if (tc.detail) {
+    // v3 foundations NORM-01: validate server-emitted detail at the renderer
+    // boundary. On schema drift / malformed payload, fall back to client-side
+    // derivation (graceful degradation — UI still renders, with a dev warning).
+    const result = parseToolCallDetail(tc.detail);
+    if (result.ok) return result.data;
+    if (import.meta.env.DEV) {
+      console.warn(`[toolDetail] Invalid detail for ${tc.name}: ${result.error}`);
+    }
+  }
   return deriveToolDetail(tc.name, tc.args, tc.result);
 }
 
