@@ -36,7 +36,8 @@
     "@anthropic-ai/sdk": "^0.86.1",
     "node-pty": "^1.0.0",
     "playwright-core": "^1.50.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

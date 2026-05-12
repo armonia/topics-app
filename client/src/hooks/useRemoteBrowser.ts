@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { BrowserWsMessage } from '@/types/browser-ws-messages';
+import { parseBrowserWsMessage, type BrowserWsMessage } from '@/types/browser-ws-messages';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -248,7 +248,17 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     ws.onmessage = (event) => {
       if (!mountedRef.current) return;
       try {
-        const msg = JSON.parse(event.data) as BrowserWsMessage;
+        const raw = JSON.parse(event.data);
+        const result = parseBrowserWsMessage(raw);
+        if (!result.ok) {
+          // Defense-in-depth: server should already validate emits. Log
+          // protocol drift but don't crash the consumer.
+          if (import.meta.env.DEV) {
+            console.warn(`[browser ${contextId}] Invalid WS message:`, result.error);
+          }
+          return;
+        }
+        const msg = result.data;
         switch (msg.type) {
           case 'frame': {
             const psf = msg.metadata?.pageScaleFactor;

@@ -14,7 +14,7 @@
  * key; partitionId is derived as `persist:topic-<contextId>`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BrowserWsMessage } from '@/types/browser-ws-messages';
+import { parseBrowserWsMessage } from '@/types/browser-ws-messages';
 
 export interface NativeBrowserHandle {
   url: string;
@@ -142,9 +142,16 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     const ws = new WebSocket(`${wsProto}//${window.location.host}/ws/browser/${contextId}`);
     ws.addEventListener('message', (e) => {
       try {
-        const msg = JSON.parse(typeof e.data === 'string' ? e.data : '') as BrowserWsMessage;
-        if (msg.type === 'agent_active') {
-          setAgentActive(Boolean(msg.active));
+        const raw = JSON.parse(typeof e.data === 'string' ? e.data : '');
+        const result = parseBrowserWsMessage(raw);
+        if (!result.ok) {
+          // Drop malformed frames silently — they may come from older servers
+          // or future variants this client doesn't understand. The contract
+          // is that the server side has validated; this is defense-in-depth.
+          return;
+        }
+        if (result.data.type === 'agent_active') {
+          setAgentActive(Boolean(result.data.active));
         }
       } catch { /* ignore non-JSON frames */ }
     });

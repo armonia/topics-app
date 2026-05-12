@@ -29,7 +29,7 @@ import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createBrowserService, type BrowserService } from "./server/browser-service";
 import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
 import { setBrowserCdpDispatcher } from "./server/browser-tools-handler";
-import { sendBrowserWsMessage, isBrowserWsMessage } from "./server/browser-ws-messages";
+import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
 import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
@@ -712,11 +712,13 @@ const server = Bun.serve<WSData>({
       if (ws.data.browserContextId) {
         const ctxId = ws.data.browserContextId;
         try {
-          const parsed = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
-          if (!isBrowserWsMessage(parsed)) {
-            console.warn(`[WS][browser] Invalid message shape from ${ws.data.id}`);
+          const raw = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+          const result = parseBrowserWsMessage(raw);
+          if (!result.ok) {
+            console.warn(`[WS][browser] Invalid message from ${ws.data.id}: ${result.error}`);
             return;
           }
+          const parsed = result.data;
           if (parsed.type === 'input') {
             browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err =>
               console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message)
