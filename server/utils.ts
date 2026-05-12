@@ -13,6 +13,29 @@ import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
+import { parseToolCallDetail } from "./schemas/tool-call-detail";
+
+/**
+ * v3 foundations NORM-01 DB hydration: validate a tool call's `detail`
+ * field against the canonical Zod schema. If the detail is missing,
+ * returns the toolCall unchanged. If the detail is present and parses,
+ * the validated copy is substituted. If the detail is present but
+ * malformed (drifted schema, corrupt JSON, etc.), the detail field is
+ * dropped — the renderer falls back to client-side derivation. Logs a
+ * one-line warning at NORM-DB level so drift is observable without
+ * spamming production.
+ */
+function sanitizeToolCallDetail(tc: any): any {
+  if (!tc || typeof tc !== 'object' || !tc.detail) return tc;
+  const result = parseToolCallDetail(tc.detail);
+  if (result.ok) {
+    return tc.detail === result.data ? tc : { ...tc, detail: result.data };
+  }
+  console.warn(`[NORM-DB] Dropping malformed detail for tool call ${tc.id ?? '?'} (${tc.name ?? '?'}): ${result.error}`);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { detail: _drop, ...rest } = tc;
+  return rest;
+}
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
@@ -287,12 +310,28 @@ export function createAppContext(baseDir: string): AppContext {
     };
     if (row.thinking) msg.thinking = row.thinking;
     if (row.tool_calls) {
-      try { msg.toolCalls = JSON.parse(row.tool_calls); } catch {}
+      try {
+        const parsed = JSON.parse(row.tool_calls);
+        msg.toolCalls = Array.isArray(parsed)
+          ? parsed.map(sanitizeToolCallDetail)
+          : parsed;
+      } catch {}
     }
     if (row.blocks) {
       try {
         const parsed = JSON.parse(row.blocks);
-        if (Array.isArray(parsed)) msg.blocks = parsed;
+        if (Array.isArray(parsed)) {
+          // v3 foundations NORM-01 DB hydration: each block of kind 'tool'
+          // carries a toolCall whose `detail` may be a legacy / drifted
+          // shape. Sanitize at the boundary so downstream consumers always
+          // see a schema-conforming detail or none.
+          msg.blocks = parsed.map((block: any) => {
+            if (block && block.kind === 'tool' && block.toolCall) {
+              return { ...block, toolCall: sanitizeToolCallDetail(block.toolCall) };
+            }
+            return block;
+          });
+        }
       } catch {}
     }
     if (row.media) {
