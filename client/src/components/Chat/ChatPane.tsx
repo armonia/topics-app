@@ -114,6 +114,26 @@ export function ChatPane({
   const [planMode, setPlanMode] = useState(() => {
     try { const stored = localStorage.getItem(`planMode:${topic.id}`); return stored === 'true'; } catch { return false; }
   });
+  // Fast Mode toggle (openspec change `chat-fast-mode`). Two sources of truth:
+  //   1. `topic.fastMode` (server, persisted, synced cross-window via WS).
+  //   2. `localStorage["fastMode:<topic.id>"]` — used purely to avoid a flash
+  //      of the OFF state during the first render before the topic prop
+  //      hydrates from the API.
+  // On mount we prefer the server value when present; otherwise localStorage.
+  // On every toggle we write both AND optimistically POST to the server.
+  const [fastMode, setFastMode] = useState<boolean>(() => {
+    if (typeof topic.fastMode === 'boolean') return topic.fastMode;
+    try { return localStorage.getItem(`fastMode:${topic.id}`) === 'true'; } catch { return false; }
+  });
+  // Reconcile if the server-pushed topic.fastMode diverges (cross-window sync,
+  // or app boot order where topic arrives after first paint).
+  useEffect(() => {
+    if (typeof topic.fastMode === 'boolean' && topic.fastMode !== fastMode) {
+      setFastMode(topic.fastMode);
+      try { localStorage.setItem(`fastMode:${topic.id}`, String(topic.fastMode)); } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic.fastMode, topic.id]);
   const [othersTyping, setOthersTyping] = useState(false);
   const [othersTypingText, setOthersTypingText] = useState('');
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -199,6 +219,12 @@ export function ChatPane({
   // Track the previous topic id so we can detect a draft → real promotion vs
   // a genuine session switch.
   const prevTopicIdRef = useRef(topic.id);
+  // Latest fastMode read by the promotion effect below. Captured in a ref so
+  // we don't have to put `fastMode` in the effect deps (it'd refire on every
+  // toggle and re-PUT the same value). The ref is updated by another effect.
+  const fastModeRef = useRef(false);
+  useEffect(() => { fastModeRef.current = fastMode; }, [fastMode]);
+
   useEffect(() => {
     const prevId = prevTopicIdRef.current;
     prevTopicIdRef.current = topic.id;
@@ -212,6 +238,20 @@ export function ChatPane({
       const pick = providerOverrideRef.current;
       if (pick) {
         void onUpdateTopic(topic.id, { provider: pick.provider, model: pick.model });
+      }
+      // Same story for Fast Mode (openspec change `chat-fast-mode`). The
+      // composer toggle wrote to `fastMode:draft:abc` and skipped the PUT
+      // (drafts have no server-side row to PUT to). Now that the real topic
+      // exists, persist the bit to its id, migrate the localStorage key
+      // (old key kept for one render in case another component still reads
+      // it; cleaned up on next mount), and broadcast via PUT for
+      // cross-window sync.
+      if (fastModeRef.current) {
+        void onUpdateTopic(topic.id, { fastMode: true });
+        try {
+          localStorage.setItem(`fastMode:${topic.id}`, 'true');
+          localStorage.removeItem(`fastMode:${prevId}`);
+        } catch {}
       }
       return;
     }
@@ -327,6 +367,29 @@ export function ChatPane({
     });
   }, [topic.id]);
 
+  // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
+  // (2) localStorage for cold-boot hydration, (3) server via PUT so other
+  // windows of the same topic sync via the `topic:updated` WS broadcast.
+  // The PUT is fire-and-forget — UI doesn't wait. If it fails, the next
+  // topic hydration corrects the divergence (see the reconciliation effect
+  // above keyed on `topic.fastMode`).
+  const toggleFastMode = useCallback(() => {
+    // Side effects MUST live outside the setState callback — in React 18
+    // Strict Mode the updater is invoked twice during development, which
+    // would double-fire `onUpdateTopic` and double-write localStorage. The
+    // setter itself is dedupe-safe (Object.is), but the side effects aren't.
+    const next = !fastModeRef.current;
+    setFastMode(next);
+    fastModeRef.current = next;
+    try { localStorage.setItem(`fastMode:${topic.id}`, String(next)); } catch {}
+    // Draft topics aren't persisted yet — skip the PUT (would 404). Local
+    // state is sufficient until the draft is promoted; the promotion effect
+    // above migrates the bit to the new real topic id once it exists.
+    if (!topic.id.startsWith('draft:')) {
+      void onUpdateTopic(topic.id, { fastMode: next });
+    }
+  }, [topic.id, onUpdateTopic]);
+
   const handlePlanApprove = useCallback(() => {
     sendMessage(topic.sessionKey, 'Execute the approved plan.');
   }, [sendMessage, topic.sessionKey]);
@@ -427,8 +490,13 @@ export function ChatPane({
     }
 
     if (finalMessage) {
-      const opts: { planMode?: boolean; provider?: string; model?: string } = {};
+      const opts: { planMode?: boolean; fastMode?: boolean; provider?: string; model?: string } = {};
       if (planMode) opts.planMode = true;
+      // Fast Mode is the per-turn signal the server uses to pick the
+      // provider's native fast model (see openspec `chat-fast-mode`). We send
+      // it whenever the toggle is ON — picker (`opts.model`) and persisted
+      // `topic.model` still win, the server enforces priority.
+      if (fastMode) opts.fastMode = true;
       if (providerOverride) {
         opts.provider = providerOverride.provider;
         opts.model = providerOverride.model;
@@ -471,7 +539,7 @@ export function ChatPane({
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
+        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
       </div>
     </div>
   );

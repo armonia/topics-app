@@ -74,7 +74,7 @@ if (!process.env.GATEWAY_TOKEN) {
 const ctx = createAppContext(import.meta.dir);
 const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
   loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
-  isStreaming, activeStreams, getMimeType, logRequest, db } = ctx;
+  isStreaming, activeStreams, getMessageById, getMimeType, logRequest, db } = ctx;
 
 // Phase 30 BROWSER-CHAT-03 — registry of active /ws/browser/:contextId
 // connections keyed by contextId. Multiple panels may watch the same context
@@ -676,11 +676,22 @@ const server = Bun.serve<WSData>({
         // Snapshot manager not loaded yet — initial bootstrap will broadcast once it warms up.
       }
 
-      // Send catch-up for any active streams so new clients can join mid-stream
+      // Send catch-up for any active streams so new clients can join mid-stream.
+      //
+      // The catchup MUST include `toolCalls` and `blocks` from the partial
+      // message in DB, not just `content` + `thinking`. Without them, a fresh
+      // WS connect (browser refresh, second window, network reconnect) sees
+      // only the cumulative text and loses any tool calls that already
+      // executed in the stream — the user perceives "response arrived all
+      // at once with no tools visible". With them, the chronological timeline
+      // is preserved and future stream:* deltas continue appending live.
       const topicsData = loadTopics();
       for (const [sessionKey, stream] of activeStreams.entries()) {
         let topicId: string | undefined;
         for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
+        // ActiveStream.messageId is non-optional (set by startStream) — no
+        // need to guard against undefined here.
+        const partial = getMessageById(stream.messageId);
         ws.send(JSON.stringify({
           type: "stream:catchup",
           sessionKey,
@@ -689,6 +700,8 @@ const server = Bun.serve<WSData>({
           content: stream.content,
           thinking: stream.thinking,
           isThinking: stream.isThinking,
+          toolCalls: partial?.toolCalls,
+          blocks: partial?.blocks,
         }));
       }
     },

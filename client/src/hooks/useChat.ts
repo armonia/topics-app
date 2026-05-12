@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ChatRequest, ContentBlock, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
+import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
@@ -10,6 +11,13 @@ const QUEUE_KEY = 'messages-outbound-queue';
 
 export interface SendMessageOptions {
   planMode?: boolean;
+  /**
+   * Fast Mode flag for this turn. Forwarded as `chatRequest.fastMode`; the
+   * server resolves the actual model via `getFastModelFor(provider.name)`.
+   * Picker (`options.model`) wins over fast — see openspec change
+   * `chat-fast-mode`.
+   */
+  fastMode?: boolean;
   provider?: string;
   model?: string;
 }
@@ -606,8 +614,11 @@ export function useChat() {
         break;
 
       case 'stream:catchup':
-        // Full buffer catch-up from server on WS connect — set streaming state
-        // and create/update the assistant message with accumulated content
+        // Full buffer catch-up from server on WS connect — set streaming
+        // state and create/update the assistant message with accumulated
+        // state. The merge logic (which carries toolCalls + blocks from
+        // the DB partial row through to the client) lives in
+        // `streamCatchupMerge.ts` so it can be unit-tested without React.
         setStreaming(prev => ({ ...prev, [sessionKey]: true }));
         resetStreamTimeout(sessionKey);
         if (event.isThinking) {
@@ -616,28 +627,24 @@ export function useChat() {
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
           const lastMsg = sessionMessages[sessionMessages.length - 1];
+          const merged = mergeCatchupIntoPartial(
+            {
+              messageId: event.messageId,
+              content: event.content,
+              thinking: event.thinking,
+              toolCalls: event.toolCalls,
+              blocks: event.blocks,
+            },
+            lastMsg,
+            generateMessageId,
+            new Date().toISOString(),
+          );
           if (lastMsg?.role === 'assistant' && lastMsg.partial) {
-            // Update existing partial message with full buffer content
             const updated = [...sessionMessages];
-            updated[updated.length - 1] = {
-              ...lastMsg,
-              content: event.content || '',
-              thinking: event.thinking || undefined,
-            };
+            updated[updated.length - 1] = merged;
             return { ...prev, [sessionKey]: updated };
           }
-          // Create new partial assistant message with buffer content
-          return {
-            ...prev,
-            [sessionKey]: [...sessionMessages, {
-              id: event.messageId || generateMessageId(),
-              role: 'assistant' as const,
-              content: event.content || '',
-              thinking: event.thinking || undefined,
-              timestamp: new Date().toISOString(),
-              partial: true,
-            }],
-          };
+          return { ...prev, [sessionKey]: [...sessionMessages, merged] };
         });
         break;
 
@@ -720,6 +727,7 @@ export function useChat() {
 
       const chatRequest: ChatRequest = { sessionKey, messages: apiMessages };
       if (options?.planMode) chatRequest.planMode = true;
+      if (options?.fastMode) chatRequest.fastMode = true;
       if (options?.provider) chatRequest.provider = options.provider;
       if (options?.model) chatRequest.model = options.model;
 

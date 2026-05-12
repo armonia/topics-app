@@ -182,6 +182,14 @@ export interface Topic {
   /** Last-used model for this topic. NULL = use the provider's default. */
   model?: string | null;
   /**
+   * Fast Mode toggle (migration 024). When `true`, the chat route asks the
+   * provider to use its native "fast model" (e.g. claude-haiku, gpt-4o-mini)
+   * for this topic's turns, unless a per-message or topic-persisted model
+   * override is set. Persists across sessions and synchronises across windows
+   * via the `topic:updated` WS broadcast. Defaults to `false`.
+   */
+  fastMode?: boolean;
+  /**
    * Optional binding to a Worktree (a specific git working copy of a Project).
    * NULL = legacy/default behaviour: chat, tools, and slash commands operate
    * inside `projectPath`. NON-NULL = operations are scoped to the worktree's

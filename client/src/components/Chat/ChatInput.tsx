@@ -320,6 +320,15 @@ interface ChatInputProps {
   setMentionedFiles: React.Dispatch<React.SetStateAction<MentionedFile[]>>;
   planMode?: boolean;
   onTogglePlanMode?: () => void;
+  /**
+   * Fast Mode toggle (openspec change `chat-fast-mode`). When ON, the chat
+   * route uses the provider's native fast model (haiku / gpt-4o-mini / …).
+   * Independent of plan mode — both can be ON simultaneously. Persisted
+   * per-topic on the server; the toggle is positioned between Plan mode
+   * and the Context ring in the composer's left tool cluster.
+   */
+  fastMode?: boolean;
+  onToggleFastMode?: () => void;
   editingMessage?: ChatMessage | null;
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
@@ -367,6 +376,8 @@ export function ChatInput({
   setMentionedFiles,
   planMode,
   onTogglePlanMode,
+  fastMode,
+  onToggleFastMode,
   editingMessage,
   onCancelEdit,
   providerOverride,
@@ -848,6 +859,27 @@ export function ChatInput({
                 >
                   <ClipboardList size={16} />
                 </button>
+                {onToggleFastMode && (
+                  <button
+                    type="button"
+                    onClick={onToggleFastMode}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                      fastMode
+                        ? 'text-amber-500 bg-amber-500/10'
+                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                    }`}
+                    title={
+                      fastMode
+                        ? "Fast Mode ON — using the provider's fast model"
+                        : 'Fast Mode OFF — using the topic’s default model'
+                    }
+                    aria-label="Toggle fast mode"
+                    aria-pressed={!!fastMode}
+                    data-testid="chat-input-fast-mode"
+                  >
+                    <Zap size={16} />
+                  </button>
+                )}
                 {!isDraftTopic && (
                   <button
                     type="button"

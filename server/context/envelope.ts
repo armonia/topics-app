@@ -247,6 +247,16 @@ export interface ContextDiagnostics {
 
   /** Epoch milliseconds when the envelope was assembled. */
   assembledAt: number;
+
+  /**
+   * Whether Fast Mode was active for this assembly (openspec change
+   * `chat-fast-mode`). Surfaced so the inspector / Last-sent snapshots can
+   * show "Fast mode: ON — effective model: claude-haiku-4-5" without
+   * cross-referencing the live request shape. Optional + default `false` for
+   * backward compatibility — envelopes assembled before this field existed
+   * round-trip cleanly through inspector serialisers.
+   */
+  fastMode?: boolean;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -297,6 +307,8 @@ export interface SessionMeta {
   totalStoredMessages?: number;
   /** Whether plan-mode was active for this assembly. */
   planMode?: boolean;
+  /** Whether fast-mode was active for this assembly (chat-fast-mode change). */
+  fastMode?: boolean;
 }
 
 export interface ContextEnvelope {

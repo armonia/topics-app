@@ -70,8 +70,8 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
 
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, worktree_id, initial_message, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
+      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $fast_mode, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
     `),
     deleteTopic: db.prepare(`DELETE FROM topics WHERE id = ?`),
 
@@ -143,6 +143,10 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.autonomy_level && row.autonomy_level !== 'ask') topic.autonomyLevel = row.autonomy_level;
     if (row.provider) topic.provider = row.provider;
     if (row.model) topic.model = row.model;
+    // fast_mode (migration 024). 1 = enabled, 0/NULL = disabled (default).
+    // Only attached when truthy so legacy rows (pre-migration, before backfill)
+    // round-trip through inspector serializers unchanged.
+    if (row.fast_mode) topic.fastMode = true;
     // worktree_id (Phase A · migration 018). Optional FK; legacy rows are NULL.
     if (row.worktree_id) topic.worktreeId = row.worktree_id;
     // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
@@ -196,6 +200,10 @@ export function createAppContext(baseDir: string): AppContext {
         $autonomy_level: topic.autonomyLevel || 'ask',
         $provider: topic.provider || null,
         $model: topic.model || null,
+        // fast_mode column gets 0/1 — SQLite has no native boolean. Coerce
+        // here so callers can pass `undefined` (legacy topics) and still get
+        // the schema's NOT NULL DEFAULT 0 guarantee.
+        $fast_mode: topic.fastMode ? 1 : 0,
         // worktree_id (Phase A · migration 018). NULL = no binding; FK
         // ON DELETE SET NULL on the column ensures graceful degrade.
         $worktree_id: topic.worktreeId || null,

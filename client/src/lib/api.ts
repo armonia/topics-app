@@ -1075,6 +1075,12 @@ export interface EnvelopeSessionMeta {
   worktreeId?: string | null;
   totalStoredMessages?: number;
   planMode?: boolean;
+  /**
+   * Whether Fast Mode was active when the envelope was assembled. Mirrors
+   * `server/context/envelope.ts:SessionMeta.fastMode`. Useful for the
+   * inspector "Last sent" tab to label the effective model.
+   */
+  fastMode?: boolean;
 }
 
 export interface ContextEnvelope {
@@ -1094,6 +1100,12 @@ export interface ContextEnvelope {
     historyEntries: EnvelopeHistoryEntry[];
     warnings: { type: string; detail: string }[];
     assembledAt: number;
+    /**
+     * Whether Fast Mode was active when the envelope was assembled
+     * (openspec change `chat-fast-mode`). Mirrors
+     * `server/context/envelope.ts:ContextDiagnostics.fastMode`.
+     */
+    fastMode?: boolean;
   };
 }
 

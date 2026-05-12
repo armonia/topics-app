@@ -532,3 +532,55 @@ describe("assembleTopicContext — planMode flag", () => {
     expect(env.systemBlocks.find((b) => b.id === "synthetic:plan-mode")).toBeUndefined();
   });
 });
+
+describe("assembleTopicContext — fastMode flag (chat-fast-mode)", () => {
+  const baseDir = join(ROOT, "fast", "base");
+  const openclawDir = join(ROOT, "fast", "openclaw");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+
+  const topic = makeTopic();
+
+  it("fastMode: true → diagnostics.fastMode === true, sessionMeta.fastMode === true", () => {
+    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+    const env = assembleTopicContext(ctx, {
+      sessionKey: topic.sessionKey,
+      providerName: "claude-code",
+      fastMode: true,
+    });
+    expect(env.diagnostics.fastMode).toBe(true);
+    expect(env.sessionMeta?.fastMode).toBe(true);
+  });
+
+  it("fastMode default → diagnostics.fastMode === false", () => {
+    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+    const env = assembleTopicContext(ctx, {
+      sessionKey: topic.sessionKey,
+      providerName: "claude-code",
+    });
+    expect(env.diagnostics.fastMode).toBe(false);
+    expect(env.sessionMeta?.fastMode).toBe(false);
+  });
+
+  it("fastMode does NOT alter systemBlocks or history", () => {
+    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [] });
+    const off = assembleTopicContext(ctx, {
+      sessionKey: topic.sessionKey,
+      providerName: "claude-code",
+      fastMode: false,
+    });
+    const on = assembleTopicContext(ctx, {
+      sessionKey: topic.sessionKey,
+      providerName: "claude-code",
+      fastMode: true,
+    });
+    // System blocks: identical ids in identical order. Tokens can differ
+    // (file mtimes flip cache windows) but the *shape* must not move.
+    expect(on.systemBlocks.map((b) => b.id)).toEqual(off.systemBlocks.map((b) => b.id));
+    // History identical (same DB state, no synthetic injection).
+    expect(on.history).toEqual(off.history);
+    // No "synthetic:fast-mode" pseudo-block: fast mode only affects the
+    // model selection downstream, not what the model sees.
+    expect(on.systemBlocks.find((b) => b.id.startsWith("synthetic:fast-mode"))).toBeUndefined();
+  });
+});

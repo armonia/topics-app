@@ -5,6 +5,7 @@ import type { AppContext, ContentBlock, RouteHandler, StoredMessage, ToolCall, T
 import { getProvider, getDefaultProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { getSnapshotManager } from "../providers/snapshot-manager";
+import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { calculateCost } from "../usage/pricing";
@@ -1021,6 +1022,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
         if (body.provider !== undefined) topic.provider = body.provider || null;
         if (body.model !== undefined) topic.model = body.model || null;
+        // Fast Mode (migration 024). Accept boolean only; null/undefined leaves
+        // the existing value alone. Coerce non-boolean truthy/falsy inputs
+        // defensively so a stale client sending "false" string doesn't toggle.
+        if (body.fastMode !== undefined && body.fastMode !== null) {
+          topic.fastMode = body.fastMode === true;
+        }
         if (body.disabledContextSources !== undefined) topic.disabledContextSources = body.disabledContextSources;
         // worktreeId update (Phase A · TOPIC-WT-01). NULL = clear binding.
         if (body.worktreeId !== undefined) {
@@ -1399,6 +1406,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
       const sessionKey = body.sessionKey;
       const planMode = body.planMode === true;
+      // Fast Mode: per-turn flag OR per-topic persisted preference. Either is
+      // enough to opt in. Resolution into an actual model id happens after
+      // provider resolution below (the mapping is provider-dependent).
+      const fastModeRequested = body.fastMode === true;
       const messages = body.messages;
       if (!messages || !Array.isArray(messages) || messages.length === 0) return json({ error: "messages array required" }, 400);
 
@@ -1622,6 +1633,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             userMessageOverride: { content: lastUserMsg?.content ?? "", messageId: lastUserMsg?.id },
             includeLastUserInHistory: false,
             planMode,
+            // Per-turn flag OR topic-persisted preference — either opts in.
+            // Mirrors the resolution logic for `fastModeActive` further down
+            // (the route layer is the single authority on whether fast is on).
+            fastMode: body.fastMode === true || matchedTopic.fastMode === true,
           })
         : {
             // No topic bound to this sessionKey — emit a degenerate envelope
@@ -1694,6 +1709,57 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             `Available: [${entry.models.slice(0, 5).join(", ")}${entry.models.length > 5 ? ", …" : ""}]`,
           );
           overrideModel = undefined;
+        }
+      }
+
+      // ─── Fast Mode model resolution (openspec change `chat-fast-mode`) ───
+      //
+      // Fast Mode is the "soft default": it kicks in only when nothing more
+      // explicit was set. The user can still override with the per-message
+      // picker (`body.model`) or by persisting a topic-level model
+      // (`matchedTopic.model`); both win over Fast.
+      //
+      // Two opt-in paths:
+      //   1. `body.fastMode === true` — per-turn flag from the composer.
+      //   2. `matchedTopic.fastMode === true` — persisted per-topic preference
+      //      (synced across windows). Either is sufficient.
+      //
+      // `getFastModelFor` is snapshot-aware: when the statically-mapped id
+      // isn't in the live model list (e.g. codex bumped a slug), it falls
+      // back to a heuristic (haiku → mini → flash) so fast mode doesn't
+      // silently no-op on a CLI/SDK version change.
+      const fastModeActive = fastModeRequested || matchedTopic?.fastMode === true;
+      if (fastModeActive) {
+        if (overrideModel) {
+          // Picker / topic.model already set an explicit choice. Honour it
+          // and log so users can audit *why* their fast toggle "didn't work".
+          console.info(
+            `[Chat] Fast mode requested but explicit model "${overrideModel}" takes precedence ` +
+            `for provider "${topicProvider.name}" — fast mapping skipped.`,
+          );
+        } else {
+          const snap = getSnapshotManager().getSnapshot();
+          const entry = snap.providers.find(p => p.name === topicProvider.name);
+          const available = entry?.models ?? [];
+          const fastModel = getFastModelFor(topicProvider.name, available);
+          if (fastModel === null) {
+            // Either provider has no fast-model mapping (e.g. openclaw → null)
+            // OR the snapshot was non-empty and no heuristic matched. Both
+            // cases: delegate to the provider's default, log the reason.
+            const isGatewayDelegate = available.length > 0;
+            console.info(
+              isGatewayDelegate
+                ? `[Chat] Fast mode requested but no fast-tier model found in snapshot for ` +
+                  `"${topicProvider.name}" (have: [${available.slice(0, 5).join(", ")}]) — falling back to default.`
+                : `[Chat] Fast mode requested for provider "${topicProvider.name}" — no fast-model mapping; ` +
+                  `delegating routing to the provider/gateway.`,
+            );
+          } else {
+            overrideModel = fastModel;
+            console.info(
+              `[Chat] Fast mode active — using "${fastModel}" for provider "${topicProvider.name}".`,
+            );
+          }
         }
       }
 

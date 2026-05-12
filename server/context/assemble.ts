@@ -107,6 +107,15 @@ export interface AssembleArgs {
 
   /** Whether plan-mode synthetic block should be included. */
   planMode?: boolean;
+
+  /**
+   * Whether Fast Mode is active for this assembly (openspec change
+   * `chat-fast-mode`). Fast Mode does NOT alter system blocks or history —
+   * it only changes the effective model at the route layer. We propagate
+   * the flag into `diagnostics.fastMode` and `sessionMeta.fastMode` purely
+   * so the inspector / snapshot ring can label the envelope.
+   */
+  fastMode?: boolean;
 }
 
 export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): ContextEnvelope {
@@ -119,6 +128,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     includeLastUserInHistory = true,
     disabledSources,
     planMode = false,
+    fastMode = false,
   } = args;
 
   const topic = ctx.getTopicBySessionKey(sessionKey);
@@ -192,6 +202,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     historyEntries,
     warnings,
     assembledAt: Date.now(),
+    fastMode,
   };
 
   return {
@@ -208,8 +219,9 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
           worktreeId: topic.worktreeId ?? null,
           totalStoredMessages: stored.length,
           planMode,
+          fastMode,
         }
-      : { planMode, totalStoredMessages: stored.length },
+      : { planMode, fastMode, totalStoredMessages: stored.length },
     systemBlocks,
     history,
     userMessage,

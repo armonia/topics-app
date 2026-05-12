@@ -27,6 +27,15 @@ export interface Topic {
    */
   model?: string | null;
   /**
+   * Fast Mode toggle (migration 024). When `true`, the chat route uses the
+   * provider's native "fast model" (e.g. claude-haiku, gpt-4o-mini) for
+   * this topic's turns unless the user has set an explicit model override
+   * (per-message picker or `topic.model`). Persists across sessions and
+   * syncs across windows via `topic:updated` WS broadcasts. Mirrors
+   * `server/types.ts:Topic.fastMode`. Defaults to `false`.
+   */
+  fastMode?: boolean;
+  /**
    * Phase A · TOPIC-WT-01: optional binding to a Worktree. NULL = legacy
    * behaviour (chat/tools operate inside `projectPath`). When set, the
    * server scopes operations to the worktree's `absPath`. Mirrors
@@ -287,6 +296,12 @@ export interface UpdateTopicRequest {
   provider?: string | null;
   /** Set to a model id to persist as the topic's last-used model; null clears. */
   model?: string | null;
+  /**
+   * Set Fast Mode for this topic. Persists; null/undefined leaves it unchanged.
+   * The server broadcasts `topic:updated` so other open windows for the same
+   * topic stay in sync. See `server/db/migrations/024-topic-fast-mode.sql`.
+   */
+  fastMode?: boolean | null;
   disabledContextSources?: string[];
   /** Phase A · TOPIC-WT-01. Pass `null` to clear the binding. */
   worktreeId?: string | null;
@@ -302,6 +317,13 @@ export interface ChatRequest {
   sessionKey: string;
   messages: Message[];
   planMode?: boolean;
+  /**
+   * Fast Mode flag for this turn. When `true` AND no per-message `model`
+   * override AND `topic.model` is null, the server resolves the effective
+   * model via `getFastModelFor(provider.name)` (e.g. claude-haiku for
+   * claude-code, gpt-4o-mini for openai/codex). Picker wins over fast.
+   */
+  fastMode?: boolean;
   /** Per-message provider override (e.g. "claude-code", "codex"). Falls back to topic.provider or global default. */
   provider?: string;
   /** Per-message model override. Ignored by providers without per-call model selection. */
@@ -568,10 +590,26 @@ export interface WSStreamToolUserInputRequiredMessage {
 export interface WSStreamCatchupMessage {
   type: 'stream:catchup';
   sessionKey: string;
+  // Mirrors the wire shape — server emits topicId so cross-window UI can
+  // route the catchup to the right topic row even when no client is
+  // currently focused on it.
+  topicId?: string;
   content?: string;
   thinking?: string;
   isThinking?: boolean;
   messageId?: string;
+  /**
+   * Tool calls already attached to the partial message in DB. Without these
+   * the late joiner sees text-only content and loses any tools that ran
+   * before they connected — the chronological timeline gets a hole that
+   * the next `stream:tool_call` event cannot fill (it appends, not inserts).
+   */
+  toolCalls?: ToolCall[];
+  /**
+   * Chronological blocks timeline (text/thinking/tool interleaved) from DB.
+   * Mirrors `StoredMessage.blocks` — preferred by the renderer when present.
+   */
+  blocks?: ContentBlock[];
 }
 
 /**
