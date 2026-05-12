@@ -30,6 +30,7 @@ import { createBrowserService, type BrowserService } from "./server/browser-serv
 import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
 import { setBrowserCdpDispatcher } from "./server/browser-tools-handler";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
+import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
@@ -749,13 +750,38 @@ const server = Bun.serve<WSData>({
       const handler = ws.data._termHandler;
       if (handler) { handler.message(message); return; }
       try {
-        const data = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
-        if (data.type === "focus") ws.data.focusedTopicId = data.topicId;
-        if (data.type === "typing") broadcastToTopic(data.topicId, { type: "typing", topicId: data.topicId, clientId: ws.data.id, text: data.text || '' }, ws);
-        if (data.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
-        if (data.type === "drag:start") broadcast({ type: "drag:start", topicId: data.topicId, sourceWindowId: data.windowId }, ws);
-        if (data.type === "drag:end") broadcast({ type: "drag:end", topicId: data.topicId, sourceWindowId: data.windowId }, ws);
-        if (data.type === "drag:drop") broadcastToAll({ type: "drag:accepted", topicId: data.topicId, targetWindowId: data.windowId, sourceWindowId: data.sourceWindowId });
+        const raw = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+        const result = parseChatWsInbound(raw);
+        if (!result.ok) {
+          // Backward-compat: silently drop unknown/malformed messages instead
+          // of crashing. The previous handler did the same (unmatched types
+          // hit none of the `if` branches). Log in dev for observability.
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(`[WS] Invalid inbound message from ${ws.data.id}: ${result.error}`);
+          }
+          return;
+        }
+        const data = result.data;
+        switch (data.type) {
+          case 'focus':
+            ws.data.focusedTopicId = data.topicId;
+            break;
+          case 'typing':
+            broadcastToTopic(data.topicId, { type: 'typing', topicId: data.topicId, clientId: ws.data.id, text: data.text || '' }, ws);
+            break;
+          case 'ping':
+            ws.send(JSON.stringify({ type: 'pong' }));
+            break;
+          case 'drag:start':
+            broadcast({ type: 'drag:start', topicId: data.topicId, sourceWindowId: data.windowId }, ws);
+            break;
+          case 'drag:end':
+            broadcast({ type: 'drag:end', topicId: data.topicId, sourceWindowId: data.windowId }, ws);
+            break;
+          case 'drag:drop':
+            broadcastToAll({ type: 'drag:accepted', topicId: data.topicId, targetWindowId: data.windowId, sourceWindowId: data.sourceWindowId });
+            break;
+        }
       } catch (err) { console.warn(`[WS] Failed to parse message from ${ws.data.id}:`, err); }
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
