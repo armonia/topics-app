@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
 import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
+import { validateInbound } from '../schemas/ws-inbound';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -85,7 +86,22 @@ export function useWebSocket(): UseWebSocketReturn {
 
     ws.onmessage = (event) => {
       try {
-        const data: WSMessage = JSON.parse(event.data);
+        const raw = JSON.parse(event.data);
+
+        // v3 foundations WS-01 client-side validation: registered types
+        // are schema-checked, unknown types pass through. On schema
+        // failure we DROP the frame (defense in depth) and log in DEV.
+        // Server-side already validates emits via devValidateOutbound,
+        // so a failure here means protocol drift or a server bug that
+        // slipped through.
+        const validation = validateInbound(raw);
+        if (!validation.ok) {
+          if (import.meta.env.DEV) {
+            console.warn(`[WS:inbound] Dropping malformed ${validation.type ?? 'frame'}: ${validation.error}`);
+          }
+          return;
+        }
+        const data = raw as WSMessage;
 
         // Fan out to the module-level frame bus FIRST — the pane-store
         // bootstrap subscribes here (review I4: keeps a single WS per tab

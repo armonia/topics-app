@@ -168,6 +168,10 @@ describe('outbound registry contract', () => {
       'board:archived_all',
       'board:memory_added',
       'browser:navigate',
+      'chat:archived',
+      'chat:created',
+      'chat:deleted',
+      'chat:updated',
       'clear',
       'connected',
       'cron:updated',
@@ -177,6 +181,7 @@ describe('outbound registry contract', () => {
       'drag:start',
       'error',
       'gateway:status',
+      'git-status:updated',
       'machine:updated',
       'machine:upserted',
       'memory:updated',
@@ -189,6 +194,8 @@ describe('outbound registry contract', () => {
       'project:created',
       'project:deleted',
       'project:updated',
+      'provider:changed',
+      'provider:current',
       'providers:snapshot',
       'scripts:output',
       'scripts:updated',
@@ -244,8 +251,32 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 87 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(87);
+  test('all 94 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(94);
+  });
+});
+
+describe('validateOutbound — final 100% coverage cluster', () => {
+  test('chat:* legacy events require chat.id', () => {
+    expect(validateOutbound({
+      type: 'chat:created', chat: { id: 'c-1', title: 'old' },
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'chat:updated', chat: { id: 'c-1' } }).ok).toBe(true);
+    expect(validateOutbound({ type: 'chat:archived', chat: { id: 'c-1' } }).ok).toBe(true);
+    expect(validateOutbound({ type: 'chat:deleted', chatId: 'c-1' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'chat:deleted' }).ok).toBe(false);
+  });
+
+  test('provider:current/changed minimal payload', () => {
+    expect(validateOutbound({ type: 'provider:current' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'provider:changed', name: 'claude' }).ok).toBe(true);
+  });
+
+  test('git-status:updated minimal payload (passthrough)', () => {
+    expect(validateOutbound({ type: 'git-status:updated' }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'git-status:updated', projectId: 'p-1', dirty: true,
+    }).ok).toBe(true);
   });
 });
 

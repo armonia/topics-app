@@ -588,6 +588,46 @@ const terminalSessionsSchema = z.object({
   type: z.literal('terminal:sessions'),
 }).passthrough();
 
+// ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
+
+const chatObjectShape = z.object({ id: z.string() }).passthrough();
+
+const chatCreatedSchema = z.object({
+  type: z.literal('chat:created'),
+  chat: chatObjectShape,
+}).passthrough();
+
+const chatUpdatedSchema = z.object({
+  type: z.literal('chat:updated'),
+  chat: chatObjectShape,
+}).passthrough();
+
+const chatArchivedSchema = z.object({
+  type: z.literal('chat:archived'),
+  chat: chatObjectShape,
+}).passthrough();
+
+const chatDeletedSchema = z.object({
+  type: z.literal('chat:deleted'),
+  chatId: z.string(),
+}).passthrough();
+
+// ---- Provider niche events -------------------------------------------------
+
+const providerCurrentSchema = z.object({
+  type: z.literal('provider:current'),
+}).passthrough();
+
+const providerChangedSchema = z.object({
+  type: z.literal('provider:changed'),
+}).passthrough();
+
+// ---- Git status (legacy plan, kept for forward compat) --------------------
+
+const gitStatusUpdatedSchema = z.object({
+  type: z.literal('git-status:updated'),
+}).passthrough();
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -695,6 +735,16 @@ const OUTBOUND_SCHEMAS = {
   'scripts:output': scriptsOutputSchema,
   'scripts:updated': scriptsUpdatedSchema,
   'terminal:sessions': terminalSessionsSchema,
+  // Legacy chat:* (replaced by topic:* in v3, kept for backward compat)
+  'chat:created': chatCreatedSchema,
+  'chat:updated': chatUpdatedSchema,
+  'chat:archived': chatArchivedSchema,
+  'chat:deleted': chatDeletedSchema,
+  // Provider niche
+  'provider:current': providerCurrentSchema,
+  'provider:changed': providerChangedSchema,
+  // Git status (legacy/forward compat)
+  'git-status:updated': gitStatusUpdatedSchema,
 } as const;
 
 /**
