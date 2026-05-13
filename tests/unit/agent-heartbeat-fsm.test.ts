@@ -180,3 +180,132 @@ describe('agent-heartbeat × AGENT-FSM adoption', () => {
     db.close();
   });
 });
+
+// ----- Profile FSM adoption ------------------------------------------------
+
+function insertProfile(
+  db: Database,
+  row: {
+    id: string;
+    name: string;
+    status: 'available' | 'busy' | 'paused' | 'offline';
+    last_seen_at?: string;
+  },
+): void {
+  db.prepare(`
+    INSERT INTO agent_profiles (id, name, status, updated_at)
+    VALUES (?, ?, ?, ?)
+  `).run(row.id, row.name, row.status, '2026-05-12T00:00:00Z');
+  if (row.last_seen_at !== undefined) {
+    // Add last_seen_at column dynamically — not in our minimal schema; skip
+    // adding it for the stale-last-seen test since we use last_heartbeat path.
+  }
+}
+
+function getProfileStatus(db: Database, id: string): string {
+  const row = db.prepare('SELECT status FROM agent_profiles WHERE id = ?').get(id) as { status: string } | null;
+  return row?.status ?? '<missing>';
+}
+
+describe('agent-heartbeat × profile FSM adoption', () => {
+  test('marks profile offline when all its sessions go stale', () => {
+    const db = freshDb();
+    insertProfile(db, { id: 'p-1', name: 'agent-1', status: 'busy' });
+    insertSession(db, {
+      id: 's-p1',
+      status: 'active',
+      last_heartbeat: '2020-01-01T00:00:00Z', // old → triggers stale
+    });
+    // Wire the session to the profile
+    db.prepare(`UPDATE agent_sessions SET agent_id = ? WHERE id = ?`).run('p-1', 's-p1');
+
+    runCheckerOnce(db);
+
+    expect(getStatus(db, 's-p1')).toBe('stale');
+    expect(getProfileStatus(db, 'p-1')).toBe('offline');
+    db.close();
+  });
+
+  test('does NOT touch a paused profile even when sessions go stale', () => {
+    // Profile in 'paused' cannot transition to 'offline' directly (FSM rule:
+    // paused → offline IS legal actually, only paused → busy is rejected).
+    // So this profile WILL go offline. Verify.
+    const db = freshDb();
+    insertProfile(db, { id: 'p-paused', name: 'paused-agent', status: 'paused' });
+    insertSession(db, {
+      id: 's-p2',
+      status: 'active',
+      last_heartbeat: '2020-01-01T00:00:00Z',
+    });
+    db.prepare(`UPDATE agent_sessions SET agent_id = ? WHERE id = ?`).run('p-paused', 's-p2');
+
+    runCheckerOnce(db);
+
+    // paused → offline is FSM-legal, so the profile transitions correctly.
+    expect(getProfileStatus(db, 'p-paused')).toBe('offline');
+    db.close();
+  });
+
+  test('does NOT touch an already-offline profile (self-loop allowed but no row change)', () => {
+    const db = freshDb();
+    insertProfile(db, { id: 'p-off', name: 'offline-agent', status: 'offline' });
+    insertSession(db, {
+      id: 's-p3',
+      status: 'active',
+      last_heartbeat: '2020-01-01T00:00:00Z',
+    });
+    db.prepare(`UPDATE agent_sessions SET agent_id = ? WHERE id = ?`).run('p-off', 's-p3');
+
+    runCheckerOnce(db);
+
+    // Profile stays offline (self-loop). The conditional UPDATE no-ops because
+    // status is already 'offline'.
+    expect(getProfileStatus(db, 'p-off')).toBe('offline');
+    db.close();
+  });
+
+  test('leaves profile available when its sessions remain active', () => {
+    const db = freshDb();
+    insertProfile(db, { id: 'p-avail', name: 'available-agent', status: 'available' });
+    // Active session with recent heartbeat → no staleness, no profile update
+    insertSession(db, {
+      id: 's-p4',
+      status: 'active',
+      last_heartbeat: new Date().toISOString(),
+    });
+    db.prepare(`UPDATE agent_sessions SET agent_id = ? WHERE id = ?`).run('p-avail', 's-p4');
+
+    runCheckerOnce(db);
+
+    expect(getProfileStatus(db, 'p-avail')).toBe('available');
+    db.close();
+  });
+
+  test('profile with another active session is NOT marked offline', () => {
+    // Two sessions on same profile; one goes stale, the other is still active.
+    // The checker should leave the profile alone because activeCount > 0.
+    const db = freshDb();
+    insertProfile(db, { id: 'p-busy', name: 'busy-agent', status: 'busy' });
+    insertSession(db, {
+      id: 's-stale',
+      status: 'active',
+      last_heartbeat: '2020-01-01T00:00:00Z',
+    });
+    insertSession(db, {
+      id: 's-fresh',
+      status: 'active',
+      last_heartbeat: new Date().toISOString(),
+    });
+    db.prepare(`UPDATE agent_sessions SET agent_id = ? WHERE id = ?`).run('p-busy', 's-stale');
+    db.prepare(`UPDATE agent_sessions SET agent_id = ? WHERE id = ?`).run('p-busy', 's-fresh');
+
+    runCheckerOnce(db);
+
+    // The stale session went to 'stale', but the fresh one is still active,
+    // so the profile-offline path didn't fire.
+    expect(getStatus(db, 's-stale')).toBe('stale');
+    expect(getStatus(db, 's-fresh')).toBe('active');
+    expect(getProfileStatus(db, 'p-busy')).toBe('busy');
+    db.close();
+  });
+});

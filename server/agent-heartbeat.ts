@@ -1,8 +1,11 @@
 import type { Database } from "bun:sqlite";
 import {
   applySessionTransition,
+  applyProfileTransition,
   parseAgentSessionState,
+  parseAgentProfileState,
   type AgentSessionState,
+  type AgentProfileState,
 } from "./agent-fsm";
 
 const HEARTBEAT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
@@ -55,9 +58,44 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
     return ((result as { changes?: number }).changes ?? 0) > 0;
   }
 
+  // v3 foundations AGENT-01 adoption (profile side): same race-safe pattern
+  // as session updates. The conditional `WHERE id = ? AND status = ?` clause
+  // makes the UPDATE no-op if the profile state changed underneath the FSM
+  // guard (e.g., a user unpaused or the profile already went offline).
   const markProfileOffline = db.prepare(`
-    UPDATE agent_profiles SET status = 'offline', updated_at = ? WHERE id = ?
+    UPDATE agent_profiles SET status = 'offline', updated_at = ? WHERE id = ? AND status = ?
   `);
+  const readProfileStatusStmt = db.prepare(
+    `SELECT status FROM agent_profiles WHERE id = ?`,
+  );
+
+  /**
+   * Transition an agent profile to a new state with FSM enforcement. Reads
+   * the current status from the DB (we don't have a row passed in, just the
+   * id), validates the transition, and issues a conditional UPDATE. Returns
+   * true iff the UPDATE actually changed a row.
+   */
+  function transitionProfileTo(
+    agentId: string,
+    target: AgentProfileState,
+    now: string,
+  ): boolean {
+    const row = readProfileStatusStmt.get(agentId) as { status?: string } | null;
+    if (!row) return false; // profile was deleted between SELECT and UPDATE
+    const currentRaw = row.status ?? 'available';
+    const current = parseAgentProfileState(currentRaw);
+    if (!current.ok) {
+      console.warn(`[Heartbeat] Profile ${agentId} has unknown status '${currentRaw}', skipping transition to '${target}': ${current.error}`);
+      return false;
+    }
+    const guard = applyProfileTransition(current.data, target);
+    if (!guard.ok) {
+      console.warn(`[Heartbeat] ${guard.reason} (profile ${agentId})`);
+      return false;
+    }
+    const result = markProfileOffline.run(now, agentId, current.data);
+    return ((result as { changes?: number }).changes ?? 0) > 0;
+  }
 
   // Check for sessions without any heartbeat that started more than 2 minutes ago
   const noHeartbeatSessionsStmt = db.prepare(`
@@ -103,7 +141,7 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
         ).get(agentId) as any;
 
         if (!activeCount || activeCount.cnt === 0) {
-          markProfileOffline.run(now, agentId);
+          transitionProfileTo(agentId, 'offline', now);
         }
       }
 
@@ -122,8 +160,9 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
         ).get(profile.id) as any;
 
         if (!activeCount || activeCount.cnt === 0) {
-          markProfileOffline.run(now, profile.id);
-          staleCount++;
+          if (transitionProfileTo(profile.id, 'offline', now)) {
+            staleCount++;
+          }
         }
       }
 
