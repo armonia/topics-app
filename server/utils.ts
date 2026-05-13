@@ -14,6 +14,24 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "./schemas/tool-call-detail";
+import { validateOutbound } from "./schemas/ws-outbound";
+
+/**
+ * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
+ * zero overhead in production. Catches server-side bugs that emit malformed
+ * payloads at the source instead of letting clients discover them.
+ *
+ * For types not registered in `OUTBOUND_SCHEMAS`, this is a no-op.
+ * Migration is incremental: add schemas as types stabilize.
+ */
+function devValidateOutbound(message: object): void {
+  if (process.env.NODE_ENV === 'production') return;
+  const result = validateOutbound(message);
+  if (!result.ok) {
+    // eslint-disable-next-line no-console
+    console.warn(`[WS:outbound] Malformed broadcast — ${result.error}`, message);
+  }
+}
 
 /**
  * v3 foundations NORM-01 DB hydration: validate a tool call's `detail`
@@ -365,6 +383,7 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Broadcast helpers ---
   function broadcast(message: object, exclude?: ServerWebSocket<WSData>) {
+    devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
       if (ws !== exclude && ws.readyState === 1) {
@@ -376,6 +395,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function broadcastToAll(message: object) {
+    devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
       if (ws.readyState === 1) {
@@ -389,6 +409,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function broadcastToTopic(topicId: string, message: object, exclude?: ServerWebSocket<WSData>) {
+    devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
       if (ws !== exclude && ws.data.focusedTopicId === topicId && ws.readyState === 1) {
