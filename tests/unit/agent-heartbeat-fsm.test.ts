@@ -16,13 +16,18 @@ import { startHeartbeatChecker } from '../../server/agent-heartbeat';
 
 function freshDb(): Database {
   const db = new Database(':memory:');
-  // Minimum schema for agent_sessions per server/db/migrations/001-initial.sql
-  // — built one statement at a time to keep the test pure.
+  // Minimum schema for agent_sessions per server/db/migrations/001-initial.sql.
+  // The `last_seen_at` column on agent_profiles is required by the heartbeat
+  // checker's second query (the one that marks stale profiles by API
+  // heartbeat age) — without it the inline `db.prepare(...)` throws a
+  // SQLiteError that the checker's try/catch swallows. Including it here
+  // keeps the test log clean and exercises the same code path as production.
   db.prepare(`
     CREATE TABLE agent_profiles (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL DEFAULT 'available' CHECK(status IN ('available', 'busy', 'paused', 'offline')),
+      last_seen_at TEXT,
       updated_at TEXT NOT NULL DEFAULT ''
     )
   `).run();
