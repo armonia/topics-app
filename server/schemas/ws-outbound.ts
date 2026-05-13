@@ -283,6 +283,311 @@ const errorMessageSchema = z.object({
   message: z.string(),
 }).passthrough();
 
+// ---- Welcome (v3 WS-02 handshake echo on outbound side) --------------------
+
+const welcomeOutboundSchema = z.object({
+  type: z.literal('welcome'),
+  serverVersion: z.string(),
+  protocolVersion: z.number().int(),
+  capabilities: z.array(z.string()),
+  serverTime: z.number(),
+  clientId: z.string(),
+}).passthrough();
+
+// ---- Agent lifecycle cluster ----------------------------------------------
+
+const agentProfileShape = z.object({ id: z.string() }).passthrough();
+
+const agentProfileCreatedSchema = z.object({
+  type: z.literal('agent:profile:created'),
+  profile: agentProfileShape,
+}).passthrough();
+
+const agentProfileUpdatedSchema = z.object({
+  type: z.literal('agent:profile:updated'),
+  profile: agentProfileShape,
+}).passthrough();
+
+const agentProfileDeletedSchema = z.object({
+  type: z.literal('agent:profile:deleted'),
+  agentId: z.string(),
+}).passthrough();
+
+const agentAssignedSchema = z.object({
+  type: z.literal('agent:assigned'),
+  assignment: z.object({ agentId: z.string(), topicId: z.string() }).passthrough(),
+}).passthrough();
+
+const agentUnassignedSchema = z.object({
+  type: z.literal('agent:unassigned'),
+  agentId: z.string(),
+  topicId: z.string(),
+}).passthrough();
+
+const agentStatusSchema = z.object({
+  type: z.literal('agent:status'),
+  agentId: z.string(),
+  status: z.string(),
+  previousStatus: z.string().optional(),
+}).passthrough();
+
+const agentHeartbeatSchema = z.object({
+  type: z.literal('agent:heartbeat'),
+  agentId: z.string(),
+  timestamp: z.string(),
+}).passthrough();
+
+const agentSessionPausedSchema = z.object({
+  type: z.literal('agent:session:paused'),
+  sessionKey: z.string(),
+}).passthrough();
+
+const agentSessionResumedSchema = z.object({
+  type: z.literal('agent:session:resumed'),
+  sessionKey: z.string(),
+}).passthrough();
+
+const agentTaskClaimedSchema = z.object({
+  type: z.literal('agent:task_claimed'),
+  agentId: z.string(),
+  taskId: z.string(),
+  projectId: z.string(),
+}).passthrough();
+
+const agentTaskCompletedSchema = z.object({
+  type: z.literal('agent:task_completed'),
+  agentId: z.string(),
+  taskId: z.string(),
+}).passthrough();
+
+const agentEscalationSchema = z.object({
+  type: z.literal('agent:escalation'),
+}).passthrough();
+
+const agentsSessionsSchema = z.object({
+  type: z.literal('agents:sessions'),
+  sessions: z.array(z.unknown()),
+}).passthrough();
+
+const agentsSpawnedSchema = z.object({
+  type: z.literal('agents:spawned'),
+  topicId: z.string(),
+  sessionKey: z.string(),
+  label: z.string().optional(),
+}).passthrough();
+
+const agentsStoppedSchema = z.object({
+  type: z.literal('agents:stopped'),
+  sessionKey: z.string(),
+}).passthrough();
+
+// ---- Approval cluster ------------------------------------------------------
+
+const approvalCreatedSchema = z.object({
+  type: z.literal('approval:created'),
+  projectId: z.string(),
+  approval: z.object({ id: z.string() }).passthrough(),
+}).passthrough();
+
+const approvalApprovedSchema = z.object({
+  type: z.literal('approval:approved'),
+  approvalId: z.string(),
+}).passthrough();
+
+const approvalRejectedSchema = z.object({
+  type: z.literal('approval:rejected'),
+  approvalId: z.string(),
+}).passthrough();
+
+// ---- Stream cluster (server → client message streaming) -------------------
+
+const streamStartSchema = z.object({
+  type: z.literal('stream:start'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  messageId: z.string(),
+}).passthrough();
+
+const streamContentChunkSchema = z.object({
+  type: z.literal('stream:content_chunk'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  content: z.string(),
+}).passthrough();
+
+const streamThinkingStartSchema = z.object({
+  type: z.literal('stream:thinking_start'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamThinkingEndSchema = z.object({
+  type: z.literal('stream:thinking_end'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamThinkingChunkSchema = z.object({
+  type: z.literal('stream:thinking_chunk'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamErrorSchema = z.object({
+  type: z.literal('stream:error'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  error: z.string(),
+}).passthrough();
+
+const streamSlowSchema = z.object({
+  type: z.literal('stream:slow'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamResumedSchema = z.object({
+  type: z.literal('stream:resumed'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamToolCallSchema = z.object({
+  type: z.literal('stream:tool_call'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  toolCall: z.object({ id: z.string() }).passthrough(),
+}).passthrough();
+
+const streamToolDetailSchema = z.object({
+  type: z.literal('stream:tool_detail'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamToolResultSchema = z.object({
+  type: z.literal('stream:tool_result'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamToolUpdateSchema = z.object({
+  type: z.literal('stream:tool_update'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const streamToolUserInputRequiredSchema = z.object({
+  type: z.literal('stream:tool_user_input_required'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+// ---- Message cluster (legacy + new) ---------------------------------------
+
+const messageLegacySchema = z.object({
+  type: z.literal('message'),
+  sessionKey: z.string(),
+  message: z.object({ id: z.string() }).passthrough(),
+}).passthrough();
+
+const messageNewSchema = z.object({
+  type: z.literal('message:new'),
+  topicId: z.string().optional(),
+  sessionKey: z.string(),
+  role: z.string(),
+  messageId: z.string(),
+  content: z.string(),
+  preview: z.string().optional(),
+}).passthrough();
+
+const messageMediaSchema = z.object({
+  type: z.literal('message:media'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  media: z.unknown(),
+}).passthrough();
+
+const messagePlanStatusSchema = z.object({
+  type: z.literal('message:plan-status'),
+  topicId: z.string(),
+  messageId: z.string(),
+  planStatus: z.string(),
+}).passthrough();
+
+// ---- Misc / domain-specific outbound --------------------------------------
+
+const browserNavigateSchema = z.object({
+  type: z.literal('browser:navigate'),
+  topicId: z.string(),
+  url: z.string(),
+}).passthrough();
+
+const clearSchema = z.object({
+  type: z.literal('clear'),
+}).passthrough();
+
+const cronUpdatedSchema = z.object({
+  type: z.literal('cron:updated'),
+  jobs: z.array(z.unknown()),
+}).passthrough();
+
+const gatewayStatusSchema = z.object({
+  type: z.literal('gateway:status'),
+}).passthrough();
+
+const machineShape = z.object({ id: z.string() }).passthrough();
+
+const machineUpdatedSchema = z.object({
+  type: z.literal('machine:updated'),
+  machine: machineShape,
+}).passthrough();
+
+const machineUpsertedSchema = z.object({
+  type: z.literal('machine:upserted'),
+  machine: machineShape,
+}).passthrough();
+
+const memoryUpdatedSchema = z.object({
+  type: z.literal('memory:updated'),
+  scope: z.string(),
+  topicId: z.string().optional(),
+}).passthrough();
+
+const openProjectSchema = z.object({
+  type: z.literal('open-project'),
+  projectPath: z.string(),
+}).passthrough();
+
+const topicsReorderedSchema = z.object({
+  type: z.literal('topics:reordered'),
+  order: z.array(z.string()),
+}).passthrough();
+
+const taskUnblockedSchema = z.object({
+  type: z.literal('task:unblocked'),
+  projectId: z.string(),
+  taskId: z.string(),
+}).passthrough();
+
+const uiStateInitSchema = z.object({
+  type: z.literal('ui-state:init'),
+  data: z.unknown(),
+  meta: z.unknown().optional(),
+}).passthrough();
+
+const scriptsOutputSchema = z.object({
+  type: z.literal('scripts:output'),
+}).passthrough();
+
+const scriptsUpdatedSchema = z.object({
+  type: z.literal('scripts:updated'),
+}).passthrough();
+
+const terminalSessionsSchema = z.object({
+  type: z.literal('terminal:sessions'),
+}).passthrough();
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -334,6 +639,62 @@ const OUTBOUND_SCHEMAS = {
   'providers:snapshot': providersSnapshotSchema,
   // Errors
   'error': errorMessageSchema,
+  // Handshake echo (welcome is sent right after connected)
+  'welcome': welcomeOutboundSchema,
+  // Agent lifecycle
+  'agent:profile:created': agentProfileCreatedSchema,
+  'agent:profile:updated': agentProfileUpdatedSchema,
+  'agent:profile:deleted': agentProfileDeletedSchema,
+  'agent:assigned': agentAssignedSchema,
+  'agent:unassigned': agentUnassignedSchema,
+  'agent:status': agentStatusSchema,
+  'agent:heartbeat': agentHeartbeatSchema,
+  'agent:session:paused': agentSessionPausedSchema,
+  'agent:session:resumed': agentSessionResumedSchema,
+  'agent:task_claimed': agentTaskClaimedSchema,
+  'agent:task_completed': agentTaskCompletedSchema,
+  'agent:escalation': agentEscalationSchema,
+  'agents:sessions': agentsSessionsSchema,
+  'agents:spawned': agentsSpawnedSchema,
+  'agents:stopped': agentsStoppedSchema,
+  // Approvals
+  'approval:created': approvalCreatedSchema,
+  'approval:approved': approvalApprovedSchema,
+  'approval:rejected': approvalRejectedSchema,
+  // Stream cluster (provider streaming)
+  'stream:start': streamStartSchema,
+  'stream:content_chunk': streamContentChunkSchema,
+  'stream:thinking_start': streamThinkingStartSchema,
+  'stream:thinking_end': streamThinkingEndSchema,
+  'stream:thinking_chunk': streamThinkingChunkSchema,
+  'stream:error': streamErrorSchema,
+  'stream:slow': streamSlowSchema,
+  'stream:resumed': streamResumedSchema,
+  'stream:tool_call': streamToolCallSchema,
+  'stream:tool_detail': streamToolDetailSchema,
+  'stream:tool_result': streamToolResultSchema,
+  'stream:tool_update': streamToolUpdateSchema,
+  'stream:tool_user_input_required': streamToolUserInputRequiredSchema,
+  // Message cluster
+  'message': messageLegacySchema,
+  'message:new': messageNewSchema,
+  'message:media': messageMediaSchema,
+  'message:plan-status': messagePlanStatusSchema,
+  // Misc domain
+  'browser:navigate': browserNavigateSchema,
+  'clear': clearSchema,
+  'cron:updated': cronUpdatedSchema,
+  'gateway:status': gatewayStatusSchema,
+  'machine:updated': machineUpdatedSchema,
+  'machine:upserted': machineUpsertedSchema,
+  'memory:updated': memoryUpdatedSchema,
+  'open-project': openProjectSchema,
+  'topics:reordered': topicsReorderedSchema,
+  'task:unblocked': taskUnblockedSchema,
+  'ui-state:init': uiStateInitSchema,
+  'scripts:output': scriptsOutputSchema,
+  'scripts:updated': scriptsUpdatedSchema,
+  'terminal:sessions': terminalSessionsSchema,
 } as const;
 
 /**

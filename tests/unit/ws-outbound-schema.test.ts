@@ -99,9 +99,11 @@ describe('validateOutbound — malformed registered messages', () => {
 
 describe('validateOutbound — unmodeled types passthrough', () => {
   test('returns ok for types not in the registry', () => {
-    // browser:navigate is intentionally NOT in the v3 outbound registry —
-    // browser CDP events live on the dedicated /ws/browser channel.
-    expect(validateOutbound({ type: 'browser:navigate', url: 'x' }).ok).toBe(true);
+    // After the Day-3 expansion the registry covers virtually all emitted
+    // outbound types. These synthetic placeholders exercise the
+    // passthrough path for types that may appear in a future deploy
+    // before the schema lands.
+    expect(validateOutbound({ type: 'future.unknown.event' }).ok).toBe(true);
     expect(validateOutbound({ type: 'totally-new-event' }).ok).toBe(true);
   });
 
@@ -145,21 +147,66 @@ describe('outbound registry contract', () => {
     // That's intentional — it forces the PR author to acknowledge that
     // the outbound surface grew (and to document it in WS-PROTOCOL.md).
     expect(REGISTERED_OUTBOUND_TYPES).toEqual([
+      'agent:assigned',
+      'agent:escalation',
+      'agent:heartbeat',
+      'agent:profile:created',
+      'agent:profile:deleted',
+      'agent:profile:updated',
+      'agent:session:paused',
+      'agent:session:resumed',
+      'agent:status',
+      'agent:task_claimed',
+      'agent:task_completed',
+      'agent:unassigned',
+      'agents:sessions',
+      'agents:spawned',
+      'agents:stopped',
+      'approval:approved',
+      'approval:created',
+      'approval:rejected',
       'board:archived_all',
       'board:memory_added',
+      'browser:navigate',
+      'clear',
       'connected',
+      'cron:updated',
       'dashboard:updated',
       'drag:accepted',
       'drag:end',
       'drag:start',
       'error',
+      'gateway:status',
+      'machine:updated',
+      'machine:upserted',
+      'memory:updated',
+      'message',
+      'message:media',
+      'message:new',
+      'message:plan-status',
+      'open-project',
       'pong',
       'project:created',
       'project:deleted',
       'project:updated',
       'providers:snapshot',
+      'scripts:output',
+      'scripts:updated',
       'stream:catchup',
+      'stream:content_chunk',
       'stream:end',
+      'stream:error',
+      'stream:resumed',
+      'stream:slow',
+      'stream:start',
+      'stream:thinking_chunk',
+      'stream:thinking_end',
+      'stream:thinking_start',
+      'stream:tool_call',
+      'stream:tool_detail',
+      'stream:tool_result',
+      'stream:tool_update',
+      'stream:tool_user_input_required',
       'task:archived',
       'task:comment:added',
       'task:created',
@@ -168,17 +215,22 @@ describe('outbound registry contract', () => {
       'task:dependency:removed',
       'task:moved',
       'task:unarchived',
+      'task:unblocked',
       'task:updated',
+      'terminal:sessions',
       'topic:archived',
       'topic:created',
       'topic:switch',
       'topic:switch:complete',
       'topic:updated',
+      'topics:reordered',
       'typing',
+      'ui-state:init',
       'ui-state:patch',
       'ui-state:updated',
       'unread:init',
       'unread:updated',
+      'welcome',
       'worktree:deleted',
       'worktree:new',
       'worktree:updated',
@@ -192,8 +244,249 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 37 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(37);
+  test('all 87 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(87);
+  });
+});
+
+// ----- Day-3 additions: agent + approval + stream + message + misc --------
+
+describe('validateOutbound — agent cluster', () => {
+  test('agent:profile:created accepts profile.id', () => {
+    expect(validateOutbound({
+      type: 'agent:profile:created',
+      profile: { id: 'a-1', name: 'agent-1', role: 'worker' },
+    }).ok).toBe(true);
+  });
+
+  test('agent:assigned requires assignment.agentId+topicId', () => {
+    expect(validateOutbound({
+      type: 'agent:assigned',
+      assignment: { agentId: 'a-1', topicId: 't-1', role: 'worker' },
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'agent:assigned',
+      assignment: { agentId: 'a-1' }, // missing topicId
+    }).ok).toBe(false);
+  });
+
+  test('agent:status with optional previousStatus', () => {
+    expect(validateOutbound({
+      type: 'agent:status', agentId: 'a-1', status: 'available',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'agent:status', agentId: 'a-1', status: 'available', previousStatus: 'offline',
+    }).ok).toBe(true);
+  });
+
+  test('agent:heartbeat requires timestamp string', () => {
+    expect(validateOutbound({
+      type: 'agent:heartbeat', agentId: 'a-1', timestamp: '2026-05-13T00:00:00Z',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'agent:heartbeat', agentId: 'a-1', timestamp: 12345,
+    }).ok).toBe(false);
+  });
+
+  test('agent:session:paused requires sessionKey', () => {
+    expect(validateOutbound({ type: 'agent:session:paused', sessionKey: 'sk-1' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'agent:session:paused' }).ok).toBe(false);
+  });
+
+  test('agent:task_claimed requires agentId+taskId+projectId', () => {
+    expect(validateOutbound({
+      type: 'agent:task_claimed', agentId: 'a-1', taskId: 't-1', projectId: 'p-1',
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'agent:task_claimed', agentId: 'a-1' }).ok).toBe(false);
+  });
+
+  test('agents:spawned requires topicId + sessionKey', () => {
+    expect(validateOutbound({
+      type: 'agents:spawned', topicId: 't-1', sessionKey: 'sk-1', label: 'task',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'agents:spawned', topicId: 't-1', sessionKey: 'sk-1',
+    }).ok).toBe(true); // label optional
+  });
+
+  test('agents:sessions requires sessions array', () => {
+    expect(validateOutbound({ type: 'agents:sessions', sessions: [] }).ok).toBe(true);
+    expect(validateOutbound({ type: 'agents:sessions' }).ok).toBe(false);
+  });
+});
+
+describe('validateOutbound — approval cluster', () => {
+  test('approval:created requires projectId + approval.id', () => {
+    expect(validateOutbound({
+      type: 'approval:created', projectId: 'p-1',
+      approval: { id: 'app-1', status: 'pending' },
+    }).ok).toBe(true);
+  });
+
+  test('approval:approved/rejected require approvalId', () => {
+    expect(validateOutbound({ type: 'approval:approved', approvalId: 'app-1' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'approval:rejected', approvalId: 'app-1' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'approval:approved' }).ok).toBe(false);
+  });
+});
+
+describe('validateOutbound — stream cluster', () => {
+  test('stream:start requires sessionKey + messageId', () => {
+    expect(validateOutbound({
+      type: 'stream:start', sessionKey: 'sk', messageId: 'm-1',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'stream:start', sessionKey: 'sk', messageId: 'm-1', topicId: 't-1',
+    }).ok).toBe(true);
+  });
+
+  test('stream:content_chunk requires content string', () => {
+    expect(validateOutbound({
+      type: 'stream:content_chunk', sessionKey: 'sk', content: 'hi',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'stream:content_chunk', sessionKey: 'sk', content: 42,
+    }).ok).toBe(false);
+  });
+
+  test('stream:error requires error string', () => {
+    expect(validateOutbound({
+      type: 'stream:error', sessionKey: 'sk', error: 'boom',
+    }).ok).toBe(true);
+  });
+
+  test('stream:tool_call requires toolCall.id', () => {
+    expect(validateOutbound({
+      type: 'stream:tool_call', sessionKey: 'sk',
+      toolCall: { id: 'tc-1', name: 'Bash', args: {} },
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'stream:tool_call', sessionKey: 'sk',
+      toolCall: { name: 'Bash' }, // missing id
+    }).ok).toBe(false);
+  });
+
+  test('stream:thinking_start/end accepts minimal payload', () => {
+    expect(validateOutbound({ type: 'stream:thinking_start', sessionKey: 'sk' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'stream:thinking_end', sessionKey: 'sk' }).ok).toBe(true);
+  });
+
+  test('stream:tool_user_input_required accepts minimal payload', () => {
+    expect(validateOutbound({
+      type: 'stream:tool_user_input_required', sessionKey: 'sk',
+    }).ok).toBe(true);
+  });
+});
+
+describe('validateOutbound — message cluster', () => {
+  test('message (legacy) requires message.id', () => {
+    expect(validateOutbound({
+      type: 'message', sessionKey: 'sk',
+      message: { id: 'm-1', role: 'assistant', content: 'hi' },
+    }).ok).toBe(true);
+  });
+
+  test('message:new requires sessionKey, role, messageId, content', () => {
+    expect(validateOutbound({
+      type: 'message:new', sessionKey: 'sk', topicId: 't-1', role: 'assistant',
+      messageId: 'm-1', content: 'hello',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'message:new', sessionKey: 'sk', role: 'user', messageId: 'm-1',
+      content: 'hi', // topicId optional, preview optional
+    }).ok).toBe(true);
+  });
+
+  test('message:plan-status requires topicId+messageId+planStatus', () => {
+    expect(validateOutbound({
+      type: 'message:plan-status', topicId: 't-1', messageId: 'm-1',
+      planStatus: 'approved',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'message:plan-status', topicId: 't-1',
+    }).ok).toBe(false);
+  });
+
+  test('message:media accepts arbitrary media field', () => {
+    expect(validateOutbound({
+      type: 'message:media', sessionKey: 'sk', media: ['url1', 'url2'],
+    }).ok).toBe(true);
+  });
+});
+
+describe('validateOutbound — misc domain (browser/cron/machine/memory/open-project/etc)', () => {
+  test('browser:navigate requires topicId + url', () => {
+    expect(validateOutbound({
+      type: 'browser:navigate', topicId: 't-1', url: 'https://x',
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'browser:navigate', topicId: 't-1' }).ok).toBe(false);
+  });
+
+  test('clear is minimal', () => {
+    expect(validateOutbound({ type: 'clear' }).ok).toBe(true);
+  });
+
+  test('cron:updated requires jobs array', () => {
+    expect(validateOutbound({ type: 'cron:updated', jobs: [] }).ok).toBe(true);
+    expect(validateOutbound({ type: 'cron:updated' }).ok).toBe(false);
+  });
+
+  test('machine:upserted/updated require machine.id', () => {
+    expect(validateOutbound({
+      type: 'machine:upserted', machine: { id: 'm-1', name: 'mbp' },
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'machine:updated', machine: { id: 'm-1', last_seen: '2026' },
+    }).ok).toBe(true);
+  });
+
+  test('memory:updated requires scope', () => {
+    expect(validateOutbound({ type: 'memory:updated', scope: 'global' }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'memory:updated', scope: 'topic', topicId: 't-1',
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'memory:updated' }).ok).toBe(false);
+  });
+
+  test('open-project requires projectPath', () => {
+    expect(validateOutbound({ type: 'open-project', projectPath: '/Users/me/proj' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'open-project' }).ok).toBe(false);
+  });
+
+  test('topics:reordered requires order array of strings', () => {
+    expect(validateOutbound({
+      type: 'topics:reordered', order: ['t-1', 't-2'],
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'topics:reordered', order: [1, 2],
+    }).ok).toBe(false);
+  });
+
+  test('task:unblocked requires projectId + taskId', () => {
+    expect(validateOutbound({
+      type: 'task:unblocked', projectId: 'p-1', taskId: 't-1',
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'task:unblocked' }).ok).toBe(false);
+  });
+
+  test('ui-state:init accepts data + optional meta', () => {
+    expect(validateOutbound({
+      type: 'ui-state:init', data: { keys: {} }, meta: { server_seq: 1 },
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'ui-state:init', data: {} }).ok).toBe(true);
+  });
+
+  test('welcome (outbound echo) requires all fields', () => {
+    expect(validateOutbound({
+      type: 'welcome',
+      serverVersion: '1.0.0', protocolVersion: 1,
+      capabilities: ['ws-validation-v1'], serverTime: 1700000000000,
+      clientId: 'ws-abc',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'welcome', serverVersion: '1.0', protocolVersion: 1.5,
+      capabilities: [], serverTime: 0, clientId: '',
+    }).ok).toBe(false); // protocolVersion must be integer
   });
 });
 
