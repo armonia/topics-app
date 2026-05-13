@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
-import { usePendingActionStatus } from '../../contexts/PendingActionContext';
+import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
@@ -716,7 +716,11 @@ function PaneCloseButton({
   // only get called from the inline check button, and read-only tabs use
   // this raw `onClose` path — closing them is fully reversible via the
   // Cmd+Shift+T closed-stack, no countdown needed.
-  const pendingStatus = usePendingActionStatus(isReadOnly ? null : `close-tab:${paneId}`);
+  // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
+  // sidebar-side keys (`archive-topic:<id>` for chat panes,
+  // `close-terminal:<id>` / `close-browser:<id>`) so the topbar tab shows
+  // the same countdown regardless of which surface kicked it off.
+  const pendingStatus = usePanePendingStatus(isReadOnly ? null : paneId);
 
   // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {
@@ -785,7 +789,10 @@ function PaneCloseButton({
  * `panes.map(...)` loop.
  */
 function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
-  const status = usePendingActionStatus(`close-tab:${paneId}`);
+  // v3 sidebar↔topbar sync: the overlay paints the per-pane countdown
+  // regardless of whether the close was initiated from the topbar (X)
+  // or from the sidebar (archive icon / close-terminal / close-browser).
+  const status = usePanePendingStatus(paneId);
   if (!status) return null;
   return <PendingActionProgressOverlay status={status} className="rounded-md" />;
 }

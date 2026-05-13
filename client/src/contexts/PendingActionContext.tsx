@@ -222,6 +222,113 @@ export function usePendingActionStatus(key: string | null | undefined): PendingA
   return { entry, countdownMs, cancel: () => cancel(key) };
 }
 
+// ─── Sidebar ↔ Topbar synchronization helpers ─────────────────────────────
+//
+// The Things3-pattern enqueues a pending action under a kind-specific key
+// (`archive-topic:`, `close-terminal:`, `close-browser:`, `close-tab:`).
+// The SAME underlying entity can be targeted from two places:
+//
+//   - Topic close: sidebar TopicItem registers `archive-topic:<id>` /
+//                  topbar PaneTabBar registers `close-tab:chat:<id>`
+//   - Terminal:    sidebar terminal row registers `close-terminal:<id>` /
+//                  topbar PaneTabBar registers `close-tab:terminal:<id>`
+//   - Browser:     sidebar browser row registers `close-browser:<id>` /
+//                  topbar PaneTabBar registers `close-tab:browser:<id>`
+//
+// Without the helpers below, a countdown started in one surface is
+// invisible in the other — the user gets inconsistent visual feedback.
+// Each helper returns the first matching pending entry across the
+// surface-specific key set, so BOTH surfaces show the same countdown
+// regardless of where it was triggered.
+
+/**
+ * Returns the pending countdown affecting this topic, whether triggered
+ * from the sidebar archive icon or the topbar close-tab. The sidebar
+ * TopicItem uses this so a topbar-initiated close also shows the row
+ * progress overlay.
+ */
+export function useTopicPendingStatus(
+  topicId: string,
+  options: { isArchived?: boolean } = {},
+): PendingActionStatus | null {
+  const { entries, cancel, countdownMs } = usePendingActions();
+  const candidates: string[] = [];
+  // Sidebar archive comes first — it's the more user-deliberate action
+  // and carries the topic-level intent (close-tab only kills the open
+  // pane, archive removes the topic from the listing).
+  if (!options.isArchived) candidates.push(`archive-topic:${topicId}`);
+  candidates.push(`close-tab:chat:${topicId}`);
+  for (const key of candidates) {
+    const entry = entries.find((e) => e.key === key);
+    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
+  }
+  return null;
+}
+
+/**
+ * Returns the pending countdown affecting this terminal session, whether
+ * triggered from the sidebar terminal row or the topbar tab close.
+ */
+export function useTerminalPendingStatus(sessionId: string): PendingActionStatus | null {
+  const { entries, cancel, countdownMs } = usePendingActions();
+  const candidates = [
+    `close-terminal:${sessionId}`,
+    `close-tab:terminal:${sessionId}`,
+  ];
+  for (const key of candidates) {
+    const entry = entries.find((e) => e.key === key);
+    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
+  }
+  return null;
+}
+
+/**
+ * Returns the pending countdown affecting this browser context, whether
+ * triggered from the sidebar browser row or the topbar tab close.
+ */
+export function useBrowserPendingStatus(contextId: string): PendingActionStatus | null {
+  const { entries, cancel, countdownMs } = usePendingActions();
+  const candidates = [
+    `close-browser:${contextId}`,
+    `close-tab:browser:${contextId}`,
+  ];
+  for (const key of candidates) {
+    const entry = entries.find((e) => e.key === key);
+    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
+  }
+  return null;
+}
+
+/**
+ * Returns the pending countdown affecting this pane. Used by the topbar
+ * PaneTabBar. For chat/terminal/browser panes, also checks the sidebar-
+ * side key so the topbar tab shows the same countdown when the close was
+ * triggered from the sidebar.
+ *
+ * Pane id format (from `client/src/state/pane/adapters/paneConfig.ts`):
+ *   - `chat:<topicId>`
+ *   - `terminal:<sessionId>`
+ *   - `browser:<contextId>`
+ *   - `project:<encodedPath>`, `session-viewer:<sessionKey>`, etc.
+ */
+export function usePanePendingStatus(paneId: string | null | undefined): PendingActionStatus | null {
+  const { entries, cancel, countdownMs } = usePendingActions();
+  if (!paneId) return null;
+  const candidates: string[] = [`close-tab:${paneId}`];
+  if (paneId.startsWith('chat:')) {
+    candidates.push(`archive-topic:${paneId.slice('chat:'.length)}`);
+  } else if (paneId.startsWith('terminal:')) {
+    candidates.push(`close-terminal:${paneId.slice('terminal:'.length)}`);
+  } else if (paneId.startsWith('browser:')) {
+    candidates.push(`close-browser:${paneId.slice('browser:'.length)}`);
+  }
+  for (const key of candidates) {
+    const entry = entries.find((e) => e.key === key);
+    if (entry) return { entry, countdownMs, cancel: () => cancel(key) };
+  }
+  return null;
+}
+
 // ─── Module-singleton imperative API ──────────────────────────────────────
 //
 // Mirror of the UndoContext pattern: exposes `enqueuePendingAction()` etc. as

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
-import { usePendingActionStatus } from '@/contexts/PendingActionContext';
+import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
@@ -91,12 +91,16 @@ export const TopicItem = memo(function TopicItem({
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
 
-  // Subscribe to PendingActionContext for THIS topic's archive flow. Only
-  // active when transitioning archived=false → archived=true (unarchive is
-  // restorative and commits immediately, no countdown).
-  const pendingArchiveStatus = usePendingActionStatus(
-    topic.archived ? null : `archive-topic:${topic.id}`,
-  );
+  // v3 foundations sidebar↔topbar sync: aggregate the topic-level closing
+  // countdown across BOTH surfaces. The sidebar row shows the progress
+  // overlay whether the close was initiated from:
+  //   - the archive icon next to the row     → `archive-topic:<id>`
+  //   - the X on the open chat tab (topbar)  → `close-tab:chat:<id>`
+  // Without this aggregation the sidebar stays static when the user closes
+  // the tab from the topbar, even though the chat-pane countdown is running.
+  const pendingArchiveStatus = useTopicPendingStatus(topic.id, {
+    isArchived: topic.archived,
+  });
 
   const handleArchiveClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

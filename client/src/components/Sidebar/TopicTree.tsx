@@ -1,6 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
-import { usePendingActionStatus } from '../../contexts/PendingActionContext';
+import {
+  usePendingActionStatus,
+  useTerminalPendingStatus,
+  useBrowserPendingStatus,
+} from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
@@ -610,7 +614,10 @@ interface TerminalSidebarItemProps {
 function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
-  const pendingClose = usePendingActionStatus(`close-terminal:${s.id}`);
+  // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
+  // closing the terminal pane via the topbar X shows the countdown in
+  // the sidebar terminal row too.
+  const pendingClose = useTerminalPendingStatus(s.id);
 
   return (
     <div
@@ -849,7 +856,10 @@ interface BrowserSidebarItemProps {
 }
 
 function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrowser, onCloseBrowser }: BrowserSidebarItemProps) {
-  const pendingClose = usePendingActionStatus(`close-browser:${bc.id}`);
+  // v3 sidebar↔topbar sync: also check `close-tab:browser:<id>` so the
+  // sidebar browser row shows the countdown when the close is initiated
+  // from the topbar.
+  const pendingClose = useBrowserPendingStatus(bc.id);
   return (
     <div
       className={[
