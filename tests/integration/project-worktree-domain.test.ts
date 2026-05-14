@@ -335,6 +335,19 @@ describe("Phase A · Project + Worktree domain", () => {
       );
       expect(ok?.status).toBe(202);
 
+      // Wait for the background `git worktree add` to finish before
+      // afterAll's `rmAll()` deletes TEST_REPO. Without this the materialise
+      // promise races with cleanup and `git worktree add` fails with
+      // "fatal: Unable to read current working directory" — the error is
+      // caught by the manager and only surfaces as console noise.
+      const okBody = (await ok!.json()) as { id: string };
+      try {
+        await ctx.worktreeManager.awaitMaterialisation(okBody.id, 5_000);
+      } catch {
+        // Swallow timeout / git failure — this test only asserts the HTTP
+        // contract (400 vs 202); the materialise path is covered elsewhere.
+      }
+
       const { closeDatabase } = await import("../../server/db");
       closeDatabase();
     });
