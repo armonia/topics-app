@@ -183,6 +183,22 @@ export function useChat() {
   const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
   // Strip {{TOPIC_SWITCH:...}} and {{TOPIC_NEW:...}} markers from visible content (processed server-side for topic switching)
   const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}\s*/g, '');
+  // Strip {{PROJECT_CREATE:...}} and {{PROJECT_OPEN:...}} markers (server-side processed; previously leaked to UI — audit fix).
+  const stripProjectMarker = (text: string): string => text.replace(/\{\{PROJECT_CREATE:[^}]+\}\}\s*/g, '').replace(/\{\{PROJECT_OPEN:[^}]+\}\}\s*/g, '');
+  /**
+   * Single entry point for stripping every server-side internal marker from
+   * a visible string. The 9+ call sites in this file previously applied 2 of
+   * the 3 marker families inconsistently (PROJECT_* leaked); centralising
+   * makes the contract obvious and prevents regression when a new marker is
+   * added. Also defensively strips an *unclosed* marker at end-of-string —
+   * mirrors the server-side OPEN_MARKER_TAIL_REGEX in routes/topics.ts, so a
+   * chunk-split delta that lands on the client without a closing `}}` doesn't
+   * surface as raw `{{NAME:partial` text.
+   */
+  const cleanInvisibleMarkers = (text: string): string => {
+    const closedStripped = stripProjectMarker(stripTopicSwitchMarker(stripBrowserMarker(text)));
+    return closedStripped.replace(/\{\{(?:BROWSER|TOPIC_SWITCH|TOPIC_NEW|PROJECT_CREATE|PROJECT_OPEN):[^}]*$/, '');
+  };
 
   // Filter out internal gateway context messages
   const isContextMessage = (content: string): boolean => {
@@ -387,7 +403,7 @@ export function useChat() {
 
       case 'stream:content_chunk':
         if (event.content) {
-          const cleanedChunk = stripTopicSwitchMarker(stripBrowserMarker(event.content));
+          const cleanedChunk = cleanInvisibleMarkers(event.content);
           if (cleanedChunk) appendToLastMessage(sessionKey, cleanedChunk, undefined);
           resetStreamTimeout(sessionKey); // Reset watchdog on each chunk
         }
@@ -576,9 +592,9 @@ export function useChat() {
         setMessages(prev => {
           const msgs = prev[sessionKey] || [];
           const last = msgs[msgs.length - 1];
-          if (last?.role === 'assistant' && (last.content.includes('{{BROWSER:') || last.content.includes('{{TOPIC_SWITCH:'))) {
+          if (last?.role === 'assistant' && (last.content.includes('{{BROWSER:') || last.content.includes('{{TOPIC_SWITCH:') || last.content.includes('{{TOPIC_NEW:') || last.content.includes('{{PROJECT_'))) {
             const updated = [...msgs];
-            updated[msgs.length - 1] = { ...last, content: stripTopicSwitchMarker(stripBrowserMarker(last.content)), partial: false };
+            updated[msgs.length - 1] = { ...last, content: cleanInvisibleMarkers(last.content), partial: false };
             // Cache after stream finishes
             cacheMessages(sessionKey, updated);
             return { ...prev, [sessionKey]: updated };
@@ -797,8 +813,8 @@ export function useChat() {
                   chunk = chunk.replace('</thinking>', '');
                 }
 
-                // Strip browser and topic switch markers from visible content
-                if (!isInThinking) chunk = stripTopicSwitchMarker(stripBrowserMarker(chunk));
+                // Strip every internal marker family from visible content
+                if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
 
                 // Create assistant message on first content chunk
                 if (!assistantMessageCreated) {
@@ -896,8 +912,8 @@ export function useChat() {
 
           // Finalize after flushing so content is up to date
           if (isDone && assistantMessageCreated) {
-            if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:')) {
-              currentContent = stripTopicSwitchMarker(stripBrowserMarker(currentContent));
+            if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:') || currentContent.includes('{{TOPIC_NEW:') || currentContent.includes('{{PROJECT_')) {
+              currentContent = cleanInvisibleMarkers(currentContent);
               updateLastMessage(sessionKey, { content: currentContent, partial: false });
             } else {
               updateLastMessage(sessionKey, { partial: false });
@@ -916,7 +932,7 @@ export function useChat() {
           .map((msg: any) => ({
             ...msg,
             id: msg.id || generateMessageId(),
-            content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+            content: cleanInvisibleMarkers(msg.content || ''),
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
         setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
@@ -1099,7 +1115,7 @@ export function useChat() {
         .map(msg => ({
           ...msg,
           id: msg.id || generateMessageId(),
-          content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+          content: cleanInvisibleMarkers(msg.content || ''),
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
@@ -1220,7 +1236,7 @@ export function useChat() {
         .map((msg: any) => ({
           ...msg,
           id: msg.id || generateMessageId(),
-          content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+          content: cleanInvisibleMarkers(msg.content || ''),
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 
@@ -1277,7 +1293,7 @@ export function useChat() {
                 let chunk = delta.content;
                 if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
                 if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
-                if (!isInThinking) chunk = stripTopicSwitchMarker(stripBrowserMarker(chunk));
+                if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
                 if (isInThinking) { currentThinking += chunk; thinkingBatch += chunk; }
                 else if (chunk) { currentContent += chunk; contentBatch += chunk; }
               }
@@ -1324,7 +1340,7 @@ export function useChat() {
         .map((msg: any) => ({
           ...msg,
           id: msg.id || generateMessageId(),
-          content: stripTopicSwitchMarker(stripBrowserMarker(msg.content || '')),
+          content: cleanInvisibleMarkers(msg.content || ''),
           timestamp: msg.timestamp || new Date().toISOString(),
         }));
 

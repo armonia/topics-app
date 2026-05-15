@@ -48,6 +48,72 @@ import {
  */
 const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento — il provider è ancora connesso]*";
 
+/**
+ * Internal markers emitted inline by LLMs in their response stream to trigger
+ * side-effects in topics-app (open the browser pane, switch topic, create or
+ * open a project). They are detected on the accumulated `fullContent` by
+ * `detectAndBroadcastBrowserMarker` / `detectAndBroadcastTopicSwitch` /
+ * `detectAndHandleProjectMarkers` (defined inside `createTopicsRouter`) and
+ * stripped before persisting or broadcasting.
+ *
+ * `CLOSED_MARKER_REGEX` matches a fully-formed marker `{{NAME:body}}` anywhere
+ * in a string — used to strip persisted state and chunk broadcasts.
+ *
+ * `OPEN_MARKER_TAIL_REGEX` matches a marker that has opened but not yet closed
+ * at end-of-string (`...{{NAME:partial-body`). It defends against the
+ * chunk-split case: when delta N contains `…{{BROWSER:https://exa` and
+ * delta N+1 contains `mple.com}}`, the closed match on `fullContent` fires
+ * correctly once N+1 arrives, but the delta N broadcast would otherwise leak
+ * `{{BROWSER:https://exa` to the client. Stripping with this regex hides the
+ * fragment until the close arrives. Marker dispatch is unchanged — only the
+ * visible leak is suppressed.
+ *
+ * Going beyond this with state (e.g. delta-from-cumulative-clean accounting)
+ * is intentional: see `WS-based chat` handler below for the
+ * `lastBroadcastClean` accumulator that closes the remaining gap where a
+ * single delta carries `{{...}} tail` (close + post-marker text in the same
+ * chunk).
+ */
+const MARKER_NAMES_GROUP = "(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER|PROJECT_CREATE|PROJECT_OPEN)";
+export const CLOSED_MARKER_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*\\}\\}`, "g");
+export const OPEN_MARKER_TAIL_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*$`);
+
+/**
+ * Compute the next visible delta to broadcast given the accumulated server-side
+ * `fullContent` and the cumulative clean text already broadcast. Returns the
+ * new clean text + the delta to send (which may be empty).
+ *
+ * Behavior covered:
+ *   1. Closed markers (`{{NAME:body}}`) are dropped entirely from the clean
+ *      cumulative, so a chunk landing right at the close emits only the
+ *      text that follows the marker.
+ *   2. An unclosed marker tail (`...{{NAME:partial`) at end-of-string is
+ *      hidden until the close arrives in a later chunk.
+ *   3. Defensive non-monotonic case: if the new clean cumulative would be
+ *      shorter than the previously broadcast prefix (shouldn't happen with
+ *      the existing detect-and-strip flow, but guards against future
+ *      changes), we re-baseline silently and skip this delta — `stream:end`
+ *      then reconciles the final content.
+ *
+ * Pure function: same inputs, same outputs, no globals. Allows the unit
+ * test in routes/topics-marker-strip.test.ts to lock in the contract.
+ */
+export function computeCleanBroadcastDelta(
+  fullContent: string,
+  lastBroadcastClean: string,
+): { cumulativeClean: string; delta: string } {
+  const cumulativeClean = fullContent
+    .replace(CLOSED_MARKER_REGEX, "")
+    .replace(OPEN_MARKER_TAIL_REGEX, "");
+  if (cumulativeClean.startsWith(lastBroadcastClean)) {
+    return {
+      cumulativeClean,
+      delta: cumulativeClean.slice(lastBroadcastClean.length),
+    };
+  }
+  return { cumulativeClean, delta: "" };
+}
+
 function stripSlowAnnotation(content: string): string {
   if (!content.endsWith(STREAM_SLOW_ANNOTATION)) return content;
   return content.slice(0, -STREAM_SLOW_ANNOTATION.length);
@@ -1774,6 +1840,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           let fullContent = "";
           let fullThinking = "";
           let lastTextDelta = ""; // track cumulative text from delta events
+          // Cumulative marker-stripped content that has already been broadcast
+          // to clients. Delta to broadcast on each chunk =
+          //   currentMarkerStrippedFullContent - lastBroadcastClean
+          // This closes the chunk-split + post-marker-tail leak (delta carrying
+          // `…}} now check it out` after the close arrives) that pure regex
+          // strip on `newText` cannot. See CLOSED_MARKER_REGEX comment above.
+          let lastBroadcastClean = "";
           let chunkCount = 0;
           let lastSaveChunk = 0;
           const SAVE_INTERVAL = 10;
@@ -2250,11 +2323,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                   fullContent = detectAndHandleProjectMarkers(fullContent, matchedTopic);
                 }
 
-                // Broadcast clean content (recalculate delta after marker stripping)
-                const markerRegex = /\{\{(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER|PROJECT_CREATE|PROJECT_OPEN):[^}]*\}\}/g;
-                const cleanContent = fullContent;
-                broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: newText.replace(markerRegex, '') });
-                writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: newText.replace(markerRegex, '') } }] }));
+                // Broadcast clean content as a true delta against the cumulative
+                // marker-stripped state. See computeCleanBroadcastDelta() for
+                // the three observable cases this handles (closed marker
+                // spanning chunks, close+tail in same chunk, multiple markers
+                // in one chunk). Unit-tested in
+                // server/routes/topics-marker-strip.test.ts.
+                const { cumulativeClean, delta: deltaToBroadcast } =
+                  computeCleanBroadcastDelta(fullContent, lastBroadcastClean);
+                lastBroadcastClean = cumulativeClean;
+                if (deltaToBroadcast) {
+                  broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: deltaToBroadcast });
+                  writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: deltaToBroadcast } }] }));
+                }
               }
 
               chunkCount++;
@@ -2332,6 +2413,27 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+
+                    // Close the tool→UI loop: browser_open navigates Playwright server-side,
+                    // but until now nothing opened the user-visible pane. Broadcast the same
+                    // `browser:navigate` event the legacy `{{BROWSER:url}}` marker path emits
+                    // (see detectAndBroadcastBrowserMarker above) so usePaneOrdering's WS
+                    // listener (client/src/components/Layout/hooks/usePaneOrdering.ts) opens
+                    // or focuses the pane and navigates it. Also seed browserNavigatedTopics
+                    // so the localhost fallback at line 443+ doesn't fire a duplicate
+                    // navigate when the model later mentions the same URL in plain text.
+                    if (name === 'browser_open' && matchedTopic) {
+                      const urlArg = typeof (args as any)?.url === 'string' ? (args as any).url : undefined;
+                      // Prefer the resolved URL the handler returns (final URL after any
+                      // redirects). Fall back to the input URL if the result shape changes.
+                      const resolvedUrl = (result && typeof (result as any).url === 'string')
+                        ? (result as any).url as string
+                        : urlArg;
+                      if (resolvedUrl) {
+                        broadcastToAll({ type: "browser:navigate", topicId: matchedTopic.id, url: resolvedUrl });
+                        browserNavigatedTopics.add(matchedTopic.id);
+                      }
+                    }
                   })
                   .catch((err: unknown) => {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -2468,7 +2570,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                   const extra = finalText.slice(fullContent.length);
                   if (extra) {
                     fullContent = finalText;
-                    broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra });
+                    // Defensive: if finalText contains markers the per-delta
+                    // detect path missed, strip them out of the trailing
+                    // broadcast so they don't surface in the chat UI. The
+                    // server-side dispatch already fired (or will fire via
+                    // detectAndBroadcastBrowserMarker on the next delta);
+                    // here we only suppress the visible leak.
+                    const extraClean = extra
+                      .replace(CLOSED_MARKER_REGEX, "")
+                      .replace(OPEN_MARKER_TAIL_REGEX, "");
+                    if (extraClean) {
+                      broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extraClean });
+                    }
                   }
                 }
                 // Capture provider-reported usage so the message footer can
