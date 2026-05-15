@@ -763,6 +763,24 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
               clearTerminalTombstone(sessionId);
             });
           }
+        } else if (pane.type === 'browser') {
+          // Tear down the server-side Playwright context that backs this
+          // pane. Without this, the BrowserService context survives the
+          // close and `browser-state-store` keeps its on-disk partition.
+          // Net effect: a subsequent mount of `<RemoteBrowserPanel
+          // contextId={projectPath} />` (e.g. the user re-opens the
+          // project on next load, or the WS browser:navigate listener in
+          // this hook fires again) calls `useNativeBrowser.create`, finds
+          // the persisted context, and the closed tab "comes back" —
+          // exactly the bug the top-level path at
+          // `usePaneLifecycle.handleClosePane:60-79` fixes for the
+          // StandaloneChatGroup case. Mirror that fix here. The contextId
+          // in a project window is always the projectPath (see
+          // `RemoteBrowserPanel contextId={projectPath}` in
+          // ProjectWindow.tsx). No tombstone is needed because the pane
+          // is only re-created via an explicit user action or a new
+          // server-driven `browser:navigate` broadcast.
+          fetch(`/api/browsers/${encodeURIComponent(projectPath)}`, { method: 'DELETE' }).catch(() => {});
         }
 
         pushClosedTab(record);
