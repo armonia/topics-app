@@ -75,8 +75,44 @@ const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento — il provider è a
  * chunk).
  */
 const MARKER_NAMES_GROUP = "(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER|PROJECT_CREATE|PROJECT_OPEN)";
-const CLOSED_MARKER_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*\\}\\}`, "g");
-const OPEN_MARKER_TAIL_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*$`);
+export const CLOSED_MARKER_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*\\}\\}`, "g");
+export const OPEN_MARKER_TAIL_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*$`);
+
+/**
+ * Compute the next visible delta to broadcast given the accumulated server-side
+ * `fullContent` and the cumulative clean text already broadcast. Returns the
+ * new clean text + the delta to send (which may be empty).
+ *
+ * Behavior covered:
+ *   1. Closed markers (`{{NAME:body}}`) are dropped entirely from the clean
+ *      cumulative, so a chunk landing right at the close emits only the
+ *      text that follows the marker.
+ *   2. An unclosed marker tail (`...{{NAME:partial`) at end-of-string is
+ *      hidden until the close arrives in a later chunk.
+ *   3. Defensive non-monotonic case: if the new clean cumulative would be
+ *      shorter than the previously broadcast prefix (shouldn't happen with
+ *      the existing detect-and-strip flow, but guards against future
+ *      changes), we re-baseline silently and skip this delta — `stream:end`
+ *      then reconciles the final content.
+ *
+ * Pure function: same inputs, same outputs, no globals. Allows the unit
+ * test in routes/topics-marker-strip.test.ts to lock in the contract.
+ */
+export function computeCleanBroadcastDelta(
+  fullContent: string,
+  lastBroadcastClean: string,
+): { cumulativeClean: string; delta: string } {
+  const cumulativeClean = fullContent
+    .replace(CLOSED_MARKER_REGEX, "")
+    .replace(OPEN_MARKER_TAIL_REGEX, "");
+  if (cumulativeClean.startsWith(lastBroadcastClean)) {
+    return {
+      cumulativeClean,
+      delta: cumulativeClean.slice(lastBroadcastClean.length),
+    };
+  }
+  return { cumulativeClean, delta: "" };
+}
 
 function stripSlowAnnotation(content: string): string {
   if (!content.endsWith(STREAM_SLOW_ANNOTATION)) return content;
@@ -2288,34 +2324,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                 }
 
                 // Broadcast clean content as a true delta against the cumulative
-                // marker-stripped state. Three observable cases this handles
-                // that the previous `newText.replace(markerRegex, '')` did not:
-                //   1. The marker spans two chunks: `…{{BROWSER:https://exa`
-                //      then `mple.com}}`. OPEN_MARKER_TAIL_REGEX hides the
-                //      first half; the second half (no `{{`) was previously
-                //      sent raw — now the cumulative-delta subtraction sends
-                //      "nothing new" because the closed marker has already
-                //      been stripped from fullContent on this chunk.
-                //   2. Single chunk carries close + tail: `mple.com}} done`.
-                //      Tail "done" still reaches the client (cumulative
-                //      subtraction surfaces only the post-marker substring).
-                //   3. Multiple markers in one chunk: each closed pair is
-                //      stripped; only the post-marker text is delta'd.
-                const cumulativeClean = fullContent
-                  .replace(CLOSED_MARKER_REGEX, "")
-                  .replace(OPEN_MARKER_TAIL_REGEX, "");
-                let deltaToBroadcast = "";
-                if (cumulativeClean.startsWith(lastBroadcastClean)) {
-                  deltaToBroadcast = cumulativeClean.slice(lastBroadcastClean.length);
-                  lastBroadcastClean = cumulativeClean;
-                } else {
-                  // Defensive: if a stripped chunk shortened the cumulative
-                  // clean below what we already broadcast (shouldn't happen,
-                  // since closed markers were stripped from fullContent before
-                  // this point), reset the baseline and skip this delta. The
-                  // client message gets reconciled on stream:end anyway.
-                  lastBroadcastClean = cumulativeClean;
-                }
+                // marker-stripped state. See computeCleanBroadcastDelta() for
+                // the three observable cases this handles (closed marker
+                // spanning chunks, close+tail in same chunk, multiple markers
+                // in one chunk). Unit-tested in
+                // server/routes/topics-marker-strip.test.ts.
+                const { cumulativeClean, delta: deltaToBroadcast } =
+                  computeCleanBroadcastDelta(fullContent, lastBroadcastClean);
+                lastBroadcastClean = cumulativeClean;
                 if (deltaToBroadcast) {
                   broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: deltaToBroadcast });
                   writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: deltaToBroadcast } }] }));
