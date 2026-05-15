@@ -147,7 +147,14 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         if (e.shiftKey) {
           setShowNewTopic({});
         } else {
-          handleQuickCreateTopic();
+          // Scope the new chat to the focused project so cmd+N inside a
+          // ProjectWindow lands as a chat pane inside that project (which
+          // also triggers `pendingFocusTopicId` → `reopenChatPane` in
+          // useProjectLayout so the new pane is placed in the focused
+          // group and focused). Without this, cmd+N from inside a project
+          // created a top-level standalone draft and the focus snapped
+          // back to the previously-active pane.
+          handleQuickCreateTopic(focusedProjectPathRef.current);
         }
         return;
       }

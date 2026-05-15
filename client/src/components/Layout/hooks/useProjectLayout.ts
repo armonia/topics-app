@@ -265,6 +265,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // defined ~500 lines further down. Pure plumbing — no behavior on its own.
   const handleAddPaneToGroupRef = useRef<((groupId: string, type: PaneType, subType?: string) => Promise<void>) | null>(null);
 
+  // Forward-declared ref so the pendingFocusTopicId effect (mounted ~80
+  // lines below) can call `reopenChatPane`, which is itself defined
+  // ~900 lines further down. Same pattern as handleAddPaneToGroupRef.
+  // Without this, the effect was using a thinner `reopenTopicLocal`
+  // helper that added the pane to `state.panes` but never placed it in
+  // a group → the pane was orphaned (invisible) and focus snapped back
+  // to the previously-active pane. `reopenChatPane` has the full
+  // fallback chain (focused group → first chat group → create new).
+  const reopenChatPaneRef = useRef<((topicId: string, title: string) => void) | null>(null);
+
   // --- Stop streaming (closes pane locally if first-message stop) ---
   const handleStopStreaming = useCallback((paneId: string) => {
     const pane = panes.find(p => p.id === paneId);
@@ -675,36 +685,33 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   }, [focusedPanelId, topics, projectPath, panes, groups, reopenTopicLocal]);
 
   // --- Pending focus from external navigation ---
+  //
+  // Triggered when the App-level layer sets `pendingProjectFocus`
+  // (handleQuickCreateTopic, promoteDraft, drag-move-into-project, …). The
+  // payload pinpoints which topic should become the active chat pane inside
+  // this project window.
+  //
+  // Previous implementation used `reopenTopicLocal` + an inline group-lookup
+  // pass that only worked if the chat pane was already placed in a group.
+  // For a freshly-created topic the pane stub was added to `state.panes` but
+  // never placed in a group → orphaned/invisible → App-level focus snapped
+  // back to whichever pane had it before. Now we delegate to `reopenChatPane`
+  // (forward-ref'd at the top of this hook) which already has the full
+  // fallback chain: existing-in-group → existing-orphan → fresh add into
+  // focused chat group / first chat group / new chat group. The `onPendingFocusConsumed`
+  // call fires unconditionally on the next tick so the App-level dispatcher
+  // never gets stuck in a loop.
   useEffect(() => {
-    if (pendingFocusTopicId) {
-      // Same cross-project guard as reopenTopicLocal: don't pull a foreign
-      // topic into this project. Consume the pending request anyway so the
-      // caller (App-level dispatcher) doesn't loop forever.
-      const t = topics[pendingFocusTopicId];
-      if (!t || t.projectPath !== projectPath) {
-        onPendingFocusConsumed?.();
-        return;
-      }
-      reopenTopicLocal(pendingFocusTopicId);
-      const chatPaneId = createPaneId('chat', pendingFocusTopicId);
-      const chatPane = panes.find(p => p.id === chatPaneId);
-      if (chatPane) {
-        const g = groups.find(g => g.paneIds.includes(chatPane.id));
-        if (g) {
-          setFocusedGroupId(g.id);
-          if (g.activePaneId !== chatPane.id) {
-            setGroups(prev => {
-              const next = prev.map(gg =>
-                gg.id === g.id ? { ...gg, activePaneId: chatPane.id } : gg,
-              );
-              return next.some((gg, i) => gg !== prev[i]) ? next : prev;
-            });
-          }
-          onPendingFocusConsumed?.();
-        }
-      }
+    if (!pendingFocusTopicId) return;
+    const t = topics[pendingFocusTopicId];
+    if (!t || t.projectPath !== projectPath) {
+      // Cross-project: not for us. Consume to break the App-level loop.
+      onPendingFocusConsumed?.();
+      return;
     }
-  }, [pendingFocusTopicId, topics, projectPath, panes, groups, onPendingFocusConsumed, reopenTopicLocal]);
+    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'Chat');
+    onPendingFocusConsumed?.();
+  }, [pendingFocusTopicId, topics, projectPath, onPendingFocusConsumed]);
 
   // --- Default focused group ---
   useEffect(() => {
@@ -1682,6 +1689,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     },
     [],
   );
+
+  // Pin the latest reopenChatPane into the forward-declared ref so the
+  // pendingFocusTopicId effect (mounted earlier in this hook) can invoke
+  // it without re-registering on every render. See the docstring on the
+  // ref declaration above.
+  reopenChatPaneRef.current = reopenChatPane;
 
   return {
     state: {
