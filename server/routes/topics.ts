@@ -1285,6 +1285,61 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/topics/:id/browser/open-pane
+    // POST /api/sessions/:sessionKey/browser/open-pane
+    //
+    // The MCP bridge surface for non-SDK providers (claude-code CLI, codex CLI):
+    // these providers can't receive an inline `browser_open` Anthropic Tool[]
+    // through topics-app, so they invoke this endpoint via the MCP server
+    // spawned at server/mcp/topics-mcp-server.ts (wired in claude-code provider
+    // through `--mcp-config`). End result is identical to the SDK tool path:
+    //   1. Playwright navigates the topic's headless context
+    //   2. browser:navigate WS broadcast opens/focuses the user-facing pane
+    //   3. browserNavigatedTopics is seeded to suppress the localhost-URL fallback
+    //
+    // Two address forms because:
+    //   - topic-id: easy for REST callers that already know the topic
+    //   - session-key: the claude-code MCP subprocess only has the sessionKey
+    //     it was spawned under (the topicId would require an extra DB round-trip
+    //     at spawn time). Both forms resolve to the same handler.
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/open-pane");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/open-pane");
+      if ((byTopic || bySession) && method === "POST") {
+        if (!browserService) {
+          return json({ error: "Browser service is not enabled in this build" }, 503);
+        }
+        let topic: Topic | null = null;
+        if (byTopic) {
+          topic = getTopicById(byTopic.id);
+        } else if (bySession) {
+          topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+        }
+        if (!topic) return json({ error: "Topic not found" }, 404);
+
+        const body = (await readJSON(req)) as { url?: unknown } | null;
+        const url = typeof body?.url === "string" ? body.url : "";
+        if (!url) return json({ error: "url (string) is required" }, 400);
+
+        try {
+          const result = await dispatchBrowserToolCall(
+            "browser_open",
+            { url },
+            topic,
+            browserService,
+          ) as { url?: string; title?: string; error?: string };
+          if (result?.error) return json({ error: result.error }, 502);
+          const resolvedUrl = typeof result?.url === "string" ? result.url : url;
+          broadcastToAll({ type: "browser:navigate", topicId: topic.id, url: resolvedUrl });
+          browserNavigatedTopics.add(topic.id);
+          return json({ url: resolvedUrl, title: result?.title ?? "" });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, 500);
+        }
+      }
+    }
+
     // POST /api/topics/:id/system-message
     {
       const params = matchRoute(pathname, "/api/topics/:id/system-message");

@@ -101,7 +101,7 @@ const ctx = {
 // MUST NOT be edited unless the legacy behaviour itself changes.
 // ────────────────────────────────────────────────────────────────────────────
 
-function buildLegacyHistoryAware(): { systemMessages: ChatMessage[]; payloadHistory: ChatMessage[]; userContent: string } {
+function buildLegacyHistoryAware(providerName: string = "claude"): { systemMessages: ChatMessage[]; payloadHistory: ChatMessage[]; userContent: string } {
   // The route handler started from `messages = [...body.messages]` (client
   // POST). For a clean comparison we use the equivalent representation
   // (full DB transcript treated as the "client" input).
@@ -173,8 +173,19 @@ function buildLegacyHistoryAware(): { systemMessages: ChatMessage[]; payloadHist
     }
   }
   // 4. browser
+  //
+  // claude-code is wired with the topics-app MCP server (see assemble.ts
+  // `browserInstructionContent(providerName)`). The instructions steer the
+  // model to call `mcp__topics__open_browser_pane` rather than emit the
+  // legacy marker. Every other provider keeps the marker-only doc.
   {
-    const content = `When you want to open a URL or file in the embedded browser panel, include the marker {{BROWSER:url}} in your response. Examples:
+    const content = providerName === "claude-code"
+      ? `When you need to open a URL or file in the user's embedded browser panel, call the MCP tool \`mcp__topics__open_browser_pane\` with the absolute URL. Examples:
+- After creating an HTML file: \`mcp__topics__open_browser_pane({ url: "file:///path/to/file.html" })\`
+- After starting a dev server: \`mcp__topics__open_browser_pane({ url: "http://localhost:3000" })\`
+- To show a webpage: \`mcp__topics__open_browser_pane({ url: "https://example.com" })\`
+The tool returns the final URL + page title after navigation. Prefer this tool over the legacy marker. As a fallback (when the tool is unavailable), you may still emit the marker {{BROWSER:url}} in your response — the marker is automatically processed and removed from the visible output, but the tool gives you a real return value. Do not mention the marker or tool to the user.`
+      : `When you want to open a URL or file in the embedded browser panel, include the marker {{BROWSER:url}} in your response. Examples:
 - After creating an HTML file: {{BROWSER:file:///path/to/file.html}}
 - After starting a dev server: {{BROWSER:http://localhost:3000}}
 - To show a webpage: {{BROWSER:https://example.com}}
@@ -235,8 +246,8 @@ The marker will be automatically processed and removed from the visible output. 
   return { systemMessages: ephemeralSystems, payloadHistory, userContent };
 }
 
-function buildLegacyInlineSystem(): string {
-  const { systemMessages } = buildLegacyHistoryAware();
+function buildLegacyInlineSystem(providerName: string = "claude-code"): string {
+  const { systemMessages } = buildLegacyHistoryAware(providerName);
   const userContent = storedMessages[storedMessages.length - 1].content;
   if (systemMessages.length === 0) return userContent;
   const preamble = systemMessages.map((m) => m.content).join("\n\n---\n\n");

@@ -161,7 +161,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     pushSystemPromptBlock(systemBlocks, topic, isEnabled);
     pushContextFileBlocks(systemBlocks, topic, isEnabled);
     pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
-    pushBrowserInstructionBlock(systemBlocks);
+    pushBrowserInstructionBlock(systemBlocks, providerName);
     pushProjectMarkersBlock(systemBlocks);
     pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
     pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
@@ -425,8 +425,8 @@ function pushProjectTemplateBlocks(
   }
 }
 
-function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {
-  const content = browserInstructionContent();
+function pushBrowserInstructionBlock(blocks: SystemBlock[], providerName?: string): void {
+  const content = browserInstructionContent(providerName);
   blocks.push({
     id: "synthetic:browser-instruction",
     label: "Browser tool instructions",
@@ -727,7 +727,21 @@ function buildTopicDirectory(ctx: AppContext, currentTopicId: string): string {
 // Centralised here so `adaptEnvelope` and tests reference the same strings.
 // ────────────────────────────────────────────────────────────────────────────
 
-export function browserInstructionContent(): string {
+export function browserInstructionContent(providerName?: string): string {
+  // claude-code is wired with the topics-app MCP server (see
+  // server/providers/claude-code.ts `--mcp-config`), exposing the tool
+  // `mcp__topics__open_browser_pane(url)`. Steer the model to call the tool
+  // rather than emit a marker — the tool is deterministic (no chunk-split
+  // risk), gets a real return value (final URL + page title), and surfaces
+  // properly in the chat UI as a tool call card. The marker remains
+  // documented as a fallback for cases where the tool is unavailable.
+  if (providerName === "claude-code") {
+    return `When you need to open a URL or file in the user's embedded browser panel, call the MCP tool \`mcp__topics__open_browser_pane\` with the absolute URL. Examples:
+- After creating an HTML file: \`mcp__topics__open_browser_pane({ url: "file:///path/to/file.html" })\`
+- After starting a dev server: \`mcp__topics__open_browser_pane({ url: "http://localhost:3000" })\`
+- To show a webpage: \`mcp__topics__open_browser_pane({ url: "https://example.com" })\`
+The tool returns the final URL + page title after navigation. Prefer this tool over the legacy marker. As a fallback (when the tool is unavailable), you may still emit the marker {{BROWSER:url}} in your response — the marker is automatically processed and removed from the visible output, but the tool gives you a real return value. Do not mention the marker or tool to the user.`;
+  }
   return `When you want to open a URL or file in the embedded browser panel, include the marker {{BROWSER:url}} in your response. Examples:
 - After creating an HTML file: {{BROWSER:file:///path/to/file.html}}
 - After starting a dev server: {{BROWSER:http://localhost:3000}}
