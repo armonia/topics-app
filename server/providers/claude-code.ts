@@ -9,7 +9,8 @@
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
-import { readdirSync, existsSync } from "fs";
+import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
 import type {
   AIProvider,
   ChatMessage,
@@ -109,6 +110,68 @@ function buildSafeEnv(): Record<string, string> {
 
   env.JARVIS_SPAWN = "1";
   return env;
+}
+
+// ============ MCP Config Generation ============
+//
+// Topics-app exposes a custom MCP server (server/mcp/topics-mcp-server.ts)
+// that bridges the Claude Code CLI back to the host process. The CLI accepts
+// `--mcp-config <path>` once per spawn; we generate a temporary JSON file
+// describing how to spawn our stdio server, and pin it for the lifetime of
+// the persistent process. The MCP server gets sessionKey + base URL + token
+// as argv so it can call back into us without any extra discovery.
+//
+// The temp file is cleaned up when the persistent process is killed (see
+// `cleanupMcpConfigForSession`). If cleanup misses (crash), the next spawn
+// for the same sessionKey will simply overwrite the path — files in
+// `os.tmpdir()/topics-mcp/` are bounded by sessionKey, not by run.
+
+const MCP_CONFIG_DIR = join(tmpdir(), "topics-mcp");
+const MCP_SERVER_SCRIPT = join(import.meta.dir, "..", "mcp", "topics-mcp-server.ts");
+
+function topicsAppBaseUrl(): string {
+  const port = process.env.PORT || "3333";
+  // The MCP subprocess always runs on the same host as topics-app (spawned
+  // by the same Bun process), so localhost is sufficient and avoids
+  // depending on hostname resolution.
+  return `http://127.0.0.1:${port}`;
+}
+
+function mcpConfigPathForSession(sessionKey: string): string {
+  // Slugify sessionKey for filesystem safety; keep it deterministic so
+  // re-spawns overwrite the same path instead of leaking files.
+  const safe = sessionKey.replace(/[^A-Za-z0-9._-]/g, "_");
+  return join(MCP_CONFIG_DIR, `${safe}.json`);
+}
+
+function writeMcpConfigForSession(sessionKey: string): string {
+  try {
+    mkdirSync(MCP_CONFIG_DIR, { recursive: true });
+  } catch { /* race-tolerant */ }
+  const cliCommand = process.execPath; // bun
+  const config = {
+    mcpServers: {
+      topics: {
+        command: cliCommand,
+        args: [
+          "run",
+          MCP_SERVER_SCRIPT,
+          `--base-url=${topicsAppBaseUrl()}`,
+          `--session-key=${sessionKey}`,
+          ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
+        ],
+      },
+    },
+  };
+  const path = mcpConfigPathForSession(sessionKey);
+  writeFileSync(path, JSON.stringify(config, null, 2), "utf-8");
+  return path;
+}
+
+function cleanupMcpConfigForSession(sessionKey: string): void {
+  try {
+    unlinkSync(mcpConfigPathForSession(sessionKey));
+  } catch { /* file may not exist, ignore */ }
 }
 
 // ============ Claude CLI Session ID Persistence ============
@@ -797,12 +860,19 @@ export class ClaudeCodeProvider implements AIProvider {
     // restore the AI's memory of prior turns.
     const { id: claudeSessionId, isNew: isNewSession } = getOrCreateClaudeSessionId(sessionKey);
 
+    // Generate the per-session MCP config so the CLI can spawn our bridge
+    // and surface `mcp__topics__open_browser_pane` as a callable tool. The
+    // file path goes into argv as `--mcp-config`; the file lifetime is
+    // bounded by `killProcess` below.
+    const mcpConfigPath = writeMcpConfigForSession(sessionKey);
+
     const args = [
       "--print",
       "--permission-mode", permissionMode,
       "--verbose",
       "--model", model,
       "--setting-sources", "user,project,local",
+      "--mcp-config", mcpConfigPath,
       "--input-format", "stream-json",
       "--output-format", "stream-json",
       ...(isNewSession ? ["--session-id", claudeSessionId] : ["--resume", claudeSessionId]),
@@ -1241,6 +1311,11 @@ export class ClaudeCodeProvider implements AIProvider {
     try { pp.readline.close(); } catch {}
     try { pp.proc.kill("SIGTERM"); } catch {}
     setTimeout(() => { try { pp.proc.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+    // Best-effort cleanup of the per-session MCP config file. Doesn't block
+    // the kill — if removal fails (file already gone, fs error), the next
+    // spawn for the same sessionKey will overwrite the path anyway.
+    const sk = this.findSessionKeyForProcess(pp);
+    if (sk) cleanupMcpConfigForSession(sk);
   }
 
   /**
