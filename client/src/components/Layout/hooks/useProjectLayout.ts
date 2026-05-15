@@ -113,6 +113,12 @@ export interface UseProjectLayoutArgs {
   onOpenPaneSettings: (topicId: string) => void;
   // Cross-hook gates (read-only here):
   gateRefs: PersistenceGateRefs;
+  // Browser navigation outflow — the URL the server (or a local /browser
+  // slash command) wants the embedded browser pane to navigate to. The
+  // ProjectWindow holds this in component-local state and threads it into
+  // `<RemoteBrowserPanel navigateUrl={…} />`. Called from the WS listener
+  // installed below.
+  onBrowserNavigateUrl?: (url: string) => void;
 }
 
 export interface UseProjectLayoutReturn {
@@ -195,6 +201,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     isSessionStreaming: _isSessionStreaming,
     stopSession,
     onOpenPaneSettings,
+    onBrowserNavigateUrl,
   } = args;
 
   // The pane id this ProjectWindow renders under at the parent layout level.
@@ -252,6 +259,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const focusedGroupIdRef = useRefMirror(focusedGroupId);
   const rowsRef = useRefMirror(rows);
   const rowHeightsRef = useRefMirror(rowHeights);
+
+  // Forward-declared ref so the browser-navigate useEffect (mounted near the
+  // top of this hook) can call `handleAddPaneToGroup`, which is itself
+  // defined ~500 lines further down. Pure plumbing — no behavior on its own.
+  const handleAddPaneToGroupRef = useRef<((groupId: string, type: PaneType, subType?: string) => Promise<void>) | null>(null);
 
   // --- Stop streaming (closes pane locally if first-message stop) ---
   const handleStopStreaming = useCallback((paneId: string) => {
@@ -328,6 +340,91 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       }
     });
   }, [onWSMessage, projectPath]);
+
+  // --- Browser-navigate listener (parity with StandaloneChatGroup) -----------
+  //
+  // When the server (PR #18+#19) or a local `/browser` slash command requests
+  // a URL navigation, the canonical broadcast is `{type:"browser:navigate",
+  // topicId, url}` over WS plus a `browser:open-and-navigate` CustomEvent on
+  // window. Without this hook the bug surfaces: `usePaneOrdering` early-exits
+  // when a ProjectWindowPane is open (`hasProjectPaneRef.current → return`),
+  // expecting THIS hook to take over — but it never did before. Result: the
+  // marker / tool call fires, the broadcast lands, no pane opens.
+  //
+  // What we do here:
+  //   1. Match by topicId: only open a pane when the broadcast targets a
+  //      topic visible in this ProjectWindow (any open chat pane bound to it,
+  //      or the topic itself living under this projectPath).
+  //   2. Ensure exactly one browser pane exists in the focused group
+  //      (singleton). If it already exists, focus it; otherwise add it.
+  //   3. Push the URL through `onBrowserNavigateUrl(url)` so the component-
+  //      level `browserNavigateUrl` state can thread it into
+  //      `<RemoteBrowserPanel navigateUrl={…} />`.
+  //
+  // No retries, no buffering — the URL flows through component state and the
+  // panel consumes it via `onNavigateConsumed`. If the broadcast races the
+  // pane mount, the navigateUrl prop will be honoured on first render.
+  useEffect(() => {
+    const ensureBrowserPaneAndNavigate = (url: string) => {
+      if (!url) return;
+      const fgid = focusedGroupIdRef.current;
+      if (!fgid) return;
+      const groupPanes = groupsRef.current.find(g => g.id === fgid)?.paneIds || [];
+      const existing = panesRef.current.find(
+        p => p.type === 'browser' && groupPanes.includes(p.id),
+      );
+      if (existing) {
+        // Pane is already there — just focus + push the URL.
+        setGroups(prev =>
+          prev.map(g => (g.id === fgid ? { ...g, activePaneId: existing.id } : g)),
+        );
+      } else {
+        // Singleton add — handleAddPaneToGroup handles dedup itself, but we
+        // call it after the current render cycle to avoid stomping in-flight
+        // state updates.
+        queueMicrotask(() => {
+          void handleAddPaneToGroupRef.current?.(fgid, 'browser');
+        });
+      }
+      onBrowserNavigateUrl?.(url);
+    };
+
+    const topicBelongsToThisProject = (topicId: string | undefined): boolean => {
+      if (!topicId) return false;
+      // Match if the topic is currently rendered as a chat pane here OR if its
+      // projectPath matches ours. The latter handles broadcasts that arrive
+      // before the user has explicitly opened the chat pane in this window.
+      const inOpenChats = panesRef.current.some(
+        p => p.type === 'chat' && p.topicId === topicId,
+      );
+      if (inOpenChats) return true;
+      const t = topics[topicId];
+      return !!t && t.projectPath === projectPath;
+    };
+
+    const unsubWS = onWSMessage((msg: WSMessage) => {
+      const m = msg as unknown as { type?: string; topicId?: string; url?: string };
+      if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
+        ensureBrowserPaneAndNavigate(m.url);
+      }
+    });
+
+    const domHandler = (e: Event) => {
+      const detail = (e as CustomEvent<{ topicId?: string; url?: string }>).detail;
+      if (detail?.url && topicBelongsToThisProject(detail.topicId)) {
+        ensureBrowserPaneAndNavigate(detail.url);
+      }
+    };
+    window.addEventListener('browser:open-and-navigate', domHandler);
+
+    return () => {
+      unsubWS();
+      window.removeEventListener('browser:open-and-navigate', domHandler);
+    };
+    // handleAddPaneToGroupRef is read via ref to avoid re-registering on every
+    // render. Deps are the stable identity inputs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onWSMessage, onBrowserNavigateUrl, topics, projectPath]);
 
   // --- Sync groups with panes (orphan-sync, immutable, no mutations) ---
   useEffect(() => {
@@ -888,6 +985,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     },
     [panes, groups, projectPath, claudeSkipPermissions],
   );
+
+  // Pin the latest handleAddPaneToGroup into the forward-declared ref so the
+  // browser-navigate listener (mounted earlier in this hook) can invoke it
+  // without needing to be re-registered every render.
+  handleAddPaneToGroupRef.current = handleAddPaneToGroup;
 
   const handleAddPaneWhenEmpty = useCallback(
     async (type: PaneType, subType?: string) => {

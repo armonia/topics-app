@@ -102,6 +102,15 @@ export function ProjectWindowPane({
   const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
 
+  // URL to push into RemoteBrowserPanel.navigateUrl when the server (or a
+  // local /browser slash command) requests a navigation. Set by the browser
+  // listener inside `useProjectLayout`; cleared by RemoteBrowserPanel once
+  // it has consumed the URL. Mirrors the same `browserNavigateUrl` pattern
+  // used by `StandaloneChatGroup` — without this, the bug from PR #18/#19
+  // (browser:navigate broadcast lands but no pane opens) surfaces whenever
+  // the user is inside a ProjectWindow — i.e. almost always.
+  const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
+
   // --- Layout (state + handlers + file events) ---
   const layout = useProjectLayout({
     projectPath,
@@ -126,6 +135,7 @@ export function ProjectWindowPane({
     stopSession,
     onOpenPaneSettings: setSettingsTopicId,
     gateRefs: loaded.gateRefs,
+    onBrowserNavigateUrl: setBrowserNavigateUrl,
   });
   const { panes, groups, rows, rowHeights, focusedGroupId, sidebarCollapsed } = layout.state;
   const { setRows, setRowHeights, setSidebarCollapsed } = layout.setters;
@@ -314,8 +324,18 @@ export function ProjectWindowPane({
                 same prop in StandaloneChatGroup.renderPaneBody for the
                 full rationale. The keep-alive wrapper in GroupLayout is
                 what hides this pane via display:none, but the OS-level
-                native browser overlay can't observe that. */}
-            <RemoteBrowserPanel contextId={projectPath} isVisible={isVisible} />
+                native browser overlay can't observe that.
+                `navigateUrl` is set whenever the server broadcasts
+                `browser:navigate` or a local `browser:open-and-navigate`
+                fires inside this project; cleared by the panel once
+                consumed. Gated on `isVisible` so an inactive browser pane
+                doesn't steal navigation from the focused one. */}
+            <RemoteBrowserPanel
+              contextId={projectPath}
+              isVisible={isVisible}
+              navigateUrl={isVisible && browserNavigateUrl ? browserNavigateUrl : undefined}
+              onNavigateConsumed={isVisible ? () => setBrowserNavigateUrl(null) : undefined}
+            />
           </Suspense>
         );
       case 'terminal': {
