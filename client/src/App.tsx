@@ -478,7 +478,15 @@ function App() {
       topics={topics}
       focusedPanelId={focusedPanelId}
     />
-    <PendingActionProvider countdownMs={3000}>
+    {/*
+      countdownMs=1500: soft-destructive close window. 3s was the original
+      conservative default; 1.5s still leaves an obvious "click again to
+      cancel" margin (the progress overlay reaches ~half-fill before
+      commit) but stops feeling laggy. The animation now runs faster
+      across every tab — chat, terminal, browser, project — through the
+      same context.
+    */}
+    <PendingActionProvider countdownMs={1500}>
     <div
       className="flex bg-app-bg overflow-hidden max-w-[100vw]"
       onTouchStart={isMobile ? handleEdgeTouchStart : undefined}

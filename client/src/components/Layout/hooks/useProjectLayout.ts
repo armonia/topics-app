@@ -848,15 +848,28 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const pane = panes.find(p => p.id === paneId);
       if (!pane) return;
       const key = `close-tab:${paneId}`;
+      // Resolve the accent color the progress overlay should tint with.
+      // Chat panes have a per-topic color (matches the chat list dot);
+      // terminal / browser / file panes have no per-pane color, so we
+      // fall through to undefined and the overlay uses `currentColor` at
+      // 14% opacity (still visible because the tab text colour contrasts
+      // the tab background). Mirrors what handleClosePanelDeferred at
+      // App.tsx already does for top-level chat tabs — without this,
+      // terminal/browser closes in the project window painted with the
+      // generic colour and looked "less animated" than chat closes,
+      // which the user reported as "le tab shell non si animano".
+      const topic = pane.topicId ? topics[pane.topicId] : undefined;
+      const color = pane.color || topic?.color;
       enqueuePendingAction({
         key,
         kind: 'close-tab',
         label: pane.title || pane.type,
+        ...(color ? { color } : {}),
         commit: () => handleClosePaneNow(groupId, paneId),
       });
       tickPendingAction(key);
     },
-    [panes, handleClosePaneNow],
+    [panes, topics, handleClosePaneNow],
   );
 
   const handleReopenLastClosed = useCallback(async () => {
