@@ -83,13 +83,13 @@ In addition, **delivered now (not in the original task list)**:
 ## 11. Performance verification
 
 - [ ] 11.1 Measure cold-cache TTI before and after — must remain < 2.5 s per `performance/spec.md`. **Deferred to merge gate; integration tests show no startup regression on the migration path.**
-- [ ] 11.2 Measure bundle size — must remain ≤ 800 KB gz. **Deferred until pre-existing TypeScript drift in `useBoard.ts` / `useChat.ts` / `useWebSocket.ts` (unrelated to this change) is resolved so `bun run build:client` succeeds. Estimated impact of Phase A client additions: ~3 KB gz.**
+- [x] 11.2 Measured bundle size 2026-05-16: main `index.js` = 259.49 KB gz (target ≤ 800 KB gz). TypeScript drift resolved — `bunx tsc --noEmit` exits 0 in `client/`. `bun run build:client` succeeds in 24.8s.
 - [x] 11.3 `[WorktreeManager]` structured log line on each worktree creation with `{ project, worktree, mode, base_ref, ms }` — implemented in `server/services/worktree-manager.ts`.
 - [x] 11.4 Worktree creation timing recorded in CI — observed 32-44 ms per creation in the integration test against a 30 MB repo, well under the 2 s budget.
 
 ## 12. Documentation
 
-- [ ] 12.1 Update `BACKLOG.md` if any of the additions create new known issues to track. **No new issues introduced by Phase A — skip.**
+- [x] 12.1 No new issues introduced by Phase A — BACKLOG.md update skipped (rationale documented).
 - [ ] 12.2 Add a section to `CLAUDE.md` describing the new `~/.topics/worktrees/` directory and the env override `TOPICS_WORKTREES_DIR`. **Deferred — `CLAUDE.md` is gitignored / user-local in this repo; document at consumer time.**
 - [x] 12.3 Spec deltas live under `specs/projects/`, `specs/worktrees/`, `specs/topics/` of this change and will fold into the live specs at archive time.
 - [x] 12.4 Worktree-naming generator vocabularies documented inline in `server/utils/worktree-naming.ts`; explicit guidance for extension at the top of each list.
@@ -98,6 +98,6 @@ In addition, **delivered now (not in the original task list)**:
 
 - [ ] 13.1 All e2e tests pass on the new schema with video proof. **Blocked on tasks 10.1–10.6.**
 - [x] 13.2 `bun run check:any` clean — verified after every commit (7 files clean throughout Phase A).
-- [ ] 13.3 `bun run build:client` produces a bundle within budget. **Blocked on pre-existing TypeScript drift in unrelated files; Phase A's own files are tsc-clean.**
+- [x] 13.3 `bun run build:client` produces a bundle within budget — verified 2026-05-16: build clean, 259.49 KB gz main bundle (target ≤ 800 KB gz). Pre-existing TypeScript drift resolved upstream.
 - [x] 13.4 Smoke test: project + worktree create → ready → delete → topic FK cascade → resolveTopicCwd precedence — all green at the integration level (`tests/integration/project-worktree-domain.test.ts`).
 - [ ] 13.5 The 25 capabilities-to-preserve list (`05-topics-current-state.md` §10) manually walked through with exec receipts captured in the change archive. **Deferred to merge gate; design.md §Migration test plan enumerates the targeted invariants and `purgeTopicFromUiState` was extended (not rewritten), preserving the LWW server_seq invariant.**
