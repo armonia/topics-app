@@ -34,6 +34,9 @@ async function mountBrowserPaneViaEvent(
 test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05)", () => {
   test.beforeEach(async ({}, testInfo) => {
     testInfo.annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
+    // BROWSER-01 (Navigation & Page Control) supersedes the retired sidebar
+    // control flow with the same AC: open a browser pane, navigate via URL.
+    testInfo.annotations.push({ type: "spec", description: "BROWSER-01" });
     testInfo.annotations.push({ type: "plan", description: "@plan-30-05" });
   });
 

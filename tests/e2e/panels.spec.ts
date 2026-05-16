@@ -127,25 +127,32 @@ test.describe("Panels & Views", () => {
     const projectBtn = page.locator('button:has-text("e2e-panels")').first();
     await expect(projectBtn).toBeVisible({ timeout: 10000 });
     await projectBtn.click();
-    await page.waitForTimeout(1500);
 
-    // Click on any child topic
-    const topicItems = page.getByRole("treeitem");
-    await expect(topicItems.first()).toBeVisible({ timeout: 5000 });
-    const count = await topicItems.count();
+    // Wait for the project's child topics to populate rather than relying on a
+    // fixed sleep. The target topic name "E2E-PanelProject" is seeded by the
+    // beforeAll fixture and must appear under the project before we proceed.
+    const targetTopic = page.getByRole("treeitem").filter({ hasText: "E2E-PanelProject" }).first();
     let clicked = false;
-    for (let i = 0; i < Math.min(count, 20); i++) {
-      const text = await topicItems.nth(i).textContent();
-      if (text && !text.includes("e2e-panels") && text.includes("E2E-PanelProject")) {
-        await topicItems.nth(i).click();
-        await page.waitForTimeout(1500);
-        clicked = true;
-        break;
-      }
+    try {
+      await expect(targetTopic).toBeVisible({ timeout: 10000 });
+      await targetTopic.click();
+      // Wait for the chat surface to settle (any rendered text in main pane).
+      await expect.poll(
+        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
+        { timeout: 5000 }
+      ).toBeGreaterThan(10);
+      clicked = true;
+    } catch {
+      // Fall back to the generic Web Search Test topic if the seeded one is
+      // missing for any reason (DB reset between fixtures, etc.).
     }
-    if (!clicked) await openTopic(page, /Web Search Test/);
-
-    expect((await page.locator('[role="main"]').textContent())!.length).toBeGreaterThan(10);
+    if (!clicked) {
+      await openTopic(page, /Web Search Test/);
+      await expect.poll(
+        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
+        { timeout: 5000 }
+      ).toBeGreaterThan(10);
+    }
   });
 
   test("command palette opens with Cmd+K", async ({ page }) => {

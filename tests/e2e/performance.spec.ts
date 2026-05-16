@@ -87,7 +87,8 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     await page.waitForTimeout(1500); // let UI settle for clear video
   });
 
-  test('Topic switch has no visible layout shift', async ({ page }) => {
+  test('Topic switch has no visible layout shift', async ({ page }, testInfo) => {
+    testInfo.annotations.push({ type: 'spec', description: 'PERF-01' });
     // Click the first topic in sidebar (uses role="treeitem" like other E2E tests)
     const topics = page.getByRole('treeitem');
     await topics.first().waitFor({ timeout: 5000 });
@@ -284,7 +285,8 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('PERF-02 — Load Performance', () => {
-  test('App loads within 3 seconds', async ({ page }) => {
+  test('App loads within 3 seconds', async ({ page }, testInfo) => {
+    testInfo.annotations.push({ type: 'spec', description: 'PERF-02' });
     const start = Date.now();
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
