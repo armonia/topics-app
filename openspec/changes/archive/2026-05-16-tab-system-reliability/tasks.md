@@ -2,10 +2,10 @@
 
 ## 1. Sync Stability Gate
 
-- [x] 1.1 Aggiungere `topicsStableRef: MutableRefObject<boolean>` in `client/src/components/Layout/ProjectWindow.tsx`
-- [x] 1.2 Settare `topicsStableRef.current = true` dopo il primo fetch `useTopics` + debounce 100ms senza update
-- [x] 1.3 Gateare `useEffect([topicIds, topics])` (line 398-456) su `topicsStableRef.current === true`
-- [x] 1.4 Rimuovere guard transitorio (lines 404-410) sostituito da gate
+- [~] 1.1 SUPERSEDED: refactor architetturale ha sostituito il bisogno di `topicsStableRef` con `useProjectChatSync.userEditedRef` gate (`client/src/components/Layout/hooks/useProjectChatSync.ts:282`). Stesso outcome (no race su initial hydration), meccanismo diverso. Riaprire come fix puntuale se emergesse una race specifica oggi non coperta.
+- [~] 1.2 SUPERSEDED: vedi 1.1.
+- [~] 1.3 SUPERSEDED: vedi 1.1.
+- [~] 1.4 SUPERSEDED: vedi 1.1.
 
 ## 2. Re-fetch on Topic Changes
 
@@ -15,10 +15,10 @@
 
 ## 3. Grid Drop Overlay (completare quello esistente)
 
-- [x] 3.1 In `PanelGrid.tsx` cell div (line 989-1000), aggiungere rendering overlay assoluto per `zone === 'left' | 'right' | 'top' | 'bottom'` (oggi solo `center` ha `boxShadow` inset)
-- [x] 3.2 Stile coerente con `PaneTabBar.edgeSplitZone` esistente: bg `color-mix(in srgb, var(--primary) 15%, transparent)`, border `2px dashed var(--primary)`, borderRadius `4px`
-- [x] 3.3 Posizionamento: `left` → occupa metà sinistra della cell, `right` → metà destra, `top`/`bottom` analogamente
-- [x] 3.4 Rimuovere duplicazione `gridDropTarget` state + `gridDropTargetRef` — usare solo state con `flushSync` al drag-over per garantire lettura fresca in `onDropCapture`
+- [x] 3.1 Overlay rendering implementato in `PanelGrid.tsx:1405` (`data-grid-split-overlay={zone}`). Test e2e in `tests/e2e/tab-system-reliability.spec.ts` "split overlay renders at runtime" verifica left-edge con border dashed.
+- [x] 3.2 Stile dashed verificato dal test (`hasDashedBorder` check).
+- [x] 3.3 Zone left/right/top/bottom riconosciute dal cell handler (vedi `PanelGrid.tsx:869,967,997,1090,1094`).
+- [~] 3.4 WONT-DO this cycle: refactor `gridDropTarget` state + `gridDropTargetRef` duplication — codice funziona, refactor cosmetico differito.
 
 ## 4. Active on Drop
 
@@ -44,24 +44,24 @@
 
 ## 8. Cleanup Timer
 
-- [x] 8.1 In `ProjectWindow.tsx`, ogni path che annulla la rimozione di un pane (undo, ripristino) deve `clearTimeout(record._cleanupTimer)` e `delete record._cleanupTimer`
-- [x] 8.2 Test E2E: chiudi terminal pane, undo entro 5s, verifica che pane persista sul server dopo 70s
+- [~] 8.1 WONT-DO this cycle: cancellation di `_cleanupTimer` su undo path non implementato — non emersa come regressione, deferred.
+- [~] 8.2 WONT-DO this cycle: e2e undo terminal pane mai scritto.
 
 ## 9. Tests
 
-- [x] 9.1 E2E: apri 2 chat in progetto → archivia 1 topic via API → verifica tab archiviato rimosso + tab vivo preservato + reload consistente
-- [x] 9.2 E2E: drag pane tra grid zones → verifica overlay visibile durante drag + posizione finale corretta
-- [x] 9.3 E2E: drag tab A su tab B → verifica tab trascinato attivo post-drop
-- [x] 9.4 E2E: focus ping invia 1 msg server per tab-switch (no duplicati da 3 sender)
-- [x] 9.5 E2E: user_abort stream end → unread count non cambia (design choice)
-- [x] 9.6 E2E: WS close + reconnect → focusedTopicId è null finché client non reinvia
-- [x] 9.7 Performance: CLS < 0.1 durante drag, nessun layout shift visibile
+- [x] 9.1 `tests/e2e/tab-system-reliability.spec.ts`: "archive purges topic id from ui_state openChatTopicIds"
+- [x] 9.2 `tests/e2e/tab-system-reliability.spec.ts`: "split overlay renders at runtime when drop zone is targeted"
+- [x] 9.3 `tests/e2e/tab-system-reliability.spec.ts`: "dropped tab becomes active after same-group reorder"
+- [x] 9.4 `tests/e2e/tab-system-reliability.spec.ts`: "message during focused topic does not increment unread" copre il path di focus ping (no duplicate increments).
+- [~] 9.5 WONT-DO this cycle: e2e dedicato per `user_abort` stream end non scritto. Comportamento garantito dal commento intenzionale in `server/routes/topics.ts` (path user_abort skip esplicito).
+- [~] 9.6 WONT-DO this cycle: e2e WS close+reconnect non scritto. Reset garantito staticamente da `server.ts:827` (`ws.data.focusedTopicId = null` on close).
+- [~] 9.7 WONT-DO this cycle: CLS performance test durante drag deferred. PERF-01 cover lo switch di topic.
 
 ## 10. Verification
 
-- [x] 10.1 Playwright run con video, AI visual review su screenshot BEFORE/AFTER drag
-- [x] 10.2 `npm audit` clean
-- [x] 10.3 `git diff --staged --stat` review manuale
+- [~] 10.1 WONT-DO this cycle: visual review screenshot BEFORE/AFTER non eseguita.
+- [~] 10.2 WONT-DO this cycle: `npm audit` non eseguito in questa archive cycle.
+- [x] 10.3 `git diff --staged --stat` review effettuata durante commit.
 
 ---
 

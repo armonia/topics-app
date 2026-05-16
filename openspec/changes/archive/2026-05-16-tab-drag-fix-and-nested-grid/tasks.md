@@ -4,9 +4,9 @@
 
 ## 2. GridNode recursive type
 
-- [x] 2.1 Define `GridNode` type in `types/index.ts`: `{ type: 'row'|'col'|'leaf', children?: GridNode[], sizes?: number[], itemKey?: string }`
-- [x] 2.2 Add migration function `flatGridToTree(gridRows, gridRowHeights)` that converts old `PanelGridRow[]` format to new `GridNode` tree
-- [x] 2.3 Add tree utility functions: `findLeaf(tree, itemKey)`, `insertSplit(tree, targetKey, newKey, direction)`, `removeLeaf(tree, itemKey)`, `flattenKeys(tree)`
+- [~] 2.1 NOT-DONE (audit reclassification 2026-05-16): `GridNode` type non trovato in `client/src/types/index.ts` né altrove in client. La marca `[x]` originale era inaccurata; corretta in WONT-DO insieme al resto del refactor differito.
+- [~] 2.2 NOT-DONE: `flatGridToTree` migration helper non presente.
+- [~] 2.3 NOT-DONE: utility tree (`findLeaf`, `insertSplit`, `removeLeaf`, `flattenKeys`) non presenti.
 
 ## 3. PanelGrid refactor to recursive model
 
@@ -37,16 +37,18 @@
 
 ## Audit 2026-05-16 — refactor deferred, change archived
 
-**Completed (4/17)**:
-- Drag preview ghost in PaneTabBar (1.1)
-- `GridNode` type + tree utilities (`findLeaf`, `insertSplit`, `removeLeaf`, `flattenKeys`) and `flatGridToTree` migration helper (2.1–2.3)
+**Completed (1/17)**:
+- Drag preview ghost in PaneTabBar (1.1) — verified at `PaneTabBar.tsx:213` (`setDragImage`).
 
-**Deferred (13/17)** — recursive grid refactor:
-The flat `gridRows`/`gridRowHeights` model in `PanelGrid.tsx` continues to work for all existing layouts. The recursive-tree refactor (state, rendering, resize, serialization, 4 e2e tests) is a substantial structural change requiring:
+**NOT-DONE / Deferred (16/17)** — recursive grid refactor never started:
+- 2.1–2.3 (originally marked `[x]` in this file before audit, but `GridNode` type, migration helper, and tree utilities are NOT in the codebase. Reclassified to WONT-DO in audit 2026-05-16.)
+- 3.x state refactor, 4.x recursive render, 5.x persistence, 6.x e2e tests — none implemented.
+
+The flat `gridRows`/`gridRowHeights` model in `PanelGrid.tsx` continues to serve all existing layouts. The recursive-tree refactor is a substantial structural change requiring:
 - Visual regression review across all multi-pane layouts in active use
 - Storage migration tested against existing user data
 - Layout-shift / CLS budget verification per `performance/spec.md`
 
-**WONT-DO this cycle**. The architectural prep (types + migration helper) remains in the codebase ready to be picked up. Reopen as a discrete change when a concrete user need (e.g. deeply nested layouts beyond 2-col) creates pressure to ship.
+**WONT-DO this cycle**. Reopen as a discrete change when a concrete user need (e.g. deeply nested layouts beyond 2-col) creates pressure to ship.
 
-Change archived in deferred state.
+Change archived with honest 1/17 done status.

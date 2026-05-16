@@ -63,6 +63,7 @@ interface CoverageReport {
 const ROOT = resolve(import.meta.dir, "..");
 const SPECS_DIR = join(ROOT, "openspec", "specs");
 const TESTS_DIR = join(ROOT, "tests", "e2e");
+const INTEGRATION_TESTS_DIR = join(ROOT, "tests", "integration");
 
 const REQUIREMENT_RE = /^###\s+Requirement:\s+([A-Z]+-\d+)\s*[—–-]\s*(.+)/gm;
 const ANNOTATION_RE =
@@ -131,32 +132,44 @@ function scanSpecs(): Domain[] {
 // Scan tests
 // ---------------------------------------------------------------------------
 
-function scanTests(): Annotation[] {
-  if (!existsSync(TESTS_DIR)) return [];
+// Comment marker for integration / unit tests: `// @spec FOO-01` on any line.
+const SPEC_COMMENT_RE = /\/\/\s*@spec\s+([A-Z]+-\d+)/g;
 
+function scanTestDir(dir: string, matchExts: string[]): Annotation[] {
+  if (!existsSync(dir)) return [];
   const annotations: Annotation[] = [];
 
-  for (const entry of readdirSync(TESTS_DIR, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".spec.ts")) continue;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!matchExts.some((ext) => entry.name.endsWith(ext))) continue;
 
-    const filePath = join(TESTS_DIR, entry.name);
+    const filePath = join(dir, entry.name);
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n");
 
     for (let i = 0; i < lines.length; i++) {
-      const re = new RegExp(ANNOTATION_RE.source, ANNOTATION_RE.flags);
-      let match: RegExpExecArray | null;
-      while ((match = re.exec(lines[i])) !== null) {
-        annotations.push({
-          id: match[1],
-          testFile: entry.name,
-          line: i + 1,
-        });
+      for (const pattern of [ANNOTATION_RE, SPEC_COMMENT_RE]) {
+        const re = new RegExp(pattern.source, pattern.flags);
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(lines[i])) !== null) {
+          annotations.push({
+            id: match[1],
+            testFile: entry.name,
+            line: i + 1,
+          });
+        }
       }
     }
   }
 
   return annotations;
+}
+
+function scanTests(): Annotation[] {
+  return [
+    ...scanTestDir(TESTS_DIR, [".spec.ts"]),
+    ...scanTestDir(INTEGRATION_TESTS_DIR, [".test.ts", ".spec.ts"]),
+  ];
 }
 
 // ---------------------------------------------------------------------------

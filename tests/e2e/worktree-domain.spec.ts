@@ -117,16 +117,6 @@ test.describe("Phase A · Worktree domain (E2E)", () => {
   test("WORKTREE-03 + TOPIC-WT-01: deleting a worktree NULLs topics.worktree_id (graceful degrade)", async ({ request }) => {
     test.info().annotations.push({ type: "spec", description: "WORKTREE-03" });
     test.info().annotations.push({ type: "spec", description: "TOPIC-WT-01" });
-    // WORKTREE-05 (git-watcher invalidation) exercised indirectly by the
-    // delete path which triggers the watcher's path-removed branch.
-    test.info().annotations.push({ type: "spec", description: "WORKTREE-05" });
-    // PROJECT-02 (backward compat with project_path strings) — this test
-    // demonstrates a topic falling back to legacy project_path after
-    // worktree deletion, which is the core PROJECT-02 invariant.
-    test.info().annotations.push({ type: "spec", description: "PROJECT-02" });
-    // PROJECT-03 (WS broadcast hygiene) — covered by the broadcast assertions
-    // implicit in the project/worktree mutation responses validated here.
-    test.info().annotations.push({ type: "spec", description: "PROJECT-03" });
     const repo = makeRepo();
     const proj = (await (await request.post(`${API}/projects`, {
       data: { name: `e2e-cascade-${Date.now()}`, path: repo },

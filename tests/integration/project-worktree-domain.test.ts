@@ -181,6 +181,8 @@ describe("Phase A · Project + Worktree domain", () => {
   });
 
   describe("FK cascade + topic.worktree_id", () => {
+    // @spec PROJECT-02
+    // @spec WORKTREE-05
     test("deleting a worktree NULLs topics.worktree_id (FK ON DELETE SET NULL)", async () => {
       const { createAppContext } = await utilsPromise;
       const ctx = createAppContext("/Users/user/Projects/topics-app");
@@ -257,6 +259,7 @@ describe("Phase A · Project + Worktree domain", () => {
   });
 
   describe("REST routes — happy + validation", () => {
+    // @spec PROJECT-03
     test("POST /api/projects validates name+path, emits broadcast, returns 201", async () => {
       const { createAppContext } = await utilsPromise;
       const { createProjectsRouter } = await projectsRoutePromise;
