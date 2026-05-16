@@ -330,6 +330,25 @@ export function ChatPane({
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
     if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
 
+    // /project — info / create <name> / open <path-or-name>
+    if (cmd === '/project' || cmd.startsWith('/project ')) {
+      const rest = text.slice('/project'.length).trim();
+      let sub: 'create' | 'open' | 'info' = 'info';
+      let value = '';
+      if (rest.startsWith('create ')) { sub = 'create'; value = rest.slice(7).trim(); }
+      else if (rest === 'create') { setCommandResult({ type: 'error', message: 'Usage: /project create <name>' }); return true; }
+      else if (rest.startsWith('open ')) { sub = 'open'; value = rest.slice(5).trim(); }
+      else if (rest === 'open') { setCommandResult({ type: 'error', message: 'Usage: /project open <name-or-path>' }); return true; }
+      setCommandLoading(true);
+      try {
+        const r = await commandApi.project(topic.sessionKey, sub, value || undefined);
+        setCommandResult({ type: 'success', message: r.output || 'Done' });
+      } catch (e: any) {
+        setCommandResult({ type: 'error', message: e.message });
+      } finally { setCommandLoading(false); }
+      return true;
+    }
+
     // Phase 30 BROWSER-CHAT-04 — /browser <url> opens or focuses the topic's
     // browser pane and navigates. Intercepted BEFORE LLM dispatch.
     if (cmd.startsWith('/browser ')) {

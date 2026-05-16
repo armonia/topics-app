@@ -3597,6 +3597,75 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             const text = await resp.text();
             return json({ ok: true, command: "reasoning", level, message: `Reasoning set to: ${level}`, output: text });
           }
+          case "project": {
+            const sub = args?.sub || "info"; // create | open | info
+            const value = (args?.value || "").trim();
+            const topic = Object.values(loadTopics().topics).find(t => t.sessionKey === sessionKey);
+            if (!topic) return json({ error: "No topic found for this session" }, 404);
+
+            if (sub === "create") {
+              if (!value) return json({ error: "/project create <name> requires a project name" }, 400);
+              const safeName = value.replace(/[^a-zA-Z0-9_-]/g, "");
+              if (!safeName) return json({ error: "Invalid project name (only letters, digits, _ and - allowed)" }, 400);
+              const targetDir = join(WORKSPACE_DIR, safeName);
+              if (existsSync(targetDir)) return json({ error: `Project "${safeName}" already exists at ${targetDir}` }, 409);
+              try {
+                mkdirSync(targetDir, { recursive: true });
+                writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+              } catch (err: any) {
+                return json({ error: `Failed to create project: ${err.message}` }, 500);
+              }
+              const t = getTopicById(topic.id);
+              if (t) {
+                t.projectPath = targetDir;
+                t.updatedAt = new Date().toISOString();
+                saveSingleTopic(t);
+                broadcastToAll({ type: "topic:updated", topic: t });
+              }
+              return json({ ok: true, command: "project", sub: "create", path: targetDir, output: `📁 Created project "${safeName}" at ${targetDir} and bound it to this topic.` });
+            }
+
+            if (sub === "open") {
+              if (!value) return json({ error: "/project open <name-or-path> requires a target" }, 400);
+              let targetDir = value;
+              if (targetDir.startsWith("~/")) {
+                targetDir = join(homedir(), targetDir.slice(2));
+              } else if (!targetDir.startsWith("/")) {
+                const wsProjects = getWorkspaceProjects();
+                const found = wsProjects.find(p => p.endsWith("/" + targetDir));
+                targetDir = found || join(WORKSPACE_DIR, targetDir);
+              }
+              if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
+                return json({ error: `Path not found or not a directory: ${targetDir}` }, 404);
+              }
+              const t = getTopicById(topic.id);
+              if (t) {
+                t.projectPath = targetDir;
+                t.updatedAt = new Date().toISOString();
+                saveSingleTopic(t);
+                broadcastToAll({ type: "topic:updated", topic: t });
+              }
+              return json({ ok: true, command: "project", sub: "open", path: targetDir, output: `📁 Bound project at ${targetDir} to this topic.` });
+            }
+
+            // info (no args): show current binding + list workspace projects
+            const lines: string[] = [];
+            if (topic.projectPath) {
+              lines.push(`📍 Current project: ${topic.projectPath}`);
+            } else {
+              lines.push("📍 No project bound to this topic.");
+            }
+            const wsProjects = getWorkspaceProjects();
+            if (wsProjects.length > 0) {
+              lines.push("", "🗂 Workspace projects:");
+              for (const p of wsProjects.slice(0, 20)) {
+                const name = p.split("/").pop() || p;
+                lines.push(`  • ${name}  —  ${p}`);
+              }
+              if (wsProjects.length > 20) lines.push(`  …and ${wsProjects.length - 20} more`);
+            }
+            return json({ ok: true, command: "project", sub: "info", output: lines.join("\n") });
+          }
           default: return json({ error: `Unknown command: ${command}` }, 400);
         }
       } catch (err: any) { return json({ error: `Command failed: ${err.message}` }, 500); }

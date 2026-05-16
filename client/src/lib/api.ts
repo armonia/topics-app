@@ -905,6 +905,10 @@ export const commandApi = {
   async toggleReasoning(sessionKey: string): Promise<CommandResult> {
     return this.execute(sessionKey, 'reasoning');
   },
+
+  async project(sessionKey: string, sub: 'create' | 'open' | 'info' = 'info', value?: string): Promise<CommandResult> {
+    return this.execute(sessionKey, 'project', { sub, value });
+  },
 };
 
 // Memory API
