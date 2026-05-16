@@ -1,5 +1,5 @@
-import { watch, existsSync, readFileSync, statSync } from "fs";
-import { join } from "path";
+import { watch, existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
 
 export type ActivityCategory =
   | 'tool:exec'
@@ -45,10 +45,13 @@ export class ActivityMonitor {
   private lastLineHash = '';
   private dedupeCount = 0;
   private dedupeTitle = '';
+  private persistPath: string;
+  private persistTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(logDir = "/tmp/openclaw") {
+  constructor(logDir = "/tmp/openclaw", persistPath?: string) {
     this.logDir = logDir;
     this.logPath = this.getLogPath();
+    this.persistPath = persistPath || join(process.cwd(), "data", "activity-buffer.json");
     this.init();
   }
 
@@ -58,12 +61,40 @@ export class ActivityMonitor {
   }
 
   private init() {
+    // Restore persisted buffer from previous run (events survive restart)
+    this.restoreBuffer();
     // Read tail of existing log for initial state
     this.readInitialTail();
     // Watch for changes
     this.startWatching();
     // Check for date rollover every minute
     setInterval(() => this.checkDateRollover(), 60_000);
+    // Persist buffer every 30s so restarts lose at most 30s of events
+    this.persistTimer = setInterval(() => this.persistBuffer(), 30_000);
+  }
+
+  private restoreBuffer() {
+    try {
+      if (!existsSync(this.persistPath)) return;
+      const data = JSON.parse(readFileSync(this.persistPath, "utf-8"));
+      if (Array.isArray(data?.events)) {
+        // Keep only the most recent maxSize events (defensive against on-disk drift)
+        this.buffer = data.events.slice(-this.maxSize);
+        if (typeof data.eventCounter === "number") this.eventCounter = data.eventCounter;
+      }
+    } catch (err) {
+      console.warn("[ActivityMonitor] Failed to restore persisted buffer:", err);
+    }
+  }
+
+  private persistBuffer() {
+    try {
+      mkdirSync(dirname(this.persistPath), { recursive: true });
+      const payload = JSON.stringify({ events: this.buffer, eventCounter: this.eventCounter });
+      writeFileSync(this.persistPath, payload, "utf-8");
+    } catch (err) {
+      // Non-fatal; activity feed still works in-memory
+    }
   }
 
   private readInitialTail() {
@@ -333,6 +364,8 @@ export class ActivityMonitor {
   destroy() {
     if (this.watcher) this.watcher.close();
     if (this.batchTimer) clearTimeout(this.batchTimer);
+    if (this.persistTimer) clearInterval(this.persistTimer);
+    this.persistBuffer();
     this.subscribers.clear();
   }
 }
