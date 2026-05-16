@@ -1,5 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { ActivityMonitor } from "../activity-monitor";
+import { listActivity, type ActivityLevel } from "../db/activity-log";
 
 export function createActivityRouter(ctx: AppContext, monitor: ActivityMonitor): RouteHandler {
   const { json, matchRoute } = ctx;
@@ -73,6 +74,22 @@ export function createActivityRouter(ctx: AppContext, monitor: ActivityMonitor):
       let events = monitor.getRecent(Math.min(limit, 500));
       // Filtering by topicId is a future feature (requires sessionKey mapping)
       return json({ events });
+    }
+
+    // Query persisted activity_log table (audit trail, not live monitor stream).
+    // Supports filtering by level, category, sessionKey, and since (ISO timestamp).
+    if (method === "GET" && pathname === "/api/activity/log") {
+      const levelParam = url.searchParams.get("level");
+      const validLevels: ActivityLevel[] = ["debug", "info", "warn", "error"];
+      const level = levelParam && (validLevels as string[]).includes(levelParam)
+        ? (levelParam as ActivityLevel)
+        : undefined;
+      const category = url.searchParams.get("category") || undefined;
+      const sessionKey = url.searchParams.get("sessionKey") || undefined;
+      const since = url.searchParams.get("since") || undefined;
+      const limit = parseInt(url.searchParams.get("limit") || "200");
+      const rows = listActivity({ level, category, sessionKey, since, limit });
+      return json({ rows });
     }
 
     return null;

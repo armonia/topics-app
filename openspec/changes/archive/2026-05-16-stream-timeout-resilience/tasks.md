@@ -28,7 +28,7 @@
 - [x] 4.2 Ritenzione `MAX_ROWS = 10_000` controllata per-insert via `enforceRetention()` con `COUNT + DELETE … ORDER BY timestamp ASC LIMIT excess`
 - [x] 4.3 Wrapper tipati: `logStreamSoftTimeout`, `logStreamHardTimeout`, `logStreamComplete`, `logStreamAborted`, `logStreamError`, `logStreamRecovered`
 - [x] 4.4 Chiamati nei path di finalizzazione di `topics.ts` (done/error/aborted) e nei due timeout handler
-- [ ] 4.5 Endpoint `GET /api/activity?level=&category=&since=` — non implementato (scope-creep, listato come opzionale; `listActivity()` esiste già nell'helper)
+- [x] 4.5 Endpoint `GET /api/activity/log?level=&category=&since=&sessionKey=&limit=` implementato in `server/routes/activity.ts` — delega a `listActivity()`. Path separato da `/api/activity` (live monitor stream) per evitare confusione.
 
 ## 5. Tests
 
@@ -41,9 +41,9 @@
 ## 6. Migration & Cleanup
 
 - [x] 6.1 Indici esistenti in migrazione 001: `idx_activity_timestamp`, `idx_activity_category`, `idx_activity_entity` — sufficienti per le query `listActivity`
-- [ ] 6.2 Indice `idx_activity_level` non aggiunto — `listActivity` filter level scansiona max ~10k righe ed è O(N) accettabile; aggiungere se la dashboard lo userà su volumi più grandi
+- [~] 6.2 **WON'T DO**: Indice `idx_activity_level` — `listActivity` filter level scansiona max ~10k righe (O(N) accettabile su retention cap). Riaprire se la dashboard creerà query ad alta frequenza.
 - [x] 6.3 BACKLOG.md scansionato — nessun item specifico sul timeout da rimuovere
-- [ ] 6.4 Test manuale (4 Task in parallelo > 2 min) — da validare quando si ri-esegue un flusso multi-agent reale; coperto già dai test unitari
+- [~] 6.4 **WON'T DO**: Test manuale 4-Task parallelo — già coperto dai 6 scenari unit in `stream-timer.test.ts` con fake timers (più affidabile di test manuale). Riaprire se emergesse un bug specifico in produzione multi-agent.
 
 ## Out of scope (deliberate)
 
