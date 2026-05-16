@@ -1,6 +1,6 @@
 import {
   app, BrowserWindow, BrowserView, WebContentsView, ipcMain, Menu, Tray,
-  nativeImage, shell, session, Notification,
+  nativeImage, shell, session, Notification, globalShortcut,
   type NativeImage, type MenuItemConstructorOptions, type MenuItem,
 } from 'electron';
 import path from 'path';
@@ -2296,6 +2296,22 @@ app.whenReady().then(() => {
     mainWindow.setAlwaysOnTop(true, 'floating');
   }
 
+  // Keyboard shortcut for Always-on-Top toggle (Cmd/Ctrl+Shift+T)
+  try {
+    const registered = globalShortcut.register('CommandOrControl+Shift+T', () => {
+      alwaysOnTop = !alwaysOnTop;
+      if (mainWindow) mainWindow.setAlwaysOnTop(alwaysOnTop, 'floating');
+      savePreferences({ alwaysOnTop });
+      // Rebuild menus so checkbox state reflects new value
+      try { createAppMenu(); } catch {}
+    });
+    if (!registered) {
+      console.warn('[Topics Electron] Failed to register CommandOrControl+Shift+T shortcut (likely in use by another app)');
+    }
+  } catch (err) {
+    console.warn('[Topics Electron] globalShortcut.register threw:', err);
+  }
+
   const loginSettings = app.getLoginItemSettings();
   if (!loginSettings.openAtLogin && !loginSettings.wasOpenedAtLogin) {
     app.setLoginItemSettings({ openAtLogin: true });
@@ -2327,6 +2343,7 @@ app.on('before-quit', (e) => {
 });
 
 app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch { /* best effort */ }
   stopWSBridge();
   stopNotificationCleanup();
   stopAssetWatcher();
