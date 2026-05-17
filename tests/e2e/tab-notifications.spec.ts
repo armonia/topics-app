@@ -199,4 +199,129 @@ test.describe("Tab Notification Badges", () => {
     const badgeANow = tabA.locator("span.rounded-full.bg-primary");
     await expect(badgeANow).toHaveCount(0);
   });
+
+  /** Seed an extra non-chat pane (e.g. agents/board) into BOTH the legacy
+   *  openPanels endpoint AND the pane-store-v2 snapshot, so the renderer
+   *  picks it up regardless of which path App.tsx hydrates from. Idempotent. */
+  async function seedExtraPane(
+    request: import("@playwright/test").APIRequestContext,
+    paneId: string,
+    type: string,
+    chatIds: readonly string[],
+  ): Promise<void> {
+    // Legacy openPanels — overwrite with the full set in stable order.
+    await request.put(`${BASE}/api/ui-state/panels`, {
+      data: { openPanels: [...chatIds, paneId] },
+      ignoreHTTPSErrors: true,
+    });
+    await request.put(`${BASE}/api/ui-state/panel-order`, {
+      data: { order: [...chatIds, paneId], pinned: [...chatIds, paneId] },
+      ignoreHTTPSErrors: true,
+    });
+
+    // pane-store-v2 — read-modify-write so we don't clobber per-pane metadata
+    // seeded by earlier helpers (chat panes already wired up).
+    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+    type Snapshot = {
+      panes: Record<string, unknown>;
+      groups: Record<string, { id: string; paneIds: string[]; splitRatio: number; splitAxis: string }>;
+      projects: Record<string, unknown>;
+      groupOrder: string[];
+      closedStack: unknown[];
+      lastSeq: number;
+    };
+    let snapshot: Snapshot = {
+      panes: {},
+      groups: { "group:default": { id: "group:default", paneIds: [], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+      lastSeq: 0,
+    };
+    if (cur.ok()) {
+      const body = (await cur.json()) as { value?: Snapshot };
+      if (body?.value && typeof body.value === "object" && "groups" in body.value) snapshot = body.value;
+    }
+    snapshot.panes[paneId] = { id: paneId, type, title: type };
+    const g = snapshot.groups["group:default"];
+    if (g && !g.paneIds.includes(paneId)) g.paneIds.push(paneId);
+    snapshot.lastSeq = (snapshot.lastSeq ?? 0) + 1;
+    await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
+      data: snapshot,
+      ignoreHTTPSErrors: true,
+    });
+  }
+
+  /** Variant of goWithTwoTabs that also pre-seeds an extra non-chat pane and
+   *  navigates with everything in place. Topic B ends up focused (matching
+   *  the existing harness convention), the extra pane is inactive — perfect
+   *  for asserting badge visibility on it. */
+  async function goWithTwoTabsPlusExtra(
+    page: import("@playwright/test").Page,
+    extraPaneId: string,
+    extraPaneType: string,
+  ) {
+    await seedExtraPane(page.request, extraPaneId, extraPaneType, [topicA.id, topicB.id]);
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await page.locator(`[data-pane-id="${topicA.id}"]`).waitFor({ state: "visible", timeout: 10000 });
+    await page.locator(`[data-pane-id="${topicB.id}"]`).waitFor({ state: "visible", timeout: 10000 });
+    await page.locator(`[data-pane-id="${extraPaneId}"]`).waitFor({ state: "visible", timeout: 10000 });
+    await page.locator(`[data-pane-id="${topicB.id}"]`).click();
+  }
+
+  test("TAB-BADGE-10: agents pane badges on approval:created", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-10" });
+    const ws = await interceptWebSocket(page);
+    await goWithTwoTabsPlusExtra(page, "__agents__", "agents");
+
+    // B is focused; agents pane is inactive → should badge
+    ws.send({ type: "approval:created", projectId: "p1", approval: { id: "a1" } });
+
+    const agentsTab = page.locator(`[data-pane-id="__agents__"]`);
+    const badge = agentsTab.locator("span.rounded-full.bg-primary");
+    await expect(badge).toBeVisible({ timeout: 5000 });
+  });
+
+  test("TAB-BADGE-11: agents pane badges on agent:escalation (worker needs help)", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-11" });
+    const ws = await interceptWebSocket(page);
+    await goWithTwoTabsPlusExtra(page, "__agents__", "agents");
+
+    ws.send({
+      type: "agent:escalation",
+      agentId: "ag1",
+      agentName: "Builder",
+      message: "Stuck on migration",
+      taskId: null,
+      projectId: "p1",
+      timestamp: Date.now(),
+    });
+
+    const agentsTab = page.locator(`[data-pane-id="__agents__"]`);
+    const badge = agentsTab.locator("span.rounded-full.bg-primary");
+    await expect(badge).toBeVisible({ timeout: 5000 });
+  });
+
+  test("TAB-BADGE-12: agent:escalation does NOT badge unrelated chat tabs", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "TAB-BADGE-12" });
+    const ws = await interceptWebSocket(page);
+    await goWithTwoTabs(page); // chats only, no agents pane
+
+    ws.send({
+      type: "agent:escalation",
+      agentId: "ag1",
+      agentName: "Builder",
+      message: "Stuck",
+      taskId: null,
+      projectId: "p1",
+      timestamp: Date.now(),
+    });
+
+    // Inactive chat A should NOT badge from an escalation event
+    await page.waitForTimeout(500);
+    const tabA = page.locator(`[data-pane-id="${topicA.id}"]`);
+    const badge = tabA.locator("span.rounded-full.bg-primary");
+    await expect(badge).toHaveCount(0);
+  });
 });

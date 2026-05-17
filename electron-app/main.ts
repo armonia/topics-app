@@ -60,6 +60,11 @@ interface WSMessage {
   toolName?: string;
   tool_name?: string;
   topic_id?: string;
+  // `message:new` envelope (server-side: topics.ts:801, 1354, 1544, 1724, …)
+  role?: string;
+  content?: string;
+  preview?: string;
+  messageId?: string;
 }
 
 interface NotificationOptions {
@@ -886,7 +891,18 @@ function handleWSMessage(msg: WSMessage): void {
       break;
 
     case 'message':
+      // Legacy/sync path (topics.ts:1353 etc.). Kept for compatibility; the
+      // hot path for AI replies is `message:new` below.
       if (msg.sessionKey && msg.message) {
+        handleNewMessage(msg);
+      }
+      break;
+
+    case 'message:new':
+      // Server broadcasts this for every stored message (user + assistant).
+      // Only badge the user on assistant replies — echoing their own messages
+      // back as desktop notifs would be noise.
+      if (msg.role === 'assistant' && msg.topicId) {
         handleNewMessage(msg);
       }
       break;
@@ -894,6 +910,24 @@ function handleWSMessage(msg: WSMessage): void {
     case 'approval:created':
       notifyApproval(msg);
       break;
+
+    case 'agent:escalation':
+      notifyAgentEscalation(msg);
+      break;
+
+    case 'agent:nudge':
+      notifyAgentNudge(msg);
+      break;
+
+    case 'task:created': {
+      // Only desktop-notify on tasks autonomously created by agents — user
+      // self-added todos already echo on the UI they were typed into.
+      const t = (msg as unknown as { task?: { assignedAgentId?: string | null } }).task;
+      if (t && t.assignedAgentId) {
+        notifyAgentTaskCreated(msg);
+      }
+      break;
+    }
 
     case 'pong':
       break;
@@ -1133,7 +1167,10 @@ function setTopicCooldown(topicId: string): void {
 // ============ Notification Triggers ============
 
 function handleNewMessage(msg: WSMessage): void {
-  const topicId = msg.sessionKey?.replace('topic:', '');
+  // Accept both envelopes:
+  //  - `message:new`  (hot path) carries `topicId` + `preview`/`content`.
+  //  - `message`      (legacy)   carries `sessionKey` + `message.{content,text}`.
+  const topicId = msg.topicId || msg.sessionKey?.replace('topic:', '');
   if (!topicId) return;
 
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() && trayState.focusedTopicId === topicId) {
@@ -1144,7 +1181,7 @@ function handleNewMessage(msg: WSMessage): void {
   setTopicCooldown(topicId);
 
   const topicName = getTopicName(topicId);
-  const messageText = msg.message?.content || msg.message?.text || '';
+  const messageText = msg.preview || msg.content || msg.message?.content || msg.message?.text || '';
   const preview = messageText.length > 100 ? messageText.substring(0, 100) + '...' : messageText;
 
   showNotification({
@@ -1186,6 +1223,45 @@ function notifyApproval(msg: WSMessage): void {
     title: 'Approval needed',
     body: msg.toolName || msg.tool_name || 'Action requires approval',
     topicId,
+  });
+}
+
+function notifyAgentEscalation(msg: WSMessage): void {
+  // Escalation = worker explicitly asking the human for help. Always fires;
+  // these are user-attention events by definition.
+  const m = msg as unknown as { agentName?: string; message?: string; projectId?: string };
+  const name = m.agentName || 'Agent';
+  const body = m.message || 'needs your input';
+  showNotification({
+    id: `escalation-${m.projectId || 'x'}-${Date.now()}`,
+    title: `${name} · needs help`,
+    body: body.length > 140 ? body.substring(0, 140) + '...' : body,
+  });
+}
+
+function notifyAgentNudge(msg: WSMessage): void {
+  const m = msg as unknown as { agentName?: string; message?: string; projectId?: string };
+  const name = m.agentName || 'Agent';
+  const body = m.message || 'sent a nudge';
+  showNotification({
+    id: `nudge-${m.projectId || 'x'}-${Date.now()}`,
+    title: `${name} · nudge`,
+    body: body.length > 140 ? body.substring(0, 140) + '...' : body,
+  });
+}
+
+function notifyAgentTaskCreated(msg: WSMessage): void {
+  const m = msg as unknown as {
+    projectId?: string;
+    task?: { id?: string; text?: string; assignedAgentId?: string | null };
+  };
+  const task = m.task;
+  if (!task) return;
+  const text = task.text || 'New task';
+  showNotification({
+    id: `task-${task.id || Date.now()}`,
+    title: 'New agent task',
+    body: text.length > 140 ? text.substring(0, 140) + '...' : text,
   });
 }
 
@@ -2274,9 +2350,13 @@ app.on('second-instance', () => {
 });
 
 app.whenReady().then(() => {
-  if (isDev && process.platform === 'darwin' && app.dock) {
+  // When running unpacked (LaunchAgent dev/prod scripts both run
+  // node_modules/.bin/electron, never a built .app bundle), macOS uses the
+  // generic Electron icon. Force our own. When packaged via electron-builder
+  // the bundle's CFBundleIconFile takes over, so we only override here.
+  if (!app.isPackaged && process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(path.join(__dirname, 'icon.png'));
-    app.setName('Topics DEV');
+    if (isDev) app.setName('Topics DEV');
   }
 
   const prefs = loadPreferences();

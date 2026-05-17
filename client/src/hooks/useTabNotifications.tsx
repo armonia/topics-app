@@ -16,6 +16,14 @@ interface TabNotificationContextValue {
 
 const TabNotificationContext = createContext<TabNotificationContextValue | null>(null);
 
+/** Prefix lists for pane-id matching. Standalone-group utility panes use
+ *  the `__type__` envelope (see UtilityPanel.UTILITY_PREFIX); project-group
+ *  panes use the bare `type:` form (see createPaneId in paneConfig.ts).
+ *  Both are valid in `openPanels` depending on which surface created the
+ *  pane, so every badge rule needs to cover both spellings. */
+const AGENTS_PREFIXES = ['__agents__', 'agents:', 'agents', 'session-viewer:'] as const;
+const BOARD_PREFIXES = ['__all-boards__', '__board__', 'board:', 'all-boards'] as const;
+
 export function TabNotificationProvider({
   children,
   unreadData,
@@ -69,6 +77,21 @@ export function TabNotificationProvider({
   // Track previous session statuses to detect active→idle transitions (= session completed)
   const prevSessionStatusRef = useRef<Map<string, string>>(new Map());
 
+  // Helper: badge every open pane whose id matches one of the given prefixes,
+  // skipping the currently focused pane. Centralised so each WS handler is a
+  // one-liner and we don't drift on the focused-pane suppression rule.
+  const badgePrefixes = useCallback((prefixes: readonly string[]) => {
+    for (const panelId of openPanelsRef.current) {
+      if (panelId === focusedRef.current) continue;
+      for (const prefix of prefixes) {
+        if (panelId.startsWith(prefix)) {
+          notifyPane(panelId);
+          break;
+        }
+      }
+    }
+  }, [notifyPane]);
+
   useEffect(() => {
     return onWSMessage((msg) => {
       // Agent session status changes → detect completion (active→idle) or error
@@ -98,38 +121,48 @@ export function TabNotificationProvider({
         prevSessionStatusRef.current = newStatuses;
 
         if (shouldNotifyAgents) {
-          for (const panelId of openPanelsRef.current) {
-            if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
-              notifyPane(panelId);
-            }
-          }
+          badgePrefixes(AGENTS_PREFIXES);
         }
       }
-      // Approval request → badge on agents panes
+      // Approval request → badge on agents + board panes (board surfaces
+      // approval-needing tasks too)
       if (msg.type === 'approval:created') {
-        for (const panelId of openPanelsRef.current) {
-          if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
-            notifyPane(panelId);
-          }
-        }
+        badgePrefixes([...AGENTS_PREFIXES, ...BOARD_PREFIXES]);
       }
-      // Stream ended (Claude finished responding) → badge on agents panes
+      // Stream ended (Claude finished responding) → badge on agents + session-viewer
       if (msg.type === 'stream:end' && msg.sessionKey) {
-        for (const panelId of openPanelsRef.current) {
-          if (panelId.startsWith('agents') && panelId !== focusedRef.current) {
-            notifyPane(panelId);
-          }
-        }
+        badgePrefixes(AGENTS_PREFIXES);
         if (msg.topicId) {
           touchTopic(msg.topicId);
         }
       }
+      // Agent explicitly asking for human help → badge agents + board panes
+      if (msg.type === 'agent:escalation' || msg.type === 'agent:nudge') {
+        badgePrefixes([...AGENTS_PREFIXES, ...BOARD_PREFIXES]);
+      }
+      // Board activity from autonomous workers → badge board tabs
+      if (msg.type === 'task:created' || msg.type === 'task:moved' || msg.type === 'task:unarchived') {
+        badgePrefixes(BOARD_PREFIXES);
+      }
+      // Board memory updates → badge board-memory tabs
+      if (msg.type === 'board-memory:created' || msg.type === 'board:memory_added') {
+        badgePrefixes([...BOARD_PREFIXES, 'board-memory:']);
+      }
+      // New terminal session spawned externally → badge terminal panes
+      // (edge-triggered: server broadcasts on session create/exit, not poll)
+      if (msg.type === 'terminal:sessions') {
+        badgePrefixes(['terminal:']);
+      }
+      // Intentionally NOT badged: `git:status` and `dashboard:updated`. Both
+      // fire from fswatch/heartbeat polling and would light up tabs while the
+      // user is typing into their own editor. Re-enable behind a source-of-
+      // change attribution when we have one.
       // Chat message unread → touch topic for sidebar sort
       if (msg.type === 'unread:updated' && msg.topicId && msg.unreadCount > 0) {
         touchTopic(msg.topicId);
       }
     });
-  }, [onWSMessage, notifyPane, touchTopic]);
+  }, [onWSMessage, notifyPane, touchTopic, badgePrefixes]);
 
   const getBadgeCount = useCallback((paneId: string, topicId?: string, isActive?: boolean): number => {
     if (isActive) return 0;
