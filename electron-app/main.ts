@@ -2210,6 +2210,7 @@ function startCDPInfoServer(): void {
 // ============ Production Asset Watcher ============
 
 let assetWatcher: fs.FSWatcher | null = null;
+let watchedIndexHtml: string | null = null;
 let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 function startAssetWatcher(): void {
@@ -2264,8 +2265,19 @@ function startAssetWatcher(): void {
     // are in place. Watching all assets would fire mid-build and reload onto
     // an HTML that still references chunks that don't exist yet, which is
     // what was wiping tab/panel state. Debounce stays as a safety net.
-    assetWatcher = fs.watch(publicDir, { recursive: true }, (_eventType, filename) => {
-      if (filename !== 'index.html') return;
+    //
+    // Why fs.watchFile (polling) instead of fs.watch:
+    //   fs.watch with { recursive: true } on macOS is backed by FSEvents and
+    //   drops events when files are written quickly or via atomic rename
+    //   (which Vite does). Symptom: the user edits a CSS file, vite rebuilds
+    //   public/index.html, but Electron never reloads — they think the prod
+    //   app is stuck and have to kickstart the LaunchAgent. fs.watchFile
+    //   polls mtime at a fixed interval, so it never misses a change.
+    //   500 ms is fine: a vite rebuild already takes ~3 s, the polling cost
+    //   is negligible (a single stat() per tick on one file).
+    watchedIndexHtml = path.join(publicDir, 'index.html');
+    fs.watchFile(watchedIndexHtml, { interval: 500 }, (curr, prev) => {
+      if (curr.mtimeMs === prev.mtimeMs) return;
       if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
       reloadDebounceTimer = setTimeout(() => {
         console.log(`[Topics Electron] index.html updated, reloading... (dev mode)`);
@@ -2273,7 +2285,7 @@ function startAssetWatcher(): void {
       }, 500);
     });
 
-    console.log('[Topics Electron] Asset watcher started on /public/index.html (dev mode)');
+    console.log(`[Topics Electron] Asset watcher started on ${watchedIndexHtml} (polling 500ms)`);
   } catch (err: unknown) {
     console.error('[Topics Electron] Failed to start asset watcher:', (err as Error).message);
   }
@@ -2299,6 +2311,10 @@ function stopAssetWatcher(): void {
   if (assetWatcher) {
     assetWatcher.close();
     assetWatcher = null;
+  }
+  if (watchedIndexHtml) {
+    fs.unwatchFile(watchedIndexHtml);
+    watchedIndexHtml = null;
     console.log('[Topics Electron] Asset watcher stopped');
   }
 }
