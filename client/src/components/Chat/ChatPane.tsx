@@ -53,6 +53,10 @@ export interface ChatPaneProps {
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   // Session viewer
   onOpenSessionViewer?: (sessionKey: string) => void;
+  /** Optional content rendered inside the floating input bar, just above
+   *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
+   *  the board strip so it stays visible while typing. */
+  aboveInputSlot?: React.ReactNode;
 }
 
 export function ChatPane({
@@ -61,6 +65,7 @@ export function ChatPane({
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, switchBranch, onOpenSessionViewer,
+  aboveInputSlot,
 }: ChatPaneProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -557,6 +562,7 @@ export function ChatPane({
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
+        {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
         <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
       </div>

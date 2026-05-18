@@ -48,6 +48,9 @@ interface StandaloneChatGroupProps {
   topics: Record<string, Topic>;
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
+  /** Master pane id (if open). Threaded so non-Master ChatPanels can
+   *  render a "← Master" back affordance. */
+  masterPaneId?: string | null;
   onClosePanel: (topicId: string) => void;
   /** Optional bypass-the-countdown close, plumbed to PaneTabBar's
    *  right-click "Close now" entry. Falls back to onClosePanel. */
@@ -117,7 +120,7 @@ interface StandaloneChatGroupProps {
 
 export function StandaloneChatGroup({
   topicIds, topics, focusedPanelId,
-  onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
+  onFocusPanel, masterPaneId, onClosePanel, onClosePanelImmediate, onDragStart,
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
@@ -626,7 +629,7 @@ export function StandaloneChatGroup({
             />
           )}
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
-          {utilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} />}
+          {utilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} onJumpToTopic={(topicId) => onFocusPanel(topicId)} />}
         </Suspense>
       );
     }
@@ -676,6 +679,8 @@ export function StandaloneChatGroup({
         initialTab={panelInitialTab?.[paneId]}
         onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(paneId) : undefined}
         onOpenSessionViewer={handleOpenSessionViewer}
+        onFocusPanel={onFocusPanel}
+        masterPaneId={masterPaneId}
       />
     );
   };

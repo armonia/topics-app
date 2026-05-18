@@ -213,8 +213,29 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   // Path 4: activePaneId derivation (memo + ref) — declared BEFORE the effects
   // that consume it (initialTab='browser') so first-mount declaration order
   // resolves the ref-sync race inside this hook.
+  //
+  // Split tabbar fix: when this group is NOT the App-focused one (focus is
+  // in a sibling split group), keep showing the last tab the user activated
+  // HERE — falling back to `validatedOrderedIds[0]` would snap the inactive
+  // group back to its first tab every time the user clicked anywhere else.
+  // We remember the last `focusedPanelId` that was in this group's list and
+  // reuse it while focus lives elsewhere.
+  const lastLocalActiveRef = useRef<string | null>(null);
+  if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) {
+    lastLocalActiveRef.current = focusedPanelId;
+  } else if (lastLocalActiveRef.current && !validatedOrderedIds.includes(lastLocalActiveRef.current)) {
+    // The remembered tab was closed/moved out of this group — drop it so we
+    // don't keep pointing at a stale id.
+    lastLocalActiveRef.current = null;
+  }
   const activePaneId = useMemo<string | null>(
-    () => (validatedOrderedIds.includes(focusedPanelId || '') ? (focusedPanelId as string) : (validatedOrderedIds[0] || null)),
+    () => {
+      if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) return focusedPanelId;
+      if (lastLocalActiveRef.current && validatedOrderedIds.includes(lastLocalActiveRef.current)) {
+        return lastLocalActiveRef.current;
+      }
+      return validatedOrderedIds[0] || null;
+    },
     [validatedOrderedIds, focusedPanelId],
   );
   const activePaneIdRef = useRef(activePaneId);

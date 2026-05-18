@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck, Crown as CrownIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -66,6 +66,9 @@ export interface TopicTreeProps {
   stopSession?: (sessionKey: string) => boolean;
   boardTaskCounts?: Record<string, number>;
   onOpenProjectBoard?: (projectPath: string) => void;
+  /** Open (or create + open) the global Master Topic. Renders the
+   *  "Master" sidebar shortcut next to Board when provided. */
+  onOpenMaster?: () => void;
   onNewChat?: () => void;
   onNewBrowser?: () => void;
   terminalSessions?: TerminalSessionInfo[];
@@ -111,6 +114,7 @@ export function TopicTree({
   stopSession,
   boardTaskCounts,
   onOpenProjectBoard,
+  onOpenMaster,
   onNewChat: _onNewChat,
   onNewBrowser: _onNewBrowser,
   terminalSessions = [],
@@ -172,8 +176,21 @@ export function TopicTree({
   // ── Build unified items ──────────────────────────────────────────────────
 
   const { lastNotifiedAt } = useTabNotifications();
+  // Master Topics are surfaced exclusively by the dedicated "Master"
+  // sidebar shortcut at the top of the tree — hide them from the
+  // generic topic list so the user has a single, unambiguous entry
+  // point instead of a duplicated row inside the tree.
+  const topicsForTree = useMemo(() => {
+    const filtered: Record<string, Topic> = {};
+    for (const [id, t] of Object.entries(topics)) {
+      if (t.agentTeamRole === 'lead') continue;
+      filtered[id] = t;
+    }
+    return filtered;
+  }, [topics]);
+
   const allItems = useMemo(() => buildSidebarItems({
-    topics,
+    topics: topicsForTree,
     workspaceProjects,
     terminalSessions,
     browserContexts,
@@ -182,7 +199,7 @@ export function TopicTree({
     openPanels,
     projectOpenPanes,
     lastNotifiedAt,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt]);
+  }), [topicsForTree, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt]);
 
   const filteredItems = useMemo(
     () => filterSidebarItems(allItems, searchQuery),
@@ -528,6 +545,19 @@ export function TopicTree({
             </span>
           )}
         </button>
+        {onOpenMaster && (
+          <button
+            data-testid="sidebar-master-shortcut"
+            onClick={() => onOpenMaster()}
+            className="group/mst flex items-center gap-2 w-full h-11 md:h-8 text-left text-[14px] md:text-[13px] text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
+            style={{ paddingLeft: 12 }}
+            title="Open Master · Global (Shift+Cmd+M)"
+          >
+            <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
+            <span className="flex-1 truncate text-app-text">Master</span>
+            <span className="text-[10px] text-app-text-muted/70 tabular-nums pr-3">⇧⌘M</span>
+          </button>
+        )}
         <div className="border-t border-app-border" />
       </div>
     );

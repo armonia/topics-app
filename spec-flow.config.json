@@ -1,0 +1,32 @@
+{
+  "projectName": "Topics",
+  "featuresDir": "tests/features",
+  "specsDir": "openspec/specs",
+  "videosDir": "videos",
+  "videosIndex": "videos/INDEX.md",
+  "uatItPath": "openspec/uat-it.json",
+  "outHtml": "uat.html",
+  "actors": {
+    "developer": { "label": "Developer", "emailRegex": "\"dev@|\\bDeveloper\\b" },
+    "owner":     { "label": "Owner",     "emailRegex": "\"owner@|\\bOwner\\b" }
+  },
+  "pages": {
+    "/": "Topics workspace root",
+    "/master/:id": "Master Topic view",
+    "/topic/:id": "Topic view",
+    "/board": "Kanban board",
+    "/tray": "System tray / notification surface"
+  },
+  "pageHints": {
+    "master topic|master cli|mayor": "/master/:id",
+    "kanban|board|task list": "/board",
+    "topic detail|teammate": "/topic/:id"
+  },
+  "featureOrder": [
+    ["master-topic", "Master Topic + Agent Teams"],
+    ["kanban", "Kanban board & task binding"],
+    ["terminal", "Terminal panes & PTY sessions"],
+    ["notifications", "Notifiche non-invasive"],
+    ["topics", "Multi-topic workspace"]
+  ]
+}

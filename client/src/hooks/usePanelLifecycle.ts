@@ -406,6 +406,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         const topic = topics[id];
         if (!topic) return isUUIDLike(id);
         if (topic.archived) return false;
+        // Master Topic (agent_team_role='lead') always stays as a
+        // standalone pane — the strip + Master UX depend on it being
+        // its own tab, never collapsed into a project pane even when
+        // projectPath happens to be set (project-scoped Master variant).
+        if (topic.agentTeamRole === 'lead') return true;
         if (topic.projectPath) {
           const paneId = createPaneId('project', topic.projectPath);
           if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
@@ -647,6 +652,32 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         const projectPaneId = createPaneId('project', msg.projectPath);
         setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
         setFocusedPanelId(projectPaneId);
+      }
+      // KANBAN-DELTA-01 (Phase D, jump-to-tab) — when a task is bound to a
+      // teammate Topic via the board, the server emits this so the layout
+      // brings that pane into focus. Use openPanel so registry + groups are
+      // populated correctly (a bare setOpenPanels skips ensurePaneRegistered
+      // and the pane renders as a ghost).
+      //
+      // Project-scoped topics must be opened through their PROJECT pane
+      // (with pendingProjectFocus), not as a standalone chat pane —
+      // otherwise they appear as ghost tabs that don't render. The
+      // Master strip surfaces project topics, so this path runs often.
+      if (msg.type === 'pane:focus-suggest') {
+        const topic = topicsRef.current[msg.topicId];
+        if (topic?.projectPath) {
+          const projectPaneId = createPaneId('project', topic.projectPath);
+          ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
+          if (!openPanelsRef.current.includes(projectPaneId)) {
+            setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+          }
+          setFocusedPanelId(projectPaneId);
+          setPendingProjectFocus({ projectPath: topic.projectPath, topicId: msg.topicId });
+        } else if (!openPanelsRef.current.includes(msg.topicId)) {
+          openPanel(msg.topicId, 'permanent');
+        } else {
+          setFocusedPanelId(msg.topicId);
+        }
       }
     });
   }, [onWSMessage]);
@@ -904,8 +935,34 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, []);
 
   const handleFocusPanel = useCallback((topicId: string) => {
+    // Project-scoped topics must be opened through their PROJECT pane,
+    // mirroring handleTopicClick — otherwise they appear as ghost tabs.
+    const topic = topicsRef.current[topicId];
+    if (topic?.projectPath) {
+      const projectPaneId = createPaneId('project', topic.projectPath);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
+      setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+      setFocusedPanelId(projectPaneId);
+      // Also dispatch directly to the store so Effect A's store→React
+      // bridge can't snap focus back to a previously-focused pane on
+      // the next subscribe-tick.
+      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
+      setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
+      return;
+    }
+    if (!openPanelsRef.current.includes(topicId)) {
+      // Register first so the pane store has the entity before Effect B
+      // sends a REORDER. Some lead Topics (Master) live without a fully
+      // hydrated topic entry on first paint — `title` falls back gracefully.
+      ensurePaneRegistered(
+        { id: topicId, type: 'chat', topicId, title: topic?.name },
+        { groupId: 'group:default' },
+      );
+      openPanel(topicId, 'permanent');
+    }
     setFocusedPanelId(topicId);
-  }, []);
+    usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
+  }, [openPanel]);
 
   const handleReorderPanels = useCallback((panels: string[]) => {
     setOpenPanels(panels);

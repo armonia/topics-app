@@ -53,6 +53,9 @@ declare -A FILE_TO_SPEC=(
   [tab-sync]=layout
   [tool-call-rendering]=chat
   [unread-clearing]=chat
+  [master-topic]=master-topic
+  [master-session-ui]=master-topic
+  [notifications-non-invasive]=notifications
 )
 
 slugify() {

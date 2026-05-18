@@ -41,6 +41,14 @@ describe("Phase H · topics CLI", () => {
     expect(result.stdout).toContain("open [path]");
     expect(result.stdout).toContain("daemon status");
     expect(result.stdout).toContain("kill");
+    // MASTER-01: master subcommand surfaced in --help
+    expect(result.stdout).toContain("master --project");
+  });
+
+  test("master with non-existent path fails with helpful error", () => {
+    const result = runCli(["master", "--project", "/non/existent/path/master"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("project path does not exist");
   });
 
   test("unknown command exits 2", () => {

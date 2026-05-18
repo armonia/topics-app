@@ -19,7 +19,7 @@ interface TerminalSession {
   cols: number;
   rows: number;
   topicId?: string;
-  type: 'shell' | 'claude-code';
+  type: 'shell' | 'claude-code' | 'claude-code-team';
   skipPermissions: boolean;
   claudeSessionId?: string;
 }
@@ -296,7 +296,7 @@ function handleBridgeMessage(msg: any) {
         // the row so they stop haunting the UI.
         const ageMs = Date.now() - new Date(exitedSession.createdAt).getTime();
         const failedQuickly = ageMs < 3000 && msg.exitCode !== 0;
-        const canResume = exitedSession.type === 'claude-code'
+        const canResume = (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')
           && !!exitedSession.claudeSessionId
           && !failedQuickly;
         try {
@@ -422,14 +422,14 @@ async function reconcileSessions() {
   // DB has session, bridge doesn't → recreate or remove
   for (const row of dbRows) {
     if (!bridgeIds.has(row.id)) {
-      if (row.type === 'claude-code' && row.claude_session_id) {
-        // Claude Code session — recreate with --resume
-        console.log(`[Terminal] Recreating claude-code session ${row.id} with --resume`);
+      if ((row.type === 'claude-code' || row.type === 'claude-code-team') && row.claude_session_id) {
+        // Claude Code (or team-mode) session — recreate with --resume
+        console.log(`[Terminal] Recreating ${row.type} session ${row.id} with --resume`);
         try {
           await createSession(
             row.id, row.name, row.cwd, undefined,
             row.cols || 120, row.rows || 30,
-            row.topic_id || undefined, 'claude-code',
+            row.topic_id || undefined, row.type as 'claude-code' | 'claude-code-team',
             row.skip_permissions !== 0, row.claude_session_id,
           );
         } catch (err: any) {
@@ -466,16 +466,17 @@ function requestBuffer(sessionId: string): Promise<Uint8Array> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, claudeSessionId?: string): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' = 'shell', skipPermissions = true, claudeSessionId?: string): Promise<TerminalSession> {
   let file: string;
   let args: string[];
+  const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
 
   let resolvedClaudeSessionId = claudeSessionId;
-  if (sessionType === 'claude-code' && !resolvedClaudeSessionId) {
+  if (isClaudeKind && !resolvedClaudeSessionId) {
     resolvedClaudeSessionId = crypto.randomUUID();
   }
 
-  if (sessionType === 'claude-code') {
+  if (isClaudeKind) {
     file = 'claude';
     args = [];
     if (claudeSessionId) {
@@ -494,8 +495,14 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   }
 
   let env: Record<string, string | null> | undefined;
-  if (sessionType === 'claude-code') {
+  if (isClaudeKind) {
     env = { CLAUDECODE: null, PATH: augmentPath() };
+    // Master Topic mode: enable Claude Code Agent Teams (experimental).
+    // Sub-safe pattern — `claude` runs interactive in PTY, lead delegates
+    // to teammates via shared task list (see spec MASTER-01).
+    if (sessionType === 'claude-code-team') {
+      env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1';
+    }
   }
 
   // Await the bridge's ack before populating in-memory + DB. If the
@@ -617,7 +624,9 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
       const cols = body.cols || 120;
       const rows = body.rows || 30;
       const topicId = body.topicId || undefined;
-      const sessionType = body.type === 'claude-code' ? 'claude-code' : 'shell';
+      const sessionType: 'shell' | 'claude-code' | 'claude-code-team' =
+        body.type === 'claude-code-team' ? 'claude-code-team' :
+        body.type === 'claude-code' ? 'claude-code' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
 
       try {

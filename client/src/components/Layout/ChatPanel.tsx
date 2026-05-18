@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Settings, Pin, X, ExternalLink, Layers } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Layers, ArrowLeft, Crown } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
@@ -9,6 +9,7 @@ const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').the
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
+import { MasterBoardStrip } from '../Board/MasterBoardStrip';
 import { useContextInspector } from '../../hooks/useContextInspector';
 
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
@@ -44,6 +45,15 @@ interface ChatPanelProps {
   onToggleContext?: () => void;
   /** Callback to open a session-viewer pane for a spawned agent */
   onOpenSessionViewer?: (sessionKey: string) => void;
+  /** Local handler that opens / focuses a tab. Threaded down so the
+   *  Master strip can jump to any session reliably (works for
+   *  project-scoped topics too, unlike a bare sendFocusTopic which is
+   *  presence-only). */
+  onFocusPanel?: (topicId: string) => void;
+  /** Id of the open Master pane (if any). Used to render a "← Master"
+   *  back affordance in non-Master panes so the user can return with
+   *  one click after jumping out from the Master strip. */
+  masterPaneId?: string | null;
   /** Skip the header entirely — used when StandaloneChatGroup renders a
    *  single shared header above a keep-alive ladder of pane bodies. The
    *  body still renders banners, ChatPane, and the context inspector
@@ -61,6 +71,8 @@ export function ChatPanel({
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
   onOpenSessionViewer,
+  onFocusPanel,
+  masterPaneId,
   bodyOnly = false,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -192,6 +204,23 @@ export function ChatPanel({
 
         {/* Main Content with optional Context Inspector slide-out */}
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
+          {/* Quick back-to-Master pill — only shown in non-Master panes
+              when a Master pane is open elsewhere. Floats top-right of
+              the chat area so it doesn't shift content. */}
+          {masterPaneId && masterPaneId !== topic.id && onFocusPanel && (
+            <button
+              type="button"
+              data-testid="back-to-master"
+              onClick={(e) => { e.stopPropagation(); onFocusPanel(masterPaneId); }}
+              className="absolute top-2 right-2 z-20 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-purple-500/20 hover:bg-purple-500/35 text-purple-100 border border-purple-400/35 backdrop-blur-sm shadow-sm transition-colors"
+              title="Torna al Master (Shift+Cmd+M)"
+              aria-label="Torna al Master"
+            >
+              <ArrowLeft size={11} />
+              <Crown size={11} className="text-purple-300" />
+              <span>Master</span>
+            </button>
+          )}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               <ChatPane
@@ -210,6 +239,29 @@ export function ChatPanel({
                 onWSMessage={onWSMessage}
                 onUpdateTopic={onUpdateTopic}
                 onOpenSessionViewer={onOpenSessionViewer}
+                aboveInputSlot={topic.agentTeamRole === 'lead' ? (
+                  /* MASTER-01 (Variant A) — Master Topics get the board
+                     strip pinned just above the input so orchestration
+                     context stays visible while typing. */
+                  <MasterBoardStrip
+                    onMessage={onWSMessage}
+                    onJumpToTopic={(id) => {
+                      // Open / focus locally — handleFocusPanel knows how to
+                      // route project-scoped topics correctly. Falls back to
+                      // sendFocusTopic for presence if not wired in.
+                      if (onFocusPanel) onFocusPanel(id);
+                      else sendFocusTopic(sendWS, id);
+                    }}
+                    onAskMaster={(prompt) => { sendMessage(topic.sessionKey, prompt); }}
+                    lastAssistantMessage={(() => {
+                      const msgs = getSessionMessages(topic.sessionKey);
+                      for (let i = msgs.length - 1; i >= 0; i--) {
+                        if (msgs[i].role === 'assistant') return msgs[i].content;
+                      }
+                      return undefined;
+                    })()}
+                  />
+                ) : undefined}
               />
             </div>
           </div>

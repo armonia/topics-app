@@ -240,6 +240,44 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         return json(task);
       }
 
+      // POST /api/boards/:projectId/tasks/:id/assign-topic
+      // KANBAN-DELTA-01 (jump-to-tab) — bind a task to a teammate Topic.
+      // Body: { assignedTopicId: string | null }
+      {
+        const assignParams = matchRoute(pathname, "/api/boards/:projectId/tasks/:id/assign-topic");
+        if (assignParams && method === "POST") {
+          const body = await readJSON(req);
+          const assignedTopicId = body?.assignedTopicId ?? null;
+          if (assignedTopicId !== null && typeof assignedTopicId !== "string") {
+            return errorResponse(400, "assignedTopicId must be a string or null");
+          }
+          const taskRow = stmts.getTask.get(assignParams.id, assignParams.projectId);
+          if (!taskRow) return errorResponse(404, "Task not found");
+          // Validate topic exists if provided.
+          if (assignedTopicId) {
+            const t = db.prepare("SELECT id FROM topics WHERE id = ?").get(assignedTopicId);
+            if (!t) return errorResponse(400, "Topic not found");
+          }
+          try {
+            db.prepare("UPDATE tasks SET assigned_topic_id = ?, updated_at = ? WHERE id = ? AND project_id = ?").run(
+              assignedTopicId, new Date().toISOString(), assignParams.id, assignParams.projectId,
+            );
+          } catch (err: any) {
+            // Column missing → migration 026 not applied.
+            return errorResponse(500, "migration 026 (assigned_topic_id) not applied: " + err.message);
+          }
+          const updated = stmts.getTask.get(assignParams.id, assignParams.projectId);
+          const task = updated ? toTask(updated) : { id: assignParams.id };
+          broadcastToAll({ type: "task:updated", projectId: assignParams.projectId, task });
+          // Phase D — emit a focus hint so a connected client can scroll its
+          // pane manager to the bound teammate Topic.
+          if (assignedTopicId) {
+            broadcastToAll({ type: "pane:focus-suggest", topicId: assignedTopicId, taskId: assignParams.id });
+          }
+          return json(task);
+        }
+      }
+
       // DELETE /api/boards/:projectId/tasks/:id
       if (params && method === "DELETE") {
         const row = stmts.getTask.get(params.id, params.projectId);

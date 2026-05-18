@@ -595,6 +595,10 @@ export interface BoardTask extends Task {
   priority: number;       // 0-4
   assignedTo: string | null;
   assignedAgentId: string | null;
+  /** KANBAN-DELTA-01 — bound teammate Topic for jump-to-tab. */
+  assignedTopicId: string | null;
+  /** KANBAN-DELTA-02 — link to Claude Code Agent Teams shared task. */
+  claudeTaskId: string | null;
   fingerprint: string | null;
   dueDate: string | null;
   inProgressAt: string | null;
@@ -1567,6 +1571,31 @@ export const globalBoardApi = {
     if (filters?.status) params.set('status', filters.status);
     const qs = params.toString();
     return request<{ tasks: BoardTask[] }>(`/boards/tasks${qs ? '?' + qs : ''}`);
+  },
+};
+
+// Master orchestrator API — per-session state for the Master Topic UI.
+// Mirrors the snapshot the lead receives, so the strip and the AI see the
+// same picture.
+export type MasterSessionState = 'empty' | 'streaming' | 'update' | 'waiting' | 'idle';
+export interface MasterSession {
+  topicId: string;
+  name: string;
+  role: 'lead' | 'teammate' | null;
+  projectPath: string | null;
+  color: string;
+  icon: string;
+  state: MasterSessionState;
+  lastRole: 'user' | 'assistant' | null;
+  lastAt: string | null;
+  lastPreview: string;
+  unread: number;
+  msgCount: number;
+  updatedAt: string;
+}
+export const masterApi = {
+  async getSessions(): Promise<{ sessions: MasterSession[] }> {
+    return request<{ sessions: MasterSession[] }>(`/topics/master/sessions`);
   },
 };
 

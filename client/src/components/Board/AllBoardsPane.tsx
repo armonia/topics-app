@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Crown } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -26,6 +26,8 @@ const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
 
 interface AllBoardsPaneProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /** KANBAN-DELTA-01 — jump from a task card's teammate badge to its pane. */
+  onJumpToTopic?: (topicId: string) => void;
 }
 
 function getProjectLabel(projectId: string): string {
@@ -38,7 +40,7 @@ function getProjectLabel(projectId: string): string {
   }
 }
 
-export function AllBoardsPane({ onMessage }: AllBoardsPaneProps) {
+export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) {
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,6 +192,39 @@ export function AllBoardsPane({ onMessage }: AllBoardsPaneProps) {
 
   return (
     <div data-testid="all-boards-pane" className="flex-1 flex flex-col min-h-0">
+      {/* Master session header (MASTER-01 — Variant A: global multi-project Master) */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-app-border/40">
+        <div className="text-[11px] text-app-text-muted">
+          Global board · all projects
+        </div>
+        <button
+          type="button"
+          data-testid="start-master-session"
+          onClick={async () => {
+            try {
+              const resp = await fetch("/api/topics/master", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({}),
+              });
+              if (!resp.ok) {
+                console.warn("[Master] create failed", resp.status);
+                return;
+              }
+              const body = (await resp.json()) as { id: string };
+              onJumpToTopic?.(body.id);
+            } catch (err) {
+              console.warn("[Master] create error", err);
+            }
+          }}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
+          title="Start a Master session (Agent Teams). The lead can spawn teammates on any project."
+        >
+          <Crown size={11} />
+          <span>Start Master Session</span>
+        </button>
+      </div>
+
       {/* Kanban columns */}
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
         <DndContext
@@ -206,6 +241,7 @@ export function AllBoardsPane({ onMessage }: AllBoardsPaneProps) {
                 column={col}
                 tasks={columns[col.id]}
                 isOver={overColumn === col.id && activeId !== null}
+                onJumpToTopic={onJumpToTopic}
               />
             ))}
           </div>
@@ -224,10 +260,11 @@ export function AllBoardsPane({ onMessage }: AllBoardsPaneProps) {
 }
 
 // Kanban column for global board
-function GlobalColumn({ column, tasks, isOver }: {
+function GlobalColumn({ column, tasks, isOver, onJumpToTopic }: {
   column: { id: TaskStatus; label: string; color: string };
   tasks: BoardTask[];
   isOver: boolean;
+  onJumpToTopic?: (topicId: string) => void;
 }) {
   return (
     <div
@@ -247,7 +284,7 @@ function GlobalColumn({ column, tasks, isOver }: {
       <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy} id={column.id}>
         <div className="flex-1 overflow-y-auto px-1.5 py-1.5 space-y-1.5 min-h-[60px]" id={column.id}>
           {tasks.map(task => (
-            <SortableGlobalCard key={task.id} task={task} />
+            <SortableGlobalCard key={task.id} task={task} onJumpToTopic={onJumpToTopic} />
           ))}
           {tasks.length === 0 && (
             <div className="text-[10px] text-app-placeholder text-center py-4 italic">Empty</div>
@@ -259,7 +296,7 @@ function GlobalColumn({ column, tasks, isOver }: {
 }
 
 // Sortable card showing task + project badge
-function SortableGlobalCard({ task }: { task: BoardTask }) {
+function SortableGlobalCard({ task, onJumpToTopic }: { task: BoardTask; onJumpToTopic?: (topicId: string) => void }) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: task.id });
@@ -294,6 +331,22 @@ function SortableGlobalCard({ task }: { task: BoardTask }) {
           <span className="text-[9px] text-app-text-muted truncate max-w-[60px]">
             {task.assignedTo}
           </span>
+        )}
+        {task.assignedTopicId && (
+          <button
+            type="button"
+            data-testid="global-task-assigned-topic-badge"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onJumpToTopic?.(task.assignedTopicId!);
+            }}
+            title="Jump to teammate Topic"
+            className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[9px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
+          >
+            <Crown size={8} />
+            <span>teammate</span>
+          </button>
         )}
       </div>
     </div>

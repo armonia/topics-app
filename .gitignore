@@ -103,3 +103,4 @@ tests/**/node_modules/
 
 # Debug screenshots
 tabbar-*.png
+spec-flow/

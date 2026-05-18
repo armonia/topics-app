@@ -82,6 +82,10 @@ interface PanelGridProps {
   openPanels: string[];
   focusedPanelId: string | null;
   topics: Record<string, Topic>;
+  /** Topic id of the active Master · Global / Master · Project pane, if
+   *  any. Threaded down so non-Master panes can render a quick "←
+   *  Master" affordance to jump back. */
+  masterPaneId?: string | null;
   onFocusPanel: (topicId: string) => void;
   /** Default close — typically deferred via the PendingAction countdown. */
   onClosePanel: (topicId: string) => void;
@@ -155,6 +159,7 @@ export function PanelGrid({
   openPanels,
   focusedPanelId,
   topics,
+  masterPaneId,
   onFocusPanel,
   onClosePanel,
   onClosePanelImmediate,
@@ -1216,6 +1221,7 @@ export function PanelGrid({
         topicIds={item.panelIds}
         topics={topics}
         focusedPanelId={focusedPanelId}
+        masterPaneId={masterPaneId}
         onFocusPanel={onFocusPanel}
         onClosePanel={onClosePanel}
         onClosePanelImmediate={onClosePanelImmediate}

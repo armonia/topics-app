@@ -50,6 +50,14 @@ export interface Topic {
    */
   initialMessage?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
+  /**
+   * MASTER-01 (migration 026). When set to 'lead' the topic is an Agent
+   * Teams orchestrator; teammates carry 'teammate'. NULL on every legacy
+   * topic.
+   */
+  agentTeamRole?: 'lead' | 'teammate' | null;
+  /** MASTER-02 — link from a teammate back to its Master Topic. */
+  parentTopicId?: string | null;
 }
 
 /** First-class Project entity (Phase A · migration 016). Mirrors server/types.ts:Project. */
@@ -708,6 +716,17 @@ export interface WSTaskDeleteMessage {
   taskId: string;
 }
 
+/**
+ * KANBAN-DELTA-01 (Phase D, jump-to-tab) — emitted by the server when a
+ * task is bound to a teammate Topic via POST /api/boards/.../assign-topic.
+ * Listeners (board, layout) bring the relevant pane into focus.
+ */
+export interface WSPaneFocusSuggestMessage {
+  type: 'pane:focus-suggest';
+  topicId: string;
+  taskId: string;
+}
+
 export interface WSApprovalCreatedMessage {
   type: 'approval:created';
   projectId: string;
@@ -921,6 +940,7 @@ export type WSMessage =
   | WSUnreadUpdatedMessage
   | WSTaskUpsertMessage
   | WSTaskDeleteMessage
+  | WSPaneFocusSuggestMessage
   | WSApprovalCreatedMessage
   | WSApprovalResolvedMessage
   | WSBoardMemoryUpsertMessage

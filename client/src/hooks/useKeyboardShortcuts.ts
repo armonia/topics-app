@@ -142,6 +142,21 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // Cmd+Shift+M — jump to the open Master pane (if any). Quick
+      // back-out from a session the user reached via the Master strip.
+      // (Plain Cmd+M is reserved by macOS for "Minimize Window".)
+      if (isMod && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+        if (isTextInputFocused(e.target)) return;
+        const master = Object.values(topicsRef.current).find(
+          (t) => !t.archived && t.agentTeamRole === 'lead',
+        );
+        if (master) {
+          e.preventDefault();
+          setFocusedPanelId(master.id);
+          return;
+        }
+      }
+
       if (isElectron && isMod && e.key === 'n') {
         e.preventDefault();
         if (e.shiftKey) {

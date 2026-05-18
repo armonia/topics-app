@@ -677,6 +677,34 @@ function App() {
             isSessionStreaming={isSessionStreaming}
             stopSession={stopSession}
             onOpenProjectBoard={handleOpenProjectBoard}
+            onOpenMaster={async () => {
+              try {
+                const r = await fetch('/api/topics/master', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                if (!r.ok) return;
+                const data = await r.json();
+                if (!data?.id) return;
+                // Wait for the topic to be loaded in the topics map (the
+                // server broadcasts topic:created/updated via WS). If the
+                // user clicks the sidebar Master button before that lands,
+                // handleTopicClick would silently no-op (no topic entry to
+                // route on). Poll briefly then fall back to handleFocusPanel.
+                let attempts = 0;
+                const tryOpen = () => {
+                  if (topics[data.id]) {
+                    handleTopicClick(data.id);
+                    return;
+                  }
+                  if (attempts++ < 10) {
+                    setTimeout(tryOpen, 100);
+                  } else {
+                    // Last resort: focus by id even if topic data isn't
+                    // populated yet — the pane will render once it arrives.
+                    handleFocusPanel(data.id);
+                  }
+                };
+                tryOpen();
+              } catch { /* silent */ }
+            }}
             boardTaskCounts={boardTaskCounts}
             onNewChat={() => handleQuickCreateTopic()}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
@@ -759,6 +787,7 @@ function App() {
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
           topics={topics}
+          masterPaneId={Object.values(topics).find((t) => !t.archived && t.agentTeamRole === 'lead')?.id ?? null}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
           onClosePanelImmediate={handleClosePanel}

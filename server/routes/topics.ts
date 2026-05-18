@@ -1001,6 +1001,319 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return json({ ...data, workspaceProjects: getWorkspaceProjects() });
     }
 
+    // POST /api/topics/master — create-or-resume a Master Topic in Agent Teams mode.
+    // Spec: openspec/changes/add-master-topic-mode/specs/master-topic/spec.md (MASTER-01)
+    //
+    // Variant A (multi-project Mayor): projectPath is OPTIONAL.
+    //   - omitted     → global Master with no fixed cwd; lead delegates dynamically
+    //                   to teammates across any project the user mentions.
+    //   - provided    → "project-scoped" Master, anchored to that path.
+    //
+    // Idempotency:
+    //   - With projectPath: at most one active lead Topic per path.
+    //   - Without projectPath: at most one active "global" Master at a time
+    //     (avoids accidental duplicates from the UI button).
+
+    // GET /api/topics/master/sessions — per-session state for the Master
+    // UI strip. Returns the same data the lead's snapshot uses, but as
+    // structured JSON so the client can render one card per session.
+    if (method === "GET" && pathname === "/api/topics/master/sessions") {
+      try {
+        const openTopics = ctx.db.query(
+          `SELECT id, name, session_key, project_path, agent_team_role, color, icon, updated_at
+           FROM topics
+           WHERE archived = 0 AND (agent_team_role IS NULL OR agent_team_role != 'lead')
+           ORDER BY updated_at DESC
+           LIMIT 30`
+        ).all() as {
+          id: string; name: string; session_key: string;
+          project_path: string | null; agent_team_role: string | null;
+          color: string; icon: string; updated_at: string;
+        }[];
+
+        const sessions = openTopics.map((t) => {
+          let lastRole: string | null = null;
+          let lastAt: string | null = null;
+          let lastPreview = "";
+          let partial = 0;
+          let msgCount = 0;
+          try {
+            const row = ctx.db.query(
+              `SELECT role, timestamp, content, partial FROM messages
+               WHERE session_key = ?
+               ORDER BY sort_order DESC LIMIT 1`
+            ).get(t.session_key) as { role: string; timestamp: string; content: string; partial: number } | undefined;
+            if (row) {
+              lastRole = row.role;
+              lastAt = row.timestamp;
+              partial = row.partial ?? 0;
+              lastPreview = (row.content || "").replace(/\s+/g, " ").slice(0, 200);
+            }
+            const cnt = ctx.db.query(
+              `SELECT COUNT(*) AS n FROM messages WHERE session_key = ?`
+            ).get(t.session_key) as { n: number } | undefined;
+            msgCount = cnt?.n ?? 0;
+          } catch {}
+
+          let unread = 0;
+          try {
+            const u = ctx.db.query(
+              `SELECT unread_count FROM unread WHERE topic_id = ?`
+            ).get(t.id) as { unread_count: number } | undefined;
+            unread = u?.unread_count ?? 0;
+          } catch {}
+
+          let state: "empty" | "streaming" | "update" | "waiting" | "idle";
+          if (msgCount === 0) state = "empty";
+          else if (partial) state = "streaming";
+          else if (lastRole === "assistant" && unread > 0) state = "update";
+          else if (lastRole === "user") state = "waiting";
+          else state = "idle";
+
+          return {
+            topicId: t.id,
+            name: t.name,
+            role: t.agent_team_role,
+            projectPath: t.project_path,
+            color: t.color,
+            icon: t.icon,
+            state,
+            lastRole,
+            lastAt,
+            lastPreview,
+            unread,
+            msgCount,
+            updatedAt: t.updated_at,
+          };
+        });
+        return json({ sessions }, 200);
+      } catch (err) {
+        return json({ error: String(err) }, 500);
+      }
+    }
+
+    if (method === "POST" && pathname === "/api/topics/master") {
+      const body = await readJSON(req);
+      const projectPath = body?.projectPath as string | undefined;
+      const name = (body?.name as string | undefined)
+        || (projectPath
+          ? `Master · ${projectPath.split("/").pop() || projectPath}`
+          : "Master · Global");
+
+      // Snapshot helper — captures open topics + tasks at a moment in time.
+      // Used both to refresh a resumed Master and to seed a new one with an
+      // initialMessage so the lead has the board state from turn 0.
+      function buildSnapshot(): string {
+        // Per-session snapshot: for each open non-Master topic, summarize
+        // last activity, who has the ball, and whether there's an unread
+        // update the Master should triage. The lead iterates this list
+        // each turn and proposes an action per session.
+        try {
+          const openTopics = ctx.db.query(
+            `SELECT id, name, session_key, project_path, agent_team_role, updated_at
+             FROM topics
+             WHERE archived = 0 AND (agent_team_role IS NULL OR agent_team_role != 'lead')
+             ORDER BY updated_at DESC
+             LIMIT 30`
+          ).all() as {
+            id: string; name: string; session_key: string;
+            project_path: string | null; agent_team_role: string | null;
+            updated_at: string;
+          }[];
+
+          const lines: string[] = [];
+          lines.push("# Active sessions (live state)");
+          lines.push("");
+          if (openTopics.length === 0) {
+            lines.push("_No active sessions. The user has nothing in flight — propose creating a topic for the next thing they want to work on._");
+            return lines.join("\n");
+          }
+
+          lines.push(`**${openTopics.length} active topic(s)** — iterate, do not skip any:`);
+          lines.push("");
+
+          const now = Date.now();
+          const fmtAgo = (iso: string | null): string => {
+            if (!iso) return "—";
+            const t = Date.parse(iso);
+            if (!Number.isFinite(t)) return "—";
+            const s = Math.max(0, Math.floor((now - t) / 1000));
+            if (s < 60) return `${s}s ago`;
+            const m = Math.floor(s / 60);
+            if (m < 60) return `${m}m ago`;
+            const h = Math.floor(m / 60);
+            if (h < 24) return `${h}h ago`;
+            return `${Math.floor(h / 24)}d ago`;
+          };
+
+          for (const t of openTopics) {
+            // Last message in this session (role + timestamp + partial flag + short preview).
+            let lastRole: string | null = null;
+            let lastAt: string | null = null;
+            let lastPreview = "";
+            let partial = 0;
+            let msgCount = 0;
+            try {
+              const row = ctx.db.query(
+                `SELECT role, timestamp, content, partial FROM messages
+                 WHERE session_key = ?
+                 ORDER BY sort_order DESC LIMIT 1`
+              ).get(t.session_key) as { role: string; timestamp: string; content: string; partial: number } | undefined;
+              if (row) {
+                lastRole = row.role;
+                lastAt = row.timestamp;
+                partial = row.partial ?? 0;
+                lastPreview = (row.content || "").replace(/\s+/g, " ").slice(0, 140);
+              }
+              const cnt = ctx.db.query(
+                `SELECT COUNT(*) AS n FROM messages WHERE session_key = ?`
+              ).get(t.session_key) as { n: number } | undefined;
+              msgCount = cnt?.n ?? 0;
+            } catch { /* schema mismatch — degrade gracefully */ }
+
+            // Unread tracking — last_read_at < lastAt means the user hasn't
+            // seen the latest message yet.
+            let unread = 0;
+            try {
+              const u = ctx.db.query(
+                `SELECT unread_count FROM unread WHERE topic_id = ?`
+              ).get(t.id) as { unread_count: number } | undefined;
+              unread = u?.unread_count ?? 0;
+            } catch {}
+
+            // Status badge — what state is the session in?
+            //   streaming → assistant is mid-reply (partial=1)
+            //   update    → last message is assistant + unread > 0
+            //   waiting   → last message is user (assistant hasn't replied)
+            //   idle      → last message is assistant + read
+            //   empty     → no messages yet
+            let status: string;
+            if (msgCount === 0) status = "empty";
+            else if (partial) status = "streaming";
+            else if (lastRole === "assistant" && unread > 0) status = "update";
+            else if (lastRole === "user") status = "waiting";
+            else status = "idle";
+
+            const tag = t.agent_team_role === "teammate" ? " 🤝" : "";
+            const proj = t.project_path ? ` · ${t.project_path.split("/").pop()}` : "";
+            lines.push(`## ${t.name}${tag}${proj}`);
+            lines.push(`- id: \`${t.id}\``);
+            lines.push(`- status: **${status}**  (${msgCount} msg, last ${fmtAgo(lastAt)}${unread > 0 ? `, ${unread} unread` : ""})`);
+            if (lastPreview) {
+              lines.push(`- last (${lastRole}): ${lastPreview}${lastPreview.length >= 140 ? "…" : ""}`);
+            }
+            lines.push("");
+          }
+          return lines.join("\n");
+        } catch (err) {
+          return `(snapshot unavailable: ${String(err)})`;
+        }
+      }
+
+      try {
+        const existing = projectPath
+          ? ctx.db.query(
+              "SELECT id FROM topics WHERE project_path = ? AND agent_team_role = 'lead' AND archived = 0 LIMIT 1"
+            ).get(projectPath) as { id: string } | undefined
+          : ctx.db.query(
+              "SELECT id FROM topics WHERE (project_path IS NULL OR project_path = '') AND agent_team_role = 'lead' AND archived = 0 LIMIT 1"
+            ).get() as { id: string } | undefined;
+        if (existing?.id) {
+          // Refresh the initial-message with a fresh snapshot so the lead
+          // gets the latest state on next open (one-shot — the renderer
+          // PATCHes it back to null after dispatching).
+          const snapshot = buildSnapshot();
+          ctx.db.run("UPDATE topics SET initial_message = ?, updated_at = ? WHERE id = ?", [
+            `${snapshot}\n\nIterate every session above. For each, decide if action is needed and propose it. Use the \`## Next\` output contract.`,
+            new Date().toISOString(),
+            existing.id,
+          ]);
+          broadcastToAll({ type: "pane:focus-suggest", topicId: existing.id, taskId: "" });
+          return json({ id: existing.id, resumed: true }, 200);
+        }
+      } catch (err) {
+        // agent_team_role column missing → migration 026 not applied yet.
+        return json({ error: "migration 026 (master-topic-mode) not applied", detail: String(err) }, 500);
+      }
+
+      const data = loadTopics();
+      const id = crypto.randomUUID();
+      const slug = slugify(name);
+      // MASTER-01 (Variant A) — default orchestrator system prompt so the
+      // lead walks the user through tasks until they're all closed.
+      // Custom systemPrompt from the caller wins.
+      const defaultMasterPrompt = [
+        "You are the Master orchestrator (Agent Teams lead) for this workspace.",
+        "Your job is to surface what each active session needs and to close out the ones that are done.",
+        "",
+        "How you work:",
+        "1. The system injects a `# Active sessions (live state)` snapshot at the start of each turn. Iterate it — do NOT skip sessions.",
+        "2. For each session, classify the state from the snapshot:",
+        "   - **update** → assistant replied, user hasn't read it. Summarize the reply in 1 line and propose what to do next (approve, merge, follow up).",
+        "   - **waiting** → user sent a message but no assistant reply. Note it's stalled or in-flight; check if intervention is needed.",
+        "   - **streaming** → reply is in progress. Leave alone unless it's been stuck for >10m.",
+        "   - **idle** → caught up. Read the `last (assistant)` preview and decide:",
+        "       a. If the conversation reads as **concluded** (final answer delivered, no open question, no follow-up) → propose **ARCHIVIA** in ## Next.",
+        "       b. If it's just paused mid-thread (open question, partial fix, awaiting user) → leave it; suggest the next user step.",
+        "   - **empty** → topic exists but no messages yet. Propose archiving unless the user wants to seed it.",
+        "3. Never ask the user 'what should we do' — you read the state and propose actions. The user only confirms or redirects.",
+        "4. When a teammate session reports back (update state), summarize the outcome in 1-3 lines and propose the close-out (merge, mark done, archive).",
+        "",
+        "Constraints:",
+        "- Be concise. One sentence per session unless the situation is critical.",
+        "- Ask permission before risky actions (deletes, prod merges, sending messages, money moves).",
+        "- Archive is reversible — it just clears the workspace. Be liberal when a thread is clearly done.",
+        "- If the snapshot shows zero active sessions, propose what to seed next based on conversation context.",
+        "",
+        "Output contract (MANDATORY):",
+        "End every reply with a `## Next` block. ONLY list sessions the user can ACT on right now. Use a leading verb in ALL-CAPS — the UI renders one button per row.",
+        "",
+        "Verbs (be strict):",
+        "- **ARCHIVIA** → conversation is concluded (final answer, no open thread, nothing waiting). Archives the session.",
+        "- **APRI** → user must do something IN that tab to make progress (answer a follow-up question, approve a plan, supply data, regenerate a key, run a command, paste output, take a decision, etc.). The reason MUST describe the concrete action.",
+        "",
+        "Do NOT list:",
+        "- Sessions where you (the AI) are still working — they'll surface themselves when they reply.",
+        "- Sessions that are simply quiet with no clear next step for the user.",
+        "- Sessions you're unsure about — leave them out rather than spam ATTENDI.",
+        "",
+        "Format exactly:",
+        "",
+        "## Next",
+        "- ARCHIVIA **<topic name>** — <why it's done>",
+        "- APRI **<topic name>** — <concrete action the user takes there>",
+        "",
+        "If nothing needs action AND nothing to archive: `## Next` + `Tutto pulito — niente da fare adesso.`",
+      ].join("\n");
+      const topic: Topic = {
+        id, name, slug, parentId: null, links: [],
+        sessionKey: "", color: body?.color || "#a855f7", icon: body?.icon || "Crown",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        archived: false,
+        systemPrompt: (body?.systemPrompt as string | undefined) || defaultMasterPrompt,
+        contextFiles: [], pinnedMessages: [],
+        sortOrder: Object.keys(data.topics).length,
+        provider: body?.provider || "claude-code-team",
+      };
+      if (projectPath) (topic as any).projectPath = projectPath;
+      // Seed initialMessage with current workspace snapshot so the lead's
+      // first reply already reflects open topics + tasks (MASTER-01).
+      {
+        const snapshot = buildSnapshot();
+        (topic as any).initialMessage = `${snapshot}\n\nIterate every session above. For each, decide if action is needed and propose it. Use the \`## Next\` output contract.`;
+      }
+      data.topics[id] = topic;
+      topic.sessionKey = "topic:" + id.slice(0, 8);
+      saveSingleTopic(topic);
+      ctx.db.run("UPDATE topics SET agent_team_role = 'lead' WHERE id = ?", [id]);
+      broadcastToAll({ type: "topic:created", topic });
+      // Auto-open + focus the new Master pane on connected clients
+      // (KANBAN-DELTA-01 / MASTER-01 UI flow — usePanelLifecycle handles
+      // `pane:focus-suggest` by adding to openPanels and focusing).
+      broadcastToAll({ type: "pane:focus-suggest", topicId: id, taskId: "" });
+      return json({ id, resumed: false }, 201);
+    }
+
     if (method === "POST" && pathname === "/api/topics") {
       const body = await readJSON(req);
       if (!body || !body.name) return json({ error: "name required" }, 400);

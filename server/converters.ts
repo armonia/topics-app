@@ -21,6 +21,9 @@ export function rowToTask(row: any, getTaskTags: { all: (id: string) => any[] })
     kanbanOrder: row.kanban_order,
     assignedTo: row.assigned_to || null,
     assignedAgentId: row.assigned_agent_id || null,
+    // KANBAN-DELTA-01 — jump-to-tab binding (Phase D).
+    assignedTopicId: row.assigned_topic_id || null,
+    claudeTaskId: row.claude_task_id || null,
     fingerprint: row.fingerprint || null,
     dueDate: row.due_date || null,
     chatId: row.chat_id || null,

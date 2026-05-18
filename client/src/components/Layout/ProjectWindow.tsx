@@ -392,7 +392,12 @@ export function ProjectWindowPane({
       case 'board':
         return (
           <Suspense fallback={LazySpinner}>
-            <KanbanBoard projectId={encodeURIComponent(projectPath)} topicId={primaryTopicId} onWSMessage={onWSMessage} />
+            <KanbanBoard
+              projectId={encodeURIComponent(projectPath)}
+              topicId={primaryTopicId}
+              onWSMessage={onWSMessage}
+              onJumpToTopic={(topicId) => onFocusPanel(topicId)}
+            />
           </Suspense>
         );
       case 'board-memory':

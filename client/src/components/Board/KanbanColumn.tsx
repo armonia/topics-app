@@ -21,6 +21,8 @@ interface KanbanColumnProps {
   onDeleteTask: (taskId: string) => Promise<void>;
   onSelectTask?: (task: BoardTask) => void;
   onReviewApproval?: (approvalId: string) => void;
+  /** KANBAN-DELTA-01 — propagated to TaskCard. */
+  onJumpToTopic?: (topicId: string) => void;
 }
 
 export function KanbanColumn({
@@ -39,6 +41,7 @@ export function KanbanColumn({
   onDeleteTask,
   onSelectTask,
   onReviewApproval,
+  onJumpToTopic,
 }: KanbanColumnProps) {
   const [adding, setAdding] = useState(false);
   const [newText, setNewText] = useState('');
@@ -118,6 +121,7 @@ export function KanbanColumn({
                 onSelect={onSelectTask}
                 onDelete={onDeleteTask}
                 onReviewApproval={onReviewApproval}
+                onJumpToTopic={onJumpToTopic}
               />
             ))
           )}

@@ -192,6 +192,10 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.worktree_id) topic.worktreeId = row.worktree_id;
     // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
     if (row.initial_message) topic.initialMessage = row.initial_message;
+    // MASTER-01 (migration 026). Surface Agent Teams role + parent linkage
+    // so the client can render the Master board strip & teammate badges.
+    if (row.agent_team_role) (topic as any).agentTeamRole = row.agent_team_role;
+    if (row.parent_topic_id) (topic as any).parentTopicId = row.parent_topic_id;
 
     const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -899,6 +903,15 @@ export function createAppContext(baseDir: string): AppContext {
   setInterval(() => {
     const now = Date.now();
     for (const [key, stream] of activeStreams) {
+      // If the DB already says this stream's message is finalized, drop the
+      // in-memory entry silently. No broadcast — nobody is mid-stream to
+      // notify, and leaving the entry causes ghost `stream:catchup` events
+      // on future WS reconnects.
+      const partial = getMessageById(stream.messageId);
+      if (!partial || partial.partial !== true) {
+        activeStreams.delete(key);
+        continue;
+      }
       const lastActivity = new Date(stream.lastActivity).getTime();
       if (now - lastActivity > STREAM_MAX_AGE_MS) {
         console.log(`[StreamCleanup] Removing stale stream for ${key} (last activity: ${stream.lastActivity})`);

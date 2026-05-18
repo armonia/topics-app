@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Trash2, Lock } from 'lucide-react';
+import { GripVertical, Trash2, Lock, Crown } from 'lucide-react';
 import { ApprovalBanner } from './ApprovalBanner';
 import type { BoardTask, Approval } from '../../lib/api';
 
@@ -12,6 +12,8 @@ interface TaskCardProps {
   onDelete?: (taskId: string) => void;
   onReviewApproval?: (approvalId: string) => void;
   lastHeartbeat?: number; // timestamp of last heartbeat for this agent
+  /** KANBAN-DELTA-01 — invoked when the user clicks the teammate badge to jump to that pane. */
+  onJumpToTopic?: (topicId: string) => void;
 }
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -22,7 +24,7 @@ const PRIORITY_COLORS: Record<number, string> = {
   4: 'bg-slate-500',
 };
 
-export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval, lastHeartbeat }: TaskCardProps) {
+export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval, lastHeartbeat, onJumpToTopic }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -104,6 +106,23 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
           <span className="text-[11px] text-app-text leading-tight truncate">
             {task.text}
           </span>
+
+          {/* KANBAN-DELTA-01 — teammate Topic badge (jump-to-tab) */}
+          {task.assignedTopicId && (
+            <button
+              type="button"
+              data-testid="task-assigned-topic-badge"
+              onClick={(e) => {
+                e.stopPropagation();
+                onJumpToTopic?.(task.assignedTopicId!);
+              }}
+              title="Jump to teammate Topic"
+              className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[9px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
+            >
+              <Crown size={8} />
+              <span className="truncate max-w-[60px]">teammate</span>
+            </button>
+          )}
         </div>
 
         {/* Agent working indicator */}

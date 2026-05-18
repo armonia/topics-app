@@ -76,7 +76,7 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
           {type === 'activity' && <ActivityFeedPanel enabled />}
           {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
           {type === 'dashboard' && <DashboardPane onMessage={onMessage} />}
-          {type === 'all-boards' && <AllBoardsPane onMessage={onMessage} />}
+          {type === 'all-boards' && <AllBoardsPane onMessage={onMessage} onJumpToTopic={onNavigateToTopic} />}
           {type === 'cron' && <CronJobsPanel />}
         </Suspense>
       </div>
