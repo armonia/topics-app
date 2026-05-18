@@ -80,6 +80,19 @@ cd client && bun run build
 cd electron-app && npm start
 ```
 
+### Optional: spec-flow toolchain
+
+The `lint:gherkin`, `tag:scenarios`, and `uat` scripts in `package.json`
+require the [spec-flow](https://github.com/armonia/spec-flow) toolkit
+cloned alongside this repo:
+
+```bash
+git clone --depth 1 https://github.com/armonia/spec-flow.git
+```
+
+`spec-flow/` is gitignored — it stays a local sibling install. Without
+it, only those three scripts are unavailable; everything else works.
+
 ## Architecture
 
 ```

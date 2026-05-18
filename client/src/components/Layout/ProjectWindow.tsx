@@ -70,6 +70,9 @@ export interface ProjectWindowPaneProps {
   onActiveTopicChange?: (topicId: string | null) => void;
   // Report all open pane IDs inside this project (for sidebar filtering)
   onOpenPanesChange?: (paneIds: string[]) => void;
+  /** Master topic id — passed down to inner ChatPanes so they can render the
+   *  back-to-Master pill regardless of whether they live inside a project. */
+  masterPaneId?: string | null;
 }
 
 export function ProjectWindowPane({
@@ -80,6 +83,7 @@ export function ProjectWindowPane({
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange,
+  masterPaneId,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
@@ -314,6 +318,8 @@ export function ProjectWindowPane({
             onWSMessage={onWSMessage}
             onUpdateTopic={onUpdateTopic}
             onOpenFile={handleOpenFile}
+            masterPaneId={masterPaneId}
+            onFocusPanel={onFocusPanel}
           />
         );
       }
@@ -541,6 +547,7 @@ interface ProjectWindowProps {
   onPendingPaneConsumed?: () => void;
   onNewChat?: () => void;
   onAcceptTopicDrop?: (topicId: string) => void;
+  masterPaneId?: string | null;
 }
 
 export function ProjectWindow({
@@ -548,7 +555,7 @@ export function ProjectWindow({
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
+  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat, masterPaneId,
   onAcceptTopicDrop,
 }: ProjectWindowProps) {
   // Cross-panel-type drop: accept standalone chat drops
@@ -621,6 +628,7 @@ export function ProjectWindow({
         pendingPane={pendingPane}
         onPendingPaneConsumed={onPendingPaneConsumed}
         onNewChat={onNewChat}
+        masterPaneId={masterPaneId}
       />
       <ToastOutlet />
     </div>

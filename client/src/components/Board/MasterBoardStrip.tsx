@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Sparkles, Crown, RefreshCw, ArrowRight, Archive,
+  Sparkles, Crown, ArrowRight, Archive,
   LayoutList, Columns3, ChevronDown, ChevronUp, Loader2, Circle, MessageSquareDot,
 } from "lucide-react";
 import { masterApi, topicsApi, type MasterSession, type MasterSessionState } from "../../lib/api";
@@ -59,6 +59,20 @@ const STATE_PRIORITY: Record<MasterSessionState, number> = {
 const LIST_VISIBLE = 10;
 const VIEW_STORAGE_KEY = "topics:master-strip:view";
 const COLLAPSED_STORAGE_KEY = "topics:master-strip:collapsed";
+const SIZE_STORAGE_KEY = "topics:master-strip:size";
+
+type StripSize = "sm" | "md" | "lg";
+/** Max body height per size. Body scrolls if it overflows; header stays put. */
+const SIZE_MAX_H: Record<StripSize, string> = {
+  sm: "max-h-[22vh]",
+  md: "max-h-[40vh]",
+  lg: "max-h-[72vh]",
+};
+const SIZE_LABEL: Record<StripSize, string> = { sm: "Piccolo", md: "Medio", lg: "Esteso" };
+const SIZE_ORDER: StripSize[] = ["sm", "md", "lg"];
+function nextSize(s: StripSize): StripSize {
+  return SIZE_ORDER[(SIZE_ORDER.indexOf(s) + 1) % SIZE_ORDER.length];
+}
 
 function renderInlineMd(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
@@ -282,7 +296,16 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(COLLAPSED_STORAGE_KEY) === "1"; } catch { return false; }
   });
-  const [expandList, setExpandList] = useState(false);
+  const [size, setSize] = useState<StripSize>(() => {
+    try {
+      const v = localStorage.getItem(SIZE_STORAGE_KEY);
+      if (v === "sm" || v === "md" || v === "lg") return v;
+    } catch {}
+    return "sm"; // Default: small. Strip shouldn't dominate the chat view.
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SIZE_STORAGE_KEY, size); } catch {}
+  }, [size]);
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed ? "1" : "0"); } catch {}
@@ -373,6 +396,13 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
 
   const archives = useMemo(() => parsedActions.filter((a) => a.verb === "archivia"), [parsedActions]);
   const opens = useMemo(() => parsedActions.filter((a) => a.verb === "apri"), [parsedActions]);
+  // Sessions in `update` state for which the AI hasn't yet proposed an action.
+  // These are "new replies the Master hasn't seen". A secondary CTA prompts
+  // the Master to triage them without forcing the user to type the request.
+  const uncoveredUpdates = useMemo(() => {
+    const acted = new Set(parsedActions.map((a) => a.session.topicId));
+    return sessions.filter((s) => s.state === "update" && !acted.has(s.topicId));
+  }, [sessions, parsedActions]);
 
   const handleBulkArchive = useCallback(async () => {
     if (archives.length === 0) return;
@@ -422,6 +452,17 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
         onClick: () => onJumpToTopic?.(a.session.topicId),
       };
     }
+    if (parsedActions.length === 0 && summary.update > 0 && onAskMaster) {
+      // No AI proposal yet AND we have fresh updates → ask Master to triage.
+      return {
+        label: `Valuta ${summary.update} novità`,
+        sublabel: "Chiedi al Master cosa fare con le sessioni aggiornate",
+        onClick: () => {
+          const snapshot = buildSnapshotMd(sessions);
+          onAskMaster(`${snapshot}\n\n---\n\nCi sono ${summary.update} sessioni con un nuovo messaggio non letto (stato \`update\`). Iteralle e per ciascuna decidi:\n- Se la conversazione è ora **conclusa** (final answer dell'AI, niente in sospeso) → **ARCHIVIA**.\n- Se l'utente deve fare qualcosa IN quella tab → **APRI** con l'azione concreta.\n- Altrimenti non elencarla.`);
+        },
+      };
+    }
     if (parsedActions.length === 0 && summary.update > 0) {
       const first = rows.find((r) => r.session.state === "update");
       if (first) {
@@ -445,26 +486,28 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
     return null;
   }, [archives, opens, parsedActions.length, summary, rows, sessions, archivingId, bulkArchiving, handleArchive, handleBulkArchive, onJumpToTopic, onAskMaster]);
 
-  const listRows = expandList ? rows : rows.slice(0, LIST_VISIBLE);
+  // Show every session, always. Body container scrolls when overflowing.
+  const listRows = rows;
 
   return (
     <div
       data-testid="master-board-strip"
       onClick={(e) => e.stopPropagation()}
-      className="flex flex-col gap-2 mx-3 mb-1.5 px-3 py-2.5 bg-app-bg-secondary/90 backdrop-blur-md border border-purple-500/25 rounded-lg shadow-lg shadow-purple-500/5 max-h-[45vh] overflow-y-auto"
+      className={`flex flex-col mx-3 mb-1.5 bg-app-bg-secondary/90 backdrop-blur-md border border-purple-500/25 rounded-lg shadow-lg shadow-purple-500/5 ${SIZE_MAX_H[size]} overflow-hidden`}
     >
-      {/* Header + view toggle. */}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          data-testid="master-collapse-toggle"
-          onClick={() => setCollapsed((v) => !v)}
-          className="p-0.5 rounded hover:bg-app-hover text-app-text-muted/80 hover:text-app-text transition-colors flex-shrink-0"
-          title={collapsed ? "Espandi" : "Riduci"}
-          aria-label={collapsed ? "Espandi" : "Riduci"}
-        >
+      {/* Header — clickable bar that toggles collapse. Sticky inside the
+          strip so it stays put when the body scrolls. */}
+      <button
+        type="button"
+        data-testid="master-collapse-toggle"
+        onClick={() => setCollapsed((v) => !v)}
+        title={collapsed ? "Espandi" : "Riduci"}
+        aria-label={collapsed ? "Espandi" : "Riduci"}
+        className="flex items-center gap-2 px-3 pt-2.5 pb-2 hover:bg-purple-500/10 transition-colors flex-shrink-0 text-left cursor-pointer"
+      >
+        <span className="p-0.5 rounded text-app-text-muted/80 flex-shrink-0">
           {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-        </button>
+        </span>
         <Crown size={12} className="text-purple-400 flex-shrink-0" />
         <span className="text-[11px] font-medium text-purple-200/90 uppercase tracking-wide">
           Master · {sessions.length} sessioni
@@ -483,38 +526,53 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
             <Pill dot={STATE_DOT.idle} text={`${summary.idle} idle`} muted />
           )}
         </div>
-        <div className="ml-auto flex items-center gap-0.5 bg-app-bg/40 border border-app-border/40 rounded p-0.5">
-          <button
-            type="button"
-            onClick={() => setView("list")}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={`Altezza: ${SIZE_LABEL[size]}. Click per ${SIZE_LABEL[nextSize(size)]}`}
+          title={`Altezza: ${SIZE_LABEL[size]} · click per ${SIZE_LABEL[nextSize(size)]}`}
+          onClick={(e) => { e.stopPropagation(); setSize(nextSize(size)); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setSize(nextSize(size)); } }}
+          className="ml-auto flex items-center justify-center w-7 h-6 rounded bg-app-bg/40 border border-app-border/40 text-[10px] font-semibold tabular-nums text-app-text-muted hover:text-app-text hover:bg-app-bg/60 cursor-pointer transition-colors"
+        >
+          {size.toUpperCase()}
+        </div>
+        <div
+          role="group"
+          aria-label="Vista"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-0.5 bg-app-bg/40 border border-app-border/40 rounded p-0.5"
+        >
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); setView("list"); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setView("list"); } }}
             data-active={view === "list"}
-            className={`p-1 rounded text-[10px] transition-colors ${view === "list" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
+            className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${view === "list" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
             title="Vista lista"
             aria-label="Vista lista"
           >
             <LayoutList size={11} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("kanban")}
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); setView("kanban"); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setView("kanban"); } }}
             data-active={view === "kanban"}
-            className={`p-1 rounded text-[10px] transition-colors ${view === "kanban" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
+            className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${view === "kanban" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
             title="Vista kanban"
             aria-label="Vista kanban"
           >
             <Columns3 size={11} />
-          </button>
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={() => refresh()}
-          className="p-1 rounded hover:bg-app-hover text-app-text-muted/70 hover:text-app-text transition-colors"
-          title="Refresh"
-          aria-label="Refresh"
-        >
-          <RefreshCw size={11} />
-        </button>
-      </div>
+      </button>
+
+      {/* Scrollable body — header above stays put thanks to overflow-hidden
+          on the parent + this being the only scroll container. */}
+      <div className="flex flex-col gap-2 px-3 pb-2.5 pt-1 overflow-y-auto">
 
       {/* Primary CTA — the one big button. */}
       {primary && (
@@ -537,6 +595,31 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
             )}
           </div>
           <ArrowRight size={14} className="text-purple-200 flex-shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </button>
+      )}
+
+      {/* Secondary CTA — only when the AI already proposed actions but there
+          ARE fresh updates the Master hasn't seen yet. One click re-asks the
+          Master to triage them. Hidden if the primary CTA is already the
+          triage prompt (parsedActions.length === 0 branch). */}
+      {parsedActions.length > 0 && uncoveredUpdates.length > 0 && onAskMaster && (
+        <button
+          type="button"
+          data-testid="master-rivaluta-cta"
+          onClick={() => {
+            const snapshot = buildSnapshotMd(sessions);
+            onAskMaster(`${snapshot}\n\n---\n\nCi sono ${uncoveredUpdates.length} sessioni con un nuovo messaggio che non avevi ancora valutato (stato \`update\`):\n${uncoveredUpdates.map((s) => `- \`${s.topicId}\` "${s.name}"`).join("\n")}\n\nIteralle e aggiorna il blocco \`## Next\`: per ciascuna scegli **ARCHIVIA** se conclusa, **APRI** se l'utente deve agire, altrimenti non listarla.`);
+          }}
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-emerald-500/12 hover:bg-emerald-500/22 border border-emerald-400/35 text-emerald-100 text-[11.5px] transition-colors"
+        >
+          <MessageSquareDot size={12} className="flex-shrink-0" />
+          <span className="flex-1 text-left">
+            Rivaluta {uncoveredUpdates.length} {uncoveredUpdates.length === 1 ? "novità" : "novità"}
+            <span className="text-emerald-200/70 ml-1.5">
+              {uncoveredUpdates.slice(0, 2).map((s) => s.name).join(", ")}{uncoveredUpdates.length > 2 ? `, +${uncoveredUpdates.length - 2}` : ""}
+            </span>
+          </span>
+          <ArrowRight size={11} className="flex-shrink-0 opacity-70" />
         </button>
       )}
 
@@ -569,19 +652,9 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
               pulsing={pulsing.has(row.session.topicId)}
             />
           ))}
-          {rows.length > LIST_VISIBLE && (
-            <button
-              type="button"
-              onClick={() => setExpandList((v) => !v)}
-              className="text-[10.5px] text-app-text-muted/80 hover:text-app-text px-1 py-1 self-start"
-            >
-              {expandList
-                ? `Mostra solo le prime ${LIST_VISIBLE}`
-                : `+${rows.length - LIST_VISIBLE} altre sessioni`}
-            </button>
-          )}
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -611,7 +684,14 @@ interface SessionRowProps {
 }
 function SessionRow({ row, onJump, onArchive, archiving, pulsing }: SessionRowProps) {
   const { session: s, action } = row;
-  const reason = action?.reason || s.lastPreview || "";
+  // When the AI proposed an action: show ITS reason. If empty, show nothing
+  // rather than falling back to the chat's last message preview — that
+  // mixed two unrelated signals (AI motivation vs chat content) and read
+  // as nonsense like "ARCHIVIA / esegui il comando bash" where the bottom
+  // line was actually the chat preview, not a justification.
+  // When there is NO AI action: show the chat preview, prefixed so the
+  // user understands they're reading the last message, not a motivation.
+  const reason = action ? (action.reason || "") : (s.lastPreview || "");
   // Fallback "implicit" badge when the AI hasn't proposed an action yet but
   // the session state still implies a clear next step for the user.
   //   update → there's a new assistant message the user hasn't read → LEGGI

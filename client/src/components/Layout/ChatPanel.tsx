@@ -204,23 +204,6 @@ export function ChatPanel({
 
         {/* Main Content with optional Context Inspector slide-out */}
         <div className="flex-1 flex min-h-0 overflow-hidden relative">
-          {/* Quick back-to-Master pill — only shown in non-Master panes
-              when a Master pane is open elsewhere. Floats top-right of
-              the chat area so it doesn't shift content. */}
-          {masterPaneId && masterPaneId !== topic.id && onFocusPanel && (
-            <button
-              type="button"
-              data-testid="back-to-master"
-              onClick={(e) => { e.stopPropagation(); onFocusPanel(masterPaneId); }}
-              className="absolute top-2 right-2 z-20 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-purple-500/20 hover:bg-purple-500/35 text-purple-100 border border-purple-400/35 backdrop-blur-sm shadow-sm transition-colors"
-              title="Torna al Master (Shift+Cmd+M)"
-              aria-label="Torna al Master"
-            >
-              <ArrowLeft size={11} />
-              <Crown size={11} className="text-purple-300" />
-              <span>Master</span>
-            </button>
-          )}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               <ChatPane
@@ -239,6 +222,8 @@ export function ChatPanel({
                 onWSMessage={onWSMessage}
                 onUpdateTopic={onUpdateTopic}
                 onOpenSessionViewer={onOpenSessionViewer}
+                masterPaneId={masterPaneId}
+                onFocusPanel={onFocusPanel}
                 aboveInputSlot={topic.agentTeamRole === 'lead' ? (
                   /* MASTER-01 (Variant A) — Master Topics get the board
                      strip pinned just above the input so orchestration

@@ -104,3 +104,8 @@ tests/**/node_modules/
 # Debug screenshots
 tabbar-*.png
 spec-flow/
+
+# Generated UAT artifacts (videos & report) — produced by Playwright + spec-flow
+uat.html
+videos/**/*.webm
+videos/INDEX.md

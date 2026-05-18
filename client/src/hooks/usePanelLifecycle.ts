@@ -958,11 +958,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         { id: topicId, type: 'chat', topicId, title: topic?.name },
         { groupId: 'group:default' },
       );
-      openPanel(topicId, 'permanent');
+      // Defensive direct setOpenPanels — openPanel reads `openPanels` from a
+      // useCallback closure that can be stale right after a Cmd+W close
+      // (the pane was just removed; the callback identity hasn't caught up
+      // yet). Setting via the ref + functional updater guarantees the panel
+      // lands in state even if openPanel() early-returns thinking it's
+      // already open.
+      setOpenPanels((prev) => prev.includes(topicId) ? prev : [...prev, topicId]);
     }
     setFocusedPanelId(topicId);
     usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
-  }, [openPanel]);
+  }, []);
 
   const handleReorderPanels = useCallback((panels: string[]) => {
     setOpenPanels(panels);

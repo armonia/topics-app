@@ -612,6 +612,7 @@ export function StandaloneChatGroup({
           onPendingFocusConsumed={onPendingProjectFocusConsumed}
           onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(projectPath, topicId) : undefined}
           onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(projectPath, paneIds) : undefined}
+          masterPaneId={masterPaneId}
         />
       );
     }
