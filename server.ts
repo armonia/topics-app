@@ -698,11 +698,21 @@ const server = Bun.serve<WSData>({
       // is preserved and future stream:* deltas continue appending live.
       const topicsData = loadTopics();
       for (const [sessionKey, stream] of activeStreams.entries()) {
+        // Trust the DB's `partial` flag as single source of truth: if the
+        // assistant message was already finalized, the stream is over even
+        // though `activeStreams` still has a stale entry (can happen when an
+        // `endStream` path skipped cleanup, or when a broadcast was lost
+        // before this client reconnected). Emitting catchup here would
+        // wedge the client's `streaming` state on for up to 3 min until the
+        // watchdog clears it — which the user perceives as random ghost
+        // spinners on chat tabs.
+        const partial = getMessageById(stream.messageId);
+        if (!partial || partial.partial !== true) {
+          activeStreams.delete(sessionKey);
+          continue;
+        }
         let topicId: string | undefined;
         for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
-        // ActiveStream.messageId is non-optional (set by startStream) — no
-        // need to guard against undefined here.
-        const partial = getMessageById(stream.messageId);
         ws.send(JSON.stringify({
           type: "stream:catchup",
           sessionKey,
@@ -711,8 +721,8 @@ const server = Bun.serve<WSData>({
           content: stream.content,
           thinking: stream.thinking,
           isThinking: stream.isThinking,
-          toolCalls: partial?.toolCalls,
-          blocks: partial?.blocks,
+          toolCalls: partial.toolCalls,
+          blocks: partial.blocks,
         }));
       }
     },
@@ -837,6 +847,15 @@ setInterval(() => {
   const now = Date.now();
   for (const [sessionKey, stream] of activeStreams.entries()) {
     if (!activeStreams.has(sessionKey)) continue;
+    // Fast path — DB says the partial assistant message is already finalized
+    // but the in-memory entry lingered (lost cleanup in some endStream path).
+    // Drop it silently: nobody is mid-stream to notify, and leaving it would
+    // cause ghost `stream:catchup` events on future WS reconnects.
+    const partial = getMessageById(stream.messageId);
+    if (!partial || partial.partial !== true) {
+      activeStreams.delete(sessionKey);
+      continue;
+    }
     const lastActivity = new Date(stream.lastActivity).getTime();
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
