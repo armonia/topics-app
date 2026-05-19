@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Settings, Pin, X, ExternalLink, Layers, ArrowLeft, Crown, Globe } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Layers, Globe } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';

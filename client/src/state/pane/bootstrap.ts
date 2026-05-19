@@ -19,6 +19,7 @@ import {
   initServerSync,
   initWSSync,
   initCrossTabSync,
+  hydrateFromLocalSnapshot,
   type WSFrame,
 } from './middleware';
 import { isSelfEcho } from './middleware/selfEcho';
@@ -118,6 +119,13 @@ function scheduleInitialLoadFallback(): void {
 export function bootstrapPaneStore(): void {
   // Seed the reducer from legacy localStorage (one-shot; also clears legacy keys).
   hydrateFromLegacyStorage();
+
+  // Warm-hydrate from the same-device `pane-store-v2` snapshot BEFORE React
+  // renders. Closes the ~500 ms gap between mount and the WS/HTTP server
+  // hydrate landing, during which `openPanels` would otherwise start empty
+  // and the focus-keeper effects would snap focus to `storeOrder[0]`.
+  // Server hydrate still wins LWW via syncWS's lastAppliedServerSeq guard.
+  hydrateFromLocalSnapshot();
 
   // Wire the four persistence subscribers.
   initLocalPersistence();

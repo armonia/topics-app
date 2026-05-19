@@ -198,6 +198,48 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
     const MAX_RETRIES = 15;
     let retryTimer: ReturnType<typeof setTimeout>;
 
+    // The server sends a `{type:"replay-end"}` text frame after flushing the
+    // scrollback backlog (see server/routes/terminal.ts). We gate
+    // `terminal:activity` dispatch on that marker so the tab-bar spinner
+    // doesn't light up just because the historical buffer is being replayed
+    // on (re)mount. State-driven, not time-based: works regardless of how
+    // long the backlog takes to arrive or how big it is.
+    let replayDone = false;
+
+    /**
+     * A frame counts as "real activity" only if, after stripping ANSI escape
+     * sequences, it contains visible characters.
+     *
+     * Claude Code's CLI continuously repaints its status bar (token counter,
+     * spinner dots) every ~1.5 s even when fully idle. Those repaints are
+     * pure cursor-positioning + SGR sequences (e.g. ESC[H ESC[2C ESC[84B
+     * ESC[7m ESC[27m ESC[88;1H) — no printable payload, just chrome. If we
+     * treat every frame as activity the tab-bar spinner stays on forever
+     * even though nothing is actually happening. Filtering on "visible
+     * content present" gives us the right signal without needing the
+     * server to know what Claude Code is doing.
+     *
+     * Sequences stripped:
+     *   - CSI / SGR: ESC [ ... <letter>
+     *   - OSC: ESC ] ... BEL (or ST)
+     *   - Standalone ESC + single-byte introducers
+     * Plus the C0 controls that don't carry information (NUL, BEL, BS, …);
+     * we keep TAB / LF / CR as those imply real output rhythm.
+     */
+    function frameHasVisibleContent(s: string): boolean {
+      if (!s) return false;
+      const stripped = s
+        // OSC: ESC ] ... BEL  or  ESC ] ... ESC \
+        .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+        // CSI / SGR / private modes: ESC [ params? final
+        .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
+        // 2-byte ESC sequences (e.g. ESC =, ESC >)
+        .replace(/\x1b[\x20-\x2f]*[\x30-\x7e]/g, '')
+        // Bare C0 controls that aren't TAB/LF/CR
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      return /\S/.test(stripped);
+    }
+
     function connectWs() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${sessionId}`);
@@ -211,6 +253,10 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
       ws.onopen = () => {
         retryCount = 0;
         setStale(false);
+        // Each new connection re-sends its backlog; reset the gate so a
+        // reconnect (network blip, server restart) also suppresses the
+        // replay-induced spinner.
+        replayDone = false;
         fetch(`/api/terminal/sessions/${sessionId}/resize`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -220,17 +266,36 @@ export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPanePro
 
       ws.onmessage = (ev) => {
         const data = ev.data;
-        if (data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(data));
-        } else {
+        let frameAsText: string | null = null;
+        if (typeof data === 'string') {
+          // Text frames are reserved for control messages from the server.
+          // Try to parse; if it's a known control type, consume it without
+          // writing to the terminal. If JSON.parse fails or the type is
+          // unknown, fall through and treat it as plain output for forward
+          // compatibility.
+          try {
+            const msg = JSON.parse(data);
+            if (msg && msg.type === 'replay-end') {
+              replayDone = true;
+              return;
+            }
+          } catch { /* not JSON — write as-is */ }
           term.write(data);
+          frameAsText = data;
+        } else if (data instanceof ArrayBuffer) {
+          const u8 = new Uint8Array(data);
+          term.write(u8);
+          // Decode for the activity heuristic only — xterm already has the
+          // bytes; this string isn't kept past the dispatch decision.
+          try { frameAsText = new TextDecoder('utf-8', { fatal: false }).decode(u8); } catch { frameAsText = null; }
         }
-        // Per-frame activity pulse — the tab bar listens for this to
-        // light up the "in progress" spinner on the terminal's tab,
-        // matching how chat tabs pulse during an LLM stream. No server
-        // changes needed: the WS data is already flowing into the
-        // (mounted, possibly hidden via keep-alive) pane; we just
-        // re-broadcast a minimal event for non-pane consumers.
+        // Activity pulse: only when (a) the initial backlog has been
+        // fully replayed AND (b) this frame actually carries visible
+        // content. Pure-ESC chrome repaints (Claude Code's status bar
+        // ticks) are ignored — they would otherwise keep the tab-bar
+        // spinner permanently lit on an idle session.
+        if (!replayDone) return;
+        if (frameAsText !== null && !frameHasVisibleContent(frameAsText)) return;
         try {
           window.dispatchEvent(
             new CustomEvent('terminal:activity', { detail: { sessionId } }),

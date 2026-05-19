@@ -1,3 +1,4 @@
+import path from "node:path";
 /**
  * Phase D · multi-machine integration test.
  * Covers MachineStore upsertLocal idempotence, REST routes, and the FK
@@ -41,7 +42,7 @@ describe("Phase D · multi-machine", () => {
 
   test("upsertLocal is idempotent: insert on first call, refresh on subsequent", async () => {
     const { createAppContext } = await import("../../server/utils");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     const first = ctx.machineStore.upsertLocal();
     const second = ctx.machineStore.upsertLocal();
     expect(second.id).toBe(first.id);
@@ -55,7 +56,7 @@ describe("Phase D · multi-machine", () => {
   test("rename via PATCH and FK SET NULL on delete", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createMachinesRouter } = await import("../../server/routes/machines");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const m = ctx.machineStore.upsertLocal();
 
@@ -110,7 +111,7 @@ describe("Phase D · multi-machine", () => {
 
   test("markStaleOffline flips machines older than threshold", async () => {
     const { createAppContext } = await import("../../server/utils");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     const local = ctx.machineStore.upsertLocal();
 
     // Insert a fake remote machine with old heartbeat.

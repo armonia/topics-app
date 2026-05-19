@@ -1,23 +1,28 @@
 /**
  * Write-through localStorage persistence for the pane store.
  *
- * Subscribes to `lastSeq` changes and debounces a full snapshot write under
- * the key `pane-store-v2`. Exists outside React — the store is the only
- * thing that triggers the writer; components never touch localStorage directly.
+ * Two keys, each with a single owner:
+ *   - `pane-store-v2`        : full snapshot (panes/groups/closedStack).
+ *                              Written debounced (100 ms) on `lastSeq` change,
+ *                              cross-tab broadcast via the `storage` event.
+ *                              `focusedPaneId` is intentionally NOT here —
+ *                              sanitizeSnapshot strips it on inbound (it's
+ *                              per-device, not per-account).
+ *   - `pane-store-focused-id`: just the focused pane id. Written synchronously
+ *                              on every change so a reload inside the 100 ms
+ *                              debounce window still finds the latest value.
  *
- * Device-local fields (focusedPaneId, scrollOffset) are excluded via
- * `selectSyncableSnapshot` so the same shape that reaches the server also
- * reaches localStorage. Cross-tab LWW (syncCrossTab.ts) relies on this.
+ * Bootstrap calls `hydrateFromLocalSnapshot()` to warm-hydrate both before
+ * React renders — eliminates the ~500 ms gap between mount and the server
+ * hydrate landing, during which `openPanels` would otherwise be empty.
+ * The subsequent server hydrate still wins LWW via syncWS's
+ * `lastAppliedServerSeq` guard.
  */
 import { usePaneStore, type PaneStore } from '../store';
 import { selectLocalSnapshot } from '../selectors';
 import { getTabId } from './syncCrossTab';
 
 const LOCAL_KEY = 'pane-store-v2';
-// Device-local key for focusedPaneId. Excluded from the synced snapshot
-// (selectSyncableSnapshot strips it because focus is per-device) but we
-// still want it to survive a same-device reload — otherwise the user
-// reloads with focus on tab N and lands back on tab 0.
 const LOCAL_FOCUS_KEY = 'pane-store-focused-id';
 const DEBOUNCE_MS = 100;
 
@@ -29,42 +34,60 @@ function writeSnapshotNow(): void {
     const snap = {
       ...selectLocalSnapshot(usePaneStore.getState()),
       savedAt: Date.now(),
-      // Bug #4: self-suppression for cross-tab receivers. `senderId` is the
-      // per-tab UUID from syncCrossTab; the receiver drops payloads whose
-      // senderId matches its own tabId, preventing self-apply loops.
+      // `senderId` is the per-tab UUID from syncCrossTab; receivers drop
+      // payloads whose senderId matches their own, preventing self-apply loops.
       senderId: getTabId(),
     };
     localStorage.setItem(LOCAL_KEY, JSON.stringify(snap));
-    const focused = usePaneStore.getState().focusedPaneId;
-    if (focused) {
-      localStorage.setItem(LOCAL_FOCUS_KEY, focused);
-    } else {
-      localStorage.removeItem(LOCAL_FOCUS_KEY);
-    }
   } catch {
-    // Quota exceeded or private mode — silent; the server sync is the source of truth.
+    /* quota / private mode — server sync is the source of truth */
   }
 }
 
-export function loadLocalFocusedPaneId(): string | null {
+function writeFocusNow(focused: string | null): void {
   try {
-    return localStorage.getItem(LOCAL_FOCUS_KEY);
-  } catch {
-    return null;
-  }
+    if (focused) localStorage.setItem(LOCAL_FOCUS_KEY, focused);
+    else localStorage.removeItem(LOCAL_FOCUS_KEY);
+  } catch { /* silent */ }
 }
 
 /**
- * Sync flush used by the `pagehide` / `visibilitychange(hidden)` path.
- * Ensures the last ~100 ms of mutations reach localStorage before the tab
- * closes — otherwise the cross-tab listener in other tabs sees stale state
- * (review I5: asymmetric with syncServer, which already has flushNow()).
+ * Warm-hydrate panes + focus from localStorage. Synchronous, called at
+ * bootstrap before React renders. Server hydrate wins LWW afterwards.
  */
-function flushNow(): void {
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
+export function hydrateFromLocalSnapshot(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(LOCAL_KEY);
+    if (raw) {
+      const snap = JSON.parse(raw) as Record<string, unknown> & { server_seq?: number };
+      const seq = typeof snap.server_seq === 'number' ? snap.server_seq : 0;
+      usePaneStore.getState().dispatch({
+        type: 'HYDRATE_FROM_SNAPSHOT',
+        payload: {
+          snapshot: {
+            ...snap,
+            lastSeq: Math.max(usePaneStore.getState().lastSeq, seq),
+            server_seq: seq,
+            seq,
+          },
+        },
+      });
+    }
+    // Focus lives in its own key (sanitizeSnapshot strips it from the main
+    // snapshot). Apply it after the panes hydrate so FOCUS_PANE's existence
+    // check finds the pane.
+    const focused = localStorage.getItem(LOCAL_FOCUS_KEY);
+    if (focused) {
+      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: focused } });
+    }
+  } catch {
+    /* corrupt snapshot — fall through to server hydrate */
   }
+}
+
+function flushNow(): void {
+  if (timer) { clearTimeout(timer); timer = null; }
   writeSnapshotNow();
 }
 
@@ -73,6 +96,7 @@ export function initLocalPersistence(): void {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   started = true;
 
+  // Full snapshot: debounced.
   usePaneStore.subscribe(
     (s: PaneStore) => s.lastSeq,
     () => {
@@ -81,9 +105,15 @@ export function initLocalPersistence(): void {
     },
   );
 
-  // Tab close / hide: synchronously flush the pending debounce so another
-  // tab that listens on `storage` sees the final state after this tab exits.
-  // sendBeacon doesn't apply here — localStorage.setItem is already sync.
+  // Focus: synchronous. Single short string, cheap to write on every change,
+  // and a reload mid-debounce must not resurrect a stale focused id.
+  usePaneStore.subscribe(
+    (s: PaneStore) => s.focusedPaneId,
+    (focused) => writeFocusNow(focused),
+  );
+
+  // Tab close / hide: flush the pending snapshot debounce so other tabs
+  // observing `storage` see the final state.
   window.addEventListener('pagehide', flushNow);
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushNow();

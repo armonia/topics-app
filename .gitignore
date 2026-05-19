@@ -109,3 +109,6 @@ spec-flow/
 uat.html
 videos/**/*.webm
 videos/INDEX.md
+
+# Session-local .env backups
+.env.bak*

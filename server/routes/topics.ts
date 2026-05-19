@@ -1024,14 +1024,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
            FROM topics
            WHERE archived = 0 AND (agent_team_role IS NULL OR agent_team_role != 'lead')
            ORDER BY updated_at DESC
-           LIMIT 30`
+           LIMIT 40`
         ).all() as {
           id: string; name: string; session_key: string;
           project_path: string | null; agent_team_role: string | null;
           color: string; icon: string; updated_at: string;
         }[];
 
-        const sessions = openTopics.map((t) => {
+        const topicSessions = openTopics.map((t) => {
           let lastRole: string | null = null;
           let lastAt: string | null = null;
           let lastPreview = "";
@@ -1072,6 +1072,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
           return {
             topicId: t.id,
+            sessionType: "topic" as const,
             name: t.name,
             role: t.agent_team_role,
             projectPath: t.project_path,
@@ -1086,6 +1087,51 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             updatedAt: t.updated_at,
           };
         });
+
+        // ALSO surface Claude Code terminal sessions: they're a parallel
+        // workspace (live `claude` CLI subprocess) that the user can also
+        // act on. They live in `terminal_sessions` with type='claude-code',
+        // NOT in topics, so the master would otherwise be blind to them.
+        // Pane id is `terminal:<id>` matching the client adapter.
+        let claudeCodeSessions: ReturnType<typeof topicSessions["map"]> = [] as any;
+        try {
+          const rows = ctx.db.query(
+            `SELECT id, name, cwd, status, created_at
+             FROM terminal_sessions
+             WHERE type = 'claude-code'
+             ORDER BY created_at DESC
+             LIMIT 30`
+          ).all() as { id: string; name: string; cwd: string; status: string; created_at: string }[];
+          claudeCodeSessions = rows.map((r) => {
+            // Best-effort state: "waiting" if dormant (process gone, will
+            // respawn on next message), "idle" otherwise. We have no chat
+            // log to derive last-message state from, so keep it simple.
+            const state: "empty" | "streaming" | "update" | "waiting" | "idle" =
+              r.status === "dormant" ? "waiting" : "idle";
+            return {
+              topicId: `terminal:${r.id}`,
+              sessionType: "claude-code-terminal" as const,
+              name: r.name || "Claude Code",
+              role: null,
+              projectPath: r.cwd || null,
+              color: "#f97316", // orange — terminal accent
+              icon: "Terminal",
+              state,
+              lastRole: null,
+              lastAt: null,
+              lastPreview: r.cwd ? `cwd: ${r.cwd}` : "",
+              unread: 0,
+              msgCount: 0,
+              updatedAt: r.created_at,
+            };
+          });
+        } catch {}
+
+        // Merge + dedupe by topicId (terminals get terminal:<id> so no
+        // collision with topic UUIDs in practice). Sort newest first.
+        const sessions = [...topicSessions, ...claudeCodeSessions].sort(
+          (a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""),
+        );
         return json({ sessions }, 200);
       } catch (err) {
         return json({ error: String(err) }, 500);
@@ -1253,22 +1299,26 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         "   - **waiting** → user sent a message but no assistant reply. Note it's stalled or in-flight; check if intervention is needed.",
         "   - **streaming** → reply is in progress. Leave alone unless it's been stuck for >10m.",
         "   - **idle** → caught up. Read the `last (assistant)` preview and decide:",
-        "       a. If the conversation reads as **concluded** (final answer delivered, no open question, no follow-up) → propose **ARCHIVIA** in ## Next.",
+        "       a. If the conversation reads as **concluded** (final answer delivered, no open question, no follow-up) → propose **COMPLETA** in ## Next.",
         "       b. If it's just paused mid-thread (open question, partial fix, awaiting user) → leave it; suggest the next user step.",
-        "   - **empty** → topic exists but no messages yet. Propose archiving unless the user wants to seed it.",
-        "3. Never ask the user 'what should we do' — you read the state and propose actions. The user only confirms or redirects.",
-        "4. When a teammate session reports back (update state), summarize the outcome in 1-3 lines and propose the close-out (merge, mark done, archive).",
+        "   - **empty** → topic exists but no messages yet. Propose **COMPLETA** unless the user wants to seed it.",
+        "3. Some rows are `kind: Claude Code terminal` — these are CLI sessions, not chats. They have no message history. For them:",
+        "       · If `status: idle` → the terminal is dormant; if the user is no longer using it, propose **COMPLETA** (closes the session).",
+        "       · If `status: waiting` → the PTY is awaiting input/process; usually leave alone.",
+        "       · Otherwise just leave them out — no APRI noise for terminals the user is actively using.",
+        "4. Never ask the user 'what should we do' — you read the state and propose actions. The user only confirms or redirects.",
+        "5. When a teammate session reports back (update state), summarize the outcome in 1-3 lines and propose the close-out (merge, mark done, complete).",
         "",
         "Constraints:",
         "- Be concise. One sentence per session unless the situation is critical.",
         "- Ask permission before risky actions (deletes, prod merges, sending messages, money moves).",
-        "- Archive is reversible — it just clears the workspace. Be liberal when a thread is clearly done.",
+        "- COMPLETA is reversible — it just clears the workspace (the underlying row is archived, can be restored). Be liberal when a thread is clearly done.",
         "- If the snapshot shows zero active sessions, propose what to seed next based on conversation context.",
         "",
         "Output contract (MANDATORY):",
         "End every reply with a `## Next` block. ONLY list sessions the user can ACT on right now. Use a leading verb in ALL-CAPS — the UI renders one button per row.",
         "",
-        "Verbs (be strict — when in doubt, prefer APRI over ARCHIVIA):",
+        "Verbs (be strict — when in doubt, prefer APRI over COMPLETA):",
         "- **APRI** → user must do something IN that tab to make progress. The reason MUST describe the concrete action. Triggers include (non-exhaustive):",
         "    · the assistant asked a question and is waiting for the user's answer",
         "    · the assistant proposed a plan or asked for confirmation",
@@ -1276,11 +1326,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         "    · the assistant said \"now try X\", \"premi Y\", \"vai su Z\", \"controlla W\", \"dimmi se ...\"",
         "    · credentials/keys to regenerate, files to upload, commands to run, decisions to make",
         "    · the assistant mentions a workaround that needs verification by the user",
-        "- **ARCHIVIA** → only when the conversation is **TERMINALLY** done:",
+        "- **COMPLETA** → only when the work in that session is **DONE**:",
         "    · final answer delivered AND no follow-up implied AND no \"prossimo step\" mentioned",
         "    · OR the last message is a pure acknowledgement (e.g. \"ok\", \"perfetto\") with no work left",
         "    · OR the deliverable was handed off and the user already confirmed it",
-        "  Read the assistant's last message LITERALLY: if it ends with a question, a list of things to try, or any imperative directed at the user → it is NOT archivable, it is APRI.",
+        "    · OR (for terminals) the CLI is idle and no longer needed",
+        "  Read the assistant's last message LITERALLY: if it ends with a question, a list of things to try, or any imperative directed at the user → it is NOT completable, it is APRI.",
         "",
         "Do NOT list:",
         "- Sessions where you (the AI) are still working — they'll surface themselves when they reply.",
@@ -1290,10 +1341,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         "Format exactly:",
         "",
         "## Next",
-        "- ARCHIVIA **<topic name>** — <why it's done>",
-        "- APRI **<topic name>** — <concrete action the user takes there>",
+        "- COMPLETA **<session name>** — <why it's done>",
+        "- APRI **<session name>** — <concrete action the user takes there>",
         "",
-        "If nothing needs action AND nothing to archive: `## Next` + `Tutto pulito — niente da fare adesso.`",
+        "If nothing needs action AND nothing to complete: `## Next` + `Tutto pulito — niente da fare adesso.`",
+        "",
+        "BACK-COMPAT NOTE: older replies in the same chat may use **ARCHIVIA** instead of **COMPLETA** — they mean the same thing and the UI parses both. Use **COMPLETA** in new replies.",
       ].join("\n");
       const topic: Topic = {
         id, name, slug, parentId: null, links: [],
@@ -1741,7 +1794,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         writeFileSync(tempWebm, Buffer.from(buffer));
         const ffmpeg = Bun.spawnSync(["ffmpeg", "-i", tempWebm, "-ar", "16000", "-ac", "1", tempWav, "-y"], { timeout: 30000, stdout: "pipe", stderr: "pipe" });
         if (ffmpeg.exitCode !== 0) throw new Error(`ffmpeg conversion failed: ${ffmpeg.stderr.toString()}`);
-        const whisper = Bun.spawnSync(["whisper-cli", "-m", "/Users/user/whisper-models/ggml-large-v3.bin", "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
+        const whisperModel = process.env.WHISPER_MODEL_PATH || `${process.env.HOME || ""}/whisper-models/ggml-large-v3.bin`;
+        const whisper = Bun.spawnSync(["whisper-cli", "-m", whisperModel, "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
         if (whisper.exitCode !== 0) throw new Error(`Whisper failed: ${whisper.stderr.toString()}`);
         const transcript = whisper.stdout.toString().split("\n").filter((line: string) => !line.match(/^(whisper|ggml|system|main):/i) && line.trim()).join(" ").trim();
         try { unlinkSync(tempWebm); } catch {}

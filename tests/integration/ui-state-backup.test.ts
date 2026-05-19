@@ -5,7 +5,7 @@
  */
 import { describe, expect, test, beforeAll, afterEach } from "bun:test";
 import * as fs from "node:fs";
-import { join } from "node:path";
+import path, { join } from "node:path";
 
 const TEST_HOME = "/tmp/topics-ui-backup-test";
 const TEST_DATA = "/tmp/topics-ui-backup-data";
@@ -24,7 +24,7 @@ afterEach(() => {
 
 async function loadModules() {
   const utils = await import("../../server/utils");
-  const ctx = utils.createAppContext("/Users/user/Projects/topics-app");
+  const ctx = utils.createAppContext(path.resolve(import.meta.dirname, "../.."));
   // Seed a row so the backup has content.
   ctx.db.run(
     `INSERT OR REPLACE INTO ui_state (key, value, payload_version, server_seq, updated_at)

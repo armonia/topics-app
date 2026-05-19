@@ -54,7 +54,22 @@ import {
   getProjectPathFromPaneId,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
-import { loadLocalFocusedPaneId } from '../state/pane/middleware';
+
+// Module-scoped sticky flag for "user opened the Master tab and wants it to
+// stay open". Hoisted out of the hook so it survives React StrictMode's
+// double-mount in dev and HMR file replacements. Also persisted to
+// localStorage so a page reload after user opened Master keeps Master
+// visible (rather than letting the server hydrate evict it on every load).
+const MASTER_INTENT_KEY = 'topics:master-open-intent';
+const masterOpenIntent: { value: boolean } = {
+  value: (() => { try { return localStorage.getItem(MASTER_INTENT_KEY) === '1'; } catch { return false; } })(),
+};
+function setMasterOpenIntent(v: boolean): void {
+  masterOpenIntent.value = v;
+  try { v ? localStorage.setItem(MASTER_INTENT_KEY, '1') : localStorage.removeItem(MASTER_INTENT_KEY); } catch {}
+}
+// Timestamp until which focus should be pinned to Master.
+const masterFocusUntil: { value: number } = { value: 0 };
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { globalBoardApi } from '../lib/api';
@@ -81,19 +96,10 @@ const loadSavedPanels = (): string[] => {
   }
 };
 
-const loadSavedFocused = (): string | null => {
-  try {
-    // The store hydrates focusedPaneId from server-synced state, but focus
-    // is device-local and stripped from the synced snapshot — so on a fresh
-    // reload the store has it as `null`. Read the dedicated localStorage
-    // key first so reload preserves the user's last focused tab.
-    const local = loadLocalFocusedPaneId();
-    if (local) return local;
-    return usePaneStore.getState().focusedPaneId;
-  } catch {
-    return null;
-  }
-};
+// `bootstrapPaneStore()` warm-hydrates the store from localStorage before
+// React mounts, so the in-memory store is always the single source of truth
+// for focus by the time this initializer runs.
+const loadSavedFocused = (): string | null => usePaneStore.getState().focusedPaneId;
 
 /**
  * Register a pane entity in the pane-store BEFORE pushing its id into
@@ -110,7 +116,7 @@ const loadSavedFocused = (): string | null => {
  * → "open project" surfaces it on a fresh session.
  */
 function ensurePaneRegistered(
-  pane: { id: string; type: PaneType; title?: string; topicId?: string; projectPath?: string },
+  pane: { id: string; type: PaneType; title?: string; topicId?: string; projectPath?: string; terminalSessionId?: string },
   options?: { groupId?: string },
 ): void {
   const s = usePaneStore.getState();
@@ -201,6 +207,9 @@ export interface UsePanelLifecycleReturn {
     handleProjectClick: (projectPath: string) => void;
     handleCloseProject: (projectPath: string) => void;
     handleFocusPanel: (topicId: string) => void;
+    /** Open the Master Topic — sets the open-intent flag so Effect 7b
+     *  re-adds the pane if the post-add server hydrate strips it. */
+    openMasterPane: (topicId: string) => void;
     handleReorderPanels: (panels: string[]) => void;
     handleOpenPanelAt: (topicId: string, index: number) => void;
     handleOpenAsProject: (path: string) => void;
@@ -266,6 +275,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   useEffect(() => { openPanelsRef.current = openPanels; }, [openPanels]);
   const topicsRef = useRef(topics);
   useEffect(() => { topicsRef.current = topics; }, [topics]);
+
 
   // ---- 4-6. Pane-store <-> React three-effect bridge (CRITIQUE C3) ----
   const storeSyncInternalRef = useRef(false);
@@ -452,6 +462,49 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
     }
   }, [topics, topicsLoading, isDetached, openPanels, focusedPanelId]);
+
+  // ---- 7b. Master pane stickiness ----
+  // The Master Topic (agentTeamRole='lead') keeps getting evicted by server
+  // ui-state:updated round-trips: the user clicks the sidebar shortcut, we add
+  // master locally, dispatch outbound PUT — but BEFORE that PUT lands the
+  // server emits an `ui-state:updated` (from a prior PUT, or another tab) with
+  // a fresher server_seq that doesn't include master, and our hydrate strips
+  // it. This effect notices "topic exists but isn't in openPanels" and
+  // re-adds it whenever the user has expressed intent to have it open. The
+  // intent is captured by the module-scoped `masterOpenIntent` flag, set by
+  // openMasterPane and cleared when the user closes the Master tab.
+  useEffect(() => {
+    if (!masterOpenIntent.value) return;
+    const leadTopic = Object.values(topics).find((t) => !t.archived && t.agentTeamRole === 'lead');
+    if (!leadTopic) return;
+    const inOpenPanels = openPanels.includes(leadTopic.id);
+    if (!inOpenPanels) {
+      const s = usePaneStore.getState();
+      if (!s.panes[leadTopic.id]) {
+        s.dispatch({
+          type: 'OPEN_PANE',
+          payload: { id: leadTopic.id, type: 'chat', topicId: leadTopic.id, title: leadTopic.name, preview: false, groupId: 'group:default' },
+        });
+      }
+      setOpenPanels((prev) => prev.includes(leadTopic.id) ? prev : [...prev, leadTopic.id]);
+    }
+    // Focus stickiness: for ~5 s after the user clicked the sidebar shortcut,
+    // ensure focus stays on Master. The server-hydrate round-trip routinely
+    // grabs focus back to whatever pane was previously focused (or the
+    // first pane in storeOrder if no prior focus). Pinning focus here lets
+    // the user actually LAND on the pane they asked for; once the window
+    // expires the user can navigate away normally.
+    if (Date.now() < masterFocusUntil.value && focusedPanelId !== leadTopic.id) {
+      setFocusedPanelId(leadTopic.id);
+      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: leadTopic.id } });
+    } else if (focusedPanelId === leadTopic.id && masterFocusUntil.value > 0) {
+      // Master has the focus we wanted; close the pinning window so that
+      // legitimate user gestures (clicking another sidebar tab, switching
+      // to a project pane) actually move focus instead of being overridden
+      // by the next 7b run inside the original 15 s window.
+      masterFocusUntil.value = 0;
+    }
+  }, [topics, openPanels, focusedPanelId]);
 
   // ---- 8. Terminal cleanup effect (CRITIQUE C5: pure helper) ----
   useEffect(() => {
@@ -823,6 +876,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
+    // If this isn't the Master itself, treat it as a deliberate move-away
+    // signal: drop the focus-pinning window so the click takes effect on
+    // the first try (see comment in handleProjectClick for the 2-click bug).
+    if (topic?.agentTeamRole !== 'lead') {
+      masterFocusUntil.value = 0;
+    }
     if (topic?.projectPath) {
       const projectPaneId = createPaneId('project', topic.projectPath);
       ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
@@ -855,6 +914,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // handleClosePanel (stable identity via ref-backed impl)
   const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
   handleClosePanelRef.current = (topicId: string) => {
+    // Closing the Master tab is the explicit "I'm done with it" signal —
+    // drop the stickiness flag so Effect 7b stops re-adding it.
+    const closingTopic = topicsRef.current[topicId];
+    if (closingTopic?.agentTeamRole === 'lead') setMasterOpenIntent(false);
     let panelIndex = 0;
     {
       const s = usePaneStore.getState();
@@ -903,6 +966,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   );
 
   const handleProjectClick = useCallback((projectPath: string) => {
+    // Deliberate focus action — drop the Master focus-pinning window so
+    // Effect 7b doesn't yank focus back during the 15 s after open. Otherwise
+    // the user has to click twice: the first click is overridden by the
+    // pin, the second succeeds once the window expires or Master re-grabs
+    // focus and the else-branch closes it.
+    masterFocusUntil.value = 0;
     const paneId = createPaneId('project', projectPath);
     ensurePaneRegistered({ id: paneId, type: 'project', projectPath });
     if (isMobile) {
@@ -935,6 +1004,37 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, []);
 
   const handleFocusPanel = useCallback((topicId: string) => {
+    // Direct terminal pane ids (e.g. `terminal:<sessionId>`) — produced by
+    // the Master sessions endpoint when surfacing Claude Code terminals.
+    // These aren't topics, so handleTerminalClick handles them: if the cwd
+    // matches a known project, the click lands inside that project; else a
+    // standalone terminal pane is opened.
+    if (topicId.startsWith('terminal:')) {
+      const sessionId = topicId.slice('terminal:'.length);
+      const session = terminalSessions.find(s => s.id === sessionId);
+      if (session) {
+        // Inline routing — duplicates the body of handleTerminalClick but
+        // avoids reaching into it here (avoids a deps cycle).
+        if (session.cwd) {
+          const projectPaneId = createPaneId('project', session.cwd);
+          ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: session.cwd });
+          setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+          setFocusedPanelId(projectPaneId);
+          usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
+          setPendingProjectPane({ projectPath: session.cwd, type: 'terminal' as PaneType, terminalSessionId: sessionId });
+          return;
+        }
+      }
+      // Fall through: open as a standalone terminal pane.
+      ensurePaneRegistered(
+        { id: topicId, type: 'terminal', terminalSessionId: sessionId },
+        { groupId: 'group:default' },
+      );
+      setOpenPanels((prev) => prev.includes(topicId) ? prev : [...prev, topicId]);
+      setFocusedPanelId(topicId);
+      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
+      return;
+    }
     // Project-scoped topics must be opened through their PROJECT pane,
     // mirroring handleTopicClick — otherwise they appear as ghost tabs.
     const topic = topicsRef.current[topicId];
@@ -951,24 +1051,26 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       return;
     }
     if (!openPanelsRef.current.includes(topicId)) {
-      // Register first so the pane store has the entity before Effect B
-      // sends a REORDER. Some lead Topics (Master) live without a fully
-      // hydrated topic entry on first paint — `title` falls back gracefully.
       ensurePaneRegistered(
         { id: topicId, type: 'chat', topicId, title: topic?.name },
         { groupId: 'group:default' },
       );
-      // Defensive direct setOpenPanels — openPanel reads `openPanels` from a
-      // useCallback closure that can be stale right after a Cmd+W close
-      // (the pane was just removed; the callback identity hasn't caught up
-      // yet). Setting via the ref + functional updater guarantees the panel
-      // lands in state even if openPanel() early-returns thinking it's
-      // already open.
-      setOpenPanels((prev) => prev.includes(topicId) ? prev : [...prev, topicId]);
+      openPanel(topicId, 'permanent');
     }
     setFocusedPanelId(topicId);
     usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
-  }, []);
+  }, [openPanel]);
+
+  const openMasterPane = useCallback((topicId: string) => {
+    setMasterOpenIntent(true);
+    // Pinning window for Effect 7b. 5 s was too tight: the server-hydrate
+    // round-trip + topic:created broadcast routinely take 2-4 s, leaving only
+    // a sliver during which 7b could win the focus race. Bumping to 15 s
+    // lets the local intent dominate any incoming hydrate snapshot until the
+    // pane has actually rendered and the user has had a chance to look at it.
+    masterFocusUntil.value = Date.now() + 15000;
+    handleFocusPanel(topicId);
+  }, [handleFocusPanel]);
 
   const handleReorderPanels = useCallback((panels: string[]) => {
     setOpenPanels(panels);
@@ -1280,6 +1382,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       handleProjectClick,
       handleCloseProject,
       handleFocusPanel,
+      openMasterPane,
       handleReorderPanels,
       handleOpenPanelAt,
       handleOpenAsProject,

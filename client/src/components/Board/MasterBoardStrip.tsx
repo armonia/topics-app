@@ -1,7 +1,7 @@
 /**
  * MasterBoardStrip — floating control surface above the Master Topic's
  * input. One unified view of every active session, annotated with the
- * Master AI's per-session proposal (ARCHIVIA / APRI / ATTENDI / SEEDA).
+ * Master AI's per-session proposal (COMPLETA / APRI / ATTENDI / SEEDA).
  *
  * Single primary CTA on top — the one action the user should take right
  * now. Below: list OR kanban view of all sessions, each row clickable
@@ -11,9 +11,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Sparkles, Crown, ArrowRight, Archive,
   LayoutList, Columns3, ChevronDown, ChevronUp, Loader2, Circle, MessageSquareDot,
+  Minimize2, Rows3, Maximize2,
 } from "lucide-react";
 import { masterApi, topicsApi, type MasterSession, type MasterSessionState } from "../../lib/api";
 import type { WSMessage } from "../../types";
+import { ClaudeIcon } from "../Shared/ClaudeIcon";
 
 const STATE_LABEL: Record<MasterSessionState, string> = {
   empty: "vuoto",
@@ -22,30 +24,36 @@ const STATE_LABEL: Record<MasterSessionState, string> = {
   waiting: "in attesa",
   idle: "caught-up",
 };
-const STATE_DOT: Record<MasterSessionState, string> = {
-  empty: "bg-app-text-muted/40",
-  streaming: "bg-yellow-300 animate-pulse",
-  update: "bg-emerald-300",
-  waiting: "bg-blue-300",
-  idle: "bg-app-text-muted/50",
-};
+/** Minimum sizes for Lucide icons. Below 12px stroke rendering gets fuzzy
+ *  on standard displays; below 14px multi-element glyphs (MessageSquareDot,
+ *  Loader2 spinner segments) collapse into unrecognisable specks. We clamp
+ *  every caller through these constants so we don't have to chase rogue
+ *  small sizes scattered across the file. */
+const ICON_MIN = 14;
+const ICON_DOT_MIN = 10; // simple filled circles can render smaller cleanly
+
 /** Per-state icon for the list-row marker. Streaming gets a real spinner so
  *  "AI is replying" is unmistakable; update gets a glyph that reads as "new
- *  message"; other states fall back to a small filled dot for visual rhythm. */
-function StateMarker({ state, size = 12 }: { state: MasterSessionState; size?: number }) {
+ *  message"; other states fall back to a filled dot for visual rhythm. */
+function StateMarker({ state, size = ICON_MIN }: { state: MasterSessionState; size?: number }) {
+  // Glyph icons need a higher floor than dots.
+  const glyphSize = Math.max(size, ICON_MIN);
+  const dotSize = Math.max(size - 2, ICON_DOT_MIN);
+  // Stroke width 2.25 keeps detail visible at small sizes.
+  const stroke = 2.25;
   if (state === "streaming") {
-    return <Loader2 size={size} className="text-yellow-300 animate-spin flex-shrink-0" aria-label="streaming" />;
+    return <Loader2 size={glyphSize} strokeWidth={stroke} className="text-yellow-300 animate-spin flex-shrink-0" aria-label="streaming" />;
   }
   if (state === "update") {
-    return <MessageSquareDot size={size} className="text-emerald-300 flex-shrink-0" aria-label="nuovo messaggio" />;
+    return <MessageSquareDot size={glyphSize} strokeWidth={stroke} className="text-emerald-300 flex-shrink-0" aria-label="nuovo messaggio" />;
   }
   if (state === "waiting") {
-    return <Circle size={size - 4} className="text-blue-300 fill-blue-300 flex-shrink-0" aria-label="in attesa" />;
+    return <Circle size={dotSize} strokeWidth={stroke} className="text-blue-300 fill-blue-300 flex-shrink-0" aria-label="in attesa" />;
   }
   if (state === "empty") {
-    return <Circle size={size - 4} className="text-app-text-muted/40 flex-shrink-0" aria-label="vuoto" />;
+    return <Circle size={dotSize} strokeWidth={stroke} className="text-app-text-muted/40 flex-shrink-0" aria-label="vuoto" />;
   }
-  return <Circle size={size - 4} className="text-app-text-muted/40 fill-app-text-muted/40 flex-shrink-0" aria-label="caught-up" />;
+  return <Circle size={dotSize} strokeWidth={stroke} className="text-app-text-muted/40 fill-app-text-muted/40 flex-shrink-0" aria-label="caught-up" />;
 }
 const STATE_PRIORITY: Record<MasterSessionState, number> = {
   update: 0,
@@ -55,24 +63,27 @@ const STATE_PRIORITY: Record<MasterSessionState, number> = {
   idle: 4,
 };
 
-/** Max session rows visible in list view before scroll. */
-const LIST_VISIBLE = 10;
 const VIEW_STORAGE_KEY = "topics:master-strip:view";
 const COLLAPSED_STORAGE_KEY = "topics:master-strip:collapsed";
 const SIZE_STORAGE_KEY = "topics:master-strip:size";
 
 type StripSize = "sm" | "md" | "lg";
-/** Max body height per size. Body scrolls if it overflows; header stays put. */
+/** Max body height per size. Body scrolls if it overflows; header stays put.
+ *  - sm: minimal — shows ~3 sessions, chat stays primary
+ *  - md: balanced — ~10 sessions, comfortable triage
+ *  - lg: full — takes the whole chat area, useful for bulk review
+ *
+ *  The lg reservation accounts for: topbar (~3rem) + tab bar (~2rem) + a
+ *  visual breathing margin (~2rem) + input bar below (~5rem). Anything
+ *  smaller and the strip glued itself to the topbar; the reserved space
+ *  here keeps the top of the panel away from the chrome. */
 const SIZE_MAX_H: Record<StripSize, string> = {
-  sm: "max-h-[22vh]",
-  md: "max-h-[40vh]",
-  lg: "max-h-[72vh]",
+  sm: "max-h-[16vh]",
+  md: "max-h-[38vh]",
+  lg: "max-h-[calc(100vh-13rem)]",
 };
-const SIZE_LABEL: Record<StripSize, string> = { sm: "Piccolo", md: "Medio", lg: "Esteso" };
+const SIZE_LABEL: Record<StripSize, string> = { sm: "Piccolo", md: "Medio", lg: "Tutta la chat" };
 const SIZE_ORDER: StripSize[] = ["sm", "md", "lg"];
-function nextSize(s: StripSize): StripSize {
-  return SIZE_ORDER[(SIZE_ORDER.indexOf(s) + 1) % SIZE_ORDER.length];
-}
 
 function renderInlineMd(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
@@ -105,18 +116,34 @@ function parseNextBlock(md: string | undefined): string | null {
   return body || null;
 }
 
-type ActionVerb = "archivia" | "apri";
+// Canonical action verb after the ARCHIVIA → COMPLETA rename. The two map
+// to the same UI/semantic action ("this conversation is done, clear it from
+// the workspace"); ARCHIVIA is kept as a synonym so old Master replies still
+// in chat history continue to parse correctly. `verb` on a ParsedAction is
+// always the canonical form ("completa" | "apri").
+type ActionVerb = "completa" | "apri";
 type ParsedAction = { verb: ActionVerb; session: MasterSession; reason: string };
 
-const VERB_RE = /\b(ARCHIVIA|APRI)\b/i;
+// Canonical verbs the model emits. COMPLETA is primary; ARCHIVIA stays as a
+// retro-compat alias so the parser doesn't drop old Master replies that
+// used the previous verb. Both normalize to "completa" internally.
+const VERB_RE = /\b(COMPLETA|ARCHIVIA|APRI)\b/i;
 const UUID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
 const BOLD_RE = /\*\*([^*\n]+)\*\*/;
 const BULLET_RE = /^[-*]\s+/;
 // Section headers we still need to RECOGNIZE (to reset currentSection) even
 // though we don't render them anymore. Without this, an `**ATTENDI**:` header
-// after `**ARCHIVIA**:` would silently leave currentSection=archivia and
+// after `**COMPLETA**:` would silently leave currentSection=completa and
 // every bullet below would inherit the wrong verb.
-const ANY_SECTION_VERB_RE = /\b(ARCHIVIA|APRI|ATTENDI|SEEDA|EMPTY|WAIT|PROSEGUE|MONITORA|IGNORA)\b/i;
+const ANY_SECTION_VERB_RE = /\b(COMPLETA|ARCHIVIA|APRI|ATTENDI|SEEDA|EMPTY|WAIT|PROSEGUE|MONITORA|IGNORA)\b/i;
+
+/** Normalize a raw verb match (case-insensitive, possibly the old ARCHIVIA
+ *  spelling) into the canonical lowercase form used everywhere else. */
+function canonicalVerb(raw: string): ActionVerb {
+  const lo = raw.toLowerCase();
+  if (lo === "archivia") return "completa";
+  return lo as ActionVerb;
+}
 
 function parseActions(block: string | null, sessions: MasterSession[]): ParsedAction[] {
   if (!block || sessions.length === 0) return [];
@@ -134,7 +161,7 @@ function parseActions(block: string | null, sessions: MasterSession[]): ParsedAc
       // Section header for a verb we actually render → set currentSection.
       const m = stripped.match(VERB_RE);
       if (m && stripped.length < 200) {
-        currentSection = m[1].toLowerCase() as ActionVerb;
+        currentSection = canonicalVerb(m[1]);
         continue;
       }
       // Section header for a verb we DON'T render (ATTENDI, etc.) → reset
@@ -150,7 +177,7 @@ function parseActions(block: string | null, sessions: MasterSession[]): ParsedAc
 
     let verb: ActionVerb | null = null;
     const bv = body.match(VERB_RE);
-    if (bv) verb = bv[1].toLowerCase() as ActionVerb;
+    if (bv) verb = canonicalVerb(bv[1]);
     else if (currentSection) verb = currentSection;
     else continue;
 
@@ -203,15 +230,21 @@ function projectLabel(projectPath: string | null | undefined): string | null {
 function ProjectChip({ projectPath, color }: { projectPath: string | null; color?: string }) {
   const label = projectLabel(projectPath);
   if (!label) return null;
+  // Use the project color as a tinted border + text so the chip itself encodes
+  // the project identity — no separate decorative dot. The semi-transparent
+  // background keeps it readable on dark UI without screaming for attention.
+  const tone = color || "var(--app-text-muted)";
   return (
     <span
-      className="text-[10px] px-1.5 py-0.5 rounded-md font-medium tracking-tight border border-app-border/40 bg-app-bg/40 text-app-text-muted flex items-center gap-1 flex-shrink-0 max-w-[120px]"
+      className="text-[10px] px-1.5 py-0.5 rounded-md font-medium tracking-tight flex items-center flex-shrink-0 max-w-[140px]"
+      style={{
+        color: tone,
+        borderColor: tone,
+        borderWidth: 1,
+        backgroundColor: `color-mix(in srgb, ${tone} 10%, transparent)`,
+      }}
       title={projectPath ?? undefined}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-sm flex-shrink-0"
-        style={{ backgroundColor: color || "var(--app-text-muted)" }}
-      />
       <span className="truncate">{label}</span>
     </span>
   );
@@ -238,12 +271,20 @@ function buildSnapshotMd(sessions: MasterSession[]): string {
   lines.push(`**${sessions.length} active topic(s)** — iterate, do not skip any:`);
   lines.push("");
   for (const s of sessions) {
+    // The header tag is a 1-glyph hint; claude-code sessions are already
+    // disambiguated by the `kind:` line below, so we don't double-mark them
+    // here. (We can't embed a Claude SVG in a Markdown header.)
     const tag = s.role === "teammate" ? " 🤝" : "";
     const proj = s.projectPath ? ` · ${s.projectPath.split("/").pop()}` : "";
     lines.push(`## ${s.name}${tag}${proj}`);
     lines.push(`- id: \`${s.topicId}\``);
-    lines.push(`- status: **${s.state}**  (${s.msgCount} msg, last ${fmtAgo(s.lastAt)}${s.unread > 0 ? `, ${s.unread} unread` : ""})`);
-    if (s.lastPreview) lines.push(`- last (${s.lastRole ?? "?"}): ${s.lastPreview}`);
+    if (s.sessionType === "claude-code-terminal") {
+      lines.push(`- kind: **Claude Code terminal** (CLI session, no chat log)`);
+      lines.push(`- status: **${s.state}** ${s.projectPath ? `(cwd: ${s.projectPath})` : ""}`);
+    } else {
+      lines.push(`- status: **${s.state}**  (${s.msgCount} msg, last ${fmtAgo(s.lastAt)}${s.unread > 0 ? `, ${s.unread} unread` : ""})`);
+      if (s.lastPreview) lines.push(`- last (${s.lastRole ?? "?"}): ${s.lastPreview}`);
+    }
     lines.push("");
   }
   return lines.join("\n");
@@ -256,7 +297,7 @@ function buildSnapshotMd(sessions: MasterSession[]): string {
 interface MergedRow {
   session: MasterSession;
   action: ParsedAction | null;
-  /** Sort key — AI-proposed archives float to the top, then state priority. */
+  /** Sort key — AI-proposed completions float to the top, then state priority. */
   rank: number;
 }
 
@@ -264,9 +305,9 @@ function mergeSessions(sessions: MasterSession[], actions: ParsedAction[]): Merg
   const byId = new Map(actions.map((a) => [a.session.topicId, a]));
   const rows: MergedRow[] = sessions.map((s) => {
     const a = byId.get(s.topicId) ?? null;
-    // Rank: AI verbs come first (archivia > apri), then state priority.
+    // Rank: AI verbs come first (completa > apri), then state priority.
     let actionRank = 9;
-    if (a?.verb === "archivia") actionRank = 0;
+    if (a?.verb === "completa") actionRank = 0;
     else if (a?.verb === "apri") actionRank = 1;
     const stateRank = STATE_PRIORITY[s.state] ?? 9;
     return { session: s, action: a, rank: actionRank * 10 + stateRank };
@@ -283,9 +324,13 @@ export interface MasterBoardStripProps {
   onJumpToTopic?: (topicId: string) => void;
   onAskMaster?: (prompt: string) => void;
   lastAssistantMessage?: string;
+  /** True while the Master's OWN chat reply is streaming. Drives a banner
+   *  inside the strip so the user, who may be looking at the kanban full-
+   *  screen, still sees that the Master is producing the next `## Next`. */
+  isMasterStreaming?: boolean;
 }
 
-export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAssistantMessage }: MasterBoardStripProps) {
+export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAssistantMessage, isMasterStreaming }: MasterBoardStripProps) {
   const [sessions, setSessions] = useState<MasterSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [archivingId, setArchivingId] = useState<string | null>(null);
@@ -306,6 +351,31 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
   useEffect(() => {
     try { localStorage.setItem(SIZE_STORAGE_KEY, size); } catch {}
   }, [size]);
+  // React to external size writes (e.g. App.tsx normalising lg→md on the
+  // sidebar Open-Master action so the chat is visible). Both the cross-tab
+  // `storage` event and an explicit same-tab `CustomEvent` are honoured so
+  // an already-mounted strip downsizes immediately, without waiting for a
+  // remount/reload.
+  useEffect(() => {
+    const apply = (raw: string | null) => {
+      if (raw === "sm" || raw === "md" || raw === "lg") {
+        setSize((cur) => (cur === raw ? cur : raw));
+      }
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SIZE_STORAGE_KEY) apply(e.newValue);
+    };
+    const onCustom = (e: Event) => {
+      const ce = e as CustomEvent<{ size?: string }>;
+      apply(ce.detail?.size ?? null);
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("master-strip:size-changed", onCustom as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("master-strip:size-changed", onCustom as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed ? "1" : "0"); } catch {}
@@ -346,22 +416,43 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Local streaming detector — tracks whether ANY topic is currently in the
+  // middle of an assistant turn. The host-provided `isMasterStreaming` is the
+  // primary signal, but the host hook (isSessionStreaming) may not track the
+  // Master's own session, so we keep this WS-driven flag as a fallback.
+  const [wsStreaming, setWsStreaming] = useState(false);
+
   // Refresh on any WS event that could change a session's state. The
   // debounce coalesces bursts (e.g. streaming chunks) into one refetch.
   useEffect(() => {
     if (!onMessage) return;
     let pending: number | null = null;
+    let lastChunk = 0;
     const debounced = () => {
       if (pending) return;
       pending = window.setTimeout(() => { pending = null; refresh(); }, 250);
     };
-    return onMessage((msg) => {
+    // Auto-clear wsStreaming if no chunk arrives for 3s — protects against
+    // a missed `stream:end` event leaving the banner stuck on.
+    const checkStale = window.setInterval(() => {
+      if (lastChunk && Date.now() - lastChunk > 3000) {
+        setWsStreaming(false);
+      }
+    }, 1000);
+    const off = onMessage((msg) => {
       switch (msg.type) {
-        case "message:new":
-        case "message:media":
-        case "stream:end":
         case "stream:start":
         case "stream:content_chunk":
+          lastChunk = Date.now();
+          setWsStreaming(true);
+          debounced();
+          break;
+        case "stream:end":
+          setWsStreaming(false);
+          debounced();
+          break;
+        case "message:new":
+        case "message:media":
         case "unread:updated":
         case "topic:created":
         case "topic:updated":
@@ -370,15 +461,25 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
           break;
       }
     });
+    return () => { off(); window.clearInterval(checkStale); };
   }, [onMessage, refresh]);
 
+  // "Complete" a session — for chat topics this archives them (the storage
+  // boolean is still `archived`, the user-facing wording changed); for the
+  // Claude Code terminal pseudo-rows (id prefixed `terminal:`) we DELETE the
+  // terminal session so the PTY is closed. Both keep the row off the list.
   const handleArchive = useCallback(async (topicId: string) => {
     setArchivingId(topicId);
     try {
-      await topicsApi.archive(topicId, true);
+      if (topicId.startsWith("terminal:")) {
+        const sessionId = topicId.slice("terminal:".length);
+        await fetch(`/api/terminal/sessions/${sessionId}`, { method: "DELETE" }).catch(() => {});
+      } else {
+        await topicsApi.archive(topicId, true);
+      }
       setSessions((prev) => prev.filter((s) => s.topicId !== topicId));
     } catch (err) {
-      console.error("[MasterBoardStrip] archive failed", err);
+      console.error("[MasterBoardStrip] complete failed", err);
     } finally {
       setArchivingId(null);
     }
@@ -394,7 +495,9 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
     return c;
   }, [sessions]);
 
-  const archives = useMemo(() => parsedActions.filter((a) => a.verb === "archivia"), [parsedActions]);
+  // Sessions the Master proposed to complete (legacy "archivia" verb is
+  // normalised to "completa" at parse time — see canonicalVerb).
+  const completions = useMemo(() => parsedActions.filter((a) => a.verb === "completa"), [parsedActions]);
   const opens = useMemo(() => parsedActions.filter((a) => a.verb === "apri"), [parsedActions]);
   // Sessions in `update` state for which the AI hasn't yet proposed an action.
   // These are "new replies the Master hasn't seen". A secondary CTA prompts
@@ -404,20 +507,31 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
     return sessions.filter((s) => s.state === "update" && !acted.has(s.topicId));
   }, [sessions, parsedActions]);
 
-  const handleBulkArchive = useCallback(async () => {
-    if (archives.length === 0) return;
+  const handleBulkComplete = useCallback(async () => {
+    if (completions.length === 0) return;
     setBulkArchiving(true);
-    const ids = archives.map((a) => a.session.topicId);
+    const ids = completions.map((a) => a.session.topicId);
     try {
-      await Promise.all(ids.map((id) => topicsApi.archive(id, true).catch(() => {})));
+      // "Complete" maps to two different endpoints depending on the row kind:
+      //   - regular topic id  → topicsApi.archive (sets the `archived` flag)
+      //   - terminal:<id>     → DELETE /api/terminal/sessions/<id> (kills PTY)
+      // We dispatch each id to the right call so the user can complete a
+      // mixed batch (chat topics + terminals) from one button.
+      await Promise.all(ids.map((id) => {
+        if (id.startsWith("terminal:")) {
+          const sessionId = id.slice("terminal:".length);
+          return fetch(`/api/terminal/sessions/${sessionId}`, { method: "DELETE" }).catch(() => {});
+        }
+        return topicsApi.archive(id, true).catch(() => {});
+      }));
       setSessions((prev) => prev.filter((s) => !ids.includes(s.topicId)));
     } finally { setBulkArchiving(false); }
-  }, [archives]);
+  }, [completions]);
 
   /**
    * Primary CTA — the single most useful action right now. Priority:
-   *   1. AI proposed multiple archives → "Archivia N proposte"
-   *   2. AI proposed a single archive → "Archivia <name>"
+   *   1. AI proposed multiple completions → "Completa N proposte"
+   *   2. AI proposed a single completion → "Completa <name>"
    *   3. AI proposed APRI → "Apri <name>"
    *   4. No AI proposal + updates exist → "Apri <first update>"
    *   5. No AI proposal + idle sessions → "Valuta sessioni concluse"
@@ -427,18 +541,18 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
     | { label: string; sublabel?: string; onClick: () => void; disabled?: boolean; busy?: boolean }
     | null
   >(() => {
-    if (archives.length > 1) {
+    if (completions.length > 1) {
       return {
-        label: `Archivia ${archives.length} proposte`,
-        sublabel: archives.map((a) => a.session.name).slice(0, 3).join(", ") + (archives.length > 3 ? `, +${archives.length - 3}` : ""),
-        onClick: handleBulkArchive,
+        label: `Completa ${completions.length} proposte`,
+        sublabel: completions.map((a) => a.session.name).slice(0, 3).join(", ") + (completions.length > 3 ? `, +${completions.length - 3}` : ""),
+        onClick: handleBulkComplete,
         busy: bulkArchiving,
       };
     }
-    if (archives.length === 1 && archives[0]) {
-      const a = archives[0];
+    if (completions.length === 1 && completions[0]) {
+      const a = completions[0];
       return {
-        label: `Archivia "${a.session.name}"`,
+        label: `Completa "${a.session.name}"`,
         sublabel: a.reason,
         onClick: () => handleArchive(a.session.topicId),
         busy: archivingId === a.session.topicId,
@@ -459,7 +573,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
         sublabel: "Chiedi al Master cosa fare con le sessioni aggiornate",
         onClick: () => {
           const snapshot = buildSnapshotMd(sessions);
-          onAskMaster(`${snapshot}\n\n---\n\nCi sono ${summary.update} sessioni con un nuovo messaggio non letto (stato \`update\`). Iteralle e per ciascuna decidi:\n- Se la conversazione è ora **conclusa** (final answer dell'AI, niente in sospeso) → **ARCHIVIA**.\n- Se l'utente deve fare qualcosa IN quella tab → **APRI** con l'azione concreta.\n- Altrimenti non elencarla.`);
+          onAskMaster(`${snapshot}\n\n---\n\nCi sono ${summary.update} sessioni con un nuovo messaggio non letto (stato \`update\`). Iteralle e per ciascuna decidi:\n- Se la conversazione è ora **conclusa** (final answer dell'AI, niente in sospeso) → **COMPLETA**.\n- Se l'utente deve fare qualcosa IN quella tab → **APRI** con l'azione concreta.\n- Altrimenti non elencarla.`);
         },
       };
     }
@@ -476,15 +590,15 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
     if (parsedActions.length === 0 && summary.idle > 0 && onAskMaster) {
       return {
         label: "Valuta sessioni concluse",
-        sublabel: `Chiedi al Master di proporre archivi per le ${summary.idle} sessioni idle`,
+        sublabel: `Chiedi al Master di proporre il completamento per le ${summary.idle} sessioni idle`,
         onClick: () => {
           const snapshot = buildSnapshotMd(sessions);
-          onAskMaster(`${snapshot}\n\n---\n\nItera ogni sessione \`idle\` qui sopra. Per ciascuna leggi \`last (assistant)\` e decidi:\n- Se **conclusa** (final answer, nessuna domanda aperta, niente in sospeso) → proponila per **ARCHIVIA** nel blocco \`## Next\`.\n- Se l'utente deve fare qualcosa IN quella tab (rispondere, approvare, fornire dati, rigenerare credenziali, eseguire un comando, decidere) → **APRI** con la descrizione dell'azione concreta.\n- Altrimenti **NON elencarla**. Niente ATTENDI catch-all.`);
+          onAskMaster(`${snapshot}\n\n---\n\nItera ogni sessione \`idle\` qui sopra. Per ciascuna leggi \`last (assistant)\` e decidi:\n- Se **conclusa** (final answer, nessuna domanda aperta, niente in sospeso) → proponila per **COMPLETA** nel blocco \`## Next\`.\n- Se l'utente deve fare qualcosa IN quella tab (rispondere, approvare, fornire dati, rigenerare credenziali, eseguire un comando, decidere) → **APRI** con la descrizione dell'azione concreta.\n- Altrimenti **NON elencarla**. Niente ATTENDI catch-all.`);
         },
       };
     }
     return null;
-  }, [archives, opens, parsedActions.length, summary, rows, sessions, archivingId, bulkArchiving, handleArchive, handleBulkArchive, onJumpToTopic, onAskMaster]);
+  }, [completions, opens, parsedActions.length, summary, rows, sessions, archivingId, bulkArchiving, handleArchive, handleBulkComplete, onJumpToTopic, onAskMaster]);
 
   // Show every session, always. Body container scrolls when overflowing.
   const listRows = rows;
@@ -506,36 +620,43 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
         className="flex items-center gap-2 px-3 pt-2.5 pb-2 hover:bg-purple-500/10 transition-colors flex-shrink-0 text-left cursor-pointer"
       >
         <span className="p-0.5 rounded text-app-text-muted/80 flex-shrink-0">
-          {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          {collapsed ? <ChevronUp size={14} strokeWidth={2.25} /> : <ChevronDown size={14} strokeWidth={2.25} />}
         </span>
-        <Crown size={12} className="text-purple-400 flex-shrink-0" />
+        <Crown size={14} strokeWidth={2.25} className="text-purple-400 flex-shrink-0" />
         <span className="text-[11px] font-medium text-purple-200/90 uppercase tracking-wide">
           Master · {sessions.length} sessioni
         </span>
         <div className="flex items-center gap-1.5 text-[10px] text-app-text-muted/80 ml-1">
-          {summary.update > 0 && (
-            <Pill dot={STATE_DOT.update} text={`${summary.update} update`} />
-          )}
-          {summary.streaming > 0 && (
-            <Pill dot={STATE_DOT.streaming} text={`${summary.streaming} streaming`} />
-          )}
-          {summary.waiting > 0 && (
-            <Pill dot={STATE_DOT.waiting} text={`${summary.waiting} in attesa`} />
-          )}
-          {summary.idle > 0 && (
-            <Pill dot={STATE_DOT.idle} text={`${summary.idle} idle`} muted />
-          )}
+          {summary.update > 0 && <Pill state="update" count={summary.update} label="nuove" />}
+          {summary.streaming > 0 && <Pill state="streaming" count={summary.streaming} label="in corso" />}
+          {summary.waiting > 0 && <Pill state="waiting" count={summary.waiting} label="in attesa" />}
+          {summary.idle > 0 && <Pill state="idle" count={summary.idle} label="ferme" muted />}
         </div>
         <div
-          role="button"
-          tabIndex={0}
-          aria-label={`Altezza: ${SIZE_LABEL[size]}. Click per ${SIZE_LABEL[nextSize(size)]}`}
-          title={`Altezza: ${SIZE_LABEL[size]} · click per ${SIZE_LABEL[nextSize(size)]}`}
-          onClick={(e) => { e.stopPropagation(); setSize(nextSize(size)); }}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setSize(nextSize(size)); } }}
-          className="ml-auto flex items-center justify-center w-7 h-6 rounded bg-app-bg/40 border border-app-border/40 text-[10px] font-semibold tabular-nums text-app-text-muted hover:text-app-text hover:bg-app-bg/60 cursor-pointer transition-colors"
+          role="group"
+          aria-label="Altezza pannello"
+          onClick={(e) => e.stopPropagation()}
+          className="ml-auto flex items-center gap-0.5 bg-app-bg/40 border border-app-border/40 rounded p-0.5"
         >
-          {size.toUpperCase()}
+          {SIZE_ORDER.map((s) => {
+            const Icon = s === "sm" ? Minimize2 : s === "md" ? Rows3 : Maximize2;
+            const active = s === size;
+            return (
+              <span
+                key={s}
+                role="button"
+                tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); setSize(s); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setSize(s); } }}
+                data-active={active}
+                className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${active ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
+                title={SIZE_LABEL[s]}
+                aria-label={SIZE_LABEL[s]}
+              >
+                <Icon size={14} strokeWidth={2.25} />
+              </span>
+            );
+          })}
         </div>
         <div
           role="group"
@@ -553,7 +674,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
             title="Vista lista"
             aria-label="Vista lista"
           >
-            <LayoutList size={11} />
+            <LayoutList size={14} strokeWidth={2.25} />
           </span>
           <span
             role="button"
@@ -565,14 +686,29 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
             title="Vista kanban"
             aria-label="Vista kanban"
           >
-            <Columns3 size={11} />
+            <Columns3 size={14} strokeWidth={2.25} />
           </span>
         </div>
       </button>
 
       {/* Scrollable body — header above stays put thanks to overflow-hidden
           on the parent + this being the only scroll container. */}
-      <div className="flex flex-col gap-2 px-3 pb-2.5 pt-1 overflow-y-auto">
+      <div className="flex flex-col gap-2 px-3 pb-2.5 pt-1 overflow-y-auto flex-1 min-h-0">
+
+      {/* Live banner — shown while the Master's own reply is streaming (or
+          any WS-tracked stream is active). Gives the user feedback that
+          triage is in progress, especially when the strip is full-screen
+          (LG) and dominates the chat area. */}
+      {(isMasterStreaming || wsStreaming) && (
+        <div
+          data-testid="master-streaming-banner"
+          className="flex items-center gap-2 px-3 py-2 rounded-md border border-purple-400/40 bg-purple-500/15 text-purple-100 text-[12px] animate-pulse"
+        >
+          <Loader2 size={14} className="animate-spin flex-shrink-0" />
+          <span className="font-medium">Master sta valutando le sessioni…</span>
+          <span className="text-purple-200/70 text-[11px]">il blocco <code className="px-1 rounded bg-purple-500/20 font-mono">## Next</code> arriva tra poco</span>
+        </div>
+      )}
 
       {/* Primary CTA — the one big button. */}
       {primary && (
@@ -608,18 +744,18 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
           data-testid="master-rivaluta-cta"
           onClick={() => {
             const snapshot = buildSnapshotMd(sessions);
-            onAskMaster(`${snapshot}\n\n---\n\nCi sono ${uncoveredUpdates.length} sessioni con un nuovo messaggio che non avevi ancora valutato (stato \`update\`):\n${uncoveredUpdates.map((s) => `- \`${s.topicId}\` "${s.name}"`).join("\n")}\n\nIteralle e aggiorna il blocco \`## Next\`: per ciascuna scegli **ARCHIVIA** se conclusa, **APRI** se l'utente deve agire, altrimenti non listarla.`);
+            onAskMaster(`${snapshot}\n\n---\n\nCi sono ${uncoveredUpdates.length} sessioni con un nuovo messaggio che non avevi ancora valutato (stato \`update\`):\n${uncoveredUpdates.map((s) => `- \`${s.topicId}\` "${s.name}"`).join("\n")}\n\nIteralle e aggiorna il blocco \`## Next\`: per ciascuna scegli **COMPLETA** se conclusa, **APRI** se l'utente deve agire, altrimenti non listarla.`);
           }}
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-emerald-500/12 hover:bg-emerald-500/22 border border-emerald-400/35 text-emerald-100 text-[11.5px] transition-colors"
         >
-          <MessageSquareDot size={12} className="flex-shrink-0" />
+          <MessageSquareDot size={14} strokeWidth={2.25} className="flex-shrink-0" />
           <span className="flex-1 text-left">
             Rivaluta {uncoveredUpdates.length} {uncoveredUpdates.length === 1 ? "novità" : "novità"}
             <span className="text-emerald-200/70 ml-1.5">
               {uncoveredUpdates.slice(0, 2).map((s) => s.name).join(", ")}{uncoveredUpdates.length > 2 ? `, +${uncoveredUpdates.length - 2}` : ""}
             </span>
           </span>
-          <ArrowRight size={11} className="flex-shrink-0 opacity-70" />
+          <ArrowRight size={13} strokeWidth={2.25} className="flex-shrink-0 opacity-80" />
         </button>
       )}
 
@@ -639,6 +775,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
           onArchive={handleArchive}
           archivingId={archivingId}
           pulsing={pulsing}
+          size={size}
         />
       ) : (
         <div className="flex flex-col gap-1">
@@ -650,8 +787,26 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
               onArchive={() => handleArchive(row.session.topicId)}
               archiving={archivingId === row.session.topicId || bulkArchiving}
               pulsing={pulsing.has(row.session.topicId)}
+              size={size}
             />
           ))}
+          {(() => {
+            const emptyIds = rows.filter((r) => r.session.state === "empty").map((r) => r.session.topicId);
+            if (emptyIds.length === 0) return null;
+            return (
+              <button
+                type="button"
+                onClick={async () => {
+                  await Promise.all(emptyIds.map((id) => handleArchive(id)));
+                }}
+                className="self-start mt-1 inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md border border-app-border/40 bg-app-bg/40 text-app-text-muted hover:text-app-text hover:bg-app-bg/70 hover:border-purple-400/40 transition-colors"
+                title="Sessioni con 0 messaggi: probabilmente create per errore. Le completa tutte."
+              >
+                <Archive size={14} strokeWidth={2.25} />
+                Completa {emptyIds.length} {emptyIds.length === 1 ? "sessione vuota" : "sessioni vuote"} (0 msg)
+              </button>
+            );
+          })()}
         </div>
       ))}
       </div>
@@ -659,11 +814,15 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
   );
 }
 
-function Pill({ dot, text, muted }: { dot: string; text: string; muted?: boolean }) {
+function Pill({ state, count, label, muted }: { state: MasterSessionState; count: number; label: string; muted?: boolean }) {
+  // Reuse StateMarker so the header summary uses the SAME icons as the rows.
+  // Builds visual recognition: the user learns once that the spinner = streaming.
+  const full = `${count} ${label} — ${STATE_LABEL[state]}`;
   return (
-    <span className={`inline-flex items-center gap-1 ${muted ? "opacity-70" : ""}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {text}
+    <span className={`inline-flex items-center gap-1 ${muted ? "opacity-70" : ""}`} title={full}>
+      <StateMarker state={state} size={14} />
+      <span className="tabular-nums">{count}</span>
+      <span>{label}</span>
     </span>
   );
 }
@@ -671,7 +830,7 @@ function Pill({ dot, text, muted }: { dot: string; text: string; muted?: boolean
 /* ── Row rendering ───────────────────────────────────────────────────── */
 
 const VERB_BADGE: Record<ActionVerb, string> = {
-  archivia: "bg-emerald-500/15 text-emerald-200 border-emerald-400/30",
+  completa: "bg-emerald-500/15 text-emerald-200 border-emerald-400/30",
   apri: "bg-blue-500/15 text-blue-200 border-blue-400/30",
 };
 
@@ -681,13 +840,14 @@ interface SessionRowProps {
   onArchive: () => void;
   archiving: boolean;
   pulsing: boolean;
+  size: StripSize;
 }
-function SessionRow({ row, onJump, onArchive, archiving, pulsing }: SessionRowProps) {
+function SessionRow({ row, onJump, onArchive, archiving, pulsing, size }: SessionRowProps) {
   const { session: s, action } = row;
   // When the AI proposed an action: show ITS reason. If empty, show nothing
   // rather than falling back to the chat's last message preview — that
   // mixed two unrelated signals (AI motivation vs chat content) and read
-  // as nonsense like "ARCHIVIA / esegui il comando bash" where the bottom
+  // as nonsense like "COMPLETA / esegui il comando bash" where the bottom
   // line was actually the chat preview, not a justification.
   // When there is NO AI action: show the chat preview, prefixed so the
   // user understands they're reading the last message, not a motivation.
@@ -719,10 +879,14 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing }: SessionRowPr
       data-testid={`master-row-${s.topicId}`}
       data-state={s.state}
       data-verb={action?.verb ?? "none"}
-      className={`relative flex items-center gap-2 rounded-md border border-app-border/40 bg-surface hover:bg-purple-500/10 px-2.5 py-1.5 transition-colors group ${pulsing ? "ring-1 ring-purple-400/60 animate-pulse" : ""}`}
+      className={`relative flex items-center gap-2 rounded-md border bg-surface hover:bg-purple-500/10 px-2.5 py-1.5 transition-colors group ${
+        s.state === "streaming" && size === "lg"
+          ? "border-yellow-400/55 ring-1 ring-yellow-400/35 animate-pulse"
+          : "border-app-border/40"
+      } ${pulsing ? "ring-1 ring-purple-400/60 animate-pulse" : ""}`}
     >
-      <span title={STATE_LABEL[s.state]} className="flex items-center justify-center w-3.5 h-3.5">
-        <StateMarker state={s.state} size={13} />
+      <span title={STATE_LABEL[s.state]} className="flex items-center justify-center w-4 h-4 flex-shrink-0">
+        <StateMarker state={s.state} size={14} />
       </span>
       {verbBadge}
       <button
@@ -735,6 +899,9 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing }: SessionRowPr
           <ProjectChip projectPath={s.projectPath} color={s.color} />
           <span className={`truncate min-w-0 ${(action || implicitBadge) ? "text-[11px] text-app-text-muted/85" : "text-[12.5px] font-medium text-app-text"}`}>{s.name}</span>
           {s.role === "teammate" && <span className="text-[10px] flex-shrink-0" title="teammate">🤝</span>}
+          {s.sessionType === "claude-code-terminal" && (
+            <ClaudeIcon size={11} className="flex-shrink-0 text-[#D97757]" />
+          )}
           {s.unread > 0 && (
             <span className="text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-200 font-medium tabular-nums flex-shrink-0">
               {s.unread}
@@ -755,8 +922,8 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing }: SessionRowPr
               {reason}
             </div>
           ) : (
-            <div className="text-[11.5px] text-app-text-muted/85 leading-snug line-clamp-1 mt-0.5">
-              <span className="text-app-text-muted/60 mr-1">{s.lastRole === "assistant" ? "AI:" : "tu:"}</span>
+            <div className="text-[12px] text-app-text/85 leading-snug line-clamp-1 mt-0.5">
+              <span className="text-app-text-muted/80 mr-1 font-medium">{s.lastRole === "assistant" ? "AI:" : "tu:"}</span>
               {reason}
             </div>
           )
@@ -770,21 +937,21 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing }: SessionRowPr
         title="Apri chat"
         aria-label="Apri chat"
       >
-        <ArrowRight size={11} />
+        <ArrowRight size={14} strokeWidth={2.25} />
       </button>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onArchive(); }}
         disabled={archiving}
         className={`p-1 rounded transition-colors flex-shrink-0 disabled:opacity-40 ${
-          action?.verb === "archivia"
+          action?.verb === "completa"
             ? "text-emerald-300 hover:text-emerald-100 hover:bg-emerald-500/20"
             : "text-app-text-muted/60 hover:text-app-text hover:bg-app-bg/60 opacity-0 group-hover:opacity-100"
         }`}
-        title="Archivia sessione"
-        aria-label="Archivia"
+        title="Completa sessione"
+        aria-label="Completa"
       >
-        <Archive size={11} />
+        <Archive size={14} strokeWidth={2.25} />
       </button>
     </div>
   );
@@ -798,38 +965,96 @@ interface KanbanViewProps {
   onArchive: (id: string) => void;
   archivingId: string | null;
   pulsing: Set<string>;
+  size: StripSize;
 }
-function KanbanView({ rows, onJump, onArchive, archivingId, pulsing }: KanbanViewProps) {
-  // Empty sessions are noise — they don't get a column. They're still
-  // reachable via list view (and trivially archivable from there).
-  const cols: MasterSessionState[] = ["update", "waiting", "streaming", "idle"];
+/** Column descriptor — either an AI-verb column (e.g. APRI) or a state column. */
+type KanbanColumn =
+  | { kind: "verb"; verb: ActionVerb; label: string; key: string }
+  | { kind: "state"; state: MasterSessionState; label: string; key: string };
+
+// State columns shown on the LEFT. `update` is intentionally NOT a column —
+// the unread badge already marks new replies on the row itself, and once the
+// Master triages an update it moves to the APRI/COMPLETA column anyway. So a
+// dedicated "aggiornamento" column was just inbox-clutter.
+const STATE_COLUMNS: KanbanColumn[] = [
+  { kind: "state", state: "waiting", label: STATE_LABEL.waiting, key: "waiting" },
+  { kind: "state", state: "streaming", label: STATE_LABEL.streaming, key: "streaming" },
+  { kind: "state", state: "idle", label: STATE_LABEL.idle, key: "idle" },
+];
+
+function KanbanView({ rows, onJump, onArchive, archivingId, pulsing, size }: KanbanViewProps) {
+  // Build columns dynamically. AI-verb columns (APRI, COMPLETA) own their
+  // sessions exclusively: pulled OUT of the state columns so AI-proposed
+  // actions are surfaced as distinct buckets instead of being diluted across
+  // update/waiting/idle. State columns then group whatever sessions remain.
+  const apriRows = rows.filter((r) => r.action?.verb === "apri" && r.session.state !== "empty");
+  const completaRows = rows.filter((r) => r.action?.verb === "completa" && r.session.state !== "empty");
+  const verbIds = new Set([...apriRows, ...completaRows].map((r) => r.session.topicId));
+
   const byState: Record<MasterSessionState, MergedRow[]> = {
     update: [], waiting: [], streaming: [], idle: [], empty: [],
   };
   for (const r of rows) {
     if (r.session.state === "empty") continue;
-    byState[r.session.state].push(r);
+    if (verbIds.has(r.session.topicId)) continue; // owned by a verb column
+    // `update` rows fold into `idle` — the unread badge on the row already
+    // surfaces the "new reply" signal; no need for a dedicated column.
+    const bucket: MasterSessionState = r.session.state === "update" ? "idle" : r.session.state;
+    byState[bucket].push(r);
+  }
+
+  // LEFT: state columns (passive — driven by chat activity).
+  // RIGHT: AI-action columns (proposed by Master) — hidden when empty so
+  // the kanban doesn't show two persistent empty boxes the user has to scan.
+  const columns: { col: KanbanColumn; list: MergedRow[] }[] = [];
+  for (const sc of STATE_COLUMNS) {
+    columns.push({ col: sc, list: byState[(sc as Extract<KanbanColumn, { kind: "state" }>).state] });
+  }
+  if (apriRows.length > 0) {
+    columns.push({ col: { kind: "verb", verb: "apri", label: "Da aprire", key: "apri" }, list: apriRows });
+  }
+  if (completaRows.length > 0) {
+    columns.push({ col: { kind: "verb", verb: "completa", label: "Da completare", key: "completa" }, list: completaRows });
   }
 
   const emptyCount = rows.filter((r) => r.session.state === "empty").length;
+  // Per-size column height. At "lg" we let columns fill the available body
+  // height (parent already caps the strip at calc(100vh-9rem)), so the
+  // kanban actually takes over the chat area as the user expects.
+  const colMaxH = size === "sm" ? "max-h-[14vh]" : size === "md" ? "max-h-[34vh]" : "";
 
   return (
-    <>
-    <div className="flex gap-1.5 overflow-x-auto pb-1" data-testid="master-kanban">
-      {cols.map((c) => {
-        const list = byState[c];
+    <div className={`flex flex-col gap-2 ${size === "lg" ? "flex-1 min-h-0" : ""}`}>
+    <div
+      className={`flex gap-1.5 overflow-x-auto pb-1 ${size === "lg" ? "flex-1 min-h-0" : ""}`}
+      data-testid="master-kanban"
+    >
+      {columns.map(({ col, list }) => {
+        const isApri = col.kind === "verb" && col.verb === "apri";
+        const isComplete = col.kind === "verb" && col.verb === "completa";
+        const tint = isApri
+          ? { bg: "bg-blue-500/8", border: "border-blue-400/35", header: "border-blue-400/25", labelColor: "text-blue-100", countColor: "text-blue-200/80", badgeCls: "bg-blue-500/15 text-blue-200 border-blue-400/30", badgeText: "APRI" }
+          : isComplete
+            ? { bg: "bg-emerald-500/8", border: "border-emerald-400/35", header: "border-emerald-400/25", labelColor: "text-emerald-100", countColor: "text-emerald-200/80", badgeCls: "bg-emerald-500/15 text-emerald-200 border-emerald-400/30", badgeText: "COMPLETA" }
+            : { bg: "bg-app-bg/25", border: "border-app-border/30", header: "border-app-border/20", labelColor: "text-app-text-muted/90", countColor: "text-app-text-muted/70", badgeCls: "", badgeText: "" };
         return (
           <div
-            key={c}
-            data-testid={`master-kanban-col-${c}`}
-            className="flex flex-col min-w-[180px] max-w-[220px] flex-shrink-0 bg-app-bg/25 border border-app-border/30 rounded-md max-h-[30vh]"
+            key={col.key}
+            data-testid={`master-kanban-col-${col.key}`}
+            className={`flex flex-col flex-1 min-w-[160px] rounded-md ${tint.bg} border ${tint.border} ${size === "lg" ? "self-stretch min-h-0" : colMaxH}`}
           >
-            <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-1 flex-shrink-0 border-b border-app-border/20">
-              <StateMarker state={c} size={12} />
-              <span className="text-[10px] uppercase tracking-wide text-app-text-muted/90 font-medium">
-                {STATE_LABEL[c]}
+            <div className={`flex items-center gap-1 px-1.5 pt-1.5 pb-1 flex-shrink-0 border-b ${tint.header}`}>
+              {col.kind === "state" ? (
+                <StateMarker state={col.state} size={14} />
+              ) : (
+                <span className={`text-[8.5px] px-1 py-0.5 rounded border font-semibold tracking-wide flex-shrink-0 ${tint.badgeCls}`}>
+                  {tint.badgeText}
+                </span>
+              )}
+              <span className={`text-[10px] uppercase tracking-wide font-medium ${tint.labelColor}`}>
+                {col.label}
               </span>
-              <span className="text-[10px] text-app-text-muted/70 tabular-nums ml-auto">
+              <span className={`text-[10px] tabular-nums ml-auto ${tint.countColor}`}>
                 {list.length}
               </span>
             </div>
@@ -847,6 +1072,7 @@ function KanbanView({ rows, onJump, onArchive, archivingId, pulsing }: KanbanVie
                     onArchive={() => onArchive(r.session.topicId)}
                     archiving={archivingId === r.session.topicId}
                     pulsing={pulsing.has(r.session.topicId)}
+                    size={size}
                   />
                 ))
               )}
@@ -856,38 +1082,48 @@ function KanbanView({ rows, onJump, onArchive, archivingId, pulsing }: KanbanVie
       })}
     </div>
     {emptyCount > 0 && (
-      <div className="flex items-center gap-2 text-[10px] text-app-text-muted/70 px-0.5">
-        <span>{emptyCount === 1 ? "1 sessione vuota ignorata" : `${emptyCount} sessioni vuote ignorate`} (0 messaggi)</span>
-        <button
-          type="button"
-          onClick={async () => {
-            const ids = rows.filter((r) => r.session.state === "empty").map((r) => r.session.topicId);
-            await Promise.all(ids.map((id) => onArchive(id)));
-          }}
-          className="text-purple-300 hover:text-purple-100 underline-offset-2 hover:underline transition-colors"
-        >
-          archivia tutte
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={async () => {
+          const ids = rows.filter((r) => r.session.state === "empty").map((r) => r.session.topicId);
+          await Promise.all(ids.map((id) => onArchive(id)));
+        }}
+        className="self-start inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md border border-app-border/40 bg-app-bg/40 text-app-text-muted hover:text-app-text hover:bg-app-bg/70 hover:border-purple-400/40 transition-colors"
+        title="Sessioni con 0 messaggi: probabilmente create per errore. Le completa tutte."
+      >
+        <Archive size={14} strokeWidth={2.25} />
+        Completa {emptyCount} {emptyCount === 1 ? "sessione vuota" : "sessioni vuote"} (0 msg)
+      </button>
     )}
-    </>
+    </div>
   );
 }
 
-function KanbanCard({ row, onJump, onArchive, archiving, pulsing }: { row: MergedRow; onJump: () => void; onArchive: () => void; archiving: boolean; pulsing: boolean }) {
+function KanbanCard({ row, onJump, onArchive, archiving, pulsing, size }: { row: MergedRow; onJump: () => void; onArchive: () => void; archiving: boolean; pulsing: boolean; size: StripSize }) {
   const { session: s, action } = row;
-  const reason = action?.reason || s.lastPreview || "";
+  const reason = action ? (action.reason || "") : (s.lastPreview || "");
+  // In LG (full-screen) we keep a prominent live indicator on streaming cards
+  // so the user — who is dedicating the screen to the strip — has clear
+  // ambient feedback that things are happening. In SM/MD the small marker
+  // icon is enough.
+  const liveStreaming = s.state === "streaming";
+  const showLgLive = liveStreaming && size === "lg";
   return (
     <div
       data-testid={`master-kanban-card-${s.topicId}`}
-      className={`relative rounded border border-app-border/40 bg-surface hover:bg-purple-500/10 px-1.5 py-1.5 transition-colors group ${pulsing ? "ring-1 ring-purple-400/60 animate-pulse" : ""}`}
+      className={`relative rounded border bg-surface hover:bg-purple-500/10 px-2 py-1.5 transition-colors group ${
+        showLgLive
+          ? "border-yellow-400/55 ring-1 ring-yellow-400/35 animate-pulse"
+          : "border-app-border/40"
+      } ${pulsing ? "ring-1 ring-purple-400/60 animate-pulse" : ""}`}
     >
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onJump(); }}
         className="w-full text-left cursor-pointer"
-        title={reason ? `${s.name}\n\n${reason}` : `Apri "${s.name}"`}
+        title={`${s.name}${projectLabel(s.projectPath) ? ` · ${projectLabel(s.projectPath)}` : ""}${reason ? `\n\n${reason}` : ""}`}
       >
+        {/* Row 1: verb badge + project chip + state marker */}
         <div className="flex items-center gap-1 mb-1 min-w-0">
           {action && (
             <span className={`text-[8.5px] px-1 py-0.5 rounded border font-semibold tracking-wide flex-shrink-0 ${VERB_BADGE[action.verb]}`}>
@@ -895,12 +1131,30 @@ function KanbanCard({ row, onJump, onArchive, archiving, pulsing }: { row: Merge
             </span>
           )}
           <ProjectChip projectPath={s.projectPath} color={s.color} />
-          <span className={`truncate flex-1 min-w-0 ${action ? "text-[10px] text-app-text-muted/80" : "text-[11px] font-medium text-app-text"}`}>{s.name}</span>
+          <span title={STATE_LABEL[s.state]} className="ml-auto flex-shrink-0 flex items-center">
+            <StateMarker state={s.state} size={14} />
+          </span>
         </div>
-        {action && reason && (
-          <div className="text-[12px] text-app-text leading-snug line-clamp-3 mb-1">
-            {reason}
-          </div>
+        {/* Row 2: session name — readable, not truncated to a line */}
+        <div className="text-[12.5px] font-semibold text-app-text leading-snug mb-1 break-words">
+          {s.sessionType === "claude-code-terminal" && (
+            <ClaudeIcon size={12} className="mr-1 inline-block align-[-2px] text-[#D97757]" />
+          )}
+          {s.role === "teammate" && <span className="mr-1" title="teammate">🤝</span>}
+          {s.name}
+        </div>
+        {/* Row 3: reason / preview — FULL text, no clamp. Wraps inside card. */}
+        {reason && (
+          action ? (
+            <div className="text-[11.5px] text-app-text leading-snug mb-1.5 whitespace-pre-wrap break-words">
+              {reason}
+            </div>
+          ) : (
+            <div className="text-[11px] text-app-text/85 leading-snug mb-1.5 whitespace-pre-wrap break-words">
+              <span className="text-app-text-muted/80 mr-1 font-medium">{s.lastRole === "assistant" ? "AI:" : "tu:"}</span>
+              {reason}
+            </div>
+          )
         )}
         <div className="text-[9.5px] text-app-text-muted/70 tabular-nums flex items-center gap-1">
           <span>{fmtAgo(s.lastAt)}</span>
@@ -918,10 +1172,10 @@ function KanbanCard({ row, onJump, onArchive, archiving, pulsing }: { row: Merge
         onClick={(e) => { e.stopPropagation(); onArchive(); }}
         disabled={archiving}
         className="absolute top-1 right-1 p-0.5 rounded hover:bg-app-bg/70 text-app-text-muted/60 hover:text-app-text transition-colors disabled:opacity-40 opacity-0 group-hover:opacity-100"
-        title="Archivia"
-        aria-label="Archivia"
+        title="Completa"
+        aria-label="Completa"
       >
-        <Archive size={9} />
+        <Archive size={13} strokeWidth={2.25} />
       </button>
     </div>
   );

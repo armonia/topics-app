@@ -1580,6 +1580,11 @@ export const globalBoardApi = {
 export type MasterSessionState = 'empty' | 'streaming' | 'update' | 'waiting' | 'idle';
 export interface MasterSession {
   topicId: string;
+  /** Discriminator: 'topic' is a regular chat topic; 'claude-code-terminal'
+   *  is a Claude Code CLI terminal session (lives in terminal_sessions,
+   *  pane id prefixed `terminal:`). Optional for backwards-compat with
+   *  older server builds. */
+  sessionType?: 'topic' | 'claude-code-terminal';
   name: string;
   role: 'lead' | 'teammate' | null;
   projectPath: string | null;

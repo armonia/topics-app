@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.3.0",
+    "puppeteer-core": "^23.0.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {
@@ -20,7 +21,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "electronmon": "^2.0.4",
-    "typescript": "^6.0.2"
+    "typescript": "~5.9.3"
   },
   "build": {
     "appId": "com.topics.app",

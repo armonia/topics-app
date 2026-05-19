@@ -783,11 +783,19 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
   const sockets = sessionSockets.get(sessionId);
   if (sockets) sockets.add(ws);
 
-  // Request output buffer from bridge (async)
+  // Request output buffer from bridge (async). The buffered scrollback is
+  // delivered as ONE binary frame, then we follow it with a `replay-end`
+  // control frame (text/JSON) so the client knows where the historical
+  // replay ends and live output begins. Without this signal the tab-bar
+  // "in-progress" spinner lights up for ~1.5 s on every focus of an idle
+  // Claude Code session, just from the backlog being flushed.
   requestBuffer(sessionId).then((buffered) => {
-    if (buffered.byteLength > 0) {
-      try { ws.send(buffered); } catch {}
-    }
+    try {
+      if (buffered.byteLength > 0) ws.send(buffered);
+      // Always send the marker, even on empty backlog — the client uses
+      // it as the gate to start broadcasting `terminal:activity` pulses.
+      ws.send(JSON.stringify({ type: "replay-end" }));
+    } catch {}
   });
 
   return {

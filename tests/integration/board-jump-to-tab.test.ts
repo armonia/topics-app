@@ -1,3 +1,4 @@
+import path from "node:path";
 /**
  * KANBAN-DELTA-01 — jump-to-tab API (Phase D).
  *
@@ -18,7 +19,7 @@ async function setup() {
   const { createAppContext } = await import("../../server/utils");
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { createBoardsRouter } = await import("../../server/routes/boards");
-  const ctx = createAppContext("/Users/user/Projects/topics-app");
+  const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
   (ctx as any).broadcastToAll = () => {};
   const topicsRouter = createTopicsRouter(ctx);
   const boardsRouter = createBoardsRouter(ctx);

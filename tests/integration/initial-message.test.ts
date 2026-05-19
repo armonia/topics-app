@@ -1,3 +1,4 @@
+import path from "node:path";
 /**
  * Phase C · Initial Message round-trip via REST.
  * Pure integration: no UI, no WS roundtrip needed.
@@ -17,7 +18,7 @@ describe("Phase C · TOPIC-IM-01 — initial message", () => {
   test("create + read + clear round-trip", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const router = createTopicsRouter(ctx);
 
@@ -62,7 +63,7 @@ describe("Phase C · TOPIC-IM-01 — initial message", () => {
   test("rejects message > 8000 chars", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const router = createTopicsRouter(ctx);
 
@@ -87,7 +88,7 @@ describe("Phase C · TOPIC-IM-01 — initial message", () => {
   test("strips control characters but preserves newlines + tabs", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const router = createTopicsRouter(ctx);
 

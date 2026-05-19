@@ -316,7 +316,7 @@ function App() {
   const { focusedProjectPath } = panelLifecycle.derived;
   const {
     handleTopicClick, handleTopicDoubleClick, handleClosePanel,
-    handleProjectClick, handleFocusPanel, handleReorderPanels,
+    handleProjectClick, handleFocusPanel, openMasterPane, handleReorderPanels,
     handleOpenPanelAt, handleOpenAsProject, handleAddProjectPane,
     handleOpenProjectBoard, handleArchiveProject, handleTopicContextMenu,
     handleQuickCreateTopic, handleCreateTopic, promoteDraft,
@@ -717,18 +717,21 @@ function App() {
                 // user clicks the sidebar Master button before that lands,
                 // handleTopicClick would silently no-op (no topic entry to
                 // route on). Poll briefly then fall back to handleFocusPanel.
+                // openMasterPane sets the sticky intent flag so Effect 7b
+                // in usePanelLifecycle re-adds Master if the server hydrate
+                // round-trip strips it. Falls back to handleFocusPanel by id
+                // even if the topic entry isn't populated yet — the pane
+                // will render once it lands.
                 let attempts = 0;
                 const tryOpen = () => {
                   if (topics[data.id]) {
-                    handleTopicClick(data.id);
+                    openMasterPane(data.id);
                     return;
                   }
                   if (attempts++ < 10) {
                     setTimeout(tryOpen, 100);
                   } else {
-                    // Last resort: focus by id even if topic data isn't
-                    // populated yet — the pane will render once it arrives.
-                    handleFocusPanel(data.id);
+                    openMasterPane(data.id);
                   }
                 };
                 tryOpen();

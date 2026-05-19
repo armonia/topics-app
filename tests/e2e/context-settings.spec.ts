@@ -1,3 +1,4 @@
+import path from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
 
 test.describe("Context, Memory & Settings", () => {
@@ -465,8 +466,8 @@ test.describe("Context, Memory & Settings", () => {
     // Set contextFiles on the topic (use real files that exist on disk)
     await patchTopic(request, topic.id, {
       contextFiles: [
-        "/Users/user/Projects/topics-app/CLAUDE.md",
-        "/Users/user/Projects/topics-app/README.md",
+        path.resolve(import.meta.dirname, "../../CLAUDE.md"),
+        path.resolve(import.meta.dirname, "../../README.md"),
       ],
     });
 

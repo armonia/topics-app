@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useToast } from '../components/Shared/Toast';
-import type { AppSettings, Topic, WSMessage } from '../types';
+import type { AppSettings, ClaudeSessionPhase, Topic, WSMessage } from '../types';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -179,6 +179,84 @@ export function useCompletionNotifier({
       }
 
       prevStatusRef.current = next;
+    });
+  }, [onWSMessage, success, warning]);
+
+  // ── Claude Code session-state notifier ─────────────────────────────────
+  // Surface a toast on the lifecycle phase transitions the user actually
+  // needs to react to. The full set of phases is in client/src/types
+  // (ClaudeSessionPhase); we only fire for the three that are *actionable*
+  // or *terminal*:
+  //   awaiting-user      → Claude finished its turn and is waiting on input
+  //   awaiting-approval  → Claude wants permission to run a tool
+  //   error              → the session crashed; user must intervene
+  //   completed          → success ack so background work surfaces
+  // Same gating rules as the agents:sessions handler above (master enable,
+  // focused-pane suppression, sound toggle, 10s per-topic cooldown).
+  //
+  // The phase comes from claude-session-tracker (server/lib). Without this
+  // bridge the WS event was being received but ignored on the client.
+  const prevPhaseRef = useRef<Map<string, ClaudeSessionPhase>>(new Map());
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type !== 'session:state') return;
+      const state = msg.state;
+      if (!state || !msg.sessionKey) return;
+
+      const sessionKey = msg.sessionKey;
+      const phase = state.phase;
+      const prev = prevPhaseRef.current.get(sessionKey);
+      prevPhaseRef.current.set(sessionKey, phase);
+      if (prev === phase) return; // no-op repeats
+
+      const cfg = settingsRef.current;
+      if (!cfg.notificationsEnabled) return;
+
+      const isActionable =
+        phase === 'awaiting-user' ||
+        phase === 'awaiting-approval' ||
+        phase === 'error' ||
+        phase === 'completed';
+      if (!isActionable) return;
+
+      // Resolve the friendly topic name. The session-key convention for
+      // Topics chats is `topic:<8-char-id>`; we scan the topics map for the
+      // first one whose `sessionKey` matches. Falls back to a generic label.
+      let topicId: string | null = null;
+      let label = 'Claude';
+      for (const t of Object.values(topicsRef.current)) {
+        if (t.sessionKey === sessionKey) {
+          topicId = t.id;
+          label = t.name || 'Claude';
+          break;
+        }
+      }
+
+      const focusedTopicId = topicIdFromPanel(focusedRef.current);
+      const isFocused = topicId !== null && topicId === focusedTopicId;
+      if (isFocused && !cfg.notifyEvenWhenFocused) return;
+
+      // 10s cooldown — keyed by sessionKey so two terminals don't collide.
+      const now = Date.now();
+      const last = cooldownRef.current.get(sessionKey) ?? 0;
+      if (now - last < 10_000) return;
+      cooldownRef.current.set(sessionKey, now);
+
+      switch (phase) {
+        case 'awaiting-user':
+          success(`${label}: in attesa di te`);
+          break;
+        case 'awaiting-approval':
+          warning(`${label}: serve un'approvazione`);
+          break;
+        case 'completed':
+          success(`${label}: lavoro completato`);
+          break;
+        case 'error':
+          warning(`${label}: errore — interventi richiesti`);
+          break;
+      }
+      if (cfg.notificationsSound) playCompletionTone();
     });
   }, [onWSMessage, success, warning]);
 }

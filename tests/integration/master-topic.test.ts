@@ -1,3 +1,4 @@
+import path from "node:path";
 /**
  * MASTER-01 — Master Topic creation via API.
  *
@@ -19,7 +20,7 @@ describe("MASTER-01 · POST /api/topics/master", () => {
   test("creates a Master Topic with agent_team_role='lead' and returns the id", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const router = createTopicsRouter(ctx);
 
@@ -47,7 +48,7 @@ describe("MASTER-01 · POST /api/topics/master", () => {
   test("re-creating for the same projectPath resumes (no duplicate)", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const router = createTopicsRouter(ctx);
 
@@ -84,7 +85,7 @@ describe("MASTER-01 · POST /api/topics/master", () => {
   test("accepts global Master (no projectPath) — Variant A", async () => {
     const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext("/Users/user/Projects/topics-app");
+    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
     (ctx as any).broadcastToAll = () => {};
     const router = createTopicsRouter(ctx);
 
