@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X } from 'lucide-react';
 import { filesApi } from '../../lib/api';
+import { basename } from '../../lib/path-utils';
 
 interface SearchResult {
   file: string;
@@ -135,7 +136,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Search in ${projectPath.split('/').pop() || 'files'}…`}
+            placeholder={`Search in ${basename(projectPath) || 'files'}…`}
             className="flex-1 bg-transparent text-sm outline-none text-app-text-heading placeholder-app-text-faint"
           />
           {/* Toggles */}

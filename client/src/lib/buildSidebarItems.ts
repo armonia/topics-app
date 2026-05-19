@@ -1,5 +1,6 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
 import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey } from '../state/pane/adapters';
+import { basename } from './path-utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -30,9 +31,18 @@ export interface SidebarItem {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function getProjectLabel(projectPath: string): string {
-  const dirName = projectPath.split('/').pop() || projectPath;
-  return dirName;
+/**
+ * Friendly display label for a workspace project path — the basename
+ * with the full path as a fallback if basename can't extract one
+ * (e.g. relative or single-segment paths).
+ *
+ * Exported so every surface that shows a project name (sidebar,
+ * command palette, master strip, chat tab project chip, etc.) reads
+ * from one place. Don't reimplement the `.split('/').pop()` dance at
+ * a call site — use this.
+ */
+export function getProjectLabel(projectPath: string): string {
+  return basename(projectPath) || projectPath;
 }
 
 function topicTimestamp(t: Topic): number {

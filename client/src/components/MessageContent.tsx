@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
+import { basename } from '../lib/path-utils';
 import { ToolCallBadge, PartialIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
@@ -96,7 +97,7 @@ function isDocument(path: string): boolean {
 }
 
 function getFileName(path: string): string {
-  return path.split('/').pop() || path;
+  return basename(path) || path;
 }
 
 function FileIcon({ path, size = 24 }: { path: string; size?: number }) {

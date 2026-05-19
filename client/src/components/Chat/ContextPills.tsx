@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, BookOpen, Braces, FileText } from 'lucide-react';
+import { basename } from '@/lib/path-utils';
 
 interface ContextFile {
   name: string;
@@ -108,7 +109,7 @@ export function useContextFileTokens(sessionKey: string, filePaths: string[]): M
             if (match) {
               const fname = match[1];
               const tokens = parseInt(match[2], 10);
-              const matchingPath = filePaths.find(p => p.endsWith(fname) || p.split('/').pop() === fname);
+              const matchingPath = filePaths.find(p => p.endsWith(fname) || basename(p) === fname);
               if (matchingPath) map.set(matchingPath, tokens);
             }
           }

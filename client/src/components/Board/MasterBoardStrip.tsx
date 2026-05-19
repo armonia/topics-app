@@ -14,6 +14,8 @@ import {
   Minimize2, Rows3, Maximize2,
 } from "lucide-react";
 import { masterApi, topicsApi, type MasterSession, type MasterSessionState } from "../../lib/api";
+import { basename } from "../../lib/path-utils";
+import { getProjectLabel } from "../../lib/buildSidebarItems";
 import type { WSMessage } from "../../types";
 import { ClaudeIcon } from "../Shared/ClaudeIcon";
 
@@ -222,9 +224,7 @@ function parseActions(block: string | null, sessions: MasterSession[]): ParsedAc
 
 function projectLabel(projectPath: string | null | undefined): string | null {
   if (!projectPath) return null;
-  const clean = projectPath.replace(/\/+$/, "");
-  const base = clean.split("/").pop() || clean;
-  return base || null;
+  return getProjectLabel(projectPath) || null;
 }
 
 function ProjectChip({ projectPath, color }: { projectPath: string | null; color?: string }) {
@@ -275,7 +275,7 @@ function buildSnapshotMd(sessions: MasterSession[]): string {
     // disambiguated by the `kind:` line below, so we don't double-mark them
     // here. (We can't embed a Claude SVG in a Markdown header.)
     const tag = s.role === "teammate" ? " 🤝" : "";
-    const proj = s.projectPath ? ` · ${s.projectPath.split("/").pop()}` : "";
+    const proj = s.projectPath ? ` · ${basename(s.projectPath)}` : "";
     lines.push(`## ${s.name}${tag}${proj}`);
     lines.push(`- id: \`${s.topicId}\``);
     if (s.sessionType === "claude-code-terminal") {

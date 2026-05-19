@@ -52,6 +52,7 @@ import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
+import { basename } from '../../../lib/path-utils';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 
 const isNativeApp =
@@ -1215,7 +1216,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       return;
     }
 
-    const filename = path.split('/').pop() || path;
+    const filename = basename(path) || path;
     const newPane: Pane = {
       id: createPaneId('file'),
       type: 'file',
@@ -1324,7 +1325,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       return;
     }
 
-    const filename = filePath.split('/').pop() || filePath;
+    const filename = basename(filePath) || filePath;
     const fullPath = `${diffProjectPath}/${filePath}`;
     const newPane: Pane = {
       id: diffKey,

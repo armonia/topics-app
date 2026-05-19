@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, Plus, Settings, Moon, Sun, File, FolderOpen, FolderPlus, Loader2, TerminalSquare, RotateCcw } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
+import { basename } from '../../lib/path-utils';
+import { getProjectLabel } from '../../lib/buildSidebarItems';
 import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { TopicIcon } from '@/lib/topicIcons';
@@ -150,7 +152,7 @@ export function CommandPalette({
       .forEach(pp => {
         items.push({
           id: `project-${pp}`,
-          label: pp.split('/').pop() || pp,
+          label: getProjectLabel(pp),
           description: pp,
           icon: <FolderOpen size={14} />,
           category: 'project',
@@ -166,7 +168,7 @@ export function CommandPalette({
         items.push({
           id: `topic-${topic.id}`,
           label: topic.name,
-          description: topic.projectPath ? topic.projectPath.split('/').pop() : undefined,
+          description: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
           icon: <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />,
           category: 'topic',
           action: () => { onOpenTopic(topic.id); onClose(); },
@@ -200,14 +202,14 @@ export function CommandPalette({
       const q = query.toLowerCase();
       const matchingFiles = fileList
         .filter(f => {
-          const name = f.split('/').pop()?.toLowerCase() || '';
+          const name = basename(f).toLowerCase();
           const path = f.toLowerCase();
           return name.includes(q) || path.includes(q) || fuzzyMatch(q, path);
         })
         .slice(0, 20);
 
       matchingFiles.forEach(f => {
-        const name = f.split('/').pop() || f;
+        const name = basename(f) || f;
         items.push({
           id: `file-${f}`,
           label: name,
@@ -236,7 +238,7 @@ export function CommandPalette({
         items.push({
           id: `closed-${record.id}`,
           label: record.pane.title || config?.label || paneType,
-          description: `${timeAgo}${record.projectPath ? ' · ' + record.projectPath.split('/').pop() : ''}`,
+          description: `${timeAgo}${record.projectPath ? ' · ' + getProjectLabel(record.projectPath) : ''}`,
           icon,
           category: 'recent-closed',
           shortcut: i === 0 ? '⌘⇧T' : undefined,

@@ -11,6 +11,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { TopicClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
 import { useTopicStreaming } from '@/contexts/StreamingContext';
+import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 
 const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || navigator.maxTouchPoints > 0
@@ -326,12 +327,9 @@ export const TopicItem = memo(function TopicItem({
         </span>
       )}
 
-      {/* Unread badge */}
-      {unreadCount > 0 && !isFocused && (
-        <span className="flex-shrink-0 bg-primary text-white text-[10px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none">
-          {unreadCount > 99 ? '99+' : unreadCount}
-        </span>
-      )}
+      {/* Unread badge — hidden when focused so the user doesn't see a
+          count for the topic they're actively looking at. */}
+      {!isFocused && <NotificationBadge count={unreadCount} />}
     </div>
   );
 });

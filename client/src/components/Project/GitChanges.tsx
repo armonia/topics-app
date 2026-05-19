@@ -4,6 +4,7 @@ import { Virtuoso } from 'react-virtuoso';
 import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText } from 'lucide-react';
 import type { GitStatus as _GitStatus } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
+import { basename as pathBasename } from '../../lib/path-utils';
 import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
@@ -410,7 +411,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const renderContextMenu = () => {
     if (!contextMenu) return null;
     const count = selectedFiles.size;
-    const label = count > 1 ? `${count} files` : [...selectedFiles][0]?.split('/').pop() || '';
+    const label = count > 1 ? `${count} files` : pathBasename([...selectedFiles][0] || '');
     const isUnstaged = contextMenu.group === 'unstaged';
 
     // Clamp menu to viewport
@@ -613,7 +614,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
               const renderFileRow = (file: { path: string; status: string }, group: 'staged' | 'unstaged') => {
                 const st = statusLabel(file.status);
-                const basename = file.path.split('/').pop() || file.path;
+                const basename = pathBasename(file.path) || file.path;
                 const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
                 const isSelected = selectedFiles.has(file.path);
                 return (
@@ -823,7 +824,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     const st = statusLabel(file.status);
     const isMultiSelected = selectedFiles.has(file.path);
     const isDiffOpen = selectedFile === file.path;
-    const basename = file.path.split('/').pop() || file.path;
+    const basename = pathBasename(file.path) || file.path;
     const dir = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
     return (
       <div

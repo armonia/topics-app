@@ -6,6 +6,7 @@ import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
 import { ContextPills, useContextFileTokens } from './ContextPills';
+import { basename } from '../../lib/path-utils';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
@@ -793,7 +794,7 @@ export function ChatInput({
                 {contextFilePaths.length > 0 && (
                   <ContextPills
                     files={contextFilePaths.map(cf => ({
-                      name: cf.split('/').pop() || cf,
+                      name: basename(cf) || cf,
                       path: cf,
                       tokens: contextTokenMap.get(cf),
                       type: cf.toLowerCase().includes('claude') ? 'claude' as const : 'context' as const,

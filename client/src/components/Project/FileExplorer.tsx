@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
+import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
@@ -592,7 +593,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     if (pathsToDelete.length === 0) { closeContextMenu(); return; }
 
     const msg = pathsToDelete.length === 1
-      ? `Delete "${pathsToDelete[0].split('/').pop()}"? This cannot be undone.`
+      ? `Delete "${basename(pathsToDelete[0])}"? This cannot be undone.`
       : `Delete ${pathsToDelete.length} items? This cannot be undone.`;
     const confirmed = window.confirm(msg);
     if (!confirmed) { closeContextMenu(); return; }
@@ -859,8 +860,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
     try {
       await Promise.all(paths.map(p => {
-        const basename = p.split('/').pop()!;
-        return filesApi.move(p, node.path + '/' + basename);
+        const name = basename(p);
+        return filesApi.move(p, node.path + '/' + name);
       }));
       setSelectedPaths(new Set());
       await loadFiles();
@@ -905,14 +906,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     try {
       if (cb.mode === 'copy') {
         await Promise.all(cb.paths.map(p => {
-          const basename = p.split('/').pop()!;
-          return filesApi.copy(p, targetDir + '/' + basename);
+          const name = basename(p);
+          return filesApi.copy(p, targetDir + '/' + name);
         }));
       } else {
         // cut = move
         await Promise.all(cb.paths.map(p => {
-          const basename = p.split('/').pop()!;
-          return filesApi.move(p, targetDir + '/' + basename);
+          const name = basename(p);
+          return filesApi.move(p, targetDir + '/' + name);
         }));
         clipboardRef.current = null;
         setCutPaths(new Set());
@@ -993,7 +994,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     if (!pendingFile || compact) return;
     const tryOpen = () => {
       if (editorTabsRef.current) {
-        const name = pendingFile.split('/').pop() || pendingFile;
+        const name = basename(pendingFile) || pendingFile;
         editorTabsRef.current.openFile(pendingFile, name);
         // Set selectedFile so the tree collapses to max-h-[200px]
         setSelectedFile({ name, path: pendingFile, type: 'file' });

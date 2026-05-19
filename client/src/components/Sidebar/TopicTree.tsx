@@ -17,6 +17,7 @@ import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
 import { ProjectStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { useStreamingCount } from '@/contexts/StreamingContext';
+import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -388,7 +389,7 @@ export function TopicTree({
             })()}
             {/* Unread / count */}
             {item.unreadCount > 0 ? (
-              <span className={`text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{item.unreadCount}</span>
+              <NotificationBadge count={item.unreadCount} className={isTouch ? '' : 'group-hover/proj:hidden'} />
             ) : (
               <span className={`text-[10px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{children.length}</span>
             )}
@@ -512,11 +513,7 @@ export function TopicTree({
             />
           </button>
           <div className="flex items-center gap-1 pr-1">
-            {totalUnread > 0 && (
-              <span className="text-[10px] text-white bg-primary px-1.5 rounded-full min-w-[18px] text-center leading-[14px]">
-                {totalUnread}
-              </span>
-            )}
+            <NotificationBadge count={totalUnread} />
           </div>
         </div>
         {/* Section content */}

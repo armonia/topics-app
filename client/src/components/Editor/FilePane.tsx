@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { filesApi, gitApi } from '../../lib/api';
+import { basename } from '../../lib/path-utils';
 import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
@@ -36,7 +37,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   const [mdPreview, setMdPreview] = useState(false);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
-  const filename = filePath.split('/').pop() || filePath;
+  const filename = basename(filePath) || filePath;
   const mdBaseDir = filePath.substring(0, filePath.lastIndexOf('/'));
   const mediaType = getMediaType(filename);
   const isMedia = mediaType !== 'text';
