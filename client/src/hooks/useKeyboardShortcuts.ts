@@ -200,11 +200,11 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      if (isMod && e.shiftKey && (e.key === 't' || e.key === 'T')) {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('reopen-closed-tab'));
-        return;
-      }
+      // (Shift+Cmd+T intentionally unbound here.) Previously this dispatched
+      // `reopen-closed-tab`, but the same chord is owned by ChatInput as the
+      // "toggle auto-TTS" shortcut — pressing it fired both, so a closed tab
+      // would silently re-appear every time the user toggled TTS. If reopen-
+      // closed-tab is wanted again, pick a free chord (Shift+Cmd+U is open).
 
       if (isElectron && isMod && e.key === 'w') {
         e.preventDefault();

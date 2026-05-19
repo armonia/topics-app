@@ -14,6 +14,7 @@
  */
 
 import type { ClaudeSessionPhase } from '../../types';
+import { useClaudeSessionForTopic, useClaudeProjectPhase } from '../../contexts/ClaudeSessionContext';
 
 interface Props {
   phase: ClaudeSessionPhase | undefined;
@@ -40,5 +41,55 @@ export function ClaudePhaseDot({ phase, toolName }: Props) {
       className={`inline-block flex-shrink-0 w-2 h-2 rounded-full ${cfg.bg} ${cfg.pulse ? 'animate-pulse' : ''}`}
       aria-label={title}
     />
+  );
+}
+
+/**
+ * Canonical Claude phase indicator for a single topic. Subscribes to the
+ * ClaudeSessionContext, so re-renders only when *this* topic's phase
+ * transitions — surrounding rows stay still.
+ *
+ * Used wherever a row corresponds to one chat: chat-pane tab (PaneTabBar),
+ * sidebar topic row (TopicItem). Don't roll your own — if a new surface
+ * needs a per-topic dot, drop this in.
+ */
+export function TopicClaudePhaseIndicator({
+  topicId,
+  className = '',
+}: {
+  topicId: string | undefined;
+  /** Optional wrapper classes (margins, alignment). The dot itself is fixed. */
+  className?: string;
+}) {
+  const state = useClaudeSessionForTopic(topicId);
+  if (!state) return null;
+  return (
+    <span className={`flex-shrink-0 flex items-center ${className}`}>
+      <ClaudePhaseDot phase={state.phase} toolName={state.lastTool?.name} />
+    </span>
+  );
+}
+
+/**
+ * Canonical aggregated Claude phase indicator for a project. Shows the
+ * highest-priority phase among every chat associated with `projectPath`
+ * (see ClaudeSessionContext.getAggregatedPhaseByProjectPath).
+ *
+ * Used wherever a row corresponds to a project surface: project-pane tab
+ * (PaneTabBar), sidebar project row (TopicTree).
+ */
+export function ProjectClaudePhaseIndicator({
+  projectPath,
+  className = '',
+}: {
+  projectPath: string | undefined;
+  className?: string;
+}) {
+  const phase = useClaudeProjectPhase(projectPath);
+  if (!phase) return null;
+  return (
+    <span className={`flex-shrink-0 flex items-center ${className}`}>
+      <ClaudePhaseDot phase={phase} />
+    </span>
   );
 }

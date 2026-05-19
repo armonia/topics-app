@@ -14,6 +14,7 @@ import { createPaneId, useProjectTabStatus, getAddableTypesForScope } from '@/st
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
+import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -354,6 +355,10 @@ export function TopicTree({
             <span className="truncate flex-1">{item.name}</span>
           </button>
           <div className="flex items-center pr-1 flex-shrink-0">
+            {/* Aggregated Claude phase across every chat inside this project —
+                same component the project tab uses (PaneTabBar). One
+                source of truth for the lifecycle dot across the app. */}
+            <ProjectClaudePhaseIndicator projectPath={pp} className="mr-1.5" />
             {/* Git/process status indicators */}
             {(() => {
               const ps = projectTabStatus[pp];
@@ -868,6 +873,7 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
   if (!status) return null;
   return <PendingActionProgressOverlay status={status} />;
 }
+
 
 /**
  * Browser sidebar item — extracted from the parent's `renderBrowserItem`

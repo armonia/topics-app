@@ -9,6 +9,7 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { TopicClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
 
 const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || navigator.maxTouchPoints > 0
@@ -206,6 +207,13 @@ export const TopicItem = memo(function TopicItem({
         {topic.name}
       </span>
 
+      {/* Claude lifecycle phase indicator — same component the chat tab
+          uses (PaneTabBar). Sits to the LEFT of the streaming spinner so
+          the two cues read as separate dimensions: phase = "what Claude is
+          doing across this session", streaming = "an SSE chunk is arriving
+          right now". */}
+      <TopicClaudePhaseIndicator topicId={topic.id} className="mr-1" />
+
       {/* Streaming spinner */}
       {isStreaming ? (
         <button
@@ -325,3 +333,4 @@ export const TopicItem = memo(function TopicItem({
     </div>
   );
 });
+
