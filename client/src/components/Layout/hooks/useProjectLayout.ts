@@ -860,16 +860,50 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // which the user reported as "le tab shell non si animano".
       const topic = pane.topicId ? topics[pane.topicId] : undefined;
       const color = pane.color || topic?.color;
+
+      // Pre-shift the group's active pane to the tab that handleClosePaneNow
+      // will pick on commit (line 829: same-index, clamped to last remaining).
+      // Lets the user see the destination while the 3s progress runs. Skip
+      // when this isn't the active pane of its group (closing a background
+      // tab must not steal focus).
+      const targetGroup = groups.find(g => g.id === groupId);
+      let activeBeforeClose: string | null = null;
+      if (targetGroup && targetGroup.activePaneId === paneId) {
+        const remaining = targetGroup.paneIds.filter(id => id !== paneId);
+        if (remaining.length > 0) {
+          const idx = targetGroup.paneIds.indexOf(paneId);
+          const nextActive = remaining[Math.min(idx, remaining.length - 1)];
+          activeBeforeClose = paneId;
+          setGroups(prev =>
+            prev.map(g => (g.id === groupId ? { ...g, activePaneId: nextActive } : g)),
+          );
+        }
+      }
+
       enqueuePendingAction({
         key,
         kind: 'close-tab',
         label: pane.title || pane.type,
         ...(color ? { color } : {}),
         commit: () => handleClosePaneNow(groupId, paneId),
+        // Restore active pane if the user cancels before the countdown ends.
+        // Only when we actually shifted, otherwise this becomes a spurious
+        // refocus that fights other user navigation during the 3 s window.
+        onCancel: activeBeforeClose
+          ? () => {
+              setGroups(prev =>
+                prev.map(g =>
+                  g.id === groupId && g.paneIds.includes(activeBeforeClose!)
+                    ? { ...g, activePaneId: activeBeforeClose! }
+                    : g,
+                ),
+              );
+            }
+          : undefined,
       });
       tickPendingAction(key);
     },
-    [panes, topics, handleClosePaneNow],
+    [panes, topics, handleClosePaneNow, groups],
   );
 
   const handleReopenLastClosed = useCallback(async () => {

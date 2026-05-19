@@ -345,14 +345,35 @@ function App() {
   const handleClosePanelDeferred = useCallback((topicId: string) => {
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
+    // Pre-shift focus to the tab that WILL receive focus on commit, so the
+    // user already sees the destination while the 3s progress runs (the
+    // commit path uses the same "last remaining pane" rule). Only relevant
+    // when this pane was the focused one — closing a background tab must
+    // not steal focus from where the user is currently looking.
+    let focusBeforeClose: string | null = null;
+    if (focusedPanelId === topicId) {
+      const remaining = openPanels.filter(id => id !== topicId);
+      const nextFocus = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+      if (nextFocus) {
+        focusBeforeClose = topicId;
+        handleFocusPanel(nextFocus);
+      }
+    }
     enqueueAndTick({
       key: `close-tab:${topicId}`,
       kind: 'close-tab',
       label,
       color: topic?.color,
       commit: () => handleClosePanel(topicId),
+      // Restore focus if the user cancels mid-countdown — without this, the
+      // tab they pressed cancel on isn't the one in front anymore. We only
+      // restore when we actually shifted (focusBeforeClose is non-null),
+      // otherwise this becomes a no-op refocus of an unrelated pane.
+      onCancel: focusBeforeClose
+        ? () => handleFocusPanel(focusBeforeClose!)
+        : undefined,
     });
-  }, [topics, handleClosePanel, enqueueAndTick]);
+  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, openPanels, handleFocusPanel]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
     // Unarchive (archive=false) is restorative — commit immediately.

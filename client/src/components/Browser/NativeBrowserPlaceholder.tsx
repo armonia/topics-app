@@ -161,6 +161,22 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     };
     window.addEventListener('transitionend', onTransitionEnd, true);
 
+    // External reflow request — when the user jumps to this browser pane
+    // from a chat header button, the chat dispatches `browser:reflow-request`
+    // so the placeholder forces an immediate `setBounds`. Cures the
+    // white-screen case where the WebContentsView is stuck at {0,0,0,0}
+    // because the layout's polling window expired before CSS transitions
+    // settled. We also bust the coalescing cache so updateBounds actually
+    // emits — otherwise lastSentJson would short-circuit a no-op.
+    const onReflowRequest = (ev: Event) => {
+      const ce = ev as CustomEvent<{ contextId?: string }>;
+      // No contextId filter = reflow all; otherwise match this pane's view.
+      if (ce.detail?.contextId && ce.detail.contextId && !browser.viewId) return;
+      lastSentJson = '';
+      requestAnimationFrame(() => requestAnimationFrame(updateBounds));
+    };
+    window.addEventListener('browser:reflow-request', onReflowRequest as EventListener);
+
     return () => {
       ro.disconnect();
       mo.disconnect();
@@ -168,6 +184,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       window.removeEventListener('resize', updateBounds);
       window.removeEventListener('scroll', updateBounds, { capture: true });
       window.removeEventListener('transitionend', onTransitionEnd, true);
+      window.removeEventListener('browser:reflow-request', onReflowRequest as EventListener);
       offReflow?.();
       // On unmount, hide the view (the destroy in useNativeBrowser will
       // remove it shortly after).

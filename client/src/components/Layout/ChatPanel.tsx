@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Settings, Pin, X, ExternalLink, Layers, ArrowLeft, Crown } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Layers, ArrowLeft, Crown, Globe } from 'lucide-react';
+import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
@@ -120,6 +121,11 @@ export function ChatPanel({
   const isDraft = topic.id.startsWith('draft:');
   useContextInspector(isDraft ? null : topic.id);
 
+  // Jump-to-browser affordance: surfaces a header button when this topic
+  // has previously spawned a browser pane via /browser <url> or the LLM
+  // browser tool. Null when no spawn has happened — hides the button.
+  const spawnedBrowserCtx = useSpawnedBrowser(isDraft ? null : topic.id);
+
   const currentMessages = getSessionMessages(topic.sessionKey);
 
   useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, isDraft, topic.id, sendWS]);
@@ -161,6 +167,30 @@ export function ChatPanel({
             </div>
           )}
           {!headerLeft && <div className="flex-1" />}
+          {/* Jump-to-spawned-browser — visible only when this chat has
+              previously opened a browser pane (tracked in browserSpawner).
+              Focuses the browser pane id `browser:<contextId>` and emits a
+              `browser:reflow-request` event so NativeBrowserPlaceholder
+              re-issues setBounds immediately. The reflow side-effect is
+              the practical fix for the intermittent white-screen on focus
+              (CSS transition outpaces the polling window in the placeholder). */}
+          {!headerLeft && spawnedBrowserCtx && onFocusPanel && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onFocusPanel(`browser:${spawnedBrowserCtx}`);
+                window.dispatchEvent(new CustomEvent('browser:reflow-request', {
+                  detail: { contextId: spawnedBrowserCtx },
+                }));
+              }}
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors app-no-drag"
+              title="Vai al browser aperto da questa chat"
+              aria-label="Vai al browser"
+              data-testid="chat-jump-to-browser"
+            >
+              <Globe size={14} />
+            </button>
+          )}
           {/* Context Inspector toggle — hidden when headerLeft has rings */}
           {!headerLeft && (
             <button
@@ -245,6 +275,7 @@ export function ChatPanel({
                       }
                       return undefined;
                     })()}
+                    isMasterStreaming={isSessionStreaming(topic.sessionKey)}
                   />
                 ) : undefined}
               />

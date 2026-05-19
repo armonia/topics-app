@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Home, ExternalLink, Globe, Clock, Code2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, Home, ExternalLink, Globe, Clock, Code2, CornerUpLeft } from 'lucide-react';
 
 interface BrowserToolbarProps {
   url: string;
@@ -19,6 +19,14 @@ interface BrowserToolbarProps {
   faviconUrl?: string;
   /** Phase 30.1 polish — register a focus-the-URL-bar callback. Cmd+L wires here. */
   onRegisterFocus?: (focusFn: () => void) => void;
+  /** Reciprocal of ChatPanel's jump-to-browser button. When this browser was
+   *  spawned from a chat (tracked via `browserSpawner` registry), the wrapper
+   *  passes a callback that focuses the spawning chat pane. Renders a small
+   *  back-arrow chip on the left of the URL bar — hidden when undefined. */
+  onBackToSpawner?: () => void;
+  /** Optional label shown in the tooltip (e.g. the spawner chat name) so the
+   *  user knows where the back button will take them without guessing. */
+  spawnerLabel?: string;
 }
 
 export function BrowserToolbar({
@@ -35,6 +43,8 @@ export function BrowserToolbar({
   onToggleDevTools,
   faviconUrl,
   onRegisterFocus,
+  onBackToSpawner,
+  spawnerLabel,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -146,6 +156,23 @@ export function BrowserToolbar({
       >
         <Home size={14} />
       </button>
+
+      {/* Back-to-spawner — surfaces only when this browser was opened from a
+          chat (the spawner registry has a mapping). Sits just before the URL
+          bar so it visually pairs with the favicon, making the affordance
+          read as "where this page came from". */}
+      {onBackToSpawner && (
+        <button
+          type="button"
+          onClick={onBackToSpawner}
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-primary/15 text-app-text-secondary hover:text-primary transition-colors"
+          title={spawnerLabel ? `Torna alla chat "${spawnerLabel}"` : 'Torna alla chat che ha aperto questo browser'}
+          aria-label="Torna alla chat spawner"
+          data-testid="browser-back-to-spawner"
+        >
+          <CornerUpLeft size={14} />
+        </button>
+      )}
 
       {/* URL bar */}
       <form onSubmit={handleSubmit} className="flex-1 min-w-0">

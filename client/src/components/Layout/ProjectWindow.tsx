@@ -341,6 +341,8 @@ export function ProjectWindowPane({
               isVisible={isVisible}
               navigateUrl={isVisible && browserNavigateUrl ? browserNavigateUrl : undefined}
               onNavigateConsumed={isVisible ? () => setBrowserNavigateUrl(null) : undefined}
+              onFocusPanel={onFocusPanel}
+              topics={topics}
             />
           </Suspense>
         );

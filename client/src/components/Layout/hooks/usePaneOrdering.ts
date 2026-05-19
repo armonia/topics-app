@@ -29,6 +29,7 @@ import { findPreviewInList, replaceInList } from '../../../lib/previewTabs';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
 import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
+import { setBrowserSpawner } from '../../../state/browserSpawner';
 
 /**
  * Phase 30.1 polish — persist a browser pane in the global pane store so
@@ -277,6 +278,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           if (resolvedId) {
             queueMicrotask(() => onFocusPanel(resolvedId));
             persistBrowserPane(resolvedId);
+            // Record spawner relationship: chat → browser. Lets the chat
+            // header surface a jump-to-browser button and the browser
+            // toolbar surface a jump-back-to-chat button.
+            const ctx = getBrowserContextFromPaneId(resolvedId);
+            if (ctx && msg.topicId) setBrowserSpawner(ctx, msg.topicId);
           }
           return next;
         });
@@ -309,6 +315,8 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         if (resolvedId) {
           queueMicrotask(() => onFocusPanel(resolvedId));
           persistBrowserPane(resolvedId);
+          const ctx = getBrowserContextFromPaneId(resolvedId);
+          if (ctx && ce.detail?.topicId) setBrowserSpawner(ctx, ce.detail.topicId);
         }
         return next;
       });

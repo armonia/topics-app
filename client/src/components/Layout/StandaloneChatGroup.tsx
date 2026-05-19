@@ -576,6 +576,11 @@ export function StandaloneChatGroup({
             // native view would stay at its last-known bounds and bleed
             // through underneath the active pane.
             isVisible={isPaneActive}
+            // Wires the back-to-spawner toolbar button — the panel reads
+            // browserSpawner registry internally and only surfaces the
+            // button when this browser was opened from a known chat.
+            onFocusPanel={onFocusPanel}
+            topics={topics}
           />
         </Suspense>
       );

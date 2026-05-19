@@ -3,10 +3,12 @@ import { Globe, Loader2 } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useNativeBrowser } from '../../hooks/useNativeBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { DownloadStrip } from './DownloadStrip';
+import { useBrowserSpawner } from '../../state/browserSpawner';
+import type { Topic } from '../../types';
 
 interface RemoteBrowserPanelProps {
   contextId: string;
@@ -21,6 +23,13 @@ interface RemoteBrowserPanelProps {
    *  in the Electron native path — the OS-level overlay can't observe
    *  CSS display state on its own. Defaults to true for legacy callers. */
   isVisible?: boolean;
+  /** Optional layout-side focus callback. When provided + this browser has
+   *  a recorded spawner chat (browserSpawner registry), the toolbar shows a
+   *  back-arrow that focuses the spawner topic pane. Undefined = no button. */
+  onFocusPanel?: (paneId: string) => void;
+  /** Topics map used to look up the spawner's display name for the back
+   *  button tooltip. Indexed by topic id. */
+  topics?: Record<string, Topic>;
 }
 
 // Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
@@ -29,7 +38,7 @@ interface RemoteBrowserPanelProps {
 // error in this mode (acknowledged constraint).
 const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   // Phase 30.1 BROWSER-CHAT-06 — Electron native render path.
   // Detect via window.electronAPI?.browserNative?.isAvailable. In Electron,
   // skip mounting useRemoteBrowser entirely (no WS streaming, no CDP screencast,
@@ -46,6 +55,8 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         onUrlChange={onUrlChange}
         onNavigateConsumed={onNavigateConsumed}
         isVisible={isVisible}
+        onFocusPanel={onFocusPanel}
+        topics={topics}
       />
     );
   }
@@ -58,13 +69,44 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       navigateUrl={navigateUrl}
       onUrlChange={onUrlChange}
       onNavigateConsumed={onNavigateConsumed}
+      onFocusPanel={onFocusPanel}
+      topics={topics}
     />
   );
 }
 
-function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed }: RemoteBrowserPanelProps) {
+/**
+ * Shared spawner-aware back-button wiring. Both panel inner-components
+ * (streaming + native) call this to derive the BrowserToolbar's
+ * `onBackToSpawner` + `spawnerLabel` props from the registry, layout focus
+ * callback, and topics map. Returns `undefined` when no back button should
+ * render — either because no spawner was recorded, the layout did not pass
+ * a focus callback, or the spawner topic no longer exists.
+ */
+function useBackToSpawner(
+  contextId: string,
+  onFocusPanel?: (paneId: string) => void,
+  topics?: Record<string, Topic>,
+): { onBackToSpawner: () => void; spawnerLabel?: string } | undefined {
+  const spawnerTopicId = useBrowserSpawner(contextId);
+  return useMemo(() => {
+    if (!spawnerTopicId || !onFocusPanel) return undefined;
+    // Only surface the button when the topic is known to this renderer
+    // (avoids a "back to ???" with a dead target if the spawner was
+    // archived or closed). Using topics?.[id] is null-safe.
+    const topic = topics?.[spawnerTopicId];
+    if (!topic) return undefined;
+    return {
+      onBackToSpawner: () => onFocusPanel(spawnerTopicId),
+      spawnerLabel: topic.name,
+    };
+  }, [spawnerTopicId, onFocusPanel, topics]);
+}
+
+function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useRemoteBrowser(contextId);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
+  const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
 
   // React to external navigateUrl prop
   useEffect(() => {
@@ -114,6 +156,8 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
           canGoForward={true}
           loading={browser.loading}
           history={history}
+          onBackToSpawner={backToSpawner?.onBackToSpawner}
+          spawnerLabel={backToSpawner?.spawnerLabel}
         />
         <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
           <iframe
@@ -177,6 +221,8 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
         canGoForward={true}
         loading={browser.loading}
         history={history}
+        onBackToSpawner={backToSpawner?.onBackToSpawner}
+        spawnerLabel={backToSpawner?.spawnerLabel}
       />
 
       {/* Content — screenshot viewer */}
@@ -308,9 +354,10 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
  * NativeBrowserPlaceholder. Cmd+Shift+E select-element overlay is NOT
  * mounted in this mode (deferred — see SUMMARY for rationale).
  */
-function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true }: RemoteBrowserPanelProps) {
+function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useNativeBrowser(contextId, initialUrl);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
+  const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
   const focusUrlBarRef = useRef<(() => void) | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
@@ -461,6 +508,8 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         onToggleDevTools={browser.toggleDevTools}
         faviconUrl={browser.faviconUrl}
         onRegisterFocus={(fn) => { focusUrlBarRef.current = fn; }}
+        onBackToSpawner={backToSpawner?.onBackToSpawner}
+        spawnerLabel={backToSpawner?.spawnerLabel}
       />
       {/* Phase 30.1 polish — Find-in-page bar. Opens on Cmd+F, closes on Esc
           or "x" button. Sends each keystroke to the WebContentsView via
