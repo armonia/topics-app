@@ -13,6 +13,8 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
+import { useClaudeSessionForTopic } from '../../contexts/ClaudeSessionContext';
+import { ClaudePhaseDot } from './ClaudePhaseDot';
 
 /** Pane types where the "mark as done" / countdown affordance doesn't
  *  fit semantically — they're read-only viewers (a file open in a viewer,
@@ -29,6 +31,17 @@ const READ_ONLY_PANE_TYPES: ReadonlySet<PaneType> = new Set<PaneType>([
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
 };
+
+/**
+ * Per-tab Claude session phase indicator. Read-only sub-component so the
+ * context hook is scoped to one pane — keeps re-renders local when one
+ * session transitions and the rest of the tabs stay still.
+ */
+function PaneClaudeIndicator({ topicId }: { topicId: string | undefined }) {
+  const state = useClaudeSessionForTopic(topicId);
+  if (!state) return null;
+  return <ClaudePhaseDot phase={state.phase} toolName={state.lastTool?.name} />;
+}
 
 interface PaneTabBarProps {
   panes: Pane[];
@@ -453,6 +466,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <Icon size={14} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
             ) : null}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            {/* Claude Code session phase indicator — runs/tools/approvals.
+                Only chat panes have a tracked Claude session (terminal
+                claude-code panes have a different sessionKey shape that the
+                tracker doesn't index by topicId yet). */}
+            {pane.type === 'chat' && pane.topicId && <PaneClaudeIndicator topicId={pane.topicId} />}
             {pane.type === 'project' && projectStatus?.[pane.id] && (() => {
               const ps = projectStatus[pane.id];
               const showBranch = ps.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
