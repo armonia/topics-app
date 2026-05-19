@@ -12,6 +12,7 @@ import { GlobalTabIndexProvider } from './contexts/GlobalTabIndexContext';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { ClaudeSessionProvider } from './contexts/ClaudeSessionContext';
+import { StreamingProvider } from './contexts/StreamingContext';
 import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
@@ -494,6 +495,7 @@ function App() {
   return (
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <ClaudeSessionProvider topics={topics} sessions={claudeSessions}>
+    <StreamingProvider topics={topics} isSessionStreaming={isSessionStreaming}>
     <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
@@ -1050,6 +1052,7 @@ function App() {
     </PendingActionProvider>
     </ToastProvider>
     </GlobalTabIndexProvider>
+    </StreamingProvider>
     </ClaudeSessionProvider>
     </TabNotificationProvider>
   );

@@ -15,6 +15,8 @@ import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
+import { ProjectStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { useStreamingCount } from '@/contexts/StreamingContext';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -63,6 +65,12 @@ export interface TopicTreeProps {
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
   onProjectClick?: (projectPath: string) => void;
+  /**
+   * @deprecated — streaming state now reads from StreamingContext.
+   * Kept here so the prop type remains backwards compatible with callers
+   * that haven't been migrated yet; the value is ignored. Drop after
+   * the migration is done.
+   */
   isSessionStreaming?: (sessionKey: string) => boolean;
   stopSession?: (sessionKey: string) => boolean;
   boardTaskCounts?: Record<string, number>;
@@ -111,7 +119,7 @@ export function TopicTree({
   onNewTopicInProject,
   onAddProjectPane,
   onProjectClick,
-  isSessionStreaming,
+  isSessionStreaming: _isSessionStreamingDeprecated,
   stopSession,
   boardTaskCounts,
   onOpenProjectBoard,
@@ -169,10 +177,10 @@ export function TopicTree({
     return () => document.removeEventListener('mousedown', h);
   }, [projectContextMenu]);
 
-  // Count actively streaming sessions
-  const activeStreamingCount = isSessionStreaming
-    ? Object.values(topics).filter(t => isSessionStreaming(t.sessionKey)).length
-    : 0;
+  // Total streaming session count from the canonical context. Was a
+  // per-render O(N) filter over `topics` driven by the legacy
+  // isSessionStreaming prop; now pre-computed once at provider scope.
+  const activeStreamingCount = useStreamingCount();
 
   // ── Build unified items ──────────────────────────────────────────────────
 
@@ -250,7 +258,8 @@ export function TopicTree({
         isOpen={isOpen}
         isFocused={isFocused}
         isPreview={previewPanelId === topic.id}
-        isStreaming={isSessionStreaming ? isSessionStreaming(topic.sessionKey) : false}
+        /* isStreaming is now read from StreamingContext inside TopicItem —
+           no need to drill it through. */
         unreadCount={item.unreadCount}
         assignedAgentCount={topic.assignedAgents?.length || 0}
         onToggle={() => {}}
@@ -321,11 +330,6 @@ export function TopicTree({
     const allArchived = item.archived;
     const children = item.children || [];
     const allChats = children.filter(c => c.type === 'chat').map(c => c.topic!);
-    // Aggregated streaming signal for this project — true when any chat
-    // inside is currently streaming an LLM response. Mirrors the top-tab-
-    // bar aggregation in StandaloneChatGroup so the sidebar and tab bar
-    // report identically.
-    const anyChatStreaming = !!isSessionStreaming && allChats.some(t => isSessionStreaming(t.sessionKey));
 
     return (
       <div key={item.id}>
@@ -360,24 +364,14 @@ export function TopicTree({
             <span className="truncate flex-1">{item.name}</span>
           </button>
           <div className="flex items-center pr-1 flex-shrink-0">
-            {/* Aggregated Claude phase across every chat inside this project —
-                same component the project tab uses (PaneTabBar). One
-                source of truth for the lifecycle dot across the app. */}
+            {/* Two canonical project-level loading indicators, same
+                components the project tab uses (PaneTabBar):
+                  phase dot     → Claude lifecycle (running, awaiting…)
+                  streaming spinner → an SSE chunk is arriving right now
+                Both read from their respective contexts; we just place
+                them. */}
             <ProjectClaudePhaseIndicator projectPath={pp} className="mr-1.5" />
-            {/* Streaming spinner — when any chat inside the project is
-                producing an LLM response. Visible alongside the phase
-                dot because the two convey different things: phase = what
-                Claude is doing across the session, streaming = an SSE
-                chunk is arriving right now. */}
-            {anyChatStreaming && (
-              <span
-                className="flex-shrink-0 mr-1.5 w-3 h-3 flex items-center justify-center"
-                title="Una chat di questo progetto sta rispondendo"
-                aria-label="Inner chat is streaming"
-              >
-                <span className="w-2.5 h-2.5 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
-              </span>
-            )}
+            <ProjectStreamingSpinner projectPath={pp} className="mr-1.5" />
             {/* Git/process status indicators */}
             {(() => {
               const ps = projectTabStatus[pp];

@@ -214,24 +214,20 @@ export function ProjectWindowPane({
   // StandaloneChatGroup for the full rationale; the project window
   // mirrors the same wiring so terminal tabs inside a project pulse
   // the same way as terminal tabs at top-level.
+  // Only terminal pane PTY pulses end up in this Set — chat streaming
+  // is read directly from StreamingContext inside PaneTabBar. Same
+  // shape as StandaloneChatGroup so the inner project tab bar mirrors
+  // top-level behaviour.
   const activeTerminalIds = useTerminalActivity();
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
     for (const p of panes) {
-      if (p.type === 'chat' && p.topicId) {
-        const topic = topics[p.topicId];
-        if (topic && isSessionStreaming(topic.sessionKey)) {
-          ids.add(p.id);
-        }
-      } else if (p.type === 'terminal') {
-        const sessionId = getTerminalSessionFromPaneId(p.id);
-        if (sessionId && activeTerminalIds.has(sessionId)) {
-          ids.add(p.id);
-        }
-      }
+      if (p.type !== 'terminal') continue;
+      const sessionId = getTerminalSessionFromPaneId(p.id);
+      if (sessionId && activeTerminalIds.has(sessionId)) ids.add(p.id);
     }
     return ids;
-  }, [panes, topics, isSessionStreaming, activeTerminalIds]);
+  }, [panes, activeTerminalIds]);
 
   const handleStopStreaming = layout.handlers.stopStreaming;
 

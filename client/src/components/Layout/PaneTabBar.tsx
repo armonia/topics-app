@@ -14,6 +14,7 @@ import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicClaudePhaseIndicator, ProjectClaudePhaseIndicator } from './ClaudePhaseDot';
+import { TopicStreamingSpinner, ProjectStreamingSpinner } from './StreamingIndicator';
 
 /** Pane types where the "mark as done" / countdown affordance doesn't
  *  fit semantically — they're read-only viewers (a file open in a viewer,
@@ -402,17 +403,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const showLeftIndicator = dragOverIdx === paneIdx && hasDragSource && isNotSelf;
         const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && hasDragSource && isNotSelf;
         // Streaming spinner: chat panes pulse during an LLM stream;
-        // terminal panes pulse while their pty is producing output (the
-        // pulse is fed by `terminal:activity` window events that
-        // SingleTerminalPane dispatches per WS data frame, decayed by
-        // `useTerminalActivity` after ~1.5 s of idle).
-        // project panes pulse when any chat inside the project is
-        // streaming — the aggregation lives in StandaloneChatGroup so
-        // the project tab surfaces the same signal as its inner chat
-        // tabs (otherwise the cue vanishes when the user navigates away
-        // from the project). Other pane types (browser, file viewer,
-        // etc.) don't have a meaningful "in progress" signal.
-        const isPaneStreaming = !!streamingPaneIds?.has(pane.id) && (pane.type === 'chat' || pane.type === 'terminal' || pane.type === 'project');
+        // `streamingPaneIds` carries ONLY terminal PTY pulses now —
+        // chat + project streaming flow through StreamingContext via
+        // the TopicStreamingSpinner / ProjectStreamingSpinner widgets
+        // below. Kept as a pane-id Set because PTY activity is tracked
+        // per pty session id which we re-key to pane id upstream.
+        const isPaneStreaming = !!streamingPaneIds?.has(pane.id) && pane.type === 'terminal';
         const badgeCount = !isActive && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
@@ -497,46 +493,31 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 </span>
               );
             })()}
-            {isPaneStreaming && (
-              pane.type === 'chat' ? (
-                // Chat: click → stop the LLM stream. Hover swaps the
-                // spinner for a stop icon to make the affordance obvious.
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStopStreaming?.(pane.id); }}
-                  className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer group/stop"
-                  title="Stop generating"
-                >
-                  <div className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
-                  <div className="w-[7px] h-[7px] bg-primary rounded-[1px] hidden group-hover/stop:block" />
-                </button>
-              ) : pane.type === 'terminal' ? (
-                // Terminal: pty output isn't an "interruptible stream"
-                // the way an LLM generation is — Ctrl+C lives inside
-                // the terminal itself. Show a non-interactive spinner
-                // so the user sees the tab is producing output, but
-                // skip the hover stop affordance to avoid implying a
-                // click does something it can't.
-                <span
-                  className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
-                  title="Output streaming"
-                  aria-label="Terminal is producing output"
-                >
-                  <span className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
-                </span>
-              ) : (
-                // Project tab: aggregation — a chat inside is streaming.
-                // Stopping that stream requires drilling into the chat,
-                // so render a non-interactive spinner. The dot indicator
-                // (ProjectClaudePhaseIndicator above) already encodes the
-                // *phase* of any tracked Claude session in this project.
-                <span
-                  className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
-                  title="Una chat di questo progetto sta rispondendo"
-                  aria-label="Inner chat is streaming"
-                >
-                  <span className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
-                </span>
-              )
+            {/* Streaming spinner — canonical components from
+                StreamingIndicator.tsx, each reading from StreamingContext.
+                Chat: interruptible (passes onStop). Project: read-only
+                aggregation. Terminal: still gated by `isPaneStreaming`
+                because terminal activity is a different signal source
+                (useTerminalActivity, not StreamingContext) — kept inline
+                here to avoid spreading PTY semantics into the streaming
+                indicator. */}
+            {pane.type === 'chat' && pane.topicId && (
+              <TopicStreamingSpinner
+                topicId={pane.topicId}
+                onStop={onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
+              />
+            )}
+            {pane.type === 'project' && pane.projectPath && (
+              <ProjectStreamingSpinner projectPath={pane.projectPath} />
+            )}
+            {pane.type === 'terminal' && isPaneStreaming && (
+              <span
+                className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
+                title="Output streaming"
+                aria-label="Terminal is producing output"
+              >
+                <span className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
+              </span>
             )}
             {badgeCount > 0 && (
               <span className="ml-0.5 px-1 min-w-[16px] h-4 text-[10px] font-semibold bg-primary text-white rounded-full flex items-center justify-center flex-shrink-0 leading-none">

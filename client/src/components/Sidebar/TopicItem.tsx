@@ -10,6 +10,7 @@ import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionP
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { TopicClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
+import { useTopicStreaming } from '@/contexts/StreamingContext';
 
 const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || navigator.maxTouchPoints > 0
@@ -37,6 +38,12 @@ interface TopicItemProps {
   isPreview?: boolean;
   isArchived?: boolean;
   isProject?: boolean;
+  /**
+   * @deprecated — kept for backwards compatibility with callers that still
+   * pass it. The component now reads the canonical signal from
+   * StreamingContext via `useTopicStreaming(topic.id)`; the prop is
+   * ignored. Remove from your call site.
+   */
   isStreaming?: boolean;
   unreadCount?: number;
   assignedAgentCount?: number;
@@ -60,7 +67,7 @@ export const TopicItem = memo(function TopicItem({
   isPreview,
   isArchived,
   isProject: _isProject,
-  isStreaming,
+  isStreaming: _isStreamingDeprecated,
   unreadCount = 0,
   assignedAgentCount = 0,
   onToggle,
@@ -73,6 +80,9 @@ export const TopicItem = memo(function TopicItem({
   hideIcon,
 }: TopicItemProps) {
   const paddingLeft = 12 + depth * 16;
+  // Canonical streaming signal — same context the chat tab reads. No
+  // upstream prop needed; deduplicates the wiring across surfaces.
+  const isStreaming = useTopicStreaming(topic.id);
 
   const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: topic.id,
