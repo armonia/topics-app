@@ -1,3 +1,18 @@
+// Shared types — canonical defs live in /shared/types.ts so server +
+// client can't drift. Re-exported here so existing call sites that do
+// `import type { X } from '@/types'` keep working unchanged.
+export type {
+  ToolCallStatus,
+  ProviderStatus,
+  ProviderRequirement,
+  ProviderSnapshotEntry,
+  ProvidersSnapshot,
+} from '../../../shared/types';
+import type {
+  ToolCallStatus,
+  ProvidersSnapshot,
+} from '../../../shared/types';
+
 export type AutonomyLevel = 'ask' | 'auto-apply' | 'yolo';
 
 export interface Topic {
@@ -163,7 +178,7 @@ export interface ToolCall {
    * `POST /api/chat/tool-response`, then to terminal status when the
    * provider acknowledges.
    */
-  status?: 'pending' | 'running' | 'waiting_for_input' | 'success' | 'error';
+  status?: ToolCallStatus;
   result?: string;
   error?: string;
   contentOffset?: number;
@@ -339,40 +354,9 @@ export interface ChatRequest {
 }
 
 // ============ Providers ============
-
-export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
-
-export interface ProviderRequirement {
-  key: string;
-  label: string;
-  present: boolean;
-  hint?: string;
-}
-
-/**
- * One row in the provider snapshot. Combines diagnostic + model list so the
- * picker, settings page, and any other consumer subscribe to a single shape.
- * Mirrors `server/providers/types.ts:ProviderSnapshotEntry`.
- */
-export interface ProviderSnapshotEntry {
-  name: string;
-  label?: string;
-  status: ProviderStatus;
-  isDefault: boolean;
-  binaryPath?: string;
-  version?: string;
-  models: string[];
-  requirements: ProviderRequirement[];
-  lastError?: string;
-  fetchedAt: string;
-}
-
-/** Server-authoritative snapshot served via REST and WS. */
-export interface ProvidersSnapshot {
-  providers: ProviderSnapshotEntry[];
-  defaultProvider: string | null;
-  generatedAt: string;
-}
+// ProviderStatus / ProviderRequirement / ProviderSnapshotEntry /
+// ProvidersSnapshot now live in shared/types.ts. Re-exported at the
+// top of this file for back-compat with existing imports.
 
 export interface HistoryRequest {
   limit?: number;

@@ -1,5 +1,9 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
+import type { ToolCallStatus } from "../shared/types";
+
+// Re-export so existing imports `from "./types"` keep resolving.
+export type { ToolCallStatus } from "../shared/types";
 
 export interface WSData {
   id: string;
@@ -58,13 +62,8 @@ export interface ToolCall {
    * `unknown` over `any` so callers must narrow before use.
    */
   args: Record<string, unknown>;
-  /**
-   * `waiting_for_input` — the tool paused the stream to ask the user.
-   * See `client/src/types/index.ts:ToolCall` for the full lifecycle
-   * narrative; this comment intentionally short to keep the file
-   * scannable. Keep the union in lockstep with the client.
-   */
-  status?: 'pending' | 'running' | 'waiting_for_input' | 'success' | 'error';
+  /** Lifecycle status — see ToolCallStatus in shared/types.ts. */
+  status?: ToolCallStatus;
   result?: string;
   error?: string;
   contentOffset?: number;

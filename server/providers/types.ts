@@ -178,19 +178,14 @@ export type ProviderContextStrategy =
 
 // ============ Status & Diagnostics ============
 
-/** 4-state provider status (pattern from Paseo) */
-export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
+// ProviderStatus + ProviderRequirement live in shared/types.ts so the
+// client doesn't keep a parallel definition that can drift. Re-exported
+// below for back-compat with `import { ProviderStatus } from
+// "./providers/types"`.
+export type { ProviderStatus, ProviderRequirement } from "../../shared/types";
 
-export interface ProviderRequirement {
-  /** Stable id, e.g. "GATEWAY_URL", "ANTHROPIC_API_KEY", "claude-cli" */
-  key: string;
-  /** Human-readable label */
-  label: string;
-  /** Whether this requirement is currently satisfied */
-  present: boolean;
-  /** Optional copy-paste hint to fix it (shell command, env var line, etc.) */
-  hint?: string;
-}
+// Import the type so the local references in this file resolve.
+import type { ProviderStatus } from "../../shared/types";
 
 export interface ProviderDiagnostic {
   name: string;
@@ -458,35 +453,9 @@ export type ProviderConfig =
   | OpenAIProviderConfig;
 
 // ============ Snapshot (server-authoritative state for clients) ============
-
-/**
- * One row in the provider snapshot. Combines the diagnostic surface (status,
- * requirements, version) with the model list, so clients have a single
- * payload to subscribe to.
- */
-export interface ProviderSnapshotEntry {
-  name: string;
-  /** Pretty label for UI; falls back to `name` when absent. */
-  label?: string;
-  status: ProviderStatus;
-  isDefault: boolean;
-  binaryPath?: string;
-  version?: string;
-  models: string[];
-  requirements: ProviderRequirement[];
-  lastError?: string;
-  /** ISO 8601 timestamp of when this entry was last refreshed. */
-  fetchedAt: string;
-}
-
-/** Full snapshot broadcast over WS / served from REST. */
-export interface ProvidersSnapshot {
-  providers: ProviderSnapshotEntry[];
-  /** Default provider name as resolved server-side; null if none configured. */
-  defaultProvider: string | null;
-  /** ISO 8601 timestamp marking when this snapshot was assembled. */
-  generatedAt: string;
-}
+// ProviderSnapshotEntry + ProvidersSnapshot live in shared/types.ts so
+// the WS payload shape can be type-checked symmetrically on both sides.
+export type { ProviderSnapshotEntry, ProvidersSnapshot } from "../../shared/types";
 
 /** Broadcast WS shape for snapshot updates. */
 export interface WSProvidersSnapshotMessage {
