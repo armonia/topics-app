@@ -906,6 +906,56 @@ export interface WSUnknownMessage {
   [key: string]: unknown;
 }
 
+// ─── Claude Code session lifecycle (see openspec/changes/claude-session-tracker) ──
+
+export type ClaudeSessionPhase =
+  | 'starting'
+  | 'running'
+  | 'tool-running'
+  | 'awaiting-user'
+  | 'awaiting-approval'
+  | 'paused'
+  | 'completed'
+  | 'error'
+  | 'dormant';
+
+export interface ClaudeSessionPendingApproval {
+  kind: 'plan' | 'edit' | 'bash' | 'other';
+  prompt: string;
+  requestedAt: number;
+}
+
+export interface ClaudeSessionActiveTool {
+  name: string;
+  input?: unknown;
+  startedAt: number;
+}
+
+export interface ClaudeSessionError {
+  code: string;
+  message: string;
+  failedAt: number;
+}
+
+export interface ClaudeSessionState {
+  sessionKey: string | null;
+  claudeSessionId: string;
+  phase: ClaudeSessionPhase;
+  phaseUpdatedAt: number;
+  pendingApproval?: ClaudeSessionPendingApproval;
+  lastTool?: ClaudeSessionActiveTool;
+  lastHookAt?: number;
+  rev: number;
+  error?: ClaudeSessionError;
+  updatedAt: number;
+}
+
+export interface WSSessionStateMessage {
+  type: 'session:state';
+  sessionKey: string;
+  state: ClaudeSessionState;
+}
+
 export type WSMessage =
   | WSProvidersSnapshotMessage
   | WSGatewayStatusMessage
@@ -958,7 +1008,8 @@ export type WSMessage =
   | WSUIStateUpdatedMessage
   | WSProjectMessage
   | WSWorktreeMessage
-  | WSMachineMessage;
+  | WSMachineMessage
+  | WSSessionStateMessage;
 // (Historical note: an earlier shape had `WSUnknownMessage.type: string`
 // which widened the union's `type` to plain `string` and broke literal
 // narrowing across every handler. The `string & {}` brand above fixed it

@@ -49,6 +49,8 @@ import { createProcessesRouter } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
+import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
+import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
@@ -265,6 +267,18 @@ const processesRouter = createProcessesRouter(ctx);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
+
+// Claude Code session tracker — canonical lifecycle state for every Claude
+// CLI session spawned via Topics. See openspec/changes/claude-session-tracker.
+const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll });
+const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
+// Replay JSONL tails for any session whose state was lost on the previous
+// shutdown, then start the reaper. Both are fire-and-forget — they advance
+// state independently of the live hook stream.
+claudeSessionTracker.recoverFromJsonl().catch((err) => {
+  console.error("[claude-session-tracker] Boot recovery failed", err);
+});
+const stopClaudeReaper = claudeSessionTracker.startReaper();
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx);
 const machinesRouter = createMachinesRouter(ctx);
@@ -600,6 +614,7 @@ const server = Bun.serve<WSData>({
         || await pushRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
+        || await claudeHooksRouter(req, url, pathname, method)
 ;
 
       if (response) return response;
