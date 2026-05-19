@@ -45,7 +45,6 @@ interface GroupLayoutProps {
   availableTypesForGroup: (groupType: PaneGroupType, groupId: string) => PaneType[];
   contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
-  streamingPaneIds?: Set<string>;
   onStopStreaming?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
@@ -58,7 +57,7 @@ export function GroupLayout({
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
-  renderPane, availableTypesForGroup, contextPercent, onContextRingClick, streamingPaneIds, onStopStreaming,
+  renderPane, availableTypesForGroup, contextPercent, onContextRingClick, onStopStreaming,
   onSettings, onPopOut, onPinPane,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -445,7 +444,6 @@ export function GroupLayout({
                           }
                           contextPercent={contextPercent}
                           onContextRingClick={onContextRingClick}
-                          streamingPaneIds={streamingPaneIds}
                           onStopStreaming={onStopStreaming}
                           onSettings={onSettings}
                           onPopOut={onPopOut}

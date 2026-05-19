@@ -705,7 +705,6 @@ function App() {
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
-            isSessionStreaming={isSessionStreaming}
             stopSession={stopSession}
             onOpenProjectBoard={handleOpenProjectBoard}
             onOpenMaster={async () => {

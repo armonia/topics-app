@@ -22,7 +22,6 @@ import {
   type ProjectTabStatus,
 } from '../../state/pane/adapters';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
-import { useTerminalActivity } from '../../hooks/useTerminalActivity';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
@@ -443,22 +442,6 @@ export function StandaloneChatGroup({
     return map;
   }, [validatedOrderedIds, projectStatusByPath]);
 
-  // Terminal pane PTY-activity → spinner on the terminal tab. The signal
-  // is client-side (decayed pulse from `terminal:activity` events) so it
-  // doesn't live in StreamingContext. Chat / project loading indicators
-  // are read directly from StreamingContext inside the tab/sidebar
-  // components — no need to mirror them here.
-  const activeTerminalIds = useTerminalActivity();
-  const streamingTerminalPaneIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const id of validatedOrderedIds) {
-      if (!isTerminalPaneId(id)) continue;
-      const sessionId = getTerminalSessionFromPaneId(id);
-      if (sessionId && activeTerminalIds.has(sessionId)) ids.add(id);
-    }
-    return ids;
-  }, [validatedOrderedIds, activeTerminalIds]);
-
   const handleToggleContext = useCallback(() => {
     setContextOpen(prev => !prev);
   }, []);
@@ -513,7 +496,6 @@ export function StandaloneChatGroup({
       onSettings={handleSettings}
       onPopOut={handlePopOut}
       onDetach={handleUnsolo || (onSplitPane ? handleDetach : undefined)}
-      streamingPaneIds={streamingTerminalPaneIds}
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}
       projectStatus={projectStatus}

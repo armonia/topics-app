@@ -14,7 +14,7 @@ import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicClaudePhaseIndicator, ProjectClaudePhaseIndicator } from './ClaudePhaseDot';
-import { TopicStreamingSpinner, ProjectStreamingSpinner } from './StreamingIndicator';
+import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner } from './StreamingIndicator';
 
 /** Pane types where the "mark as done" / countdown affordance doesn't
  *  fit semantically — they're read-only viewers (a file open in a viewer,
@@ -64,7 +64,6 @@ interface PaneTabBarProps {
   onRename?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
-  streamingPaneIds?: Set<string>;
   onStopStreaming?: (paneId: string) => void;
   onPinPane?: (paneId: string) => void;
   projectStatus?: Record<string, ProjectTabStatus>;
@@ -90,7 +89,7 @@ interface PaneTabBarProps {
   groupIsAppFocused?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, streamingPaneIds, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -403,12 +402,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const showLeftIndicator = dragOverIdx === paneIdx && hasDragSource && isNotSelf;
         const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && hasDragSource && isNotSelf;
         // Streaming spinner: chat panes pulse during an LLM stream;
-        // `streamingPaneIds` carries ONLY terminal PTY pulses now —
-        // chat + project streaming flow through StreamingContext via
-        // the TopicStreamingSpinner / ProjectStreamingSpinner widgets
-        // below. Kept as a pane-id Set because PTY activity is tracked
-        // per pty session id which we re-key to pane id upstream.
-        const isPaneStreaming = !!streamingPaneIds?.has(pane.id) && pane.type === 'terminal';
+        // Loading affordance is owned by the canonical widgets below —
+        // each reads from StreamingContext, no upstream prop needed.
         const badgeCount = !isActive && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
@@ -493,14 +488,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 </span>
               );
             })()}
-            {/* Streaming spinner — canonical components from
-                StreamingIndicator.tsx, each reading from StreamingContext.
-                Chat: interruptible (passes onStop). Project: read-only
-                aggregation. Terminal: still gated by `isPaneStreaming`
-                because terminal activity is a different signal source
-                (useTerminalActivity, not StreamingContext) — kept inline
-                here to avoid spreading PTY semantics into the streaming
-                indicator. */}
+            {/* Loading spinner — one canonical widget per pane kind.
+                All three read from StreamingContext; rendering only when
+                the corresponding signal is on. Chat is interruptible
+                (onStop wired), project + terminal are read-only. */}
             {pane.type === 'chat' && pane.topicId && (
               <TopicStreamingSpinner
                 topicId={pane.topicId}
@@ -510,14 +501,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {pane.type === 'project' && pane.projectPath && (
               <ProjectStreamingSpinner projectPath={pane.projectPath} />
             )}
-            {pane.type === 'terminal' && isPaneStreaming && (
-              <span
-                className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
-                title="Output streaming"
-                aria-label="Terminal is producing output"
-              >
-                <span className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
-              </span>
+            {pane.type === 'terminal' && pane.terminalSessionId && (
+              <TerminalStreamingSpinner sessionId={pane.terminalSessionId} />
             )}
             {badgeCount > 0 && (
               <span className="ml-0.5 px-1 min-w-[16px] h-4 text-[10px] font-semibold bg-primary text-white rounded-full flex items-center justify-center flex-shrink-0 leading-none">

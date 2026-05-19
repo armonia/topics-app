@@ -38,13 +38,6 @@ interface TopicItemProps {
   isPreview?: boolean;
   isArchived?: boolean;
   isProject?: boolean;
-  /**
-   * @deprecated — kept for backwards compatibility with callers that still
-   * pass it. The component now reads the canonical signal from
-   * StreamingContext via `useTopicStreaming(topic.id)`; the prop is
-   * ignored. Remove from your call site.
-   */
-  isStreaming?: boolean;
   unreadCount?: number;
   assignedAgentCount?: number;
   onToggle: () => void;
@@ -67,7 +60,6 @@ export const TopicItem = memo(function TopicItem({
   isPreview,
   isArchived,
   isProject: _isProject,
-  isStreaming: _isStreamingDeprecated,
   unreadCount = 0,
   assignedAgentCount = 0,
   onToggle,

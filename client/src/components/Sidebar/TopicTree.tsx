@@ -65,13 +65,6 @@ export interface TopicTreeProps {
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
   onProjectClick?: (projectPath: string) => void;
-  /**
-   * @deprecated — streaming state now reads from StreamingContext.
-   * Kept here so the prop type remains backwards compatible with callers
-   * that haven't been migrated yet; the value is ignored. Drop after
-   * the migration is done.
-   */
-  isSessionStreaming?: (sessionKey: string) => boolean;
   stopSession?: (sessionKey: string) => boolean;
   boardTaskCounts?: Record<string, number>;
   onOpenProjectBoard?: (projectPath: string) => void;
@@ -119,7 +112,6 @@ export function TopicTree({
   onNewTopicInProject,
   onAddProjectPane,
   onProjectClick,
-  isSessionStreaming: _isSessionStreamingDeprecated,
   stopSession,
   boardTaskCounts,
   onOpenProjectBoard,

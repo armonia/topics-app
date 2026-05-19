@@ -20,7 +20,7 @@
  * size prop.
  */
 
-import { useTopicStreaming, useProjectStreaming } from '../../contexts/StreamingContext';
+import { useTopicStreaming, useProjectStreaming, useTerminalStreaming } from '../../contexts/StreamingContext';
 
 function SpinnerCircle() {
   return (
@@ -87,6 +87,32 @@ export function ProjectStreamingSpinner({
   const streaming = useProjectStreaming(projectPath);
   if (!streaming) return null;
   const tip = title ?? 'Una chat di questo progetto sta rispondendo';
+  return (
+    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
+      <SpinnerCircle />
+    </span>
+  );
+}
+
+interface TerminalSpinnerProps {
+  sessionId: string | undefined;
+  className?: string;
+  title?: string;
+}
+
+/**
+ * Terminal PTY-activity spinner. Read-only — there's no app-level "stop"
+ * affordance for terminal output (Ctrl+C lives inside the terminal itself),
+ * so we don't take an `onStop` like TopicStreamingSpinner does.
+ */
+export function TerminalStreamingSpinner({
+  sessionId,
+  title,
+  className = '',
+}: TerminalSpinnerProps) {
+  const active = useTerminalStreaming(sessionId);
+  if (!active) return null;
+  const tip = title ?? 'Terminal is producing output';
   return (
     <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
       <SpinnerCircle />
