@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, TerminalSessionInfo } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab } from '../../types';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -44,7 +45,6 @@ const LazySpinner = <div className="flex items-center justify-center h-full"><di
 
 interface StandaloneChatGroupProps {
   topicIds: string[];
-  topics: Record<string, Topic>;
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
   /** Master pane id (if open). Threaded so non-Master ChatPanels can
@@ -88,8 +88,6 @@ interface StandaloneChatGroupProps {
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
   // Report all open pane IDs inside each project (for sidebar filtering)
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
-  // Terminal sessions for label resolution (from server)
-  terminalSessions?: TerminalSessionInfo[];
   // Create a new terminal (delegates to App)
   onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
   // Report whether this group has utility panes (browser/terminal)
@@ -118,7 +116,7 @@ interface StandaloneChatGroupProps {
 }
 
 export function StandaloneChatGroup({
-  topicIds, topics, focusedPanelId,
+  topicIds, focusedPanelId,
   onFocusPanel, masterPaneId, onClosePanel, onClosePanelImmediate, onDragStart,
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
@@ -127,7 +125,7 @@ export function StandaloneChatGroup({
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
   onProjectActiveTopicChange, onProjectOpenPanesChange,
-  terminalSessions = [], onCreateTerminal,
+  onCreateTerminal,
   onUtilityPaneChange,
   pendingBrowserPane, onPendingBrowserPaneConsumed,
   onOpenBrowserContextIds,
@@ -139,6 +137,11 @@ export function StandaloneChatGroup({
   onUnsolo, onAcceptSoloDrop,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
+
+  // Topics + terminal sessions from TopicsContext — both used to be
+  // drilled here as props.
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
 
   // Component-local UI state.
   const [panelDragOver, setPanelDragOver] = useState(false);
@@ -563,7 +566,6 @@ export function StandaloneChatGroup({
         <ProjectWindowPane
           key={projectPath}
           projectPath={projectPath}
-          topics={topics}
           focusedPanelId={focusedPanelId}
           onFocusPanel={onFocusPanel}
           onClosePanel={onClosePanel}

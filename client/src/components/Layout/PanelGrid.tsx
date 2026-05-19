@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack } from '../../types';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -81,7 +82,6 @@ interface GridItem {
 interface PanelGridProps {
   openPanels: string[];
   focusedPanelId: string | null;
-  topics: Record<string, Topic>;
   /** Topic id of the active Master · Global / Master · Project pane, if
    *  any. Threaded down so non-Master panes can render a quick "←
    *  Master" affordance to jump back. */
@@ -135,8 +135,6 @@ interface PanelGridProps {
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
   // Report all open pane IDs inside each project (for sidebar filtering)
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
-  // Terminal sessions for label resolution
-  terminalSessions?: import('../../types').TerminalSessionInfo[];
   // Create a new terminal (delegates to App)
   onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
@@ -158,7 +156,6 @@ interface PanelGridProps {
 export function PanelGrid({
   openPanels,
   focusedPanelId,
-  topics,
   masterPaneId,
   onFocusPanel,
   onClosePanel,
@@ -195,7 +192,6 @@ export function PanelGrid({
   pendingProjectFocus,
   onPendingProjectFocusConsumed,
   onProjectActiveTopicChange, onProjectOpenPanesChange,
-  terminalSessions,
   onCreateTerminal,
   pendingBrowserPane,
   onPendingBrowserPaneConsumed,
@@ -205,6 +201,11 @@ export function PanelGrid({
   promoteDraft,
   draftMeta,
 }: PanelGridProps) {
+  // Topics + terminal sessions come from TopicsContext — both used to be
+  // drilled here as props. Single read at the top so the rest of the
+  // function reads them by name as before.
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Mobile detection for single-column layout
@@ -1219,7 +1220,6 @@ export function PanelGrid({
     (item: GridItem, key: string, rowIdx: number, colIdx: number) => (
       <StandaloneChatGroup
         topicIds={item.panelIds}
-        topics={topics}
         focusedPanelId={focusedPanelId}
         masterPaneId={masterPaneId}
         onFocusPanel={onFocusPanel}
@@ -1250,7 +1250,6 @@ export function PanelGrid({
         onPendingProjectFocusConsumed={onPendingProjectFocusConsumed}
         onProjectActiveTopicChange={onProjectActiveTopicChange}
         onProjectOpenPanesChange={onProjectOpenPanesChange}
-        terminalSessions={terminalSessions}
         onCreateTerminal={onCreateTerminal}
         onUtilityPaneChange={key === 'standalone' ? handleStandaloneUtilityChange : undefined}
         pendingBrowserPane={key === 'standalone' ? pendingBrowserPane : undefined}

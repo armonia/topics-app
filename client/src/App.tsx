@@ -13,6 +13,7 @@ import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { ClaudeSessionProvider } from './contexts/ClaudeSessionContext';
 import { StreamingProvider } from './contexts/StreamingContext';
+import { TopicsProvider } from './contexts/TopicsContext';
 import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
@@ -493,6 +494,7 @@ function App() {
   });
 
   return (
+    <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <ClaudeSessionProvider topics={topics} sessions={claudeSessions}>
     <StreamingProvider topics={topics} isSessionStreaming={isSessionStreaming}>
@@ -819,7 +821,6 @@ function App() {
         <PanelGrid
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
-          topics={topics}
           masterPaneId={Object.values(topics).find((t) => !t.archived && t.agentTeamRole === 'lead')?.id ?? null}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
@@ -857,7 +858,6 @@ function App() {
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
           onProjectActiveTopicChange={handleProjectActiveTopicChange}
           onProjectOpenPanesChange={handleProjectOpenPanesChange}
-          terminalSessions={terminalSessions}
           onCreateTerminal={handleQuickCreateTerminal}
           pendingBrowserPane={pendingBrowserPane}
           onPendingBrowserPaneConsumed={handlePendingBrowserPaneConsumed}
@@ -1054,6 +1054,7 @@ function App() {
     </StreamingProvider>
     </ClaudeSessionProvider>
     </TabNotificationProvider>
+    </TopicsProvider>
   );
 }
 

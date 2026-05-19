@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType } from '../../types';
+import { useTopics } from '../../contexts/TopicsContext';
 import { ProjectHeader, getProjectName } from './ProjectHeader';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
@@ -41,7 +42,6 @@ const LazySpinner = <div className="flex items-center justify-center h-full"><di
 
 export interface ProjectWindowPaneProps {
   projectPath: string;
-  topics: Record<string, Topic>;
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
   onClosePanel: (topicId: string) => void;
@@ -75,7 +75,7 @@ export interface ProjectWindowPaneProps {
 }
 
 export function ProjectWindowPane({
-  projectPath, topics, focusedPanelId,
+  projectPath, focusedPanelId,
   onFocusPanel, onClosePanel: _onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
@@ -86,6 +86,9 @@ export function ProjectWindowPane({
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
+
+  // Topics from TopicsContext — was a drilled prop.
+  const topics = useTopics();
 
   // The pane id this ProjectWindow renders under at the parent layout level.
   // Computed once per projectPath; used wherever we need to compare against
@@ -505,7 +508,6 @@ export function ProjectWindowPane({
 interface ProjectWindowProps {
   projectPath: string;
   topicIds: string[];
-  topics: Record<string, Topic>;
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
   onClosePanel: (topicId: string) => void;
@@ -532,7 +534,7 @@ interface ProjectWindowProps {
 }
 
 export function ProjectWindow({
-  projectPath, topicIds, topics, focusedPanelId,
+  projectPath, topicIds, focusedPanelId,
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
@@ -590,7 +592,6 @@ export function ProjectWindow({
       {/* Main content: delegates to ProjectWindowPane */}
       <ProjectWindowPane
         projectPath={projectPath}
-        topics={topics}
         focusedPanelId={focusedPanelId}
         onFocusPanel={onFocusPanel}
         onClosePanel={onClosePanel}
