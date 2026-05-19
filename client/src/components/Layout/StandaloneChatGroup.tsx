@@ -444,21 +444,40 @@ export function StandaloneChatGroup({
   }, [validatedOrderedIds, projectStatusByPath]);
 
   // Build set of pane IDs that should pulse the "in progress" spinner
-  // in their tab. Two sources:
+  // in their tab. Three sources:
   //   - chat panes streaming an LLM response (server-tracked via
   //     `isSessionStreaming(sessionKey)`, never drafts)
   //   - terminal panes whose pty has produced output recently (window
   //     `terminal:activity` events from <SingleTerminalPane>, decayed
   //     by useTerminalActivity after ~1.5 s of idle)
+  //   - project panes whose inner chats are streaming — without this
+  //     aggregation the user sees a spinner on the chat tab inside the
+  //     project but the project tab itself stays quiet, hiding the cue
+  //     when they navigate away from the project.
   // PaneTabBar's `isPaneStreaming` check still gates by pane type, so
   // a stray entry here for an unsupported type is a no-op.
   const activeTerminalIds = useTerminalActivity();
   const streamingPaneIds = useMemo(() => {
     const ids = new Set<string>();
+
+    // Pre-compute which project paths have a streaming chat. Single pass
+    // over `topics` so the per-pane lookup is O(1) below; otherwise a
+    // workspace with many projects + chats would do O(projects × topics).
+    const streamingProjects = new Set<string>();
+    for (const t of Object.values(topics)) {
+      if (!t.projectPath) continue;
+      if (isSessionStreaming(t.sessionKey)) streamingProjects.add(t.projectPath);
+    }
+
     for (const id of validatedOrderedIds) {
       if (isTerminalPaneId(id)) {
         const sessionId = getTerminalSessionFromPaneId(id);
         if (sessionId && activeTerminalIds.has(sessionId)) ids.add(id);
+        continue;
+      }
+      if (isProjectPaneId(id)) {
+        const projectPath = getProjectPathFromPaneId(id);
+        if (projectPath && streamingProjects.has(projectPath)) ids.add(id);
         continue;
       }
       if (isUtilityPanelId(id) || isBrowserPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) continue;

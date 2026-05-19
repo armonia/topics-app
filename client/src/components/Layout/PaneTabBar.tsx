@@ -405,10 +405,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // terminal panes pulse while their pty is producing output (the
         // pulse is fed by `terminal:activity` window events that
         // SingleTerminalPane dispatches per WS data frame, decayed by
-        // `useTerminalActivity` after ~1.5 s of idle). Other pane types
-        // (browser, file viewer, project, etc.) don't have a meaningful
-        // "in progress" signal.
-        const isPaneStreaming = !!streamingPaneIds?.has(pane.id) && (pane.type === 'chat' || pane.type === 'terminal');
+        // `useTerminalActivity` after ~1.5 s of idle).
+        // project panes pulse when any chat inside the project is
+        // streaming — the aggregation lives in StandaloneChatGroup so
+        // the project tab surfaces the same signal as its inner chat
+        // tabs (otherwise the cue vanishes when the user navigates away
+        // from the project). Other pane types (browser, file viewer,
+        // etc.) don't have a meaningful "in progress" signal.
+        const isPaneStreaming = !!streamingPaneIds?.has(pane.id) && (pane.type === 'chat' || pane.type === 'terminal' || pane.type === 'project');
         const badgeCount = !isActive && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
@@ -505,7 +509,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <div className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
                   <div className="w-[7px] h-[7px] bg-primary rounded-[1px] hidden group-hover/stop:block" />
                 </button>
-              ) : (
+              ) : pane.type === 'terminal' ? (
                 // Terminal: pty output isn't an "interruptible stream"
                 // the way an LLM generation is — Ctrl+C lives inside
                 // the terminal itself. Show a non-interactive spinner
@@ -516,6 +520,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
                   title="Output streaming"
                   aria-label="Terminal is producing output"
+                >
+                  <span className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
+                </span>
+              ) : (
+                // Project tab: aggregation — a chat inside is streaming.
+                // Stopping that stream requires drilling into the chat,
+                // so render a non-interactive spinner. The dot indicator
+                // (ProjectClaudePhaseIndicator above) already encodes the
+                // *phase* of any tracked Claude session in this project.
+                <span
+                  className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
+                  title="Una chat di questo progetto sta rispondendo"
+                  aria-label="Inner chat is streaming"
                 >
                   <span className="w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
                 </span>

@@ -321,6 +321,11 @@ export function TopicTree({
     const allArchived = item.archived;
     const children = item.children || [];
     const allChats = children.filter(c => c.type === 'chat').map(c => c.topic!);
+    // Aggregated streaming signal for this project — true when any chat
+    // inside is currently streaming an LLM response. Mirrors the top-tab-
+    // bar aggregation in StandaloneChatGroup so the sidebar and tab bar
+    // report identically.
+    const anyChatStreaming = !!isSessionStreaming && allChats.some(t => isSessionStreaming(t.sessionKey));
 
     return (
       <div key={item.id}>
@@ -359,6 +364,20 @@ export function TopicTree({
                 same component the project tab uses (PaneTabBar). One
                 source of truth for the lifecycle dot across the app. */}
             <ProjectClaudePhaseIndicator projectPath={pp} className="mr-1.5" />
+            {/* Streaming spinner — when any chat inside the project is
+                producing an LLM response. Visible alongside the phase
+                dot because the two convey different things: phase = what
+                Claude is doing across the session, streaming = an SSE
+                chunk is arriving right now. */}
+            {anyChatStreaming && (
+              <span
+                className="flex-shrink-0 mr-1.5 w-3 h-3 flex items-center justify-center"
+                title="Una chat di questo progetto sta rispondendo"
+                aria-label="Inner chat is streaming"
+              >
+                <span className="w-2.5 h-2.5 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
+              </span>
+            )}
             {/* Git/process status indicators */}
             {(() => {
               const ps = projectTabStatus[pp];
