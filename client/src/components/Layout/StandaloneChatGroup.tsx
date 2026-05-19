@@ -3,6 +3,7 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType,
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
+import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
@@ -41,7 +42,6 @@ const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => 
 const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
 const SessionViewerPane = lazy(() => import('../Agents/SessionViewerPane').then(m => ({ default: m.SessionViewerPane })));
 
-const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
 interface StandaloneChatGroupProps {
   topicIds: string[];
@@ -522,24 +522,24 @@ export function StandaloneChatGroup({
       const sessionId = getTerminalSessionFromPaneId(paneId);
       if (!sessionId) return null;
       return (
-        <Suspense fallback={LazySpinner}>
+        <LazyPane>
           <SingleTerminalPane sessionId={sessionId} />
-        </Suspense>
+        </LazyPane>
       );
     }
     if (isSessionViewerPaneId(paneId)) {
       const sk = getSessionKeyFromViewerPaneId(paneId);
       if (!sk) return null;
       return (
-        <Suspense fallback={LazySpinner}>
+        <LazyPane>
           <SessionViewerPane sessionKey={sk} onNavigateToTopic={(topicId) => onFocusPanel(topicId)} />
-        </Suspense>
+        </LazyPane>
       );
     }
     if (isBrowserPaneId(paneId)) {
       const ctx = getBrowserContextFromPaneId(paneId) || browserContextId;
       return (
-        <Suspense fallback={LazySpinner}>
+        <LazyPane>
           <RemoteBrowserPanel
             contextId={ctx}
             navigateUrl={isPaneActive && browserNavigateUrl ? browserNavigateUrl : undefined}
@@ -556,7 +556,7 @@ export function StandaloneChatGroup({
             onFocusPanel={onFocusPanel}
             topics={topics}
           />
-        </Suspense>
+        </LazyPane>
       );
     }
     if (isProjectPaneId(paneId)) {
@@ -597,7 +597,7 @@ export function StandaloneChatGroup({
     if (isUtilityPanelId(paneId)) {
       const utilityType = parseUtilityPanelType(paneId);
       return (
-        <Suspense fallback={LazySpinner}>
+        <LazyPane>
           {utilityType === 'activity' && <ActivityFeedPanel enabled />}
           {utilityType === 'journal' && <JournalPanel enabled />}
           {utilityType === 'agents' && (
@@ -609,7 +609,7 @@ export function StandaloneChatGroup({
           )}
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} onJumpToTopic={(topicId) => onFocusPanel(topicId)} />}
-        </Suspense>
+        </LazyPane>
       );
     }
     // Chat (real or draft).

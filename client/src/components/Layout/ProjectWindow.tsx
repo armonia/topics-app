@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType } from '../../types';
+import { LazyPane } from './LazyPane';
 import { useTopics } from '../../contexts/TopicsContext';
 import { ProjectHeader, getProjectName } from './ProjectHeader';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
@@ -36,7 +37,6 @@ const BoardMemoryPanel = lazy(() => import('../Board/BoardMemoryPanel').then(m =
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => ({ default: m.ProcessLogPane })));
 
-const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
 // --- ProjectWindowPane: self-contained project content (no header/chrome) ---
 
@@ -308,7 +308,7 @@ export function ProjectWindowPane({
       }
       case 'browser':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             {/* `isVisible` drives WebContentsView visibility — see the
                 same prop in StandaloneChatGroup.renderPaneBody for the
                 full rationale. The keep-alive wrapper in GroupLayout is
@@ -327,20 +327,20 @@ export function ProjectWindowPane({
               onFocusPanel={onFocusPanel}
               topics={topics}
             />
-          </Suspense>
+          </LazyPane>
         );
       case 'terminal': {
         const sessionId = getTerminalSessionFromPaneId(pane.id);
         if (!sessionId) return null;
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <SingleTerminalPane sessionId={sessionId} />
-          </Suspense>
+          </LazyPane>
         );
       }
       case 'file':
         return pane.filePath ? (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <FilePane
               filePath={pane.filePath}
               projectPath={projectPath}
@@ -348,66 +348,66 @@ export function ProjectWindowPane({
               diffProjectPath={pane.diffProjectPath}
               onPin={pane.preview ? () => pinPaneById(pane.id) : undefined}
             />
-          </Suspense>
+          </LazyPane>
         ) : null;
       case 'files':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <FileExplorer projectPath={projectPath} />
-          </Suspense>
+          </LazyPane>
         );
       case 'git':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <GitChanges projectPath={projectPath} />
-          </Suspense>
+          </LazyPane>
         );
       case 'activity':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <ActivityPane />
-          </Suspense>
+          </LazyPane>
         );
       case 'journal':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <JournalPane />
-          </Suspense>
+          </LazyPane>
         );
       case 'agents':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <AgentsPane onNavigateToTopic={(topicId) => onFocusPanel(topicId)} onMessage={onWSMessage} />
-          </Suspense>
+          </LazyPane>
         );
       case 'board':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <KanbanBoard
               projectId={encodeURIComponent(projectPath)}
               topicId={primaryTopicId}
               onWSMessage={onWSMessage}
               onJumpToTopic={(topicId) => onFocusPanel(topicId)}
             />
-          </Suspense>
+          </LazyPane>
         );
       case 'board-memory':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <BoardMemoryPanel projectId={encodeURIComponent(projectPath)} onWSMessage={onWSMessage} />
-          </Suspense>
+          </LazyPane>
         );
       case 'dashboard':
         return (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <DashboardPane onMessage={onWSMessage} />
-          </Suspense>
+          </LazyPane>
         );
       case 'process-log':
         return pane.processId ? (
-          <Suspense fallback={LazySpinner}>
+          <LazyPane>
             <ProcessLogPane processId={pane.processId} scriptName={pane.title} />
-          </Suspense>
+          </LazyPane>
         ) : null;
       default:
         return null;
@@ -476,7 +476,7 @@ export function ProjectWindowPane({
         </div>
         {showContext && activeTopic && (
           <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0 border-l border-app-border'}`}>
-            <Suspense fallback={LazySpinner}>
+            <LazyPane>
               <ContextInspector
                 topic={activeTopic}
                 isOpen={showContext}
@@ -485,7 +485,7 @@ export function ProjectWindowPane({
                 onMessage={onWSMessage}
                 onOpenFile={handleOpenFile}
               />
-            </Suspense>
+            </LazyPane>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { LazyPane } from './LazyPane';
 import { Settings, Pin, X, ExternalLink, Layers, Globe } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -138,9 +139,6 @@ export function ChatPanel({
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
-
-
-  const LazySpinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
 
   return (
     <>
@@ -302,7 +300,7 @@ export function ChatPanel({
                   </button>
                 </div>
               )}
-              <Suspense fallback={LazySpinner}>
+              <LazyPane>
                 <ContextInspector
                   topic={topic}
                   isOpen={showContext}
@@ -310,7 +308,7 @@ export function ChatPanel({
                   onUpdateTopic={onUpdateTopic}
                   onMessage={onWSMessage}
                 />
-              </Suspense>
+              </LazyPane>
             </div>
           )}
         </div>
