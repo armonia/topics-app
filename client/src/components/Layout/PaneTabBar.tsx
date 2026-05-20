@@ -6,7 +6,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
-import { getPaneConfig, type ProjectTabStatus } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus } from '../../state/pane/adapters';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -499,9 +499,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {pane.type === 'project' && pane.projectPath && (
               <ProjectStreamingSpinner projectPath={pane.projectPath} />
             )}
-            {pane.type === 'terminal' && pane.terminalSessionId && (
-              <TerminalStreamingSpinner sessionId={pane.terminalSessionId} />
-            )}
+            {pane.type === 'terminal' && (() => {
+              // Terminal panes are created at several sites that don't set
+              // terminalSessionId; derive it from the pane id (`terminal:<id>`)
+              // so the tab's own spinner isn't gated out. Mirrors the rollup
+              // in ProjectWindow + useProjectLayout's terminal sync.
+              const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
+              return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
+            })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
             {pane.type === 'agents' && <AgentStreamingSpinner />}
             <NotificationBadge count={badgeCount} className="ml-0.5" />
