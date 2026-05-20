@@ -25,6 +25,8 @@
 
 import { useTopicStreaming, useProjectStreaming, useTerminalStreaming } from '../../contexts/StreamingContext';
 import { useProjectActivityLoading } from '../../state/projectActivity';
+import { usePaneActive } from '../../state/paneActivity';
+import { useAnyAgentActive } from '../../state/agentActivity';
 
 function SpinnerCircle() {
   return (
@@ -122,6 +124,55 @@ export function TerminalStreamingSpinner({
   const active = useTerminalStreaming(sessionId);
   if (!active) return null;
   const tip = title ?? 'Terminal is producing output';
+  return (
+    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
+      <SpinnerCircle />
+    </span>
+  );
+}
+
+interface BrowserSpinnerProps {
+  /** The browser pane id (`browser:<contextId>`). */
+  paneId: string;
+  className?: string;
+  title?: string;
+}
+
+/**
+ * Browser busy spinner — page loading or an agent driving the browser. Reads
+ * the generic paneActivity store, which the RemoteBrowserPanel / native panel
+ * report into (their loading/agentActive lives inside the panel).
+ */
+export function BrowserStreamingSpinner({
+  paneId,
+  title,
+  className = '',
+}: BrowserSpinnerProps) {
+  const active = usePaneActive(paneId);
+  if (!active) return null;
+  const tip = title ?? 'Browser is working';
+  return (
+    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
+      <SpinnerCircle />
+    </span>
+  );
+}
+
+/**
+ * Agents tab spinner — pulses while ANY agent session is active (the agents
+ * pane is a global list, not project-scoped). Reads the agentActivity store
+ * App mirrors from its live useAgents subscription.
+ */
+export function AgentStreamingSpinner({
+  title,
+  className = '',
+}: {
+  className?: string;
+  title?: string;
+}) {
+  const active = useAnyAgentActive();
+  if (!active) return null;
+  const tip = title ?? 'An agent is running';
   return (
     <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
       <SpinnerCircle />

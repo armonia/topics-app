@@ -19,6 +19,8 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useTerminalActivity } from '../../hooks/useTerminalActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useReportProjectActivity, useClearProjectActivity } from '../../state/projectActivity';
+import { usePaneActivityStore } from '../../state/paneActivity';
+import { useAgentActivityStore } from '../../state/agentActivity';
 import { ToastOutlet } from '../Shared/Toast';
 import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
@@ -222,19 +224,27 @@ export function ProjectWindowPane({
   // StreamingContext) + the sum of every child's notification badge. One
   // report site; adding a new child signal means extending the memos below.
   const activeTerminalIds = useTerminalActivity();
+  const browserActiveMap = usePaneActivityStore((s) => s.active);
+  const activeAgentTopicIds = useAgentActivityStore((s) => s.activeTopicIds);
   const { getBadgeCount } = useTabNotifications();
   const reportProjectActivity = useReportProjectActivity();
   const clearProjectActivity = useClearProjectActivity();
 
   const childLoading = useMemo(() => {
-    // Terminal panes producing pty output. Browser / agent loading is folded
-    // in by their own signal sources (see Phase 2) — extend here when added.
-    return panes.some((p) => {
-      if (p.type !== 'terminal') return false;
-      const sid = getTerminalSessionFromPaneId(p.id);
-      return !!sid && activeTerminalIds.has(sid);
-    });
-  }, [panes, activeTerminalIds]);
+    // Any non-chat child producing output. Each kind reads its own signal:
+    //   terminal → pty pulse · browser → loading/agent-active · agent →
+    //   an active session whose topic belongs to this project.
+    const terminalBusy = panes.some(
+      (p) => p.type === 'terminal' && !!getTerminalSessionFromPaneId(p.id)
+        && activeTerminalIds.has(getTerminalSessionFromPaneId(p.id)!),
+    );
+    const browserBusy = panes.some((p) => p.type === 'browser' && !!browserActiveMap[p.id]);
+    let agentBusy = false;
+    for (const tid of activeAgentTopicIds) {
+      if (topics[tid]?.projectPath === projectPath) { agentBusy = true; break; }
+    }
+    return terminalBusy || browserBusy || agentBusy;
+  }, [panes, activeTerminalIds, browserActiveMap, activeAgentTopicIds, topics, projectPath]);
 
   const childNotifications = useMemo(() => {
     let sum = 0;

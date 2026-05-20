@@ -14,7 +14,7 @@ import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicClaudePhaseIndicator, ProjectClaudePhaseIndicator } from './ClaudePhaseDot';
-import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner } from './StreamingIndicator';
+import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
@@ -502,6 +502,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {pane.type === 'terminal' && pane.terminalSessionId && (
               <TerminalStreamingSpinner sessionId={pane.terminalSessionId} />
             )}
+            {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
+            {pane.type === 'agents' && <AgentStreamingSpinner />}
             <NotificationBadge count={badgeCount} className="ml-0.5" />
             <PaneCloseButton
               paneId={pane.id}

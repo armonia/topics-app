@@ -34,6 +34,7 @@ import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
 import { flushPaneStoreNow } from './state/pane/middleware';
+import { useAgentActivityStore } from './state/agentActivity';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -286,6 +287,13 @@ function App() {
   const openclawAvailable = useOpenClawAvailable();
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: openclawAvailable });
   const agentLiveCount = activeSessions.length + idleSessions.length;
+  // Mirror active agent sessions into the global agentActivity store so tab
+  // bars (agents tab spinner) and project rollups can react without holding
+  // their own useAgents subscription.
+  const syncAgentActivity = useAgentActivityStore((s) => s.sync);
+  useEffect(() => {
+    syncAgentActivity(activeSessions.map((s) => ({ topicId: s.topicId })));
+  }, [activeSessions, syncAgentActivity]);
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);

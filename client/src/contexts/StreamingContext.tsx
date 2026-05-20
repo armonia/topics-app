@@ -12,6 +12,14 @@
  * focused hooks — they never reach back to the raw inputs. Adding a new
  * pane kind with a loading signal means: extend the provider once, add a
  * matching hook + indicator widget, done.
+ *
+ * Project rollup split: chat streams roll up here (topics carry projectPath)
+ * because the signal is global. NON-chat children (terminal / browser /
+ * agent) live in the ProjectWindow's local state, so they roll up via the
+ * `projectActivity` store instead — the mounted window reports its aggregate
+ * and ProjectStreamingSpinner ORs the two sources. When you add a new
+ * non-chat loading signal, fold it into ProjectWindow's `childLoading` + the
+ * per-tab spinner; chat-shaped signals extend this provider.
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';

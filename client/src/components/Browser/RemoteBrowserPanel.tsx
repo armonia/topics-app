@@ -8,7 +8,21 @@ import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { DownloadStrip } from './DownloadStrip';
 import { useBrowserSpawner } from '../../state/browserSpawner';
+import { usePaneActivityStore } from '../../state/paneActivity';
 import type { Topic } from '../../types';
+
+/** Report a browser pane's busy state (page loading or an agent driving it)
+ *  into the global paneActivity store, so its tab spinner + the project tab
+ *  rollup react. Shared by the web (useRemoteBrowser) and native
+ *  (useNativeBrowser) render paths — both expose loading/agentActive. */
+function useReportBrowserActivity(contextId: string, busy: boolean) {
+  const setPaneActive = usePaneActivityStore((s) => s.setPaneActive);
+  const paneId = `browser:${contextId}`;
+  useEffect(() => {
+    setPaneActive(paneId, busy);
+  }, [paneId, busy, setPaneActive]);
+  useEffect(() => () => setPaneActive(paneId, false), [paneId, setPaneActive]);
+}
 
 interface RemoteBrowserPanelProps {
   contextId: string;
@@ -105,6 +119,7 @@ function useBackToSpawner(
 
 function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useRemoteBrowser(contextId);
+  useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
 
@@ -356,6 +371,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
  */
 function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useNativeBrowser(contextId, initialUrl);
+  useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
   const focusUrlBarRef = useRef<(() => void) | null>(null);
