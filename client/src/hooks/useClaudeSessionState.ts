@@ -15,8 +15,10 @@
  * handler once.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ClaudeSessionState, WSMessage } from '../types';
+import { useRefMirror } from './useRefMirror';
+import { useWSSubscription } from './useWSSubscription';
 
 export interface UseClaudeSessionStateOptions {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
@@ -39,8 +41,7 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
   const [sessions, setSessions] = useState<Map<string, ClaudeSessionState>>(() => new Map());
   const [hydrated, setHydrated] = useState(false);
   // Ref mirror so the WS handler reads the freshest map without re-binding.
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
+  const sessionsRef = useRefMirror(sessions);
 
   // Bootstrap from server snapshot.
   useEffect(() => {
@@ -68,26 +69,24 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
     return () => { cancelled = true; };
   }, [opts.fetchUrl]);
 
-  // Live updates.
-  useEffect(() => {
-    return opts.onWSMessage((msg) => {
-      if (msg.type !== 'session:state') return;
-      const incoming = msg.state;
-      if (!incoming || !msg.sessionKey) return;
-      const cur = sessionsRef.current.get(msg.sessionKey);
-      // Reject out-of-order revs.
-      if (cur && incoming.rev <= cur.rev && cur.phase === incoming.phase) return;
-      setSessions((prev) => {
-        const existing = prev.get(msg.sessionKey);
-        if (existing && incoming.rev <= existing.rev && existing.phase === incoming.phase) {
-          return prev;
-        }
-        const next = new Map(prev);
-        next.set(msg.sessionKey, incoming);
-        return next;
-      });
+  // Live updates — `useWSSubscription` owns the subscribe/cleanup
+  // shape; we only define the per-message body.
+  useWSSubscription(opts.onWSMessage, 'session:state', (msg) => {
+    const incoming = msg.state;
+    if (!incoming || !msg.sessionKey) return;
+    const cur = sessionsRef.current.get(msg.sessionKey);
+    // Reject out-of-order revs.
+    if (cur && incoming.rev <= cur.rev && cur.phase === incoming.phase) return;
+    setSessions((prev) => {
+      const existing = prev.get(msg.sessionKey);
+      if (existing && incoming.rev <= existing.rev && existing.phase === incoming.phase) {
+        return prev;
+      }
+      const next = new Map(prev);
+      next.set(msg.sessionKey, incoming);
+      return next;
     });
-  }, [opts.onWSMessage]);
+  });
 
   const getByClaudeSessionId = useCallback((id: string): ClaudeSessionState | undefined => {
     for (const s of sessionsRef.current.values()) {

@@ -74,6 +74,7 @@ import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { globalBoardApi } from '../lib/api';
 import { pushUndo } from '../contexts/UndoContext';
+import { useRefMirror } from './useRefMirror';
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -266,15 +267,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return loadSavedFocused();
   });
 
-  // ---- 2. focusedPanelIdRef sync (ISSUE 3) ----
-  const focusedPanelIdRef = useRef(focusedPanelId);
-  useEffect(() => { focusedPanelIdRef.current = focusedPanelId; }, [focusedPanelId]);
-
-  // ---- 3. openPanelsRef + topicsRef sync (for WS / keyboard handlers) ----
-  const openPanelsRef = useRef(openPanels);
-  useEffect(() => { openPanelsRef.current = openPanels; }, [openPanels]);
-  const topicsRef = useRef(topics);
-  useEffect(() => { topicsRef.current = topics; }, [topics]);
+  // ---- 2. Sync refs for WS / keyboard handlers (ISSUE 3) ----
+  // All three are read inside stable callbacks that can't take the React
+  // state as a dep (would cause re-binds on every change). useRefMirror
+  // is the canonical helper for this pattern.
+  const focusedPanelIdRef = useRefMirror(focusedPanelId);
+  const openPanelsRef = useRefMirror(openPanels);
+  const topicsRef = useRefMirror(topics);
 
 
   // ---- 4-6. Pane-store <-> React three-effect bridge (CRITIQUE C3) ----

@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { useToast } from '../components/Shared/Toast';
 import type { AppSettings, ClaudeSessionPhase, Topic, WSMessage } from '../types';
+import { useWSSubscription } from './useWSSubscription';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -117,13 +118,8 @@ export function useCompletionNotifier({
   // electron-app/main.ts so the two layers stay consistent.
   const cooldownRef = useRef<Map<string, number>>(new Map());
 
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type !== 'agents:sessions') return;
-
-      // Narrow once and reuse — the WSMessage union is wide and TS doesn't
-      // always re-narrow `msg` inside nested closures.
-      const sessions = (msg as Extract<WSMessage, { type: 'agents:sessions' }>).sessions;
+  useWSSubscription(onWSMessage, 'agents:sessions', (msg) => {
+      const sessions = msg.sessions;
 
       const cfg = settingsRef.current;
       if (!cfg.notificationsEnabled) {
@@ -179,8 +175,7 @@ export function useCompletionNotifier({
       }
 
       prevStatusRef.current = next;
-    });
-  }, [onWSMessage, success, warning]);
+  });
 
   // ── Claude Code session-state notifier ─────────────────────────────────
   // Surface a toast on the lifecycle phase transitions the user actually
@@ -197,9 +192,7 @@ export function useCompletionNotifier({
   // The phase comes from claude-session-tracker (server/lib). Without this
   // bridge the WS event was being received but ignored on the client.
   const prevPhaseRef = useRef<Map<string, ClaudeSessionPhase>>(new Map());
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type !== 'session:state') return;
+  useWSSubscription(onWSMessage, 'session:state', (msg) => {
       const state = msg.state;
       if (!state || !msg.sessionKey) return;
 
@@ -257,8 +250,7 @@ export function useCompletionNotifier({
           break;
       }
       if (cfg.notificationsSound) playCompletionTone();
-    });
-  }, [onWSMessage, success, warning]);
+  });
 }
 
 /**

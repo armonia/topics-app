@@ -3,6 +3,7 @@ import type { ChatMessage, ChatRequest, ContentBlock, Message, ToolCall, WSMessa
 import { chatApi } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
+import { useRefMirror } from './useRefMirror';
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
@@ -147,9 +148,9 @@ export function useChat() {
   // Stream queue: messages queued while AI is streaming (auto-sent on stream:end)
   const streamQueueRef = useRef<Record<string, { content: string; options?: SendMessageOptions }[]>>({});
 
-  // Keep a ref to the latest messages to avoid stale closure in sendMessage
-  const messagesRef = useRef(messages);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  // Keep a ref to the latest messages to avoid stale closure in sendMessage.
+  // useRefMirror is the canonical helper for this state→ref bridge.
+  const messagesRef = useRefMirror(messages);
   // Ref for sendMessage to allow stream:end to trigger next queued message
   const sendMessageRef = useRef<((sk: string, content: string, opts?: SendMessageOptions) => Promise<boolean>) | null>(null);
 

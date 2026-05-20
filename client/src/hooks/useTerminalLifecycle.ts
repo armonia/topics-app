@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalSessionInfo, WSMessage } from '../types';
 import type { TerminalOps } from './appHookTypes';
+import { useRefMirror } from './useRefMirror';
 
 export interface UseTerminalLifecycleArgs {
   wsStatus: 'connecting' | 'connected' | 'reconnecting' | 'offline';
@@ -63,9 +64,9 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
 
   // Internal mirror so the pure helper can be a stable callback (no deps,
   // never re-created — keeps the panel hook's terminal-cleanup effect
-  // from re-firing every render).
-  const sessionsRef = useRef(sessions);
-  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+  // from re-firing every render). useRefMirror is the canonical helper
+  // for this state→ref bridge.
+  const sessionsRef = useRefMirror(sessions);
 
   const fetchTerminalSessions = useCallback(() => {
     fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
