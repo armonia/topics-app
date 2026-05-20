@@ -3,9 +3,11 @@
  * output right now" across every pane kind the app surfaces. Sits next to
  * ClaudeSessionContext in App.tsx; same provider pattern.
  *
- * Three signal sources are folded in:
- *   - chat       — server-side stream (isSessionStreaming(sessionKey))
- *   - project    — aggregation: ANY chat inside the project is streaming
+ * Signal sources folded in:
+ *   - chat       — live server-side stream (isSessionStreaming(sessionKey))
+ *   - agent      — already-active agent sessions by topic (agentActivity,
+ *                  HYDRATED at load; covers sessions running before mount)
+ *   - project    — aggregation: ANY chat/agent inside the project is active
  *   - terminal   — client-side PTY pulse (useTerminalActivity)
  *
  * Consumers (tab bar, sidebar row, master strip, etc.) read via the
@@ -25,6 +27,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type { Topic } from '../types';
 import { useTerminalActivity } from '../hooks/useTerminalActivity';
+import { useAgentActivityStore } from '../state/agentActivity';
 
 interface StreamingContextValue {
   /** True iff this topic has an active server-side stream. */
@@ -59,19 +62,26 @@ export function StreamingProvider({ topics, isSessionStreaming, children }: Prov
   // ask "is this pane loading?" via the focused selectors.
   const activeTerminalIds = useTerminalActivity();
 
-  // Single pass over topics: build the streaming Sets. Re-runs only when
-  // topics identity changes or isSessionStreaming itself changes
-  // (useCallback-stable inside useSessions).
+  // Agent sessions that are active right now, keyed by topic. Unlike
+  // isSessionStreaming (live `stream:start` events only — empty at load), this
+  // is HYDRATED from useAgents' initial fetch, so a session that was already
+  // running when the page opened still lights its topic + tab. Folding it in
+  // here means every consumer (sidebar topic row, chat tab, project row)
+  // reflects already-active sessions uniformly — no per-site wiring.
+  const agentActiveTopicIds = useAgentActivityStore((s) => s.activeTopicIds);
+
+  // Single pass over topics: build the streaming Sets. A topic counts as
+  // streaming if it has a live chat stream OR an already-active agent session.
   const { streamingTopicIds, streamingProjects } = useMemo(() => {
     const topicIds = new Set<string>();
     const projects = new Set<string>();
     for (const t of Object.values(topics)) {
-      if (!isSessionStreaming(t.sessionKey)) continue;
+      if (!isSessionStreaming(t.sessionKey) && !agentActiveTopicIds.has(t.id)) continue;
       topicIds.add(t.id);
       if (t.projectPath) projects.add(t.projectPath);
     }
     return { streamingTopicIds: topicIds, streamingProjects: projects };
-  }, [topics, isSessionStreaming]);
+  }, [topics, isSessionStreaming, agentActiveTopicIds]);
 
   const value = useMemo<StreamingContextValue>(() => ({
     isTopicStreaming: (topicId) => streamingTopicIds.has(topicId),
