@@ -24,7 +24,6 @@ import {
   type ProjectTabStatus,
 } from '../../state/pane/adapters';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
-import { useProjectActivityStore } from '../../state/projectActivity';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './ProjectHeader';
@@ -271,23 +270,21 @@ export function StandaloneChatGroup({
       };
     }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels]);
 
-  // Build tab notification badge map from context
-  const { getBadgeCount, clearPane } = useTabNotifications();
-  // Project tabs inherit their children's badges (the children live in the
-  // ProjectWindow's local state, so they can't be enumerated here — the
-  // mounted window reports the rolled-up sum into projectActivity).
-  const projectActivityByPath = useProjectActivityStore((s) => s.byPath);
+  // Build tab notification badge map from context. Project tabs inherit their
+  // children's badges via the central rollup (getProjectBadgeCount); other
+  // panes use their own badge.
+  const { getBadgeCount, getProjectBadgeCount, clearPane } = useTabNotifications();
   const tabNotifications = useMemo(() => {
     const map = new Map<string, number>();
     for (const pane of panes) {
       const count =
         pane.type === 'project' && pane.projectPath
-          ? projectActivityByPath[pane.projectPath]?.notifications ?? 0
+          ? getProjectBadgeCount(pane.projectPath)
           : getBadgeCount(pane.id, pane.topicId, pane.id === activePaneId);
       if (count > 0) map.set(pane.id, count);
     }
     return map;
-  }, [panes, getBadgeCount, activePaneId, projectActivityByPath]);
+  }, [panes, getBadgeCount, getProjectBadgeCount, activePaneId]);
 
   // Keep-alive: track visited pane keys so we can keep their React
   // subtrees mounted across tab switches. Only the active pane is

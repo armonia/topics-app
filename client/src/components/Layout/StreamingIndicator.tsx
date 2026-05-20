@@ -23,10 +23,7 @@
  * size prop.
  */
 
-import { useTopicStreaming, useProjectStreaming, useTerminalStreaming } from '../../contexts/StreamingContext';
-import { useProjectActivityLoading } from '../../state/projectActivity';
-import { usePaneActive } from '../../state/paneActivity';
-import { useAnyAgentActive } from '../../state/agentActivity';
+import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
 
 function SpinnerCircle() {
   return (
@@ -54,7 +51,7 @@ export function TopicStreamingSpinner({
   title,
   className = '',
 }: TopicSpinnerProps) {
-  const streaming = useTopicStreaming(topicId);
+  const streaming = useTopicLoading(topicId);
   if (!streaming) return null;
   const tip = title ?? (onStop ? 'Stop generating' : 'Streaming');
   if (onStop) {
@@ -90,13 +87,10 @@ export function ProjectStreamingSpinner({
   title,
   className = '',
 }: ProjectSpinnerProps) {
-  // Chat streams roll up via StreamingContext (topics carry projectPath);
-  // non-chat children (terminal / browser / agent) roll up via the mounted
-  // ProjectWindow into the projectActivity store. OR both so the project tab
-  // pulses for any kind of child activity.
-  const chatStreaming = useProjectStreaming(projectPath);
-  const childLoading = useProjectActivityLoading(projectPath);
-  if (!chatStreaming && !childLoading) return null;
+  // Central rollup: true if ANY child (chat / terminal / agent) of this
+  // project is loading — computed from global signals, no window mount needed.
+  const loading = useProjectLoading(projectPath);
+  if (!loading) return null;
   const tip = title ?? 'Una chat di questo progetto sta rispondendo';
   return (
     <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
@@ -121,7 +115,7 @@ export function TerminalStreamingSpinner({
   title,
   className = '',
 }: TerminalSpinnerProps) {
-  const active = useTerminalStreaming(sessionId);
+  const active = useTerminalLoading(sessionId);
   if (!active) return null;
   const tip = title ?? 'Terminal is producing output';
   return (
@@ -148,7 +142,7 @@ export function BrowserStreamingSpinner({
   title,
   className = '',
 }: BrowserSpinnerProps) {
-  const active = usePaneActive(paneId);
+  const active = useBrowserLoading(paneId);
   if (!active) return null;
   const tip = title ?? 'Browser is working';
   return (

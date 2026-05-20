@@ -8,20 +8,19 @@ import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { DownloadStrip } from './DownloadStrip';
 import { useBrowserSpawner } from '../../state/browserSpawner';
-import { usePaneActivityStore } from '../../state/paneActivity';
+import { signalsActions } from '../../state/signals';
 import type { Topic } from '../../types';
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
- *  into the global paneActivity store, so its tab spinner + the project tab
- *  rollup react. Shared by the web (useRemoteBrowser) and native
- *  (useNativeBrowser) render paths — both expose loading/agentActive. */
+ *  into the unified signals store, so its tab spinner + the project rollup
+ *  react. Shared by the web (useRemoteBrowser) and native (useNativeBrowser)
+ *  render paths — both expose loading/agentActive. */
 function useReportBrowserActivity(contextId: string, busy: boolean) {
-  const setPaneActive = usePaneActivityStore((s) => s.setPaneActive);
   const paneId = `browser:${contextId}`;
   useEffect(() => {
-    setPaneActive(paneId, busy);
-  }, [paneId, busy, setPaneActive]);
-  useEffect(() => () => setPaneActive(paneId, false), [paneId, setPaneActive]);
+    signalsActions.setBrowserBusy(paneId, busy);
+  }, [paneId, busy]);
+  useEffect(() => () => signalsActions.setBrowserBusy(paneId, false), [paneId]);
 }
 
 interface RemoteBrowserPanelProps {

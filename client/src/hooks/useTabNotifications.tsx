@@ -1,10 +1,14 @@
 import { createContext, useContext, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
-import { useClaudeAttentionStore } from '../state/claudeAttention';
+import { useAttentionSignals, rollupProjectAttention } from '../state/signals';
+import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
+import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 
 interface TabNotificationContextValue {
   /** Get badge count for a pane. Chat panes use unreadData[topicId], others use extraCounts. */
   getBadgeCount: (paneId: string, topicId?: string, isActive?: boolean) => number;
+  /** Get the rolled-up badge count for a project tab (sum of its children). */
+  getProjectBadgeCount: (projectPath: string) => number;
   /** Increment badge for a non-chat pane (agents, terminal, etc.) */
   notifyPane: (paneId: string) => void;
   /** Clear badge for a non-chat pane */
@@ -44,9 +48,12 @@ export function TabNotificationProvider({
   const [lastNotifiedAt, setLastNotifiedAt] = useState<Map<string, number>>(() => new Map());
   const unreadRef = useRef(unreadData);
   unreadRef.current = unreadData;
-  // Claude "needs you" topics — subscribed here so getBadgeCount's identity
-  // changes when attention shifts, re-running the badge maps downstream.
-  const claudeAttentionTopics = useClaudeAttentionStore((s) => s.topicIds);
+  // Attention signals (Claude needs-you + claude-code finished) — subscribed
+  // here so getBadgeCount's identity changes when they shift, re-running the
+  // badge maps downstream. Topics/terminals power the project rollup.
+  const { claudeAttentionTopics, terminalFinishedIds } = useAttentionSignals();
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
 
   const notifyPane = useCallback((paneId: string) => {
     setExtraCounts(prev => {
@@ -178,17 +185,30 @@ export function TabNotificationProvider({
     if (topicId) {
       return Math.max(unreadData[topicId]?.unreadCount || 0, claudeAttention);
     }
-    // Non-chat panes: use extraCounts
+    // claude-code terminal panes: a finished turn badges until the user opens it.
+    if (paneId.startsWith('terminal:')) {
+      const sid = getTerminalSessionFromPaneId(paneId);
+      if (sid && terminalFinishedIds.has(sid)) return 1;
+    }
+    // Other non-chat panes: use extraCounts
     return extraCounts.get(paneId) || 0;
-  }, [extraCounts, unreadData, claudeAttentionTopics]);
+  }, [extraCounts, unreadData, claudeAttentionTopics, terminalFinishedIds]);
+
+  // Project tab badge = rollup of every child's attention, computed centrally
+  // (no per-window report-up). Children belong to a project via topic.projectPath
+  // or terminal cwd.
+  const getProjectBadgeCount = useCallback((projectPath: string): number => {
+    return rollupProjectAttention(projectPath, topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds);
+  }, [topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds]);
 
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
+    getProjectBadgeCount,
     notifyPane,
     clearPane,
     lastNotifiedAt,
     touchTopic,
-  }), [getBadgeCount, notifyPane, clearPane, lastNotifiedAt, touchTopic]);
+  }), [getBadgeCount, getProjectBadgeCount, notifyPane, clearPane, lastNotifiedAt, touchTopic]);
 
   return (
     <TabNotificationContext.Provider value={value}>
@@ -203,6 +223,7 @@ export function useTabNotifications(): TabNotificationContextValue {
     // Fallback for components outside provider — return no-op
     return {
       getBadgeCount: () => 0,
+      getProjectBadgeCount: () => 0,
       notifyPane: () => {},
       clearPane: () => {},
       lastNotifiedAt: new Map(),

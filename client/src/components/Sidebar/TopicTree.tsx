@@ -16,7 +16,7 @@ import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { useStreamingCount } from '@/contexts/StreamingContext';
+import { useStreamingCount, signalsActions } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
@@ -665,7 +665,7 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <button
-        onClick={() => onTerminalClick?.(s.id, s.name)}
+        onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
         title={`${s.name} — ${s.cwd}`}
       >

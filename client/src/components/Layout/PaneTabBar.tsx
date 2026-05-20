@@ -7,6 +7,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus } from '../../state/pane/adapters';
+import { signalsActions } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -420,7 +421,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   ? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary ring-1 ring-black/[0.03]'
                   : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
-            onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } onActivate(pane.id); }}
+            onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
             onTouchStart={(e) => handleLongPressStart(pane.id, e.currentTarget)}

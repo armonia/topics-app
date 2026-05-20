@@ -12,7 +12,6 @@ import { GlobalTabIndexProvider } from './contexts/GlobalTabIndexContext';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { ClaudeSessionProvider } from './contexts/ClaudeSessionContext';
-import { StreamingProvider } from './contexts/StreamingContext';
 import { TopicsProvider } from './contexts/TopicsContext';
 import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
@@ -34,9 +33,7 @@ import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
 import { flushPaneStoreNow } from './state/pane/middleware';
-import { useAgentActivityStore } from './state/agentActivity';
-import { useStreamingHydration } from './state/streamingHydration';
-import { useClaudeAttentionStore, NOTABLE_CLAUDE_PHASES } from './state/claudeAttention';
+import { useSignalsSync } from './state/useSignalsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -289,29 +286,16 @@ function App() {
   const openclawAvailable = useOpenClawAvailable();
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: openclawAvailable });
   const agentLiveCount = activeSessions.length + idleSessions.length;
-  // Mirror active agent sessions into the global agentActivity store so tab
-  // bars (agents tab spinner) and project rollups can react without holding
-  // their own useAgents subscription.
-  const syncAgentActivity = useAgentActivityStore((s) => s.sync);
-  useEffect(() => {
-    syncAgentActivity(activeSessions.map((s) => ({ topicId: s.topicId })));
-  }, [activeSessions, syncAgentActivity]);
-  // Hydrate "session mid-reply" (DB partial flag) so already-active sessions
-  // show their spinner on topic rows + tabs after a reload, not just on the
-  // Master strip.
-  useStreamingHydration(onWSMessage);
-  // Mirror Claude "needs you" phases (awaiting-approval / awaiting-user /
-  // error) into a notification source so they badge the chat tab and roll up
-  // to the project — previously these only drove the phase dot.
-  const syncClaudeAttention = useClaudeAttentionStore((s) => s.sync);
-  useEffect(() => {
-    const ids = new Set<string>();
-    for (const t of Object.values(topics)) {
-      const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
-      if (st && NOTABLE_CLAUDE_PHASES.has(st.phase)) ids.add(t.id);
-    }
-    syncClaudeAttention(ids);
-  }, [topics, claudeSessions, syncClaudeAttention]);
+  // Feed the unified signals store from every raw input in one place
+  // (agent / Claude attention / live stream / hydrated mid-reply / server pty
+  // activity). Consumers only read the facade (usePaneLoading / getBadgeCount).
+  useSignalsSync({
+    topics,
+    claudeSessions,
+    activeAgentSessions: activeSessions,
+    isSessionStreaming,
+    onWSMessage,
+  });
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
@@ -523,7 +507,6 @@ function App() {
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <ClaudeSessionProvider topics={topics} sessions={claudeSessions}>
-    <StreamingProvider topics={topics} isSessionStreaming={isSessionStreaming}>
     <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
@@ -1077,7 +1060,6 @@ function App() {
     </PendingActionProvider>
     </ToastProvider>
     </GlobalTabIndexProvider>
-    </StreamingProvider>
     </ClaudeSessionProvider>
     </TabNotificationProvider>
     </TopicsProvider>

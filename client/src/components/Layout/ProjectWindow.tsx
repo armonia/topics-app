@@ -16,11 +16,6 @@ import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
-import { useTerminalActivity } from '../../hooks/useTerminalActivity';
-import { useTabNotifications } from '../../hooks/useTabNotifications';
-import { useReportProjectActivity, useClearProjectActivity } from '../../state/projectActivity';
-import { usePaneActivityStore } from '../../state/paneActivity';
-import { useAgentActivityStore } from '../../state/agentActivity';
 import { ToastOutlet } from '../Shared/Toast';
 import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
@@ -216,47 +211,8 @@ export function ProjectWindowPane({
   }, [panes]);
   const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
 
-  // --- Roll child signals up to the project tab (projectActivity store) -------
-  //
-  // The top-level project tab can't enumerate this window's children (they
-  // live in useProjectLayout's local state), so we report an aggregate it can
-  // read back: NON-chat loading (chat streaming already rolls up via
-  // StreamingContext) + the sum of every child's notification badge. One
-  // report site; adding a new child signal means extending the memos below.
-  const activeTerminalIds = useTerminalActivity();
-  const browserActiveMap = usePaneActivityStore((s) => s.active);
-  const activeAgentTopicIds = useAgentActivityStore((s) => s.activeTopicIds);
-  const { getBadgeCount } = useTabNotifications();
-  const reportProjectActivity = useReportProjectActivity();
-  const clearProjectActivity = useClearProjectActivity();
-
-  const childLoading = useMemo(() => {
-    // Any non-chat child producing output. Each kind reads its own signal:
-    //   terminal → pty pulse · browser → loading/agent-active · agent →
-    //   an active session whose topic belongs to this project.
-    const terminalBusy = panes.some(
-      (p) => p.type === 'terminal' && !!getTerminalSessionFromPaneId(p.id)
-        && activeTerminalIds.has(getTerminalSessionFromPaneId(p.id)!),
-    );
-    const browserBusy = panes.some((p) => p.type === 'browser' && !!browserActiveMap[p.id]);
-    let agentBusy = false;
-    for (const tid of activeAgentTopicIds) {
-      if (topics[tid]?.projectPath === projectPath) { agentBusy = true; break; }
-    }
-    return terminalBusy || browserBusy || agentBusy;
-  }, [panes, activeTerminalIds, browserActiveMap, activeAgentTopicIds, topics, projectPath]);
-
-  const childNotifications = useMemo(() => {
-    let sum = 0;
-    for (const p of panes) sum += getBadgeCount(p.id, p.topicId, false);
-    return sum;
-  }, [panes, getBadgeCount]);
-
-  useEffect(() => {
-    reportProjectActivity(projectPath, { loading: childLoading, notifications: childNotifications });
-  }, [projectPath, childLoading, childNotifications, reportProjectActivity]);
-
-  useEffect(() => () => clearProjectActivity(projectPath), [projectPath, clearProjectActivity]);
+  // Project rollup (loading + notifications) is computed centrally from the
+  // global signals store now — no per-window report-up needed.
 
   // Two sources for the tab "in progress" spinner — chat panes
   // streaming an LLM, terminal panes producing pty output. See

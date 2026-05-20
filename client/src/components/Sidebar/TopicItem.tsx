@@ -10,7 +10,7 @@ import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionP
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { TopicClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
-import { useTopicStreaming } from '@/contexts/StreamingContext';
+import { useTopicLoading } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 
 const isTouchDevice = typeof window !== 'undefined' && (
@@ -75,7 +75,7 @@ export const TopicItem = memo(function TopicItem({
   const paddingLeft = 12 + depth * 16;
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
-  const isStreaming = useTopicStreaming(topic.id);
+  const isStreaming = useTopicLoading(topic.id);
 
   const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: topic.id,
