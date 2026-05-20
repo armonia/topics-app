@@ -15,7 +15,7 @@ import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
-import { ProjectStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { useStreamingCount } from '@/contexts/StreamingContext';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
@@ -673,6 +673,10 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
           ? <ClaudeIcon size={13} className="flex-shrink-0 text-[#D97757]" />
           : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
         <span className="text-[12px] truncate flex-1">{s.name}</span>
+        {/* Loading spinner — pulses while this session's pty is producing
+            output, mirroring the terminal tab. Same source (useTerminalActivity)
+            so the sidebar row and the tab agree. */}
+        <TerminalStreamingSpinner sessionId={s.id} className="mr-1" />
         {projectName && (
           <span className="text-[10px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
             {projectName}
