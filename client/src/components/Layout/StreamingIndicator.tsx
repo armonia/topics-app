@@ -6,8 +6,11 @@
  *     stop affordance (a chat tab/sidebar row passes onStop so the user
  *     can interrupt the LLM stream from there).
  *   - <ProjectStreamingSpinner projectPath />     — aggregated; surfaces
- *     when ANY chat inside the project is mid-stream. Read-only because
- *     stopping a specific inner stream requires drilling into that chat.
+ *     when ANY child of the project is producing output: a chat mid-stream
+ *     (StreamingContext, works even before the window mounts) OR a non-chat
+ *     child — terminal / browser / agent — reported by the mounted
+ *     ProjectWindow into the projectActivity store. Read-only because
+ *     stopping a specific inner stream requires drilling into that child.
  *
  * Used in: PaneTabBar (chat + project tabs), Sidebar/TopicItem,
  * Sidebar/TopicTree (project row). Don't roll your own — every surface
@@ -21,6 +24,7 @@
  */
 
 import { useTopicStreaming, useProjectStreaming, useTerminalStreaming } from '../../contexts/StreamingContext';
+import { useProjectActivityLoading } from '../../state/projectActivity';
 
 function SpinnerCircle() {
   return (
@@ -84,8 +88,13 @@ export function ProjectStreamingSpinner({
   title,
   className = '',
 }: ProjectSpinnerProps) {
-  const streaming = useProjectStreaming(projectPath);
-  if (!streaming) return null;
+  // Chat streams roll up via StreamingContext (topics carry projectPath);
+  // non-chat children (terminal / browser / agent) roll up via the mounted
+  // ProjectWindow into the projectActivity store. OR both so the project tab
+  // pulses for any kind of child activity.
+  const chatStreaming = useProjectStreaming(projectPath);
+  const childLoading = useProjectActivityLoading(projectPath);
+  if (!chatStreaming && !childLoading) return null;
   const tip = title ?? 'Una chat di questo progetto sta rispondendo';
   return (
     <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
