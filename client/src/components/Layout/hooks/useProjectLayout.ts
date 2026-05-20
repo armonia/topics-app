@@ -256,6 +256,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   // --- Ref mirrors (used by stable callbacks + same-effect reads) ---
   const panesRef = useRefMirror(panes);
+  const topicsRef = useRefMirror(topics);
   const groupsRef = useRefMirror(groups);
   const focusedGroupIdRef = useRefMirror(focusedGroupId);
   const rowsRef = useRefMirror(rows);
@@ -301,7 +302,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // reaper kills the session, which can take much longer than the
       // user's patience.
       const tombstones = getTerminalTombstones();
-      const projectSessions = sessions.filter(
+      // Guard against a "broad" project (e.g. the home dir) whose path is an
+      // ancestor of other real projects: by prefix-match it would adopt every
+      // claude-code/terminal underneath it, dragging unrelated sessions into
+      // this split. If a more specific project exists below us, adopt nothing
+      // automatically — those terminals belong to their own project window.
+      const isBroadProject = Object.values(topicsRef.current).some(
+        t => t.projectPath && t.projectPath.startsWith(projectPath + '/'),
+      );
+      const projectSessions = isBroadProject ? [] : sessions.filter(
         s => (s.cwd === projectPath || s.cwd.startsWith(projectPath + '/'))
           && !tombstones.has(s.id),
       );

@@ -1241,7 +1241,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (t.projectPath) knownProjectPaths.add(t.projectPath);
       }
       for (const p of workspaceProjects) knownProjectPaths.add(p);
-      if (knownProjectPaths.has(session.cwd)) {
+      // A path that is an ANCESTOR of another known project (e.g. the home
+      // dir, parent of all your projects) is too broad to be a project: its
+      // window would adopt every terminal/chat underneath it. Treat such a
+      // terminal as standalone instead of opening a catch-all project.
+      const cwd = session.cwd;
+      const isBroad = [...knownProjectPaths].some(p => p !== cwd && p.startsWith(cwd + '/'));
+      if (knownProjectPaths.has(cwd) && !isBroad) {
         const projectPath = session.cwd;
         const projectPaneId = createPaneId('project', projectPath);
         if (isMobile) {
