@@ -28,6 +28,7 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type { Topic } from '../types';
 import { useTerminalActivity } from '../hooks/useTerminalActivity';
 import { useAgentActivityStore } from '../state/agentActivity';
+import { useStreamingHydrationStore } from '../state/streamingHydration';
 
 interface StreamingContextValue {
   /** True iff this topic has an active server-side stream. */
@@ -69,19 +70,26 @@ export function StreamingProvider({ topics, isSessionStreaming, children }: Prov
   // here means every consumer (sidebar topic row, chat tab, project row)
   // reflects already-active sessions uniformly — no per-site wiring.
   const agentActiveTopicIds = useAgentActivityStore((s) => s.activeTopicIds);
+  // Server-truth set of topics mid-reply (DB partial flag) — covers sessions
+  // already streaming at page load, which the live map misses.
+  const hydratedStreamingTopicIds = useStreamingHydrationStore((s) => s.topicIds);
 
   // Single pass over topics: build the streaming Sets. A topic counts as
-  // streaming if it has a live chat stream OR an already-active agent session.
+  // streaming if it has a live chat stream, an already-active agent session,
+  // or a server-reported in-progress reply (hydrated at load).
   const { streamingTopicIds, streamingProjects } = useMemo(() => {
     const topicIds = new Set<string>();
     const projects = new Set<string>();
     for (const t of Object.values(topics)) {
-      if (!isSessionStreaming(t.sessionKey) && !agentActiveTopicIds.has(t.id)) continue;
+      const active = isSessionStreaming(t.sessionKey)
+        || agentActiveTopicIds.has(t.id)
+        || hydratedStreamingTopicIds.has(t.id);
+      if (!active) continue;
       topicIds.add(t.id);
       if (t.projectPath) projects.add(t.projectPath);
     }
     return { streamingTopicIds: topicIds, streamingProjects: projects };
-  }, [topics, isSessionStreaming, agentActiveTopicIds]);
+  }, [topics, isSessionStreaming, agentActiveTopicIds, hydratedStreamingTopicIds]);
 
   const value = useMemo<StreamingContextValue>(() => ({
     isTopicStreaming: (topicId) => streamingTopicIds.has(topicId),

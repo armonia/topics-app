@@ -35,6 +35,7 @@ import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
 import { flushPaneStoreNow } from './state/pane/middleware';
 import { useAgentActivityStore } from './state/agentActivity';
+import { useStreamingHydration } from './state/streamingHydration';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -294,6 +295,10 @@ function App() {
   useEffect(() => {
     syncAgentActivity(activeSessions.map((s) => ({ topicId: s.topicId })));
   }, [activeSessions, syncAgentActivity]);
+  // Hydrate "session mid-reply" (DB partial flag) so already-active sessions
+  // show their spinner on topic rows + tabs after a reload, not just on the
+  // Master strip.
+  useStreamingHydration(onWSMessage);
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
