@@ -1,4 +1,3 @@
-import path from "node:path";
 /**
  * Phase A integration test — exercises the full Project + Worktree
  * domain end-to-end against a fresh SQLite + a real on-disk git repo.
@@ -22,6 +21,7 @@ import path from "node:path";
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { PROJECT_ROOT } from "./helpers";
 
 // Isolation: must set env before the first import that calls initDatabase.
 const TEST_REPO = "/tmp/topics-phase-a-test-repo";
@@ -67,7 +67,7 @@ describe("Phase A · Project + Worktree domain", () => {
   describe("schema migrations applied", () => {
     test("projects + worktrees + topics.worktree_id columns exist", async () => {
       const { createAppContext } = await utilsPromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       const tableInfo = (table: string) =>
         ctx.db.query(`PRAGMA table_info('${table}')`).all() as { name: string }[];
       expect(tableInfo("projects").map(c => c.name)).toContain("slug");
@@ -81,7 +81,7 @@ describe("Phase A · Project + Worktree domain", () => {
   describe("ProjectStore", () => {
     test("creates a project, looks up by slug + path, lists active", async () => {
       const { createAppContext } = await utilsPromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       const project = ctx.projectStore.create({
         name: "Foo",
         slug: "foo-proj",
@@ -99,7 +99,7 @@ describe("Phase A · Project + Worktree domain", () => {
     test("rejects duplicate slug with SlugConflictError", async () => {
       const { createAppContext } = await utilsPromise;
       const { SlugConflictError } = await import("../../server/services/project-store");
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       ctx.projectStore.create({ name: "Bar", slug: "dup-slug", path: TEST_REPO });
       expect(() =>
         ctx.projectStore.create({ name: "Bar2", slug: "dup-slug", path: TEST_REPO }),
@@ -110,7 +110,7 @@ describe("Phase A · Project + Worktree domain", () => {
 
     test("archive / restore round-trip", async () => {
       const { createAppContext } = await utilsPromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       const project = ctx.projectStore.create({
         name: "Arc", slug: "arc-proj", path: TEST_REPO,
       });
@@ -126,7 +126,7 @@ describe("Phase A · Project + Worktree domain", () => {
   describe("WorktreeManager — create → ready → delete", () => {
     test("full happy-path flow", async () => {
       const { createAppContext } = await utilsPromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       const project = ctx.projectStore.create({
         name: "Happy", slug: "happy-proj", path: TEST_REPO,
       });
@@ -160,7 +160,7 @@ describe("Phase A · Project + Worktree domain", () => {
     test("refuses creation from inside an existing worktree", async () => {
       const { createAppContext } = await utilsPromise;
       const { WorktreeRefusalError } = await import("../../server/services/worktree-manager");
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       const parent = ctx.projectStore.create({
         name: "Parent", slug: "parent-proj", path: TEST_REPO,
       });
@@ -186,7 +186,7 @@ describe("Phase A · Project + Worktree domain", () => {
     // @spec WORKTREE-05
     test("deleting a worktree NULLs topics.worktree_id (FK ON DELETE SET NULL)", async () => {
       const { createAppContext } = await utilsPromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
 
       const project = ctx.projectStore.create({
         name: "Cascade", slug: "cascade-proj", path: TEST_REPO,
@@ -231,7 +231,7 @@ describe("Phase A · Project + Worktree domain", () => {
 
     test("resolveTopicCwd prefers worktree.absPath when ready, else projectPath", async () => {
       const { createAppContext } = await utilsPromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
 
       const project = ctx.projectStore.create({
         name: "Cwd", slug: "cwd-proj", path: TEST_REPO,
@@ -264,7 +264,7 @@ describe("Phase A · Project + Worktree domain", () => {
     test("POST /api/projects validates name+path, emits broadcast, returns 201", async () => {
       const { createAppContext } = await utilsPromise;
       const { createProjectsRouter } = await projectsRoutePromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       const captured: any[] = [];
       (ctx as any).broadcastToAll = (m: any) => captured.push(m);
       const route = createProjectsRouter(ctx);
@@ -295,7 +295,7 @@ describe("Phase A · Project + Worktree domain", () => {
       const { createAppContext } = await utilsPromise;
       const { createProjectsRouter } = await projectsRoutePromise;
       const { createWorktreesRouter } = await worktreesRoutePromise;
-      const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+      const ctx = createAppContext(PROJECT_ROOT);
       (ctx as any).broadcastToAll = () => {};
       const projects = createProjectsRouter(ctx);
       const worktrees = createWorktreesRouter(ctx);

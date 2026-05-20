@@ -1,4 +1,3 @@
-import path from "node:path";
 /**
  * KANBAN-DELTA-01 — jump-to-tab API (Phase D).
  *
@@ -6,26 +5,24 @@ import path from "node:path";
  * Endpoint: POST /api/boards/:projectId/tasks/:id/assign-topic
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import * as fs from "node:fs";
+import { setupTestDataDir, createTestAppContext } from "./helpers";
 
 const TEST_DATA = "/tmp/topics-board-jumptotab-data";
 
-beforeAll(() => {
-  fs.rmSync(TEST_DATA, { recursive: true, force: true });
-  process.env.DATA_DIR = TEST_DATA;
-});
+beforeAll(() => setupTestDataDir(TEST_DATA));
 
 async function setup() {
-  const { createAppContext } = await import("../../server/utils");
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { createBoardsRouter } = await import("../../server/routes/boards");
-  const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-  (ctx as any).broadcastToAll = () => {};
+  const ctx = await createTestAppContext();
   const topicsRouter = createTopicsRouter(ctx);
   const boardsRouter = createBoardsRouter(ctx);
   return { ctx, topicsRouter, boardsRouter };
 }
 
+// Test-local wrappers that return `{status, body}` instead of a Response —
+// every assertion in this file reads both at once, so the wrapper saves
+// a few lines per call. (The shared helpers/index.ts returns Response.)
 async function postJson(router: any, urlStr: string, body: any) {
   const url = new URL(urlStr);
   const req = new Request(url, {

@@ -1,4 +1,3 @@
-import path from "node:path";
 /**
  * MASTER-01 — Master Topic creation via API.
  *
@@ -6,22 +5,17 @@ import path from "node:path";
  * Migration: server/db/migrations/026-master-topic-mode.sql
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import * as fs from "node:fs";
+import { setupTestDataDir, createTestAppContext } from "./helpers";
 
 const TEST_DATA = "/tmp/topics-master-test-data";
 
-beforeAll(() => {
-  fs.rmSync(TEST_DATA, { recursive: true, force: true });
-  process.env.DATA_DIR = TEST_DATA;
-});
+beforeAll(() => setupTestDataDir(TEST_DATA));
 
 describe("MASTER-01 · POST /api/topics/master", () => {
 
   test("creates a Master Topic with agent_team_role='lead' and returns the id", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
 
     const url = new URL("http://h/api/topics/master");
@@ -46,10 +40,8 @@ describe("MASTER-01 · POST /api/topics/master", () => {
   });
 
   test("re-creating for the same projectPath resumes (no duplicate)", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
 
     const url = new URL("http://h/api/topics/master");
@@ -83,10 +75,8 @@ describe("MASTER-01 · POST /api/topics/master", () => {
   });
 
   test("accepts global Master (no projectPath) — Variant A", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
 
     const url = new URL("http://h/api/topics/master");

@@ -1,17 +1,15 @@
-import path from "node:path";
 /**
  * Phase D · multi-machine integration test.
  * Covers MachineStore upsertLocal idempotence, REST routes, and the FK
  * SET NULL on `topics.machine_id` when a machine is deleted.
  */
 import { describe, expect, test, beforeAll, beforeEach } from "bun:test";
-import * as fs from "node:fs";
+import { setupTestDataDir, createTestAppContext } from "./helpers";
 
 const TEST_DATA = "/tmp/topics-phase-d-data";
 
 beforeAll(async () => {
-  fs.rmSync(TEST_DATA, { recursive: true, force: true });
-  process.env.DATA_DIR = TEST_DATA;
+  setupTestDataDir(TEST_DATA);
   // `server/db.ts` keeps a module-level `_db` singleton. Other suites in the
   // same `bun test` run may have already called `initDatabase()` pointing at
   // a different DATA_DIR, leaving that singleton alive. If we don't close it
@@ -41,8 +39,7 @@ describe("Phase D · multi-machine", () => {
   });
 
   test("upsertLocal is idempotent: insert on first call, refresh on subsequent", async () => {
-    const { createAppContext } = await import("../../server/utils");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+    const ctx = await createTestAppContext();
     const first = ctx.machineStore.upsertLocal();
     const second = ctx.machineStore.upsertLocal();
     expect(second.id).toBe(first.id);
@@ -54,10 +51,8 @@ describe("Phase D · multi-machine", () => {
   });
 
   test("rename via PATCH and FK SET NULL on delete", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createMachinesRouter } = await import("../../server/routes/machines");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const m = ctx.machineStore.upsertLocal();
 
     // Bind a topic to the machine via direct insert (mirroring saveSingleTopic).
@@ -110,8 +105,7 @@ describe("Phase D · multi-machine", () => {
   });
 
   test("markStaleOffline flips machines older than threshold", async () => {
-    const { createAppContext } = await import("../../server/utils");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
+    const ctx = await createTestAppContext();
     const local = ctx.machineStore.upsertLocal();
 
     // Insert a fake remote machine with old heartbeat.

@@ -1,25 +1,19 @@
-import path from "node:path";
 /**
  * Phase C · Initial Message round-trip via REST.
  * Pure integration: no UI, no WS roundtrip needed.
  */
 import { describe, expect, test, beforeAll } from "bun:test";
-import * as fs from "node:fs";
+import { setupTestDataDir, createTestAppContext } from "./helpers";
 
 const TEST_DATA = "/tmp/topics-phase-c-data";
 
-beforeAll(() => {
-  fs.rmSync(TEST_DATA, { recursive: true, force: true });
-  process.env.DATA_DIR = TEST_DATA;
-});
+beforeAll(() => setupTestDataDir(TEST_DATA));
 
 describe("Phase C · TOPIC-IM-01 — initial message", () => {
 
   test("create + read + clear round-trip", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
 
     // CREATE with initialMessage
@@ -61,10 +55,8 @@ describe("Phase C · TOPIC-IM-01 — initial message", () => {
   });
 
   test("rejects message > 8000 chars", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
 
     const url = new URL("http://h/api/topics");
@@ -86,10 +78,8 @@ describe("Phase C · TOPIC-IM-01 — initial message", () => {
   });
 
   test("strips control characters but preserves newlines + tabs", async () => {
-    const { createAppContext } = await import("../../server/utils");
     const { createTopicsRouter } = await import("../../server/routes/topics");
-    const ctx = createAppContext(path.resolve(import.meta.dirname, "../.."));
-    (ctx as any).broadcastToAll = () => {};
+    const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
 
     const url = new URL("http://h/api/topics");
