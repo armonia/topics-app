@@ -17,17 +17,14 @@ import { TopicClaudePhaseIndicator, ProjectClaudePhaseIndicator } from './Claude
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 
-/** Pane types where the "mark as done" / countdown affordance doesn't
- *  fit semantically — they're read-only viewers (a file open in a viewer,
- *  a process-log tail, a recorded session). For those we keep the classic
- *  X close button without the soft-confirm window; closing them is fully
- *  reversible via the Cmd+Shift+T closed-stack so a 3 s grace window adds
- *  no real safety. */
-const READ_ONLY_PANE_TYPES: ReadonlySet<PaneType> = new Set<PaneType>([
-  'file',
-  'session-viewer',
-  'process-log',
-]);
+// Every pane type closes through the same soft-confirm path: hovering the X
+// reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
+// progress fill, and a re-click cancels. There used to be a READ_ONLY_PANE_TYPES
+// exception (file / session-viewer / process-log) that swapped in a classic X
+// with no feedback — but the wired onClose (handleClosePane) defers those
+// closes anyway, so the exception just hid the countdown that was already
+// running. Closing is reversible via Cmd+Shift+T regardless, so a single
+// uniform affordance is both cleaner and less surprising.
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
@@ -443,9 +440,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {/* PendingAction progress fill — covers the tab background L→R
                 during the 3 s soft-close countdown. Sub-component subscribes
                 to the context per-pane so an unrelated pane's state changes
-                don't re-render every other tab. Read-only viewer tabs don't
-                participate in the countdown (mirrored in PaneCloseButton). */}
-            {!READ_ONLY_PANE_TYPES.has(pane.type) && <PaneTabPendingOverlay paneId={pane.id} />}
+                don't re-render every other tab. It self-guards on a null
+                pending status, so it's safe to mount for every pane type. */}
+            <PaneTabPendingOverlay paneId={pane.id} />
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
@@ -508,7 +505,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             <NotificationBadge count={badgeCount} className="ml-0.5" />
             <PaneCloseButton
               paneId={pane.id}
-              paneType={pane.type}
               onClose={onClose}
               isElectron={isElectron}
               isTouch={isTouch}
@@ -692,10 +688,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
  * `panes.map(...)` is forbidden.
  */
 function PaneCloseButton({
-  paneId, paneType, onClose, isElectron, isTouch, isAppFocused, isMac,
+  paneId, onClose, isElectron, isTouch, isAppFocused, isMac,
 }: {
   paneId: string;
-  paneType: PaneType;
   onClose: (id: string) => void;
   isElectron: boolean;
   isTouch: boolean;
@@ -704,17 +699,11 @@ function PaneCloseButton({
 }) {
   const globalIdx = useGlobalTabIndex(paneId);
   const showBadge = isElectron && !isTouch && isAppFocused && globalIdx >= 0 && globalIdx < 9;
-  const isReadOnly = READ_ONLY_PANE_TYPES.has(paneType);
-  // Read-only tabs short-circuit to the legacy X immediately. They never
-  // appear in PendingActionContext because the App-level deferred wrappers
-  // only get called from the inline check button, and read-only tabs use
-  // this raw `onClose` path — closing them is fully reversible via the
-  // Cmd+Shift+T closed-stack, no countdown needed.
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
   // `close-terminal:<id>` / `close-browser:<id>`) so the topbar tab shows
   // the same countdown regardless of which surface kicked it off.
-  const pendingStatus = usePanePendingStatus(isReadOnly ? null : paneId);
+  const pendingStatus = usePanePendingStatus(paneId);
 
   // While pending, the slot is the filled check (cancels on click).
   if (pendingStatus) {
@@ -727,27 +716,6 @@ function PaneCloseButton({
           pendingAriaLabel="Annulla chiusura"
         />
       </span>
-    );
-  }
-
-  if (isReadOnly) {
-    // Classic X (no countdown) for read-only viewers.
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onClose(paneId); }}
-        className="w-5 h-5 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-all flex-shrink-0"
-        title="Close"
-        aria-label={`Close ${paneId}`}
-      >
-        {showBadge ? (
-          <>
-            <kbd className="kbd text-app-text-muted/50 group-hover:hidden">{isMac ? '⌘' : '⌃'}{globalIdx + 1}</kbd>
-            <X size={12} className="hidden group-hover:block" />
-          </>
-        ) : (
-          <X size={12} className={isTouch ? '' : 'opacity-0 group-hover:opacity-100'} />
-        )}
-      </button>
     );
   }
 
