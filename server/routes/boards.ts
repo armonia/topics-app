@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import { rowToTask, checkBlockers as sharedCheckBlockers } from "../converters";
+import { rowToTask, rowToMemory, checkBlockers as sharedCheckBlockers } from "../converters";
 
 export function createBoardsRouter(ctx: AppContext): RouteHandler {
   const { db, json, readJSON, matchRoute, errorResponse, broadcastToAll } = ctx;
@@ -428,16 +428,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
           ).all(params.projectId, limit) as any[];
         }
 
-        const memory = rows.map((row: any) => ({
-          id: row.id,
-          projectId: row.project_id,
-          content: row.content,
-          tags: row.tags ? JSON.parse(row.tags) : [],
-          isChat: !!row.is_chat,
-          source: row.source || null,
-          agentId: row.agent_id || null,
-          createdAt: row.created_at,
-        }));
+        const memory = rows.map(rowToMemory);
         return json({ memory });
       }
 
@@ -455,16 +446,7 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
         `).run(id, params.projectId, body.content, body.tags ? JSON.stringify(body.tags) : "[]", body.isChat ? 1 : 0, body.source || "user", null, now);
 
         const row = db.prepare(`SELECT * FROM board_memory WHERE id = ?`).get(id) as any;
-        const memory = row ? {
-          id: row.id,
-          projectId: row.project_id,
-          content: row.content,
-          tags: row.tags ? JSON.parse(row.tags) : [],
-          isChat: !!row.is_chat,
-          source: row.source || null,
-          agentId: row.agent_id || null,
-          createdAt: row.created_at,
-        } : { id };
+        const memory = row ? rowToMemory(row) : { id };
 
         broadcastToAll({ type: "board:memory_added", projectId: params.projectId, memory });
         return json(memory, 201);

@@ -59,12 +59,10 @@ function saveSpaces(baseDir: string, data: SpacesData): void {
   writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
-function slugify(name: string): string {
-  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
+// slugify lives in server/utils.ts and is exposed via AppContext.
 
 export function createSpacesRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, errorResponse } = ctx;
+  const { json, readJSON, matchRoute, errorResponse, slugify } = ctx;
   const baseDir = ctx.BASE_DIR;
 
   return async (req, url, pathname, method) => {
