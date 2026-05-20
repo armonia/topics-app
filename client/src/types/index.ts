@@ -666,6 +666,18 @@ export interface WSTerminalSessionsMessage {
   sessions: TerminalSessionInfo[];
 }
 
+/** Per-session pty activity. Server-tracked from the central pty data path so
+ *  it covers every session, mounted or not. `finished` marks an active→idle
+ *  transition (a completed turn) — used to raise a notification for
+ *  claude-code. `kind` is the session type. */
+export interface WSTerminalActivityMessage {
+  type: 'terminal:activity';
+  id: string;
+  busy: boolean;
+  finished?: boolean;
+  kind?: 'shell' | 'claude-code' | 'claude-code-team';
+}
+
 // --- Notifications -----------------------------------------------------------
 /** Initial unread snapshot sent on WS connect. Keyed by topicId. */
 export interface WSUnreadInitMessage {
@@ -970,6 +982,7 @@ export type WSMessage =
   | WSAgentsSpawnedMessage
   | WSAgentsStoppedMessage
   | WSTerminalSessionsMessage
+  | WSTerminalActivityMessage
   | WSUnreadInitMessage
   | WSUnreadUpdatedMessage
   | WSTaskUpsertMessage

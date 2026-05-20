@@ -27,6 +27,46 @@ interface TerminalSession {
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
 
+// --- Per-session pty activity tracking ----------------------------------
+// All pty output flows through handleBridgeMessage's "data" case, so this is
+// the single point where we can tell whether a session (notably claude-code)
+// is producing output. We mark a session busy on output and idle after a
+// quiet window; the active→idle transition is the "task finished" signal.
+// Broadcast over the app WS so every client reacts — independent of whether
+// a terminal pane is mounted (the old client-only pty pulse missed those).
+const TERMINAL_IDLE_MS = 1500;
+interface TerminalActivity { busy: boolean; timer: ReturnType<typeof setTimeout> | null; }
+const terminalActivity = new Map<string, TerminalActivity>();
+
+function markTerminalActivity(id: string) {
+  const session = sessions.get(id);
+  if (!session) return;
+  let a = terminalActivity.get(id);
+  if (!a) { a = { busy: false, timer: null }; terminalActivity.set(id, a); }
+  if (!a.busy) {
+    a.busy = true;
+    _broadcastToAll?.({ type: 'terminal:activity', id, busy: true, kind: session.type });
+  }
+  if (a.timer) clearTimeout(a.timer);
+  a.timer = setTimeout(() => {
+    a!.busy = false;
+    a!.timer = null;
+    // active→idle = the session stopped producing output → likely finished a
+    // turn. `finished:true` lets the client raise a notification (it filters
+    // to claude-code). `kind` carries the session type for that decision.
+    _broadcastToAll?.({ type: 'terminal:activity', id, busy: false, finished: true, kind: session.type });
+  }, TERMINAL_IDLE_MS);
+}
+
+function clearTerminalActivity(id: string) {
+  const a = terminalActivity.get(id);
+  if (a?.timer) clearTimeout(a.timer);
+  terminalActivity.delete(id);
+  // Tell clients to drop any loading state for this session (no `finished`:
+  // an exit isn't a completed turn).
+  if (a?.busy) _broadcastToAll?.({ type: 'terminal:activity', id, busy: false });
+}
+
 // Idempotency cache for POST /api/terminal/sessions retries.
 // Client sends X-Idempotency-Key on reopen (paneId:closedAt) so a transient
 // 5xx on the HEAD probe doesn't spawn duplicate pty sessions when the client
@@ -264,6 +304,9 @@ function handleBridgeMessage(msg: any) {
     case "data": {
       const session = sessions.get(msg.id);
       if (!session) break;
+      // Central activity signal (loading + finished) — independent of whether
+      // any client has the terminal pane mounted.
+      markTerminalActivity(msg.id);
       // Forward to connected WebSocket clients (buffer is in bridge)
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
@@ -276,6 +319,7 @@ function handleBridgeMessage(msg: any) {
     case "exit": {
       const exitedSession = sessions.get(msg.id);
       sessions.delete(msg.id);
+      clearTerminalActivity(msg.id);
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
         for (const ws of sockets) {
