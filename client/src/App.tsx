@@ -36,6 +36,7 @@ import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from '
 import { flushPaneStoreNow } from './state/pane/middleware';
 import { useAgentActivityStore } from './state/agentActivity';
 import { useStreamingHydration } from './state/streamingHydration';
+import { useClaudeAttentionStore, NOTABLE_CLAUDE_PHASES } from './state/claudeAttention';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -299,6 +300,18 @@ function App() {
   // show their spinner on topic rows + tabs after a reload, not just on the
   // Master strip.
   useStreamingHydration(onWSMessage);
+  // Mirror Claude "needs you" phases (awaiting-approval / awaiting-user /
+  // error) into a notification source so they badge the chat tab and roll up
+  // to the project — previously these only drove the phase dot.
+  const syncClaudeAttention = useClaudeAttentionStore((s) => s.sync);
+  useEffect(() => {
+    const ids = new Set<string>();
+    for (const t of Object.values(topics)) {
+      const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
+      if (st && NOTABLE_CLAUDE_PHASES.has(st.phase)) ids.add(t.id);
+    }
+    syncClaudeAttention(ids);
+  }, [topics, claudeSessions, syncClaudeAttention]);
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);

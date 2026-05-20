@@ -1,5 +1,6 @@
 import { createContext, useContext, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
+import { useClaudeAttentionStore } from '../state/claudeAttention';
 
 interface TabNotificationContextValue {
   /** Get badge count for a pane. Chat panes use unreadData[topicId], others use extraCounts. */
@@ -43,6 +44,9 @@ export function TabNotificationProvider({
   const [lastNotifiedAt, setLastNotifiedAt] = useState<Map<string, number>>(() => new Map());
   const unreadRef = useRef(unreadData);
   unreadRef.current = unreadData;
+  // Claude "needs you" topics — subscribed here so getBadgeCount's identity
+  // changes when attention shifts, re-running the badge maps downstream.
+  const claudeAttentionTopics = useClaudeAttentionStore((s) => s.topicIds);
 
   const notifyPane = useCallback((paneId: string) => {
     setExtraCounts(prev => {
@@ -165,14 +169,18 @@ export function TabNotificationProvider({
   }, [onWSMessage, notifyPane, touchTopic, badgePrefixes]);
 
   const getBadgeCount = useCallback((paneId: string, topicId?: string, isActive?: boolean): number => {
-    if (isActive) return 0;
-    // Chat panes: use existing unreadData
+    // Claude "needs you" attention (approval / finished reply / error) persists
+    // even while the tab is active — it clears only when the user interacts and
+    // the session leaves the notable phase. Unread, by contrast, clears on focus.
+    const claudeAttention = topicId && claudeAttentionTopics.has(topicId) ? 1 : 0;
+    if (isActive) return claudeAttention;
+    // Chat panes: max of server unread and Claude attention (don't double count)
     if (topicId) {
-      return unreadData[topicId]?.unreadCount || 0;
+      return Math.max(unreadData[topicId]?.unreadCount || 0, claudeAttention);
     }
     // Non-chat panes: use extraCounts
     return extraCounts.get(paneId) || 0;
-  }, [extraCounts, unreadData]);
+  }, [extraCounts, unreadData, claudeAttentionTopics]);
 
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
