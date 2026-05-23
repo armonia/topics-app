@@ -39,6 +39,8 @@ export interface UseProjectPersistenceSaveArgs {
   /** Currently-active chat topic id from `useProjectChatSync.activeTopicId`.
    *  Persisted alongside tab identity so the next session restores focus. */
   activeChatTopicId?: string;
+  /** Which split cell is focused — persisted so a reload restores it. */
+  focusedGroupId: string | null;
   gateRefs: PersistenceGateRefs;
   onOpenPanesChange?: (paneIds: string[]) => void;
 }
@@ -54,6 +56,7 @@ export function useProjectPersistenceSave(
     rowHeights,
     sidebarCollapsed,
     activeChatTopicId,
+    focusedGroupId,
     gateRefs,
     onOpenPanesChange,
   } = args;
@@ -88,16 +91,17 @@ export function useProjectPersistenceSave(
       activeChatTopicId,
     });
 
-    // Local-only: layout structure (splits, groups, tab order, sidebar)
+    // Local-only: layout structure (splits, groups, tab order, sidebar, focus)
     savePersistedLayoutState(projectPath, {
       groups,
       rows,
       rowHeights,
       sidebarCollapsed,
+      focusedGroupId,
     });
 
     // Report open panes to parent for sidebar filtering
     onOpenPanesChange?.(panes.map(p => p.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panes, groups, rows, rowHeights, sidebarCollapsed, activeChatTopicId, projectPath, onOpenPanesChange]);
+  }, [panes, groups, rows, rowHeights, sidebarCollapsed, activeChatTopicId, focusedGroupId, projectPath, onOpenPanesChange]);
 }

@@ -15,7 +15,7 @@ import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
-import { ProjectStreamingSpinner, TerminalStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, TerminalFinishedDot } from '@/components/Layout/StreamingIndicator';
 import { useStreamingCount, signalsActions } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
@@ -203,6 +203,19 @@ export function TopicTree({
     lastNotifiedAt,
   }), [topicsForTree, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt]);
 
+  // Union of every open pane id — top-level panes AND panes open inside any
+  // project window. The sidebar used to check only the top-level `openPanels`,
+  // so a terminal/browser opened *inside a project* never lit up as open in the
+  // sidebar even though its tab was clearly mounted: the sidebar and the tab
+  // bars disagreed. Folding in `projectOpenPanes` keeps the two in sync.
+  const allOpenPaneIds = useMemo(() => {
+    const s = new Set<string>(openPanels);
+    for (const ids of Object.values(projectOpenPanes)) {
+      for (const id of ids) s.add(id);
+    }
+    return s;
+  }, [openPanels, projectOpenPanes]);
+
   const filteredItems = useMemo(
     () => filterSidebarItems(allItems, searchQuery),
     [allItems, searchQuery]
@@ -275,7 +288,9 @@ export function TopicTree({
   const renderTerminalItem = (item: SidebarItem, depth = 0) => {
     const ts = item.terminal!;
     const paneId = `terminal:${ts.id}`;
-    const isActive = focusedTopicId === paneId || openPanels.includes(paneId);
+    // Open anywhere — top-level or inside a project — counts as active so the
+    // sidebar row matches the terminal's tab state in either surface.
+    const isActive = focusedTopicId === paneId || allOpenPaneIds.has(paneId);
 
     return (
       <TerminalSidebarItem
@@ -297,7 +312,7 @@ export function TopicTree({
     const bc = item.browser!;
     const paneId = `browser:${bc.id}`;
     const isFocused = focusedTopicId === paneId;
-    const isOpen = !isFocused && openPanels.includes(paneId);
+    const isOpen = !isFocused && allOpenPaneIds.has(paneId);
     return (
       <BrowserSidebarItem
         key={item.id}
@@ -677,6 +692,7 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
             output, mirroring the terminal tab. Same source (useTerminalActivity)
             so the sidebar row and the tab agree. */}
         <TerminalStreamingSpinner sessionId={s.id} className="mr-1" />
+        <TerminalFinishedDot sessionId={s.id} className="mr-1" />
         {projectName && (
           <span className="text-[10px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
             {projectName}

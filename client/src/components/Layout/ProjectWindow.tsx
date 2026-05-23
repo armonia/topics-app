@@ -265,6 +265,7 @@ export function ProjectWindowPane({
     rowHeights,
     sidebarCollapsed,
     activeChatTopicId: activeTopicId ?? undefined,
+    focusedGroupId,
     gateRefs: loaded.gateRefs,
     onOpenPanesChange,
   });
@@ -337,7 +338,7 @@ export function ProjectWindowPane({
         if (!sessionId) return null;
         return (
           <LazyPane>
-            <SingleTerminalPane sessionId={sessionId} />
+            <SingleTerminalPane sessionId={sessionId} isActive={isVisible} />
           </LazyPane>
         );
       }
@@ -450,6 +451,8 @@ export function ProjectWindowPane({
             rows={rows}
             rowHeights={rowHeights}
             focusedGroupId={focusedGroupId}
+            // Tab-drag scope: tabs may only move between groups of THIS project.
+            dndScope={projectPath}
             // App-level focus signal: PaneTabBar uses this to render a
             // dimmed-active state for the focused group's active tab when
             // the project itself sits next to a sibling in App split view

@@ -4,20 +4,23 @@
  * one wiring diagram to reason about, and consumers only ever read the facade.
  */
 import { useEffect } from 'react';
-import type { Topic, ClaudeSessionState, WSMessage } from '../types';
+import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
-import { signalsActions } from './signals';
+import { signalsActions, derivePhaseTerminals, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES } from './signals';
 
 interface Args {
   topics: Record<string, Topic>;
   claudeSessions: ReadonlyMap<string, ClaudeSessionState>;
   activeAgentSessions: AgentSession[];
+  /** Authoritative session roster (WS terminal:sessions + REST). Drives busy
+   *  reconciliation so loading state self-heals from a single source of truth. */
+  terminalSessions: TerminalSessionInfo[];
   isSessionStreaming: (sessionKey: string) => boolean;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
-export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, isSessionStreaming, onWSMessage }: Args) {
+export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, terminalSessions, isSessionStreaming, onWSMessage }: Args) {
   // Agent sessions active → by topic.
   useEffect(() => {
     const ids = new Set<string>();
@@ -86,4 +89,26 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, is
       }
     });
   }, [onWSMessage]);
+
+  // Phase-driven loading for claude-code terminals. The phase is authoritative
+  // when known: an active phase (running/tool-running) drives the spinner, while
+  // a resting phase (starting/awaiting-user/…) SUPPRESSES the pty heuristic so a
+  // freshly-opened session's startup paint doesn't flash "loading". pty still
+  // drives shells and sessions with no phase yet — see terminalLoadingFrom.
+  useEffect(() => {
+    const byCsid = new Map<string, TerminalPhaseLite>();
+    for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
+    const { active, resting } = derivePhaseTerminals(terminalSessions, byCsid);
+    signalsActions.setClaudePhaseTerminals(active, resting);
+  }, [terminalSessions, claudeSessions]);
+
+  // Reconcile busy/finished against the authoritative session roster. The
+  // live deltas above are best-effort and can be lost (server hot-reload wipes
+  // the in-memory activity map, WS reconnect, dropped message), which used to
+  // leave a finished session spinning forever. The roster carries a fresh busy
+  // snapshot on every broadcast + REST refetch (mount / reconnect), so syncing
+  // from it makes loading state self-correcting.
+  useEffect(() => {
+    signalsActions.reconcileTerminals(terminalSessions);
+  }, [terminalSessions]);
 }

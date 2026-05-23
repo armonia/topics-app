@@ -10,7 +10,7 @@ import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus } fr
 import { signalsActions } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
-import { DND_TYPES } from '../../lib/dndTypes';
+import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
@@ -53,6 +53,15 @@ interface PaneTabBarProps {
   onReorderPanes?: (newPaneIds: string[]) => void;
   onCrossGroupDrop?: (sourcePaneId: string, sourceGroupId: string, insertIdx: number) => void;
   onEdgeSplitDrop?: (sourcePaneId: string, sourceGroupId: string, edge: 'left' | 'right') => void;
+  /**
+   * Drag scope — the window/project this tab bar belongs to. Tab drags only
+   * reorder/move within the same scope: "main" for the top-level standalone
+   * (and solo) groups, the projectPath for a project's groups. A drag from a
+   * different scope shows no drop indicators here and is ignored on drop, so a
+   * main tab can only land in main and a project tab only within that project.
+   * Undefined keeps the legacy unrestricted behavior (no scope enforcement).
+   */
+  dndScope?: string;
   className?: string;
   contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
@@ -88,7 +97,7 @@ interface PaneTabBarProps {
   groupIsAppFocused?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -101,6 +110,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
   const [edgeSplitZone, setEdgeSplitZone] = useState<'left' | 'right' | null>(null);
   const [crossGroupDragActive, setCrossGroupDragActive] = useState(false);
+  // Mirror the hovered insert position into a ref so the drop handler reads the
+  // latest value even when `drop` fires in the same frame as the final
+  // `dragover` (React state may not have committed yet — the "drop lands
+  // nowhere / needs a second try" bug, same fix GroupLayout/PanelGrid use).
+  const dragOverIdxRef = useRef<number | null>(null);
 
   const { isTouch } = useMobile();
 
@@ -198,6 +212,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         e.dataTransfer.setData(DND_TYPES.PANEL_ID, pane.id);
       }
     }
+    // Tag the drag with this tab bar's scope so only same-scope drop targets
+    // (this window / this project) accept it. Encoded as a type (readable in
+    // dragover) AND a value (readable on drop) — see lib/dndTypes.
+    if (dndScope) {
+      e.dataTransfer.setData(paneTabScopeType(dndScope), '1');
+      e.dataTransfer.setData(DND_TYPES.PANE_TAB_SCOPE, dndScope);
+    }
     e.dataTransfer.effectAllowed = 'move';
     // Custom drag image: styled tab preview instead of browser default file icon.
     // The element must be in the DOM and rendered at setDragImage time.
@@ -223,27 +244,52 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         dragGhostRef.current = null;
       }
     });
-  }, [onReorderPanes, groupId, panes]);
+  }, [onReorderPanes, groupId, panes, dndScope]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
+    // Scope guard: a tab from another window/project must not paint insert
+    // indicators here — we'd only reject it on drop. (No preventDefault, so the
+    // browser shows "no-drop" and the foreign tab bar stays inert.)
+    if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
     e.preventDefault();
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const xRatio = (e.clientX - rect.left) / rect.width;
-    setDragOverIdx(xRatio < 0.5 ? paneIdx : paneIdx + 1);
+    const idx = xRatio < 0.5 ? paneIdx : paneIdx + 1;
+    dragOverIdxRef.current = idx;
+    setDragOverIdx(idx);
     // Clear stale edge split zone — cursor is over a tab, not an edge
     setEdgeSplitZone(null);
     // Detect cross-group drag for indicator rendering
     if (!draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) {
       setCrossGroupDragActive(true);
     }
-  }, [draggedPaneId]);
+  }, [draggedPaneId, dndScope]);
+
+  // Single reset for every drag-end path (successful drop, cancel, foreign
+  // drag, and the window-level `dragend` below). Clears both the state and the
+  // ref mirror so no insert indicator or stale index survives the gesture.
+  const resetDrag = useCallback(() => {
+    dragOverIdxRef.current = null;
+    setDraggedPaneId(null);
+    setDragOverIdx(null);
+    setEdgeSplitZone(null);
+    setCrossGroupDragActive(false);
+  }, []);
 
   const handleTabDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    if (!sourcePaneId || dragOverIdx === null) return;
+    // Read the insert position from the ref (state may lag a frame behind the
+    // final dragover, which silently dropped the tab nowhere before).
+    const overIdx = dragOverIdxRef.current;
+    if (!sourcePaneId || overIdx === null) { resetDrag(); return; }
+
+    // Scope guard: reject a tab dragged in from another window/project. Belt to
+    // the dragover suspenders — getData is only readable here, on drop.
+    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
+    if (dndScope && sourceScope && sourceScope !== dndScope) { resetDrag(); return; }
 
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     const isCrossGroup = sourceGroupId && groupId && sourceGroupId !== groupId;
@@ -251,32 +297,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     let didDrop = false;
     if (isCrossGroup && onCrossGroupDrop) {
       // Cross-group drop: move pane from source group to this group at insertIdx
-      onCrossGroupDrop(sourcePaneId, sourceGroupId, dragOverIdx);
+      onCrossGroupDrop(sourcePaneId, sourceGroupId, overIdx);
       didDrop = true;
     } else if (onReorderPanes) {
       // Same-group reorder
       const currentIds = panes.map(p => p.id);
       const sourceIdx = currentIds.indexOf(sourcePaneId);
-      if (sourceIdx === -1) {
-        setDraggedPaneId(null);
-        setDragOverIdx(null);
-        setEdgeSplitZone(null);
-        setCrossGroupDragActive(false);
-        return;
-      }
+      if (sourceIdx === -1) { resetDrag(); return; }
 
       // No-op: tab dropped at its own position or immediately after itself
-      if (sourceIdx === dragOverIdx || sourceIdx + 1 === dragOverIdx) {
-        setDraggedPaneId(null);
-        setDragOverIdx(null);
-        setEdgeSplitZone(null);
-        setCrossGroupDragActive(false);
-        return;
-      }
+      if (sourceIdx === overIdx || sourceIdx + 1 === overIdx) { resetDrag(); return; }
 
       const newIds = currentIds.filter(id => id !== sourcePaneId);
-      let insertIdx = dragOverIdx;
-      if (sourceIdx < dragOverIdx) insertIdx--;
+      let insertIdx = overIdx;
+      if (sourceIdx < overIdx) insertIdx--;
       newIds.splice(Math.max(0, insertIdx), 0, sourcePaneId);
 
       onReorderPanes(newIds);
@@ -296,22 +330,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       }
     }
 
-    setDraggedPaneId(null);
-    setDragOverIdx(null);
-    setEdgeSplitZone(null);
-    setCrossGroupDragActive(false);
-  }, [panes, dragOverIdx, onReorderPanes, onCrossGroupDrop, groupId, onActivate, activePaneId]);
+    resetDrag();
+  }, [panes, onReorderPanes, onCrossGroupDrop, groupId, onActivate, activePaneId, dndScope, resetDrag]);
 
   const handleTabDragEnd = useCallback(() => {
-    setDraggedPaneId(null);
-    setDragOverIdx(null);
-    setEdgeSplitZone(null);
-    setCrossGroupDragActive(false);
+    resetDrag();
     if (dragGhostRef.current) {
       dragGhostRef.current.remove();
       dragGhostRef.current = null;
     }
-  }, []);
+  }, [resetDrag]);
+
+  // Belt-and-suspenders cleanup: a TARGET group never receives `onDragEnd`
+  // (that only fires on the source element), so a cross-group drag that ended
+  // without a clean `dragleave` here (escape-cancel, drop elsewhere, a flaky
+  // boundary) used to leave this bar's insert indicators painted. `dragend`
+  // bubbles to the window for EVERY drag, so one window listener resets every
+  // mounted tab bar — source and target alike.
+  useEffect(() => {
+    const onWindowDragEnd = () => resetDrag();
+    window.addEventListener('dragend', onWindowDragEnd);
+    return () => window.removeEventListener('dragend', onWindowDragEnd);
+  }, [resetDrag]);
 
   // Keyboard shortcut: Cmd/Ctrl+1-9 is owned globally by `useKeyboardShortcuts`
   // — it walks both top-level panels AND project sub-panes so every tab gets
@@ -333,6 +373,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', padding: '1px 0 1px 1px', paddingLeft: hasLeftOverlay ? 30 : 5, paddingRight: hasMenuItems ? 30 : 0 }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
+          // Scope guard: ignore drags from another window/project entirely (no
+          // edge-split overlay, no preventDefault → browser shows "no drop").
+          if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
           e.preventDefault();
           // Cross-group drag detection (draggedPaneId is only set for same-group drags)
           const isCrossGroupDrag = !draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP);
@@ -414,7 +457,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             data-pane-id={pane.id}
             data-active={isActive ? 'true' : 'false'}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
-            className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md app-no-drag ${
+            // overflow-hidden clips a tab whose trailing widgets (project git
+            // status + spinner + notification badge + close) would otherwise
+            // sum past the fixed 150px and spill into the next tab. The label
+            // already truncates; this guarantees the rest can't escape either.
+            className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
               isActive && !isActiveDimmed
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
                 : isActiveDimmed
@@ -465,7 +512,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               const ps = projectStatus[pane.id];
               const showBranch = ps.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
               return (
-                <span className="flex items-center gap-1 flex-shrink-0 text-[10px] font-medium min-w-0">
+                <span className="flex items-center gap-1 min-w-0 overflow-hidden text-[10px] font-medium">
                   {showBranch && (
                     <span className="truncate max-w-[80px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>
                   )}

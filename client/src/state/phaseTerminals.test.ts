@@ -1,0 +1,88 @@
+/**
+ * Tests for the phase-authoritative terminal loading derivation. For a
+ * claude-code session the PHASE decides: active → spinner; resting → the pty
+ * heuristic is SUPPRESSED (so a freshly-opened session's TUI startup paint
+ * doesn't flash "loading"). pty still drives shells and sessions whose phase
+ * isn't known yet, so real work is never hidden when hooks are silent.
+ */
+import { describe, test, expect } from "bun:test";
+import { derivePhaseTerminals, terminalLoadingFrom, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
+
+const roster = (entries: Array<[string, string, string | null]>): TerminalRosterTypeEntry[] =>
+  entries.map(([id, type, claudeSessionId]) => ({ id, type, claudeSessionId }));
+
+const phases = (entries: Array<[string, TerminalPhaseLite]>): Map<string, TerminalPhaseLite> =>
+  new Map(entries);
+
+describe("derivePhaseTerminals — active / resting partition", () => {
+  test("running / tool-running are active (not resting)", () => {
+    for (const p of ["running", "tool-running"] as const) {
+      const { active, resting } = derivePhaseTerminals(
+        roster([["t1", "claude-code", "c1"]]),
+        phases([["c1", { phase: p }]]),
+      );
+      expect([...active]).toEqual(["t1"]);
+      expect([...resting]).toEqual([]);
+    }
+  });
+
+  test("known non-active phases are resting (suppress pty)", () => {
+    for (const p of ["awaiting-user", "awaiting-approval", "paused", "completed", "error", "dormant", "starting"] as const) {
+      const { active, resting } = derivePhaseTerminals(
+        roster([["t1", "claude-code", "c1"]]),
+        phases([["c1", { phase: p }]]),
+      );
+      expect([...active]).toEqual([]);
+      expect([...resting]).toEqual(["t1"]);
+    }
+  });
+
+  test("no phase entry → neither active nor resting (pty alone drives it)", () => {
+    const { active, resting } = derivePhaseTerminals(roster([["t1", "claude-code", "c1"]]), phases([]));
+    expect([...active]).toEqual([]);
+    expect([...resting]).toEqual([]);
+  });
+
+  test("plain shell sessions never appear in either set", () => {
+    const { active, resting } = derivePhaseTerminals(
+      roster([["t1", "shell", "c1"]]),
+      phases([["c1", { phase: "running" }]]),
+    );
+    expect([...active]).toEqual([]);
+    expect([...resting]).toEqual([]);
+  });
+
+  test("claude-code-team is handled like claude-code", () => {
+    const { active } = derivePhaseTerminals(
+      roster([["t1", "claude-code-team", "c1"]]),
+      phases([["c1", { phase: "running" }]]),
+    );
+    expect([...active]).toEqual(["t1"]);
+  });
+});
+
+describe("terminalLoadingFrom — phase-authoritative", () => {
+  test("active phase → loading even if pty idle (quiet tool call)", () => {
+    expect(terminalLoadingFrom("t1", new Set(["t1"]), new Set(), new Set())).toBe(true);
+  });
+
+  test("active phase wins even if also (wrongly) resting", () => {
+    expect(terminalLoadingFrom("t1", new Set(["t1"]), new Set(), new Set(["t1"]))).toBe(true);
+  });
+
+  test("resting phase SUPPRESSES pty — the open-a-session false-loading fix", () => {
+    // Fresh claude-code session: phase=starting (resting), TUI startup paint
+    // makes pty busy → must NOT show loading.
+    expect(terminalLoadingFrom("t1", new Set(), new Set(["t1"]), new Set(["t1"]))).toBe(false);
+  });
+
+  test("pty busy with NO resting phase → loading (shell / unknown phase fallback)", () => {
+    expect(terminalLoadingFrom("t1", new Set(), new Set(["t1"]), new Set())).toBe(true);
+    // and back-compat: omitting the resting arg keeps the pty fallback
+    expect(terminalLoadingFrom("t1", new Set(), new Set(["t1"]))).toBe(true);
+  });
+
+  test("neither active nor pty → not loading", () => {
+    expect(terminalLoadingFrom("t1", new Set(), new Set(), new Set())).toBe(false);
+  });
+});

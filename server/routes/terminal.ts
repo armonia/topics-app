@@ -9,6 +9,8 @@ import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
 import { augmentPath } from "../utils/path-env";
+import { classifyFrame } from "../lib/pty-activity";
+import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 
 interface TerminalSession {
   id: string;
@@ -37,6 +39,10 @@ const sessionSockets = new Map<string, Set<any>>();
 const TERMINAL_IDLE_MS = 1500;
 interface TerminalActivity { busy: boolean; timer: ReturnType<typeof setTimeout> | null; }
 const terminalActivity = new Map<string, TerminalActivity>();
+// Last visible-text signature per session, used to filter cosmetic repaints
+// (e.g. the animated "/goal active" statusline) so they don't count as pty
+// activity and pin a session "busy" forever. See lib/pty-activity.ts.
+const lastVisibleSig = new Map<string, string>();
 
 function markTerminalActivity(id: string) {
   const session = sessions.get(id);
@@ -62,6 +68,7 @@ function clearTerminalActivity(id: string) {
   const a = terminalActivity.get(id);
   if (a?.timer) clearTimeout(a.timer);
   terminalActivity.delete(id);
+  lastVisibleSig.delete(id);
   // Tell clients to drop any loading state for this session (no `finished`:
   // an exit isn't a completed turn).
   if (a?.busy) _broadcastToAll?.({ type: 'terminal:activity', id, busy: false });
@@ -305,8 +312,12 @@ function handleBridgeMessage(msg: any) {
       const session = sessions.get(msg.id);
       if (!session) break;
       // Central activity signal (loading + finished) — independent of whether
-      // any client has the terminal pane mounted.
-      markTerminalActivity(msg.id);
+      // any client has the terminal pane mounted. Skip cosmetic repaints
+      // (animated statuslines redraw the same visible text forever and would
+      // otherwise pin the session "busy" indefinitely).
+      const { cosmetic, sig } = classifyFrame(lastVisibleSig.get(msg.id), msg.data);
+      lastVisibleSig.set(msg.id, sig);
+      if (!cosmetic) markTerminalActivity(msg.id);
       // Forward to connected WebSocket clients (buffer is in bridge)
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
@@ -353,6 +364,16 @@ function handleBridgeMessage(msg: any) {
             getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]);
           }
         } catch {}
+        // Mirror the lifecycle into the phase tracker so the loading signal
+        // clears: dormant (resumable) → not loading; otherwise forget it.
+        if (exitedSession.claudeSessionId && (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')) {
+          if (canResume) {
+            _tracker?.noteDormant(exitedSession.claudeSessionId);
+          } else {
+            if (failedQuickly) _tracker?.notePtyCrash(exitedSession.claudeSessionId, msg.exitCode ?? 1);
+            _tracker?.dropTerminalSession(exitedSession.claudeSessionId);
+          }
+        }
       }
       broadcastTerminalSessions();
       break;
@@ -450,6 +471,12 @@ async function reconcileSessions() {
           claudeSessionId: row.claude_session_id || undefined,
         });
         sessionSockets.set(row.id, new Set());
+        // Re-register with the phase tracker (in-memory state was lost on
+        // restart). The next hook re-establishes the live phase; until then
+        // the client falls back to the pty heuristic.
+        if (row.claude_session_id && (row.type === 'claude-code' || row.type === 'claude-code-team')) {
+          _tracker?.registerTerminalSession(row.claude_session_id);
+        }
         console.log(`[Terminal] Reattached to surviving session ${row.id} (${row.type})`);
       }
     }
@@ -588,24 +615,45 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     );
   } catch {}
 
+  // Register topic-less claude sessions with the tracker so their hooks resolve
+  // and drive the authoritative phase signal. Topic-bound ones already have a
+  // claude_code_sessions row owned by the chat provider — registerTerminalSession
+  // is a no-op for those.
+  if (isClaudeKind && resolvedClaudeSessionId) {
+    _tracker?.registerTerminalSession(resolvedClaudeSessionId);
+  }
+
   return session;
 }
 
 // Broadcast current terminal sessions list via WS
 let _broadcastToAll: ((msg: any) => void) | null = null;
+// Claude session tracker — the authoritative phase machine. Terminal claude
+// sessions register here so their hook-driven phase (running/tool-running)
+// becomes the solid "is it working" signal, instead of fragile pty bytes.
+let _tracker: ClaudeSessionTracker | null = null;
 function broadcastTerminalSessions() {
   if (!_broadcastToAll) return;
   const list = Array.from(sessions.values()).map(s => ({
     id: s.id, name: s.name, createdAt: s.createdAt, cwd: s.cwd,
     command: s.command, clients: sessionSockets.get(s.id)?.size || 0,
     topicId: s.topicId, type: s.type,
+    // claudeSessionId lets the client map a claude-code pane to its phase in
+    // the tracker (the authoritative loading signal).
+    claudeSessionId: s.claudeSessionId || null,
+    // Authoritative busy snapshot. Lets clients reconcile loading state from
+    // the roster instead of relying solely on incremental terminal:activity
+    // deltas (which are lost on server restart, WS reconnect, or a dropped
+    // message → otherwise a finished session spins forever).
+    busy: terminalActivity.get(s.id)?.busy ?? false,
   }));
   _broadcastToAll({ type: 'terminal:sessions', sessions: list });
 }
 
-export function createTerminalRouter(ctx: AppContext): RouteHandler {
+export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
   _broadcastToAll = ctx.broadcastToAll;
+  if (tracker) _tracker = tracker;
 
   // Connect to bridge and reconcile sessions (async, fire-and-forget)
   ensureBridge()
@@ -632,6 +680,8 @@ export function createTerminalRouter(ctx: AppContext): RouteHandler {
         command: s.command, clients: sessionSockets.get(s.id)?.size || 0,
         topicId: s.topicId, type: s.type,
         claudeSessionId: s.claudeSessionId || null,
+        // Authoritative busy snapshot — see broadcastTerminalSessions.
+        busy: terminalActivity.get(s.id)?.busy ?? false,
       }));
       return json(list);
     }

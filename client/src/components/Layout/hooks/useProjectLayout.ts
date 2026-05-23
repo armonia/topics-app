@@ -54,6 +54,7 @@ import { enqueuePendingAction, tickPendingAction } from '../../../contexts/Pendi
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
+import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
 
 const isNativeApp =
   typeof window !== 'undefined' && !!(window as unknown as { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
@@ -248,7 +249,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const pendingPreviewCloseRef = useRef<string | null>(null);
   const [rows, setRows] = useState<GroupLayoutRow[]>(() => initial?.rows || []);
   const [rowHeights, setRowHeights] = useState<number[]>(() => initial?.rowHeights || [1]);
-  const [focusedGroupId, setFocusedGroupId] = useState<string | null>(null);
+  // Restore the previously-focused split cell so a reload keeps the focused
+  // tab instead of snapping to the first cell. Validated by the
+  // default-focused-group effect, which only overrides when the id is stale.
+  const [focusedGroupId, setFocusedGroupId] = useState<string | null>(
+    () => (initial?.focusedGroupId ?? null),
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (window.innerWidth < 768) return true;
     return initial?.sidebarCollapsed ?? false;
@@ -292,9 +298,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   }, [panes, topics, stopSession]);
 
   // --- Sync terminal panes: remove stale, auto-add active terminals matching projectPath ---
+  // Session ids we've POSITIVELY seen in a roster. A terminal pane is pruned
+  // only once its session has been seen AND then disappeared — never on a
+  // transient empty/partial roster. The server's session map is empty for a
+  // moment after a hot-reload (bun --watch restart, reconcile is async) and the
+  // WS reconnect after an Electron refresh can deliver a roster before
+  // reconcile finishes; pruning on those used to wipe every restored
+  // claude-code tab inside a project AND persist the wipe → sessions lost.
+  const seenTerminalSessionIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const syncTerminals = (sessions: { id: string; cwd: string; name: string; type: string }[]) => {
       const sessionIds = new Set(sessions.map(s => s.id));
+      const seen = seenTerminalSessionIdsRef.current;
+      for (const id of sessionIds) seen.add(id);
       // Tombstoned session ids are sessions the user just closed in
       // this or another window (persisted in localStorage). Don't
       // auto-add panes for them — otherwise close-then-reload
@@ -315,9 +331,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           && !tombstones.has(s.id),
       );
       setPanes(prev => {
-        let updated = prev.filter(
-          p => p.type !== 'terminal' || sessionIds.has(getTerminalSessionFromPaneId(p.id) || ''),
-        );
+        let updated = prev.filter(p => {
+          if (p.type !== 'terminal') return true;
+          const sid = getTerminalSessionFromPaneId(p.id) || '';
+          // Only prune a seen-then-gone session (e.g. closed in another window);
+          // keep restored panes whose session the roster hasn't caught up to yet
+          // — see terminalReconcile for why this stops refresh from losing tabs.
+          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen);
+        });
         const existingTermIds = new Set(
           updated.filter(p => p.type === 'terminal').map(p => getTerminalSessionFromPaneId(p.id)),
         );
@@ -1644,7 +1665,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         const next = prev.map(g => (g.id === groupId ? { ...g, activePaneId: paneId } : g));
         return next.some((g, i) => g !== prev[i]) ? next : prev;
       });
-      setFocusedGroupId(groupId);
+      // Adopt the active chat's group as focus ONLY when no valid focus is set
+      // yet — otherwise this would steal focus from a restored cell (e.g. the
+      // user was focused on a terminal split, not the chat) on first hydration.
+      const cur = focusedGroupIdRef.current;
+      const curValid = !!cur && groupsRef.current.some(g => g.id === cur);
+      if (!curValid) setFocusedGroupId(groupId);
     }
   }, []);
 

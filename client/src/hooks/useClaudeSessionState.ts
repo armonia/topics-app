@@ -53,7 +53,10 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
         if (cancelled) return;
         const next = new Map<string, ClaudeSessionState>();
         for (const s of body.sessions ?? []) {
-          if (s.sessionKey) next.set(s.sessionKey, s);
+          // Topic sessions key off sessionKey; topic-less terminal sessions
+          // off claudeSessionId. getByClaudeSessionId works for both.
+          const key = s.sessionKey ?? s.claudeSessionId;
+          if (key) next.set(key, s);
         }
         setSessions(next);
         setHydrated(true);
@@ -73,17 +76,20 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
   // shape; we only define the per-message body.
   useWSSubscription(opts.onWSMessage, 'session:state', (msg) => {
     const incoming = msg.state;
-    if (!incoming || !msg.sessionKey) return;
-    const cur = sessionsRef.current.get(msg.sessionKey);
+    // Topic sessions key off sessionKey; topic-less terminal sessions off
+    // claudeSessionId (sessionKey is null for those).
+    const key = msg.sessionKey ?? incoming?.claudeSessionId;
+    if (!incoming || !key) return;
+    const cur = sessionsRef.current.get(key);
     // Reject out-of-order revs.
     if (cur && incoming.rev <= cur.rev && cur.phase === incoming.phase) return;
     setSessions((prev) => {
-      const existing = prev.get(msg.sessionKey);
+      const existing = prev.get(key);
       if (existing && incoming.rev <= existing.rev && existing.phase === incoming.phase) {
         return prev;
       }
       const next = new Map(prev);
-      next.set(msg.sessionKey, incoming);
+      next.set(key, incoming);
       return next;
     });
   });

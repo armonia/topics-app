@@ -53,6 +53,10 @@ export interface PersistedLayoutState {
   rows?: GroupLayoutRow[];
   rowHeights?: number[];
   sidebarCollapsed?: boolean;
+  /** Which split cell was focused, so a reload restores the focused tab
+   *  instead of defaulting to the first cell. Per-cell active tab already
+   *  lives in PaneGroup.activePaneId; this records WHICH cell had focus. */
+  focusedGroupId?: string | null;
 }
 
 /** Combined state for loading */

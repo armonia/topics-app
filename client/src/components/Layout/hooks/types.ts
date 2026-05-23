@@ -32,6 +32,9 @@ export interface PersistedSnapshot {
   rows?: GroupLayoutRow[];
   rowHeights?: number[];
   sidebarCollapsed?: boolean;
+  /** Which split cell was focused — restored on reload so the focused tab
+   *  survives instead of snapping to the first cell. */
+  focusedGroupId?: string | null;
 }
 
 /**

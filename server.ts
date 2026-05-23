@@ -238,13 +238,20 @@ setBrowserCdpDispatcher(cdpDispatcher);
 initUsageStore(import.meta.dir);
 rebuildSummary();
 
+// Claude Code session tracker — canonical lifecycle state for every Claude
+// CLI session spawned via Topics (topic chats persist in the DB; topic-less
+// terminal sessions are tracked in-memory). Created before the terminal router
+// so the latter can register its sessions with it. See
+// openspec/changes/claude-session-tracker.
+const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll });
+
 // Create route handlers
 const topicsRouter = createTopicsRouter(ctx, browserService);
 const filesRouter = createFilesRouter(ctx);
 const browserRouter = createBrowserRouter(ctx, browserService, cdpDispatcher);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
-const terminalRouter = createTerminalRouter(ctx);
+const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);
 const statusRouter = createStatusRouter(ctx);
 const memoryRouter = createMemoryRouter(ctx);
 const usageRouter = createUsageRouter(ctx);
@@ -268,9 +275,6 @@ const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 
-// Claude Code session tracker — canonical lifecycle state for every Claude
-// CLI session spawned via Topics. See openspec/changes/claude-session-tracker.
-const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll });
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 // Replay JSONL tails for any session whose state was lost on the previous
 // shutdown, then start the reaper. Both are fire-and-forget — they advance

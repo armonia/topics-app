@@ -494,6 +494,10 @@ export function StandaloneChatGroup({
       onAddPane={handleAddPane}
       availableTypes={availableTypes}
       groupId={gridItemKey}
+      // Every top-level group (the main standalone group and any solo split
+      // cells) shares the "main" scope, so tabs reorder/merge freely among them
+      // but a project's tabs can't be dropped here (and vice-versa).
+      dndScope="main"
       onNewChat={onNewChat}
       onReorderPanes={handleReorderPanes}
       onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}
@@ -533,7 +537,7 @@ export function StandaloneChatGroup({
       if (!sessionId) return null;
       return (
         <LazyPane>
-          <SingleTerminalPane sessionId={sessionId} />
+          <SingleTerminalPane sessionId={sessionId} isActive={isPaneActive} />
         </LazyPane>
       );
     }

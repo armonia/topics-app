@@ -948,7 +948,8 @@ export interface ClaudeSessionState {
 
 export interface WSSessionStateMessage {
   type: 'session:state';
-  sessionKey: string;
+  /** Null for topic-less terminal claude sessions — key off state.claudeSessionId. */
+  sessionKey: string | null;
   state: ClaudeSessionState;
 }
 
@@ -1091,7 +1092,13 @@ export interface TerminalSessionInfo {
   command: string;
   clients: number;
   topicId?: string;
-  type: 'shell' | 'claude-code';
+  type: 'shell' | 'claude-code' | 'claude-code-team';
+  claudeSessionId?: string | null;
+  /** Authoritative pty-busy snapshot from the server roster. Used to
+   *  reconcile loading state so a missed terminal:activity busy:false delta
+   *  (server restart / WS reconnect / dropped message) can't leave a session
+   *  spinning forever. Absent on optimistic/cached entries → treated idle. */
+  busy?: boolean;
 }
 
 // ── Pane types — single source of truth lives in state/pane/types.ts ─────────

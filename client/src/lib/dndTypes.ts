@@ -17,6 +17,38 @@ export const DND_TYPES = {
   LAYOUT_ROW: 'application/x-layout-row',
   /** Row reordering within PanelGrid */
   GRID_ROW: 'application/x-grid-row',
+  /** Source scope (window/project) of a tab drag — value carrier, read on drop */
+  PANE_TAB_SCOPE: 'application/x-pane-tab-scope',
 } as const;
 
 export type DndType = typeof DND_TYPES[keyof typeof DND_TYPES];
+
+/**
+ * Per-window/project DnD scope for tab drags. Tabs may only be reordered or
+ * moved *within the same scope*: the top-level window is one scope ("main",
+ * covering the standalone group and any solo split cells) and every project is
+ * its own scope (its projectPath). A drag from one scope must not show drop
+ * indicators on — or land in — a tab bar of another scope.
+ *
+ * The scope is encoded into a dataTransfer TYPE name (not a value) because the
+ * HTML5 DnD spec blocks `getData()` during `dragover`/`dragenter` — only
+ * `types` is readable then. A hash keeps the marker a safe, opaque ASCII token
+ * regardless of what characters a projectPath contains.
+ */
+export function paneTabScopeType(scope: string): string {
+  // djb2-xor → base36. Types are compared case-insensitively by the browser;
+  // base36 of an unsigned int is already lowercase, so comparisons are stable.
+  let h = 5381;
+  for (let i = 0; i < scope.length; i++) h = (((h << 5) + h) ^ scope.charCodeAt(i)) >>> 0;
+  return `application/x-pane-scope-${h.toString(36)}`;
+}
+
+/**
+ * True when a dragover's `types` carry our scope marker — i.e. the drag
+ * originated in the same window/project. Returns true when `scope` is undefined
+ * so legacy callers that don't pass a scope keep the old unrestricted behavior.
+ */
+export function dragMatchesScope(types: readonly string[], scope: string | undefined): boolean {
+  if (!scope) return true;
+  return types.includes(paneTabScopeType(scope));
+}

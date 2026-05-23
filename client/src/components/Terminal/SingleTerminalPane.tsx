@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Copy, Check } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
+import { signalsActions, useTerminalFinished } from '../../state/signals';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -75,12 +76,27 @@ function getTerminalTheme(isDark: boolean) {
 interface SingleTerminalPaneProps {
   sessionId: string;
   onStale?: () => void;
+  /** True when this pane is the active/visible one. Defaults to true so call
+   *  sites that don't pass it keep the old always-visible behavior. */
+  isActive?: boolean;
 }
 
-export function SingleTerminalPane({ sessionId, onStale }: SingleTerminalPaneProps) {
+export function SingleTerminalPane({ sessionId, onStale, isActive = true }: SingleTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
   const [stale, setStale] = useState(false);
+
+  // Viewing a claude-code session = its "finished a turn" notification is seen,
+  // so clear it. Depending on `finished` (not just isActive) is what makes this
+  // false-positive-proof: if the session finishes *while you're already looking
+  // at it* (isActive stays true, so an [isActive,sessionId] effect would never
+  // re-run), the badge would otherwise pop on a pane you're staring at. This
+  // also kills the "I paused mid-typing" false finish — composing in an active
+  // pane keeps it cleared.
+  const finished = useTerminalFinished(sessionId);
+  useEffect(() => {
+    if (isActive && finished) signalsActions.clearTerminalFinished(sessionId);
+  }, [isActive, finished, sessionId]);
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
 

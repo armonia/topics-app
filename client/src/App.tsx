@@ -293,6 +293,7 @@ function App() {
     topics,
     claudeSessions,
     activeAgentSessions: activeSessions,
+    terminalSessions,
     isSessionStreaming,
     onWSMessage,
   });

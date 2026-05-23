@@ -37,6 +37,23 @@ export const NOTABLE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<Cl
   'error',
 ]);
 
+/** Phases that mean "Claude is actively working".
+ *
+ *  The loading rule is a UNION, so it stays correct even where Claude Code
+ *  hooks don't fire reliably (the phase machine then simply stays idle and
+ *  contributes nothing):
+ *    loading = ptyBusy OR phase is running/tool-running
+ *  - ptyBusy (cosmetic-filtered, so the colour-only `/goal` statusline pulse
+ *    doesn't count) is the always-available "something is happening" signal.
+ *  - phase running/tool-running adds coverage when hooks DO fire (e.g. a quiet
+ *    tool call that produces no pty output for a while).
+ *  Crucially, an absent/stale phase never HIDES real pty activity — that was the
+ *  flaw of the earlier suppression model when hooks were silent. */
+export const ACTIVE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
+  'running',
+  'tool-running',
+]);
+
 // ---- Store -----------------------------------------------------------------
 
 interface SignalsState {
@@ -44,8 +61,19 @@ interface SignalsState {
   liveStreamTopics: Set<string>;     // useChat live stream (sessionKey resolved to topicId)
   hydratedStreamTopics: Set<string>; // server "mid-reply" (DB partial flag), survives reload
   agentActiveTopics: Set<string>;    // agent sessions active, by topic
-  terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id
+  terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id (fallback heuristic)
   browserBusyPaneIds: Set<string>;   // browser panel loading/agent, by pane id
+  // claude-code terminals whose known phase is active (running/tool-running).
+  // Drives loading directly (a quiet tool call still shows a spinner when hooks
+  // fire). By terminal session id. See ACTIVE_CLAUDE_PHASES for the rationale.
+  claudePhaseActiveTermIds: Set<string>;
+  // claude-code terminals whose phase is KNOWN but NOT active (starting,
+  // awaiting-user, paused, completed, dormant, error, …). For these the phase
+  // is authoritative: the session is NOT working, so pty output (the TUI's
+  // startup banner/prompt paint, an idle redraw) must NOT raise the spinner —
+  // otherwise opening a fresh Claude Code session flashes "loading" for no
+  // reason. pty still drives plain shells and any session with no phase yet.
+  claudePhaseRestingTermIds: Set<string>;
   // attention inputs
   claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
@@ -55,6 +83,14 @@ interface SignalsState {
   setTerminalBusy: (id: string, busy: boolean) => void;
   markTerminalFinished: (id: string) => void;
   clearTerminalFinished: (id: string) => void;
+  reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>) => void;
+}
+
+/** Minimal shape the reconciler reads from the server session roster. */
+export interface TerminalRosterEntry {
+  id: string;
+  busy?: boolean;
 }
 
 type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics';
@@ -72,12 +108,49 @@ function withToggled(prev: Set<string>, id: string, present: boolean): Set<strin
   return next;
 }
 
+/**
+ * Reconcile the busy/finished sets against an authoritative session roster.
+ *
+ * The server roster is the single source of truth for which pty sessions exist
+ * and which are busy *right now*. Incremental `terminal:activity` deltas can be
+ * lost (server restart wipes the in-memory activity map, WS reconnect, a
+ * dropped message) — leaving a session stuck "in progress". Re-deriving from
+ * the roster whenever it arrives makes the loading state self-healing:
+ *   - busy     = full sync to the roster (a session not reported busy is idle).
+ *   - finished = prune-only (drop ids whose session is gone; a completed-turn
+ *                badge must otherwise survive roster broadcasts until the user
+ *                looks, so we never clear it just because busy went false).
+ *
+ * Pure: returns the SAME set references when nothing changed so the store can
+ * skip the update and avoid spurious re-renders.
+ */
+export function reconcileTerminalSignals(
+  prevBusy: Set<string>,
+  prevFinished: Set<string>,
+  roster: TerminalRosterEntry[],
+): { busy: Set<string>; finished: Set<string> } {
+  const rosterIds = new Set<string>();
+  const nextBusy = new Set<string>();
+  for (const s of roster) {
+    rosterIds.add(s.id);
+    if (s.busy) nextBusy.add(s.id);
+  }
+  const nextFinished = new Set<string>();
+  for (const id of prevFinished) if (rosterIds.has(id)) nextFinished.add(id);
+  return {
+    busy: setsEqual(nextBusy, prevBusy) ? prevBusy : nextBusy,
+    finished: setsEqual(nextFinished, prevFinished) ? prevFinished : nextFinished,
+  };
+}
+
 export const useSignalsStore = create<SignalsState>((set) => ({
   liveStreamTopics: new Set(),
   hydratedStreamTopics: new Set(),
   agentActiveTopics: new Set(),
   terminalBusyIds: new Set(),
   browserBusyPaneIds: new Set(),
+  claudePhaseActiveTermIds: new Set(),
+  claudePhaseRestingTermIds: new Set(),
   claudeAttentionTopics: new Set(),
   terminalFinishedIds: new Set(),
 
@@ -107,6 +180,24 @@ export const useSignalsStore = create<SignalsState>((set) => ({
       const next = withToggled(s.terminalFinishedIds, id, false);
       return next ? { terminalFinishedIds: next } : s;
     }),
+
+  reconcileTerminals: (roster) =>
+    set((s) => {
+      const { busy, finished } = reconcileTerminalSignals(s.terminalBusyIds, s.terminalFinishedIds, roster);
+      if (busy === s.terminalBusyIds && finished === s.terminalFinishedIds) return s;
+      return { terminalBusyIds: busy, terminalFinishedIds: finished };
+    }),
+
+  setClaudePhaseTerminals: (active, resting) =>
+    set((s) => {
+      const activeChanged = !setsEqual(active, s.claudePhaseActiveTermIds);
+      const restingChanged = !setsEqual(resting, s.claudePhaseRestingTermIds);
+      if (!activeChanged && !restingChanged) return s;
+      return {
+        ...(activeChanged ? { claudePhaseActiveTermIds: active } : {}),
+        ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
+      };
+    }),
 }));
 
 // ---- Raw setters for App-level sync (stable references) ---------------------
@@ -120,7 +211,74 @@ export const signalsActions = {
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
   clearTerminalFinished: (id: string) => useSignalsStore.getState().clearTerminalFinished(id),
+  reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting),
 };
+
+/**
+ * Resolve a terminal session's loading state.
+ *
+ *   loading = phaseActive  OR  (ptyBusy AND NOT phaseResting)
+ *
+ * The phase is authoritative WHEN KNOWN: a claude-code session sitting at a
+ * resting phase (starting / awaiting-user / paused / completed / dormant /
+ * error) is NOT working, so its pty output — the TUI's startup banner+prompt
+ * paint when you first open it, or an idle redraw — must not raise the spinner.
+ * That startup paint is exactly what made a freshly-opened Claude Code session
+ * flash "loading" for a second or two even though Claude was idle.
+ *
+ * pty remains the signal for everything WITHOUT a resting phase: plain shells,
+ * and claude-code sessions whose phase isn't known yet (the brief window before
+ * the first session:state arrives) — so real work is never hidden when hooks
+ * are silent. An active phase always wins, so a quiet tool call still spins.
+ */
+export function terminalLoadingFrom(
+  sid: string,
+  phaseActive: Set<string>,
+  ptyBusy: Set<string>,
+  phaseResting?: Set<string>,
+): boolean {
+  if (phaseActive.has(sid)) return true;
+  if (phaseResting?.has(sid)) return false;
+  return ptyBusy.has(sid);
+}
+
+/** Minimal phase view the terminal-loading derivation needs. */
+export interface TerminalPhaseLite {
+  phase: ClaudeSessionPhase;
+}
+/** Minimal roster entry the derivation reads. */
+export interface TerminalRosterTypeEntry {
+  id: string;
+  type: string;
+  claudeSessionId?: string | null;
+}
+
+/**
+ * Partition claude-code terminal sessions by phase, for terminalLoadingFrom:
+ *   - active:  phase ∈ {running, tool-running} → drives the spinner.
+ *   - resting: phase is KNOWN but not active → suppresses the pty heuristic
+ *              (the session isn't working; its pty output is startup/idle paint).
+ * A claude-code session with no phase entry yet appears in NEITHER set, so pty
+ * still drives it (union fallback) until its first session:state lands. Plain
+ * shells never appear here at all.
+ */
+export function derivePhaseTerminals(
+  roster: TerminalRosterTypeEntry[],
+  byCsid: Map<string, TerminalPhaseLite>,
+): { active: Set<string>; resting: Set<string> } {
+  const active = new Set<string>();
+  const resting = new Set<string>();
+  for (const ts of roster) {
+    if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
+    if (!ts.claudeSessionId) continue;
+    const st = byCsid.get(ts.claudeSessionId);
+    if (!st) continue;
+    if (ACTIVE_CLAUDE_PHASES.has(st.phase)) active.add(ts.id);
+    else resting.add(ts.id);
+  }
+  return { active, resting };
+}
 
 // ---- Key derivation --------------------------------------------------------
 
@@ -151,12 +309,14 @@ function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
 export function useProjectLoading(projectPath: string | undefined): boolean {
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
-  const { live, hydrated, agent, term } = useSignalsStore(
+  const { live, hydrated, agent, term, phaseActive, phaseResting } = useSignalsStore(
     useShallow((s) => ({
       live: s.liveStreamTopics,
       hydrated: s.hydratedStreamTopics,
       agent: s.agentActiveTopics,
       term: s.terminalBusyIds,
+      phaseActive: s.claudePhaseActiveTermIds,
+      phaseResting: s.claudePhaseRestingTermIds,
     })),
   );
   return useMemo(() => {
@@ -164,13 +324,12 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
     for (const t of Object.values(topics)) {
       if (t.projectPath === projectPath && (live.has(t.id) || hydrated.has(t.id) || agent.has(t.id))) return true;
     }
-    if (term.size) {
-      for (const ts of terminalSessions) {
-        if (term.has(ts.id) && ts.cwd && terminalBelongsToProject(ts.cwd, projectPath)) return true;
-      }
+    for (const ts of terminalSessions) {
+      if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+      if (terminalLoadingFrom(ts.id, phaseActive, term, phaseResting)) return true;
     }
     return false;
-  }, [projectPath, topics, terminalSessions, live, hydrated, agent, term]);
+  }, [projectPath, topics, terminalSessions, live, hydrated, agent, term, phaseActive, phaseResting]);
 }
 
 /** Is this pane producing output right now? Single entry point for every
@@ -184,6 +343,8 @@ export function usePaneLoading(pane: Pane): boolean {
       agent: s.agentActiveTopics,
       term: s.terminalBusyIds,
       browser: s.browserBusyPaneIds,
+      phaseActive: s.claudePhaseActiveTermIds,
+      phaseResting: s.claudePhaseRestingTermIds,
     })),
   );
   switch (pane.type) {
@@ -193,7 +354,7 @@ export function usePaneLoading(pane: Pane): boolean {
     }
     case 'terminal': {
       const sid = terminalIdOf(pane);
-      return !!sid && signals.term.has(sid);
+      return !!sid && terminalLoadingFrom(sid, signals.phaseActive, signals.term, signals.phaseResting);
     }
     case 'browser':
       return signals.browser.has(pane.id);
@@ -216,9 +377,18 @@ export function useTopicLoading(topicId: string | undefined): boolean {
   );
 }
 
-/** A terminal session is loading if its pty is currently producing output. */
+/** A terminal session is loading when its claude phase is active, or (for
+ *  shells / not-yet-known phases) its pty is busy. A claude-code session at a
+ *  resting phase never shows loading from pty alone — see terminalLoadingFrom. */
 export function useTerminalLoading(sessionId: string | undefined): boolean {
-  return useSignalsStore((s) => !!sessionId && s.terminalBusyIds.has(sessionId));
+  return useSignalsStore((s) =>
+    !!sessionId && terminalLoadingFrom(sessionId, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
+  );
+}
+
+/** A claude-code session finished a turn and the user hasn't looked yet. */
+export function useTerminalFinished(sessionId: string | undefined): boolean {
+  return useSignalsStore((s) => !!sessionId && s.terminalFinishedIds.has(sessionId));
 }
 
 /** A browser pane is loading (page load or an agent driving it). */

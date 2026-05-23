@@ -39,6 +39,17 @@ import { setBrowserSpawner } from '../../../state/browserSpawner';
  * store on mount) returned an array missing the browser pane → tab lost
  * on every reload.
  */
+// Active tab of the standalone (persistOrder) group, persisted so a full
+// reload restores it as the focused-elsewhere fallback. Device-local; only the
+// main standalone group writes it.
+const STANDALONE_ACTIVE_KEY = 'topics-standalone-active-pane';
+function readStandaloneActivePane(): string | null {
+  try { return localStorage.getItem(STANDALONE_ACTIVE_KEY) || null; } catch { return null; }
+}
+function writeStandaloneActivePane(id: string): void {
+  try { localStorage.setItem(STANDALONE_ACTIVE_KEY, id); } catch { /* quota / private mode */ }
+}
+
 function persistBrowserPane(paneId: string): void {
   if (!isBrowserPaneId(paneId)) return;
   try {
@@ -221,7 +232,14 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   // group back to its first tab every time the user clicked anywhere else.
   // We remember the last `focusedPanelId` that was in this group's list and
   // reuse it while focus lives elsewhere.
-  const lastLocalActiveRef = useRef<string | null>(null);
+  // Seed from localStorage (persistOrder group only) so a full reload restores
+  // the last tab active HERE even when focus has since moved to a sibling split
+  // cell — otherwise the standalone group would snap back to its first tab. The
+  // value must exist on the first render (the activePaneId memo below reads it),
+  // so it's an init arg rather than a mount effect.
+  const lastLocalActiveRef = useRef<string | null>(
+    persistOrder ? readStandaloneActivePane() : null,
+  );
   if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) {
     lastLocalActiveRef.current = focusedPanelId;
   } else if (lastLocalActiveRef.current && !validatedOrderedIds.includes(lastLocalActiveRef.current)) {
@@ -240,7 +258,20 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     [validatedOrderedIds, focusedPanelId],
   );
   const activePaneIdRef = useRef(activePaneId);
-  useEffect(() => { activePaneIdRef.current = activePaneId; });
+  const persistedActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    activePaneIdRef.current = activePaneId;
+    // Persist the active tab for the standalone group so a reload restores it
+    // (the focused-elsewhere fallback above reads it back on next mount). Folded
+    // into this existing render-effect on purpose: a separate effect would add a
+    // second render-phase consumer of activePaneId — which is derived from
+    // lastLocalActiveRef — and the React Compiler would double its ref-flow
+    // diagnostics on the memo above. The guard ref keeps writes to real changes.
+    if (persistOrder && activePaneId && activePaneId !== persistedActiveRef.current) {
+      persistedActiveRef.current = activePaneId;
+      writeStandaloneActivePane(activePaneId);
+    }
+  });
 
   // ops.ensureBrowserPane — single owner of the browser singleton (B2).
   const ensureBrowserPane = useCallback((contextId?: string): string => {

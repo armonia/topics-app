@@ -2,7 +2,7 @@ import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
 import { useGridResize } from '../../hooks/useGridResize';
-import { DND_TYPES } from '../../lib/dndTypes';
+import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
@@ -13,6 +13,10 @@ interface GroupLayoutProps {
   rows: GroupLayoutRow[];
   rowHeights: number[];
   focusedGroupId: string | null;
+  /** Drag scope for this project's tab bars (its projectPath). Tabs can only
+   *  be dragged between groups of the SAME project; a foreign tab (main window
+   *  or another project) shows no drop indicators and is ignored on drop. */
+  dndScope?: string;
   /** True when the panel hosting this layout is the App-level focused panel.
    *  Drives the dimmed-active vs full-active visual state in PaneTabBar
    *  and the pane content ring, so the active tab stays visually identifiable
@@ -53,7 +57,7 @@ interface GroupLayoutProps {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, isAppFocused = true,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -176,6 +180,9 @@ export function GroupLayout({
 
   const handleGroupContentDragOver = useCallback((groupId: string) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
+    // Scope guard: only this project's tabs may split its groups — a foreign
+    // tab gets no edge overlay (and no preventDefault, so it can't drop here).
+    if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
     const sourceGroupId = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP) ? 'other' : null;
     if (!sourceGroupId) return; // only show edge zones for cross-group drags
 
@@ -199,7 +206,7 @@ export function GroupLayout({
         setEdgeDropTarget(null);
       }
     }
-  }, [onSplitGroup, edgeDropTargetRef]);
+  }, [onSplitGroup, edgeDropTargetRef, dndScope]);
 
   const handleGroupContentDragLeave = useCallback((groupId: string) => () => {
     if (edgeDropTargetRef.current?.groupId === groupId) {
@@ -213,6 +220,9 @@ export function GroupLayout({
     const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     if (!sourcePaneId || !sourceGroupId) return;
+    // Scope guard: reject a tab from another window/project on drop too.
+    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
+    if (dndScope && sourceScope && sourceScope !== dndScope) return;
 
     // Prefer the cached target from the latest dragover (ref to dodge React
     // commit lag), but if the user wobbled out of the edge zone in the last
@@ -235,7 +245,7 @@ export function GroupLayout({
     onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, edge);
     edgeDropTargetRef.current = null;
     setEdgeDropTarget(null);
-  }, [onSplitGroup, edgeDropTargetRef]);
+  }, [onSplitGroup, edgeDropTargetRef, dndScope]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -316,6 +326,7 @@ export function GroupLayout({
             onClose={() => {}}
             onAddPane={(type, subType) => (onAddPaneWhenEmpty ?? (() => {}))(type, subType)}
             availableTypes={emptyAvailableTypes}
+            dndScope={dndScope}
             onNewChat={onNewChatInGroup ? () => onNewChatInGroup('') : undefined}
           />
         </div>
@@ -410,6 +421,7 @@ export function GroupLayout({
                           availableTypes={availableTypesForGroup(group.type, groupId)}
                           groupType={group.type}
                           groupId={groupId}
+                          dndScope={dndScope}
                           // "New Chat" is always offered in project tab bars
                           // regardless of group.type. Previously gated to
                           // `group.type === 'chat'`, which hid the entry from

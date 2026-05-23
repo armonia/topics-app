@@ -23,7 +23,7 @@
  * size prop.
  */
 
-import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
+import { useTopicLoading, useProjectLoading, useTerminalLoading, useTerminalFinished, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
 
 function SpinnerCircle() {
   return (
@@ -122,6 +122,29 @@ export function TerminalStreamingSpinner({
     <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
       <SpinnerCircle />
     </span>
+  );
+}
+
+/**
+ * Finished-turn dot for a claude-code session — a small filled dot shown when
+ * the session completed a turn and the user hasn't opened it yet. Hidden while
+ * the session is actively producing output (the spinner takes over). Cleared
+ * when the pane is viewed. Mirrors the tab-bar finished badge so the sidebar
+ * and tab agree.
+ */
+export function TerminalFinishedDot({
+  sessionId,
+  className = '',
+}: { sessionId: string | undefined; className?: string }) {
+  const finished = useTerminalFinished(sessionId);
+  const active = useTerminalLoading(sessionId);
+  if (!finished || active) return null;
+  return (
+    <span
+      className={`flex-shrink-0 w-2 h-2 rounded-full bg-[#D97757] ${className}`}
+      title="Finished a turn — click to open"
+      aria-label="Claude finished a turn"
+    />
   );
 }
 
