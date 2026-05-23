@@ -958,7 +958,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     }
   }, [popClosedTab]);
 
-  // Listen for Cmd+Shift+T to reopen last closed tab
+  // Listen for the reopen-closed-tab event (fired by the ⌘⇧U keyboard chord and
+  // by App-level project reopens) to restore this project's last closed tab.
   useEffect(() => {
     const handler = () => {
       handleReopenLastClosed();

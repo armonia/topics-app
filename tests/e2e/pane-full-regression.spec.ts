@@ -45,7 +45,7 @@ test.describe("PANE-06: compound regression", () => {
     await middle.getByRole("button", { name: /close/i }).click();
 
     // Undo
-    await pageA.keyboard.press(process.platform === "darwin" ? "Meta+Shift+T" : "Control+Shift+T");
+    await pageA.keyboard.press(process.platform === "darwin" ? "Meta+Shift+U" : "Control+Shift+U");
 
     // Now open B (second device)
     await goToApp(pageB);

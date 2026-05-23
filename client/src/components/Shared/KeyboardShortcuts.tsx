@@ -21,6 +21,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: '⌘N', description: 'New chat', desktopOnly: true },
       { keys: '⌘⇧N', description: 'New chat (with template)', desktopOnly: true },
       { keys: '⌘W', description: 'Close panel', desktopOnly: true },
+      { keys: '⌘⇧U', description: 'Reopen closed tab' },
       { keys: '⌘1-9', description: 'Switch panel', desktopOnly: true },
     ],
   },
@@ -40,7 +41,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: '⌘⇧R', description: 'Record voice' },
       { keys: '⌘⇧C', description: 'Voice call' },
       { keys: '⌘⇧D', description: 'Dictation' },
-      { keys: '⌘⇧T', description: 'Auto TTS' },
+      { keys: '⌘⇧S', description: 'Auto TTS' },
     ],
   },
 ];

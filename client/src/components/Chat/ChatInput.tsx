@@ -133,7 +133,7 @@ function OverflowMenu({
           >
             {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
             {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
-            <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧T</span>
+            <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧S</span>
           </button>
         </div>
       )}
@@ -464,7 +464,9 @@ export function ChatInput({
         if (sttSupported && !isCallActive) toggleListening();
         return;
       }
-      if (isMod && e.shiftKey && e.key === 'T') {
+      // Shift+Cmd+S ("Speak") — moved off Shift+Cmd+T, which the browser owns
+      // for "reopen closed tab".
+      if (isMod && e.shiftKey && e.key === 'S') {
         e.preventDefault();
         setAutoTTS(prev => !prev);
         return;

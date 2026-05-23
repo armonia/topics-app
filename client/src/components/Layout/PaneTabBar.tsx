@@ -24,7 +24,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 // exception (file / session-viewer / process-log) that swapped in a classic X
 // with no feedback — but the wired onClose (handleClosePane) defers those
 // closes anyway, so the exception just hid the countdown that was already
-// running. Closing is reversible via Cmd+Shift+T regardless, so a single
+// running. Closing is reversible via Cmd+Shift+U regardless, so a single
 // uniform affordance is both cleaner and less surprising.
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
@@ -347,10 +347,19 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // boundary) used to leave this bar's insert indicators painted. `dragend`
   // bubbles to the window for EVERY drag, so one window listener resets every
   // mounted tab bar — source and target alike.
+  // dragend OR drop. A cross-group move unmounts the source tab inside the drop
+  // handler, so the browser may never fire `dragend` on it — the source bar's
+  // indicators would then stay painted. `drop` bubbles to the window AFTER
+  // React's own onDrop has already read dragOverIdxRef and performed the move,
+  // so resetting on it too clears the source bar without eating the drop.
   useEffect(() => {
-    const onWindowDragEnd = () => resetDrag();
-    window.addEventListener('dragend', onWindowDragEnd);
-    return () => window.removeEventListener('dragend', onWindowDragEnd);
+    const onEnd = () => resetDrag();
+    window.addEventListener('dragend', onEnd);
+    window.addEventListener('drop', onEnd);
+    return () => {
+      window.removeEventListener('dragend', onEnd);
+      window.removeEventListener('drop', onEnd);
+    };
   }, [resetDrag]);
 
   // Keyboard shortcut: Cmd/Ctrl+1-9 is owned globally by `useKeyboardShortcuts`
@@ -403,9 +412,28 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return;
             }
           }
+          // Empty bar area: not over a tab (tabs call stopPropagation) and not
+          // in an edge-split zone → treat as "append to the end of this group".
+          // Without this, dropping ON the bar (rather than precisely on a tab)
+          // showed no indicator and landed nowhere — the reported "dragged onto
+          // the tab bar, no indicator" bug. The trailing tab paints the
+          // right-edge marker for dragOverIdx === panes.length; mirror into the
+          // ref so the drop reads it on the same frame as this dragover.
           setEdgeSplitZone(null);
+          dragOverIdxRef.current = panes.length;
+          setDragOverIdx(panes.length);
         }}
-        onDragLeave={() => { setEdgeSplitZone(null); setCrossGroupDragActive(false); }}
+        onDragLeave={(e) => {
+          // Only reset when the pointer truly left the bar. A dragleave fired
+          // while crossing from the container into one of its child tabs would
+          // otherwise flicker the insert indicator off mid-drag.
+          const rt = e.relatedTarget as Node | null;
+          if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+          setEdgeSplitZone(null);
+          setCrossGroupDragActive(false);
+          setDragOverIdx(null);
+          dragOverIdxRef.current = null;
+        }}
         onDrop={(e) => {
           if (edgeSplitZone && onEdgeSplitDrop) {
             e.preventDefault();

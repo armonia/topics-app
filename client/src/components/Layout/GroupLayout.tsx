@@ -208,7 +208,12 @@ export function GroupLayout({
     }
   }, [onSplitGroup, edgeDropTargetRef, dndScope]);
 
-  const handleGroupContentDragLeave = useCallback((groupId: string) => () => {
+  const handleGroupContentDragLeave = useCallback((groupId: string) => (e: React.DragEvent) => {
+    // Ignore a dragleave that merely crossed into a child of the content area
+    // (the pane body) — only clear when the pointer actually left, or the edge
+    // preview flickers while dragging over the content.
+    const rt = e.relatedTarget as Node | null;
+    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
     if (edgeDropTargetRef.current?.groupId === groupId) {
       edgeDropTargetRef.current = null;
       setEdgeDropTarget(null);
@@ -237,7 +242,9 @@ export function GroupLayout({
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       edge = detectDropZone(e, rect, 'edges') as EdgeZone | null;
     }
-    if (!edge) return;
+    // No edge → not a split drop. Still clear any overlay this group painted so
+    // a dead-center release doesn't leave the preview stuck.
+    if (!edge) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); return; }
 
     e.preventDefault();
     e.stopPropagation();
@@ -309,10 +316,35 @@ export function GroupLayout({
     setRowDropTarget(null);
   }, [rows, rowDropTarget, onReorderRows]);
 
-  const handleRowDragEnd = useCallback(() => {
+  // One reset for every drag-end path: a clean drop, an escape-cancel, a drop
+  // outside any zone, or a flaky boundary. Clears BOTH the edge-split preview
+  // and the row-drag indicators. The container's onDragEnd only fires when the
+  // drag started inside this subtree; the window listener catches every other
+  // case, so no overlay is ever left painted after the gesture — the same
+  // belt-and-suspenders pattern PaneTabBar uses for its tab indicators.
+  const resetDndOverlays = useCallback(() => {
+    edgeDropTargetRef.current = null;
+    setEdgeDropTarget(null);
     setDraggingRowIdx(null);
     setRowDropTarget(null);
-  }, []);
+  }, [edgeDropTargetRef]);
+
+  // Reset on dragend OR drop. A cross-group move unmounts the dragged tab
+  // synchronously inside its drop handler, and the browser then never fires
+  // `dragend` on the now-detached source element — so a dragend-only reset
+  // leaves the edge-split preview (painted while the drag passed over this
+  // group's content) stuck on screen. The `drop` event still bubbles to the
+  // window (the tab-bar drop doesn't stopPropagation), so listening for it too
+  // guarantees the overlay clears even when dragend is swallowed.
+  useEffect(() => {
+    const onEnd = () => resetDndOverlays();
+    window.addEventListener('dragend', onEnd);
+    window.addEventListener('drop', onEnd);
+    return () => {
+      window.removeEventListener('dragend', onEnd);
+      window.removeEventListener('drop', onEnd);
+    };
+  }, [resetDndOverlays]);
 
   if (rows.length === 0) {
     const emptyAvailableTypes = availableTypesForGroup('chat', '');
@@ -346,7 +378,7 @@ export function GroupLayout({
   }
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" onDragEnd={handleRowDragEnd}>
+    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" onDragEnd={resetDndOverlays}>
       {rows.map((row, rowIdx) => {
         const isDraggingRow = draggingRowIdx === rowIdx;
         const isRowDropTop = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'top';

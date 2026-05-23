@@ -20,7 +20,7 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
-import { isProjectPaneId, getProjectPathFromPaneId } from '../state/pane/adapters';
+import { isProjectPaneId, getProjectPathFromPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 
 export interface UseKeyboardShortcutsArgs {
   isElectron: boolean;
@@ -43,6 +43,10 @@ export interface UseKeyboardShortcutsArgs {
   toggleSidebar: () => void;
   handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => void;
   setFocusedPanelId: (id: string) => void;
+  /** Reopen a previously-closed tab (stable identity). */
+  handleReopenClosedTab: (record: ClosedTabRecord) => void;
+  /** Recently-closed tabs, newest first. Snapshot — mirrored into a ref. */
+  closedTabs: ClosedTabRecord[];
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
@@ -91,6 +95,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const projectOpenPanesRef = useRef(args.projectOpenPanes);
   const topicsRef = useRef(args.topics);
   const focusedProjectPathRef = useRef(args.focusedProjectPath);
+  const closedTabsRef = useRef(args.closedTabs);
   const modalsRef = useRef({
     showSearch: args.showSearch,
     showNewTopic: args.showNewTopic,
@@ -102,6 +107,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   useEffect(() => { projectOpenPanesRef.current = args.projectOpenPanes; });
   useEffect(() => { topicsRef.current = args.topics; });
   useEffect(() => { focusedProjectPathRef.current = args.focusedProjectPath; });
+  useEffect(() => { closedTabsRef.current = args.closedTabs; });
   useEffect(() => {
     modalsRef.current = {
       showSearch: args.showSearch,
@@ -115,7 +121,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const {
     isElectron,
     handleClosePanel, handleQuickCreateTopic, toggleSidebar, handleOpenAsPage,
-    setFocusedPanelId,
+    setFocusedPanelId, handleReopenClosedTab,
     setShowSearch, setShowNewTopic, setShowShortcuts, setShowFileSearch,
   } = args;
 
@@ -200,11 +206,15 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // (Shift+Cmd+T intentionally unbound here.) Previously this dispatched
-      // `reopen-closed-tab`, but the same chord is owned by ChatInput as the
-      // "toggle auto-TTS" shortcut — pressing it fired both, so a closed tab
-      // would silently re-appear every time the user toggled TTS. If reopen-
-      // closed-tab is wanted again, pick a free chord (Shift+Cmd+U is open).
+      // Shift+Cmd+U → reopen the most recently closed tab. The browser owns
+      // Shift+Cmd+T (reopen browser tab), so we can't use it here; auto-TTS,
+      // which previously shared that chord, moved to Shift+Cmd+S.
+      if (isMod && e.shiftKey && (e.key === 'u' || e.key === 'U')) {
+        e.preventDefault();
+        const last = closedTabsRef.current[0];
+        if (last) handleReopenClosedTab(last);
+        return;
+      }
 
       if (isElectron && isMod && e.key === 'w') {
         e.preventDefault();
@@ -273,6 +283,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     handleClosePanel,
     handleQuickCreateTopic,
     toggleSidebar,
+    handleReopenClosedTab,
     setShowSearch,
     setShowNewTopic,
     setShowShortcuts,

@@ -498,6 +498,8 @@ function App() {
     toggleSidebar,
     handleOpenAsPage,
     setFocusedPanelId: handleFocusPanel,
+    handleReopenClosedTab,
+    closedTabs,
     setShowSearch,
     setShowNewTopic,
     setShowShortcuts,

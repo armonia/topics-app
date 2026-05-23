@@ -6,7 +6,7 @@ import {
 
 /**
  * Tests the module-level cleanup-timer registry used to defer terminal
- * DELETE by 60s after close, so Cmd+Shift+T (undo) can reattach to the
+ * DELETE by 60s after close, so Cmd+Shift+U (undo) can reattach to the
  * same live session. See RESEARCH.md pitfall #4 — timers must live
  * outside Immer state.
  *

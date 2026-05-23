@@ -892,6 +892,30 @@ export function PanelGrid({
     gridDropTargetRef.current = null;
   }, []);
 
+  // Belt-and-suspenders: a cross-cell move unmounts the dragged item inside its
+  // drop handler, so the browser may never fire `dragend` on the now-detached
+  // source — leaving the grid's edge-drop preview and the drag-active
+  // affordances painted. `drop` still bubbles to the window AFTER React's own
+  // onDrop has consumed gridDropTargetRef, so resetting the VISUAL drag state on
+  // both events guarantees nothing is left over. `draggingId` is intentionally
+  // NOT cleared here — handleDragEnd owns it for the WS drag:end signal and the
+  // pop-out-on-drag-outside path (where no `drop` event fires at all).
+  useEffect(() => {
+    const clearDragVisuals = () => {
+      setGridDropTarget(null);
+      gridDropTargetRef.current = null;
+      setDraggingGridKey(null);
+      setIsAnyDragActive(false);
+      setEmptyDragOver(false);
+    };
+    window.addEventListener('dragend', clearDragVisuals);
+    window.addEventListener('drop', clearDragVisuals);
+    return () => {
+      window.removeEventListener('dragend', clearDragVisuals);
+      window.removeEventListener('drop', clearDragVisuals);
+    };
+  }, [gridDropTargetRef]);
+
   const handleGridItemDropCapture = useCallback((
     e: React.DragEvent,
     /**

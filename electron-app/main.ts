@@ -1364,7 +1364,7 @@ function createAppMenu(): void {
           label: 'Always on Top',
           type: 'checkbox',
           checked: alwaysOnTop,
-          accelerator: 'CmdOrCtrl+Shift+T',
+          accelerator: 'CmdOrCtrl+Alt+T',
           click: () => toggleAlwaysOnTop(),
         },
         ...(isMac ? [
@@ -2392,9 +2392,11 @@ app.whenReady().then(() => {
     mainWindow.setAlwaysOnTop(true, 'floating');
   }
 
-  // Keyboard shortcut for Always-on-Top toggle (Cmd/Ctrl+Shift+T)
+  // Keyboard shortcut for Always-on-Top toggle (Cmd/Ctrl+Alt+T). Deliberately
+  // NOT Shift+T: that chord is the browser's "reopen closed tab", and a global
+  // shortcut would steal it system-wide for as long as this app is running.
   try {
-    const registered = globalShortcut.register('CommandOrControl+Shift+T', () => {
+    const registered = globalShortcut.register('CommandOrControl+Alt+T', () => {
       alwaysOnTop = !alwaysOnTop;
       if (mainWindow) mainWindow.setAlwaysOnTop(alwaysOnTop, 'floating');
       savePreferences({ alwaysOnTop });
@@ -2402,7 +2404,7 @@ app.whenReady().then(() => {
       try { createAppMenu(); } catch {}
     });
     if (!registered) {
-      console.warn('[Topics Electron] Failed to register CommandOrControl+Shift+T shortcut (likely in use by another app)');
+      console.warn('[Topics Electron] Failed to register CommandOrControl+Alt+T shortcut (likely in use by another app)');
     }
   } catch (err) {
     console.warn('[Topics Electron] globalShortcut.register threw:', err);

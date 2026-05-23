@@ -241,7 +241,7 @@ export function CommandPalette({
           description: `${timeAgo}${record.projectPath ? ' · ' + getProjectLabel(record.projectPath) : ''}`,
           icon,
           category: 'recent-closed',
-          shortcut: i === 0 ? '⌘⇧T' : undefined,
+          shortcut: i === 0 ? '⌘⇧U' : undefined,
           action: () => { onReopenClosedTab(record); onClose(); },
         });
       });
