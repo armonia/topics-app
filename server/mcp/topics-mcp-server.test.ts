@@ -16,6 +16,12 @@ import { describe, test, expect } from "bun:test";
 import {
   parseArgs,
   callOpenBrowserPane,
+  callRunScript,
+  callListProcesses,
+  callReadProcessOutput,
+  callStopProcess,
+  callListTasks,
+  callUpdateTask,
   handleMessage,
 } from "./topics-mcp-server";
 
@@ -194,16 +200,51 @@ describe("handleMessage", () => {
     expect(result.serverInfo.name).toBe("topics-app");
   });
 
-  test("tools/list → returns open_browser_pane schema", async () => {
+  test("tools/list → returns the full Phase-1 tool set", async () => {
     const resp = await handleMessage(
       { jsonrpc: "2.0", id: 2, method: "tools/list" },
       ARGS,
     );
     const tools = (resp!.result as any).tools as Array<{ name: string; inputSchema: any }>;
-    expect(tools.length).toBe(1);
-    expect(tools[0].name).toBe("open_browser_pane");
-    expect(tools[0].inputSchema.required).toEqual(["url"]);
-    expect(tools[0].inputSchema.properties.url.type).toBe("string");
+    const names = tools.map((t) => t.name);
+    expect(names).toEqual([
+      "open_browser_pane",
+      "run_script",
+      "list_processes",
+      "read_process_output",
+      "stop_process",
+      "list_tasks",
+      "update_task",
+    ]);
+    const browser = tools.find((t) => t.name === "open_browser_pane")!;
+    expect(browser.inputSchema.required).toEqual(["url"]);
+    expect(browser.inputSchema.properties.url.type).toBe("string");
+    expect(tools.find((t) => t.name === "run_script")!.inputSchema.required).toEqual(["script"]);
+    expect(tools.find((t) => t.name === "update_task")!.inputSchema.required).toEqual([
+      "task_id", "project_id", "status",
+    ]);
+  });
+
+  test("tools/call routes run_script through the registry", async () => {
+    // Patch global fetch since handleMessage doesn't take a fetchImpl.
+    const orig = globalThis.fetch;
+    let seenUrl = "";
+    (globalThis as any).fetch = stubFetch(async (url) => {
+      seenUrl = String(url);
+      return new Response(JSON.stringify({ processId: "p1", pid: 42 }), { status: 200 });
+    });
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "run_script", arguments: { script: "test" } } },
+        ARGS,
+      );
+      const result = resp!.result as any;
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("processId=p1");
+      expect(seenUrl).toContain("/api/sessions/s/scripts/run");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
   });
 
   test("tools/call with unknown name → -32601 error", async () => {
@@ -229,5 +270,190 @@ describe("handleMessage", () => {
       ARGS,
     );
     expect(resp).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase-1 bridge tools
+// ---------------------------------------------------------------------------
+
+describe("callRunScript", () => {
+  test("POSTs scriptName to the session-keyed run endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ processId: "ab12", pid: 99 }), { status: 200 });
+    });
+    const text = await callRunScript(
+      { baseUrl: "http://x", sessionKey: "topic:abc" },
+      { script: "dev" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/scripts/run");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBe(JSON.stringify({ scriptName: "dev" }));
+    expect(text).toContain("processId=ab12");
+    expect(text).toContain("pid=99");
+  });
+
+  test("throws when script arg missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callRunScript({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/script.*required/i);
+  });
+
+  test("surfaces 400 + available scripts list from the gate", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: 'Script "nope" is not defined in package.json', available: ["dev", "test"] }), { status: 400 }),
+    );
+    await expect(
+      callRunScript({ baseUrl: "http://x", sessionKey: "s" }, { script: "nope" }, fetchImpl),
+    ).rejects.toThrow(/not defined.*available: dev, test/);
+  });
+});
+
+describe("callListProcesses", () => {
+  test("formats running + recent into compact lines", async () => {
+    const fetchImpl = stubFetch(async (url) => {
+      expect(String(url)).toBe("http://x/api/sessions/s/scripts");
+      return new Response(JSON.stringify({ scripts: [
+        { status: "running", scriptName: "dev", processId: "p1", pid: 10, ports: [5173] },
+        { status: "done", scriptName: "test", processId: "p2", pid: 11, exitCode: 0 },
+      ] }), { status: 200 });
+    });
+    const text = await callListProcesses({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(text).toContain("[running] dev id=p1 pid=10 ports=5173");
+    expect(text).toContain("[done] test id=p2 pid=11 exit=0");
+  });
+
+  test("handles empty list", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ scripts: [] }), { status: 200 }));
+    const text = await callListProcesses({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(text).toMatch(/no processes/i);
+  });
+});
+
+describe("callReadProcessOutput", () => {
+  test("passes offset and returns output + footer", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({ output: "line1\nline2", offset: 2, status: "running", done: false }), { status: 200 });
+    });
+    const text = await callReadProcessOutput(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { process_id: "p1", offset: 5 },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/s/scripts/p1/output?offset=5");
+    expect(text).toContain("line1\nline2");
+    expect(text).toContain("[offset=2 status=running]");
+  });
+
+  test("truncates very long output to the tail", async () => {
+    const big = "x".repeat(20000);
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ output: big, offset: 1, status: "done", done: true, exitCode: 0 }), { status: 200 }),
+    );
+    const text = await callReadProcessOutput({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "p1" }, fetchImpl);
+    expect(text).toMatch(/truncated/i);
+    expect(text).toContain("done");
+    expect(text).toContain("exit=0");
+    expect(text.length).toBeLessThan(9000);
+  });
+
+  test("throws when process_id missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callReadProcessOutput({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/process_id.*required/i);
+  });
+});
+
+describe("callStopProcess", () => {
+  test("POSTs to the stop endpoint", async () => {
+    const seen: { url?: string; method?: string } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.method = init?.method;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const text = await callStopProcess({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "p9" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/scripts/p9/stop");
+    expect(seen.method).toBe("POST");
+    expect(text).toBe("stopped p9");
+  });
+
+  test("surfaces 404 when already stopped", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "Process not found or already stopped" }), { status: 404 }),
+    );
+    await expect(
+      callStopProcess({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "gone" }, fetchImpl),
+    ).rejects.toThrow(/already stopped/);
+  });
+});
+
+describe("callListTasks", () => {
+  test("formats tasks and forwards status filter", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({ tasks: [
+        { status: "todo", text: "Write tests", id: "t1", projectId: "proj1" },
+      ] }), { status: 200 });
+    });
+    const text = await callListTasks({ baseUrl: "http://x", sessionKey: "s" }, { status: "todo" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/tasks?status=todo");
+    expect(text).toContain("[todo] Write tests (id=t1 project=proj1)");
+  });
+
+  test("omits query when no status, handles empty", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({ tasks: [] }), { status: 200 });
+    });
+    const text = await callListTasks({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/tasks");
+    expect(text).toMatch(/no tasks/i);
+  });
+});
+
+describe("callUpdateTask", () => {
+  test("PATCHes status to the project-scoped task endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "in_progress" }), { status: 200 });
+    });
+    const text = await callUpdateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", project_id: "proj1", status: "in_progress" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/boards/proj1/tasks/t1");
+    expect(seen.init?.method).toBe("PATCH");
+    expect(seen.init?.body).toBe(JSON.stringify({ status: "in_progress" }));
+    expect(text).toBe("task t1 → in_progress");
+  });
+
+  test("throws on missing required args", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", status: "done" }, fetchImpl),
+    ).rejects.toThrow(/project_id.*required/i);
+  });
+
+  test("surfaces 409 dependency-block error", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "Task is blocked by unfinished dependencies" }), { status: 409 }),
+    );
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", project_id: "p", status: "done" }, fetchImpl),
+    ).rejects.toThrow(/blocked by unfinished dependencies/);
   });
 });

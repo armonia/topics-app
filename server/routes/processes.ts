@@ -377,6 +377,25 @@ function broadcastScriptsUpdate(ctx: AppContext) {
   ctx.broadcastToAll({ type: 'scripts:updated', scripts: getScriptsSnapshot() });
 }
 
+/**
+ * Read the `scripts` map from a project's package.json. Returns null when the
+ * file is absent or unparseable. Used to gate the session-keyed (MCP) run
+ * endpoint: a bypass-permission agent may only launch declared scripts, never
+ * an arbitrary name. The UI endpoint stays ungated — it already only offers
+ * package.json scripts, and `npm run <missing>` fails harmlessly anyway.
+ */
+function readPackageScripts(projectPath: string): Record<string, string> | null {
+  try {
+    const pkgPath = join(projectPath, "package.json");
+    if (!existsSync(pkgPath)) return null;
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const scripts = pkg?.scripts;
+    return scripts && typeof scripts === "object" ? scripts : {};
+  } catch {
+    return null;
+  }
+}
+
 export function createProcessesRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
   _broadcastCtx = ctx; // store for pollPidExit callbacks
@@ -385,126 +404,225 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     try { return await req.json(); } catch { return null; }
   }
 
+  /**
+   * Spawn `npm run <scriptName>` in projectPath, register it in the running
+   * map, wire stdout/stderr streaming + exit handling, and return the public
+   * payload. Shared by the UI endpoint (POST /api/scripts/run) and the
+   * session-keyed MCP endpoint (POST /api/sessions/:sessionKey/scripts/run).
+   */
+  function startScriptProcess(
+    projectPath: string,
+    scriptName: string,
+    useTty: boolean,
+  ): { processId: string; scriptName: string; pid: number | null; startedAt: string } {
+    const processId = crypto.randomUUID();
+    const command = `npm run ${scriptName}`;
+    const argv = useTty
+      ? wrapPty(["npm", "run", scriptName])
+      : ["npm", "run", scriptName];
+
+    const proc = Bun.spawn(argv, {
+      cwd: projectPath,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: augmentEnv(process.env, {
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+        HOST: "0.0.0.0",
+        NODE_ENV: "development",
+        npm_config_yes: "true",
+      }),
+    });
+
+    const sp: ScriptProcess = {
+      processId,
+      scriptName,
+      command,
+      projectPath,
+      status: "running",
+      pid: proc.pid,
+      startedAt: new Date().toISOString(),
+      output: [],
+      outputBytes: 0,
+      proc,
+    };
+
+    runningScripts.set(processId, sp);
+    saveState();
+    broadcastScriptsUpdate(ctx);
+
+    if (proc.stdout) {
+      (async () => {
+        const reader = proc.stdout!.getReader();
+        const decoder = new TextDecoder();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
+            notifyScriptOutput(ctx, processId);
+          }
+        } catch {}
+      })();
+    }
+
+    if (proc.stderr) {
+      (async () => {
+        const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+        const decoder = new TextDecoder();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
+            notifyScriptOutput(ctx, processId);
+          }
+        } catch {}
+      })();
+    }
+
+    proc.exited.then((exitCode) => {
+      sp.status = exitCode === 0 ? "done" : "error";
+      sp.exitCode = exitCode;
+      sp.completedAt = new Date().toISOString();
+      sp.proc = null;
+      runningScripts.delete(processId);
+      addToRecent(sp);
+      saveState();
+      broadcastScriptsUpdate(ctx);
+    });
+
+    return { processId, scriptName, pid: proc.pid, startedAt: sp.startedAt };
+  }
+
+  // ── Session scoping helpers (shared by MCP-bridge session endpoints) ──────
+
+  /** Resolve a sessionKey to its topic's working directory, or an error Response. */
+  function resolveSessionCwd(sessionKey: string): { path: string } | { error: Response } {
+    const topic = ctx.getTopicBySessionKey(sessionKey);
+    if (!topic) return { error: json({ error: "No topic bound to this session" }, 404) };
+    const path = ctx.resolveTopicCwd(topic);
+    if (!path) return { error: json({ error: "This topic has no project directory — bind it to a project first" }, 400) };
+    return { path };
+  }
+
+  const getScript = (id: string): ScriptProcess | undefined =>
+    runningScripts.get(id) || recentScripts.find(r => r.processId === id);
+
+  /** Build the `{ scripts }` payload, optionally filtered to one project path. */
+  async function serializeScripts(filterCwd?: string): Promise<{ scripts: any[] }> {
+    const match = (sp: ScriptProcess) => !filterCwd || sp.projectPath === filterCwd;
+    const runningList = await Promise.all(
+      Array.from(runningScripts.values()).filter(match).map(async sp => ({
+        processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
+        projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
+        startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+        ports: sp.pid ? await getPortsForProcess(sp.pid) : [],
+      })),
+    );
+    const recentList = recentScripts.filter(match).map(sp => ({
+      processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
+      projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
+      startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+      ports: [] as number[],
+    }));
+    return { scripts: [...runningList, ...recentList] };
+  }
+
+  const outputPayload = (sp: ScriptProcess, offset: number) => ({
+    output: sp.output.slice(offset).join("\n"),
+    offset: sp.output.length,
+    done: sp.status !== "running",
+    status: sp.status,
+    exitCode: sp.exitCode,
+  });
+
+  /** Terminate a running script (process-group kill + delayed SIGKILL) and clean up. */
+  function killRunningScript(sp: ScriptProcess): void {
+    const pid = sp.pid;
+    if (!pid || !isPidAlive(pid)) {
+      sp.status = "error";
+      sp.completedAt = new Date().toISOString();
+      sp.exitCode = sp.exitCode ?? -1;
+      sp.proc = null;
+      runningScripts.delete(sp.processId);
+      addToRecent(sp);
+      saveState();
+      broadcastScriptsUpdate(ctx);
+      return;
+    }
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      try { process.kill(pid, "SIGTERM"); } catch {}
+    }
+    setTimeout(() => {
+      try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
+    }, 5000);
+  }
+
   return async function processesRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
-    // POST /api/scripts/run — start a script
+    // POST /api/scripts/run — start a script (UI endpoint, ungated)
     if (method === "POST" && pathname === "/api/scripts/run") {
       const body = await readJSON(req);
       if (!body?.projectPath || !body?.scriptName) {
         return json({ error: "projectPath and scriptName required" }, 400);
       }
-
-      const processId = crypto.randomUUID();
-      const scriptName = body.scriptName as string;
-      const projectPath = body.projectPath as string;
-      const command = `npm run ${scriptName}`;
-
       // tty: true (default) wraps the command in script(1) so it gets a PTY.
       // Required by CLIs that check isatty() — supabase login, gh auth login,
       // npm login, etc. Set body.tty=false explicitly for legacy behavior.
       const useTty = body.tty !== false;
-      const argv = useTty
-        ? wrapPty(["npm", "run", scriptName])
-        : ["npm", "run", scriptName];
-
-      let proc: ReturnType<typeof Bun.spawn>;
       try {
-        proc = Bun.spawn(argv, {
-          cwd: projectPath,
-          stdout: "pipe",
-          stderr: "pipe",
-          // augmentEnv prepends ~/.bun/bin, /opt/homebrew/bin, etc. so scripts
-          // that call `bun`, `pnpm`, `cargo`... resolve even when the server
-          // is launched from launchd/tray with a minimal PATH.
-          env: augmentEnv(process.env, {
-            FORCE_COLOR: "0",
-            NO_COLOR: "1",
-            HOST: "0.0.0.0",
-            NODE_ENV: "development",
-            // npx prompts "Ok to proceed? (y)" before installing packages —
-            // the Processes panel has no stdin to answer, so it would hang.
-            // npm_config_yes=true makes npx proceed without asking. Same
-            // effect as `npx --yes <pkg>`.
-            //
-            // We deliberately DON'T set CI=true: many dev servers
-            // (create-react-app, etc.) change behavior under CI and would
-            // exit immediately instead of running in watch mode.
-            npm_config_yes: "true",
-          }),
-        });
+        return json(startScriptProcess(body.projectPath as string, body.scriptName as string, useTty));
       } catch (err: any) {
         return json({ error: `Failed to spawn: ${err.message}` }, 500);
       }
+    }
 
-      const sp: ScriptProcess = {
-        processId,
-        scriptName,
-        command,
-        projectPath,
-        status: "running",
-        pid: proc.pid,
-        startedAt: new Date().toISOString(),
-        output: [],
-        outputBytes: 0,
-        proc,
-      };
+    // POST /api/sessions/:sessionKey/scripts/run — session-keyed run (MCP bridge)
+    //
+    // The MCP surface for non-SDK providers: the bridge subprocess only knows
+    // its sessionKey, so we resolve the topic → working directory here instead
+    // of trusting a caller-supplied path. Because the spawning agent runs under
+    // `--permission-mode bypassPermissions`, we gate scriptName against the
+    // project's package.json — a declared script may run, an arbitrary one is
+    // rejected with the list of what's available (which doubles as discovery).
+    {
+      const m = method === "POST" && pathname.match(/^\/api\/sessions\/([^/]+)\/scripts\/run$/);
+      if (m) {
+        const sessionKey = decodeURIComponent(m[1]);
+        const body = await readJSON(req);
+        const scriptName = body?.scriptName;
+        if (typeof scriptName !== "string" || !scriptName) {
+          return json({ error: "scriptName (string) is required" }, 400);
+        }
 
-      runningScripts.set(processId, sp);
-      saveState();
-      broadcastScriptsUpdate(ctx);
+        const r = resolveSessionCwd(sessionKey);
+        if ("error" in r) return r.error;
+        const projectPath = r.path;
 
-      // Stream stdout
-      if (proc.stdout) {
-        (async () => {
-          const reader = proc.stdout!.getReader();
-          const decoder = new TextDecoder();
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value, { stream: true });
-              appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
-              notifyScriptOutput(ctx, processId);
-            }
-          } catch {}
-        })();
+        const scripts = readPackageScripts(projectPath);
+        if (!scripts) {
+          return json({ error: `No package.json found in ${projectPath}` }, 400);
+        }
+        if (!(scriptName in scripts)) {
+          const available = Object.keys(scripts);
+          return json({
+            error: `Script "${scriptName}" is not defined in package.json`,
+            available,
+          }, 400);
+        }
+
+        const useTty = body?.tty !== false;
+        try {
+          return json(startScriptProcess(projectPath, scriptName, useTty));
+        } catch (err: any) {
+          return json({ error: `Failed to spawn: ${err.message}` }, 500);
+        }
       }
-
-      // Stream stderr
-      if (proc.stderr) {
-        (async () => {
-          const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-          const decoder = new TextDecoder();
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value, { stream: true });
-              appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
-              notifyScriptOutput(ctx, processId);
-            }
-          } catch {}
-        })();
-      }
-
-      // Handle process exit
-      proc.exited.then((exitCode) => {
-        sp.status = exitCode === 0 ? "done" : "error";
-        sp.exitCode = exitCode;
-        sp.completedAt = new Date().toISOString();
-        sp.proc = null;
-        runningScripts.delete(processId);
-        addToRecent(sp);
-        saveState();
-        broadcastScriptsUpdate(ctx);
-      });
-
-      return json({
-        processId,
-        scriptName,
-        pid: proc.pid,
-        startedAt: sp.startedAt,
-      });
     }
 
     // GET /api/scripts — list running + recent, with per-process ports
@@ -513,36 +631,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       if (scriptsResponseCache && Date.now() - scriptsResponseCache.timestamp < SCRIPTS_CACHE_TTL) {
         return json(scriptsResponseCache.data);
       }
-      // Resolve ports for each running script
-      const runningList = await Promise.all(
-        Array.from(runningScripts.values()).map(async sp => ({
-          processId: sp.processId,
-          scriptName: sp.scriptName,
-          command: sp.command,
-          projectPath: sp.projectPath,
-          status: sp.status,
-          pid: sp.pid,
-          startedAt: sp.startedAt,
-          completedAt: sp.completedAt,
-          exitCode: sp.exitCode,
-          ports: sp.pid ? await getPortsForProcess(sp.pid) : [],
-        }))
-      );
-
-      const recentList = recentScripts.map(sp => ({
-        processId: sp.processId,
-        scriptName: sp.scriptName,
-        command: sp.command,
-        projectPath: sp.projectPath,
-        status: sp.status,
-        pid: sp.pid,
-        startedAt: sp.startedAt,
-        completedAt: sp.completedAt,
-        exitCode: sp.exitCode,
-        ports: [] as number[],
-      }));
-
-      const scriptsResult = { scripts: [...runningList, ...recentList] };
+      const scriptsResult = await serializeScripts();
       scriptsResponseCache = { data: scriptsResult, timestamp: Date.now() };
       return json(scriptsResult);
     }
@@ -550,57 +639,64 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     // GET /api/scripts/:id/output — get process output (streaming with offset)
     const outputMatch = method === "GET" && pathname.match(/^\/api\/scripts\/([^/]+)\/output$/);
     if (outputMatch) {
-      const processId = outputMatch[1];
-      const sp = runningScripts.get(processId) || recentScripts.find(r => r.processId === processId);
+      const sp = getScript(outputMatch[1]);
       if (!sp) return json({ error: "Process not found" }, 404);
-
       const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-      const lines = sp.output.slice(offset);
-      return json({
-        output: lines.join("\n"),
-        offset: sp.output.length,
-        done: sp.status !== "running",
-        status: sp.status,
-        exitCode: sp.exitCode,
-      });
+      return json(outputPayload(sp, offset));
     }
 
     // POST /api/scripts/:id/stop — kill a running process
     const stopMatch = method === "POST" && pathname.match(/^\/api\/scripts\/([^/]+)\/stop$/);
     if (stopMatch) {
-      const processId = stopMatch[1];
-      const sp = runningScripts.get(processId);
+      const sp = runningScripts.get(stopMatch[1]);
       if (!sp) return json({ error: "Process not found or already stopped" }, 404);
+      killRunningScript(sp);
+      return json({ ok: true });
+    }
 
-      // Kill by PID (works even for re-adopted processes without proc handle)
-      const pid = sp.pid;
-      if (!pid || !isPidAlive(pid)) {
-        // PID missing or already dead/zombie — just clean up state
-        sp.status = "error";
-        sp.completedAt = new Date().toISOString();
-        sp.exitCode = sp.exitCode ?? -1;
-        sp.proc = null;
-        runningScripts.delete(processId);
-        addToRecent(sp);
-        saveState();
-        broadcastScriptsUpdate(ctx);
+    // ── Session-scoped reads/controls (MCP bridge) ───────────────────────────
+    // These resolve sessionKey → topic → working directory and only expose
+    // processes that belong to that project, so an agent in topic A can never
+    // see or kill processes started under topic B.
+
+    // GET /api/sessions/:sessionKey/scripts
+    {
+      const m = method === "GET" && pathname.match(/^\/api\/sessions\/([^/]+)\/scripts$/);
+      if (m) {
+        const r = resolveSessionCwd(decodeURIComponent(m[1]));
+        if ("error" in r) return r.error;
+        return json(await serializeScripts(r.path));
+      }
+    }
+
+    // GET /api/sessions/:sessionKey/scripts/:id/output
+    {
+      const m = method === "GET" && pathname.match(/^\/api\/sessions\/([^/]+)\/scripts\/([^/]+)\/output$/);
+      if (m) {
+        const r = resolveSessionCwd(decodeURIComponent(m[1]));
+        if ("error" in r) return r.error;
+        const sp = getScript(m[2]);
+        if (!sp || sp.projectPath !== r.path) {
+          return json({ error: "Process not found in this project" }, 404);
+        }
+        const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+        return json(outputPayload(sp, offset));
+      }
+    }
+
+    // POST /api/sessions/:sessionKey/scripts/:id/stop
+    {
+      const m = method === "POST" && pathname.match(/^\/api\/sessions\/([^/]+)\/scripts\/([^/]+)\/stop$/);
+      if (m) {
+        const r = resolveSessionCwd(decodeURIComponent(m[1]));
+        if ("error" in r) return r.error;
+        const sp = runningScripts.get(m[2]);
+        if (!sp || sp.projectPath !== r.path) {
+          return json({ error: "Process not found in this project or already stopped" }, 404);
+        }
+        killRunningScript(sp);
         return json({ ok: true });
       }
-
-      try {
-        // Kill entire process group
-        process.kill(-pid, "SIGTERM");
-      } catch {
-        // Fallback: kill just the PID
-        try { process.kill(pid, "SIGTERM"); } catch {}
-      }
-
-      // Force kill after 5s
-      setTimeout(() => {
-        try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
-      }, 5000);
-
-      return json({ ok: true });
     }
 
     return null;

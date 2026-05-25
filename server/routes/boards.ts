@@ -123,6 +123,26 @@ export function createBoardsRouter(ctx: AppContext): RouteHandler {
       return json({ tasks: rows.map(toTask) });
     }
 
+    // GET /api/sessions/:sessionKey/tasks — session-scoped task list (MCP bridge)
+    //
+    // The board project_id IS the project's filesystem path, so we resolve the
+    // session's topic and list only that project's tasks — keeping an agent from
+    // seeing other projects' boards. Scoped to projectPath (project-level), not
+    // resolveTopicCwd: tasks belong to the project, shared across its worktrees.
+    {
+      const m = matchRoute(pathname, "/api/sessions/:sessionKey/tasks");
+      if (m && method === "GET") {
+        const topic = ctx.getTopicBySessionKey(decodeURIComponent(m.sessionKey));
+        if (!topic) return errorResponse(404, "No topic bound to this session");
+        const projectId = topic.projectPath;
+        if (!projectId) return errorResponse(400, "This topic has no project");
+        const statusFilter = url.searchParams.get("status");
+        let rows = stmts.listTasks.all(projectId) as any[];
+        if (statusFilter) rows = rows.filter(r => r.status === statusFilter);
+        return json({ tasks: rows.map(toTask), projectId });
+      }
+    }
+
     // ---- Tasks CRUD ----
 
     // GET /api/boards/:projectId/tasks
