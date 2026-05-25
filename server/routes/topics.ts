@@ -15,6 +15,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
+import { getTerminalSessionById } from "./terminal";
 import { buildProviderHistory } from "../utils/build-provider-history";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
@@ -225,7 +226,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
   function resolveProvider(topic?: Topic | null): AIProvider {
     if (topic?.provider) {
-      try { return getProvider(topic.provider); } catch {}
+      // Legacy coercion: Master topics were once created with the experimental
+      // "claude-code-team" provider, which is NOT a registered chat provider —
+      // getProvider would throw and we'd silently fall back to a non-deterministic
+      // default. Map it to the real subscription-backed CLI provider so old leads
+      // (and the removed PTY-teams path) keep working without a data migration.
+      // See change refactor-master-into-kanban (AD-1).
+      const name = topic.provider === "claude-code-team" ? "claude-code" : topic.provider;
+      try { return getProvider(name); } catch {}
     }
     return getDefaultProvider();
   }
@@ -1146,6 +1154,22 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           ? `Master · ${projectPath.split("/").pop() || projectPath}`
           : "Master · Global");
 
+      // Guard: the Master runs on the subscription-backed `claude-code` provider.
+      // If that provider failed to init (the `claude` CLI is not installed), fail
+      // fast with a clear remediation instead of creating a Master that silently
+      // falls back to a non-working default. See refactor-master-into-kanban (AD-1).
+      const intendedProvider = (body?.provider as string | undefined) || "claude-code";
+      try {
+        getProvider(intendedProvider);
+      } catch {
+        return json({
+          error: `Provider "${intendedProvider}" is not available`,
+          detail: intendedProvider === "claude-code"
+            ? "The Master needs the `claude` CLI (Claude Code) installed and on PATH to run on your subscription. Install it, then retry."
+            : `Requested provider "${intendedProvider}" is not registered.`,
+        }, 500);
+      }
+
       // Snapshot helper — captures open topics + tasks at a moment in time.
       // Used both to refresh a resumed Master and to seed a new one with an
       // initialMessage so the lead has the board state from turn 0.
@@ -1356,7 +1380,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         systemPrompt: (body?.systemPrompt as string | undefined) || defaultMasterPrompt,
         contextFiles: [], pinnedMessages: [],
         sortOrder: Object.keys(data.topics).length,
-        provider: body?.provider || "claude-code-team",
+        // Master runs on the subscription-backed `claude-code` chat provider
+        // (spawns the `claude` CLI via stream-json — no SDK, no ANTHROPIC_API_KEY).
+        // NOT "claude-code-team": that experimental PTY path was removed from the
+        // Master flow. See change refactor-master-into-kanban (AD-1).
+        provider: body?.provider || "claude-code",
       };
       if (projectPath) (topic as any).projectPath = projectPath;
       // Seed initialMessage with current workspace snapshot so the lead's
@@ -1690,6 +1718,26 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           topic = getTopicById(byTopic.id);
         } else if (bySession) {
           topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+        }
+
+        // Terminal-originated open: the MCP bridge for a Claude Code *terminal*
+        // passes the terminal session id as the sessionKey, which matches no
+        // chat topic. Instead of 404, open the browser in the same layout group
+        // as the terminal pane. The client resolves the group from the pane id
+        // — works for both standalone (group:default) and project layouts — and
+        // uses that group's own browser context, then navigates. We don't
+        // pre-open a server browser context here (the contextId differs between
+        // standalone and project rendering); the client's RemoteBrowserPanel
+        // drives the actual open/navigate once the pane mounts.
+        if (!topic && bySession) {
+          const term = getTerminalSessionById(decodeURIComponent(bySession.sessionKey));
+          if (term) {
+            const body = (await readJSON(req)) as { url?: unknown } | null;
+            const url = typeof body?.url === "string" ? body.url : "";
+            if (!url) return json({ error: "url (string) is required" }, 400);
+            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, url });
+            return json({ url, title: "" });
+          }
         }
         if (!topic) return json({ error: "Topic not found" }, 404);
 
