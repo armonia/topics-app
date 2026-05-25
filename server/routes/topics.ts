@@ -1207,21 +1207,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           ? `Master · ${projectPath.split("/").pop() || projectPath}`
           : "Master · Global");
 
-      // Guard: the Master runs on the subscription-backed `claude-code` provider.
-      // If that provider failed to init (the `claude` CLI is not installed), fail
-      // fast with a clear remediation instead of creating a Master that silently
-      // falls back to a non-working default. See refactor-master-into-kanban (AD-1).
-      const intendedProvider = (body?.provider as string | undefined) || "claude-code";
-      try {
-        getProvider(intendedProvider);
-      } catch {
-        return json({
-          error: `Provider "${intendedProvider}" is not available`,
-          detail: intendedProvider === "claude-code"
-            ? "The Master needs the `claude` CLI (Claude Code) installed and on PATH to run on your subscription. Install it, then retry."
-            : `Requested provider "${intendedProvider}" is not registered.`,
-        }, 500);
-      }
+      // Note: we intentionally do NOT hard-fail here if the `claude-code`
+      // provider isn't registered yet — creation must always succeed, and
+      // `resolveProvider` resolves (and coerces) the provider at send time.
+      // A missing `claude` CLI surfaces as a normal provider error then, not as
+      // a failed Master creation. See refactor-master-into-kanban (AD-1).
 
       // Snapshot helper — captures open topics + tasks at a moment in time.
       // Used both to refresh a resumed Master and to seed a new one with an

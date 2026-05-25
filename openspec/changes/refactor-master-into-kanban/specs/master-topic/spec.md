@@ -17,11 +17,11 @@ The system SHALL allow creating a single global Master Topic that runs on the `c
 - **THEN** the topic's `provider` is `"claude-code"`
 - **AND** `getProvider` is never called with `"claude-code-team"` for the Master flow
 
-#### Scenario: Clear error when the CLI provider is unavailable
-- **GIVEN** the `claude-code` provider failed to initialize (CLI missing)
+#### Scenario: Missing CLI surfaces at send time, not at creation
+- **GIVEN** the `claude-code` provider is not registered (the `claude` CLI is missing)
 - **WHEN** the user creates a Master Topic
-- **THEN** the endpoint returns a 500 with a remediation message naming the missing `claude` CLI
-- **AND** does not create a half-initialized Master topic
+- **THEN** the Master Topic is still created successfully (the provider resolves lazily at send time)
+- **AND** the missing `claude` CLI surfaces as a normal provider error when the user sends a message — never as a failed Master creation
 
 #### Scenario: One global Master, not one per section
 - **GIVEN** an active global Master already exists

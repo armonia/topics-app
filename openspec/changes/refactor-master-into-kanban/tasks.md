@@ -4,7 +4,7 @@
 
 - [ ] 1.1 In `server/routes/topics.ts:1360`, change the Master topic default `provider` from `"claude-code-team"` to `"claude-code"` (caller-supplied `provider` still wins).
 - [ ] 1.2 In `resolveProvider` (`server/routes/topics.ts:227`), coerce legacy `claude-code-team` → `claude-code` at read time so Master topics already in the DB run on the subscription without a migration.
-- [ ] 1.3 Confirm `getProvider("claude-code")` resolves (registered in `server/providers/index.ts`); add a guard so the `/api/topics/master` route returns a clear 500 with a remediation message if the `claude-code` provider failed to init (CLI missing).
+- [ ] 1.3 Do NOT hard-fail Master creation on provider availability — creation must always succeed; the provider (and a missing-CLI error) resolves lazily at send time via `resolveProvider`. (A creation-time 500 guard was tried and reverted: it broke master creation when providers aren't eagerly registered, e.g. in tests.)
 - [ ] 1.4 Manual check: open a global Master with no `ANTHROPIC_API_KEY` set; the lead streams a reply via the `claude` CLI.
 
 ## 2. `## Next` parser (pure module)
