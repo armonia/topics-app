@@ -17,8 +17,7 @@ import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { getTerminalSessionById } from "./terminal";
 import { buildProviderHistory } from "../utils/build-provider-history";
-import { parseNextActions } from "../lib/master-next-parser";
-import { GLOBAL_BOARD_ID, isTopicRef, proposalStatus, proposalTaskId } from "../lib/master-proposals";
+import { runMasterIngest } from "../lib/master-ingest";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
@@ -1186,55 +1185,15 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           ...refTerminals.map((t) => ({ topicId: `terminal:${t.id}`, name: t.name || "Claude Code" })),
         ];
 
-        const proposals = parseNextActions(msg.content, sessions);
-        const now = new Date().toISOString();
-        const upserted: any[] = [];
-
-        for (const p of proposals) {
-          const claudeTaskId = proposalTaskId(p.topicId);
-          const status = proposalStatus(p.verb);
-          // assigned_topic_id REFERENCES topics(id) — only set it for real topics;
-          // terminal refs (terminal:<id>) are not topics. The jump target lives in
-          // chat_id for both kinds.
-          const assignedTopicId = isTopicRef(p.topicId) ? p.topicId : null;
-          const projectId = (assignedTopicId ? getProjectIdForTopic(assignedTopicId) : null) || GLOBAL_BOARD_ID;
-          const completedAt = status === "done" ? now : null;
-          const text = p.reason || "(proposta)";
-
-          const existing = db.prepare("SELECT id FROM tasks WHERE claude_task_id = ?").get(claudeTaskId) as { id: string } | undefined;
-          let taskId: string;
-          const created = !existing;
-          if (existing) {
-            taskId = existing.id;
-            db.prepare(
-              "UPDATE tasks SET text = ?, status = ?, chat_id = ?, assigned_topic_id = ?, completed_at = ?, updated_at = ? WHERE id = ?"
-            ).run(text, status, p.topicId, assignedTopicId, completedAt, now, taskId);
-          } else {
-            taskId = crypto.randomUUID();
-            const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) AS m FROM tasks WHERE project_id = ?").get(projectId) as { m: number } | undefined;
-            db.prepare(
-              "INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, due_date, chat_id, created_at, completed_at, updated_at, claude_task_id, assigned_topic_id) VALUES (?, ?, ?, NULL, ?, 2, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)"
-            ).run(taskId, projectId, text, status, (maxRow?.m ?? 0) + 1, p.topicId, now, completedAt, now, claudeTaskId, assignedTopicId);
-          }
-
-          // Reasoning-trail event. topic_id = the LEAD (always a valid FK); the
-          // real session ref lives in the payload (terminals are not topics).
-          db.prepare(
-            "INSERT INTO task_events (claude_task_id, topic_id, ts, type, payload) VALUES (?, ?, ?, 'proposal', ?)"
-          ).run(claudeTaskId, lead.id, Date.now(), JSON.stringify({ verb: p.verb, ref: p.topicId, reason: p.reason }));
-
-          const task = {
-            id: taskId, text, description: null,
-            status, priority: 2, kanbanOrder: 0,
-            assignedTo: null, dueDate: null, chatId: p.topicId,
-            createdAt: now, completedAt, updatedAt: now,
-            claudeTaskId, assignedTopicId,
-          };
-          broadcastToAll({ type: created ? "task:created" : "task:updated", projectId, task });
-          upserted.push({ projectId, verb: p.verb, ref: p.topicId, taskId, created });
-        }
-
-        return json({ proposals: proposals.length, upserted });
+        const result = runMasterIngest({
+          db,
+          resolveProjectId: getProjectIdForTopic,
+          broadcast: broadcastToAll,
+          leadTopicId: lead.id,
+          sessions,
+          content: msg.content,
+        });
+        return json(result);
       } catch (err) {
         return json({ error: String(err) }, 500);
       }
