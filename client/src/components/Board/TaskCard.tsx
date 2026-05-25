@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Trash2, Lock, Crown } from 'lucide-react';
+import { GripVertical, Trash2, Lock, Crown, Sparkles } from 'lucide-react';
 import { ApprovalBanner } from './ApprovalBanner';
 import type { BoardTask, Approval } from '../../lib/api';
 
@@ -42,6 +42,10 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
 
   const isBlocked = task.blockedBy && task.blockedBy.length > 0;
   const isAgentWorking = task.status === 'in_progress' && task.assignedAgentId;
+  // refactor-master-into-kanban — a proposal card is a task with claudeTaskId.
+  // Jump target: the bound topic, else the session ref in chatId (terminals).
+  const isProposal = !!task.claudeTaskId;
+  const proposalJumpTarget = task.assignedTopicId || task.chatId || null;
 
   // Heartbeat pulse — true if heartbeat received within last 60s
   const [isAlive, setIsAlive] = useState(false);
@@ -75,6 +79,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
         group relative flex items-start gap-1 bg-surface border border-app-border rounded
         px-1.5 py-1 cursor-pointer select-none
         hover:border-primary/30 transition-colors
+        ${isProposal ? 'border-l-2 border-l-purple-400/70' : ''}
       `}
       onClick={() => onSelect?.(task)}
     >
@@ -102,6 +107,11 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
             <Lock size={10} className="flex-shrink-0 text-yellow-500/70" />
           )}
 
+          {/* refactor-master-into-kanban — proposal marker */}
+          {isProposal && (
+            <Sparkles size={9} className="flex-shrink-0 text-purple-300" aria-label="Proposta del Master" />
+          )}
+
           {/* Task text */}
           <span className="text-[11px] text-app-text leading-tight truncate">
             {task.text}
@@ -117,10 +127,28 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
                 onJumpToTopic?.(task.assignedTopicId!);
               }}
               title="Jump to teammate Topic"
-              className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[9px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
+              className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[11px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
             >
               <Crown size={8} />
               <span className="truncate max-w-[60px]">teammate</span>
+            </button>
+          )}
+
+          {/* refactor-master-into-kanban — proposal jump for sessions with no
+              bound topic (e.g. claude-code terminals: ref lives in chatId). */}
+          {isProposal && !task.assignedTopicId && proposalJumpTarget && (
+            <button
+              type="button"
+              data-testid="task-proposal-jump"
+              onClick={(e) => {
+                e.stopPropagation();
+                onJumpToTopic?.(proposalJumpTarget);
+              }}
+              title="Vai alla sessione"
+              className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[11px] font-medium bg-orange-500/15 text-orange-300 hover:bg-orange-500/30 hover:text-orange-200 transition-colors"
+            >
+              <Sparkles size={8} />
+              <span className="truncate max-w-[60px]">sessione</span>
             </button>
           )}
         </div>
@@ -128,18 +156,18 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
         {/* Agent working indicator */}
         {isAgentWorking && (
           <div className="flex items-center gap-1 mt-0.5">
-            <span className="text-[10px]">{task.fingerprint ?? '🤖'}</span>
+            <span className="text-[11px]">{task.fingerprint ?? '🤖'}</span>
             <span
               className={`w-1.5 h-1.5 rounded-full ${isAlive ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}
               title={isAlive ? 'Agent active' : 'Agent offline'}
             />
             {task.assignedTo && (
-              <span className="text-[9px] text-app-text-muted truncate max-w-[80px]">
+              <span className="text-[11px] text-app-text-muted truncate max-w-[80px]">
                 {task.assignedTo}
               </span>
             )}
             {workingTime && (
-              <span className="text-[9px] text-app-text-muted ml-auto">
+              <span className="text-[11px] text-app-text-muted ml-auto">
                 {workingTime}
               </span>
             )}
@@ -152,7 +180,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
             {task.tags.map(tag => (
               <span
                 key={tag.id}
-                className="text-[9px] leading-none px-1 py-[1px] rounded-sm font-medium"
+                className="text-[11px] leading-none px-1 py-[1px] rounded-sm font-medium"
                 style={{
                   backgroundColor: `${tag.color}22`,
                   color: tag.color,
@@ -168,7 +196,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
         {!isAgentWorking && (task.dueDate || task.assignedTo) && (
           <div className="flex items-center gap-1 mt-0.5">
             {task.dueDate && (
-              <span className="text-[10px] text-app-text-muted">
+              <span className="text-[11px] text-app-text-muted">
                 {new Date(task.dueDate).toLocaleDateString(undefined, {
                   month: 'short',
                   day: 'numeric',
@@ -177,7 +205,7 @@ export function TaskCard({ task, approval, onSelect, onDelete, onReviewApproval,
             )}
             {task.assignedTo && (
               <span
-                className="ml-auto text-[10px]"
+                className="ml-auto text-[11px]"
                 title={task.assignedTo}
               >
                 {task.fingerprint ?? '🤖'}
