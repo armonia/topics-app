@@ -40,6 +40,33 @@
 - [ ] 6.2 Verify `NOT TOUCHED` invariants: `KanbanBoard` core, `PanelGrid`, `open_browser_pane` MCP tool unchanged in behavior.
 - [ ] 6.3 Record UAT video per project convention (`performance/spec.md` + E2E with video).
 
+## Status — autonomous session 2026-05-26
+
+**Done + verified (committed on branch `refactor-master-into-kanban`):**
+- §1 Provider fix — Master defaults to `claude-code`; `resolveProvider` coerces
+  legacy `claude-code-team`; `/master` guards provider availability. ✅
+- §2 `## Next` parser (`server/lib/master-next-parser.ts`) — 14 bun:test. ✅
+- §3 Ingest endpoint + writer — `POST /api/topics/master/ingest`,
+  `runMasterIngest` (`server/lib/master-ingest.ts`), pure helpers
+  (`master-proposals.ts`). 6 integration + 9 helper bun:test against the real
+  SQLite schema; loadTasks/saveTask/PATCH round-trip the proposal columns. ✅
+- §4 Client — `masterApi.ingest`, ChatPanel fires it on the lead's stream
+  end, TaskCard renders proposal cards (jump via topic or terminal ref).
+  Client `tsc --noEmit` clean. ✅
+- §5 Dead branch — Master flow no longer uses `claude-code-team` /
+  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` (provider fix removed it). The
+  terminal type remains usable manually (MASTER-03). ✅
+
+**Deferred (needs a running dev server — the in-session one is wedged, not
+reloading; restart required to verify live):**
+- §5 Remove `MasterBoardStrip` — NOT a plain delete: it also hosts the
+  auto-ask loop (the Master's self-re-evaluation autonomy). Removing it blind
+  would regress that autonomy. Re-home the loop + verify cards render live,
+  THEN delete. Transitional state (strip + cards coexist) is coherent.
+- §6 Playwright E2E for the proposal→card flow — can't run meaningfully until
+  the server serves this code. Core logic is covered by unit + integration
+  tests in the meantime.
+
 ## NOT TOUCHED (guardrails)
 
 - Persistent `KanbanBoard` base behavior (only additive: proposal cards).
