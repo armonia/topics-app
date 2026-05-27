@@ -125,11 +125,11 @@ interface PanelGridProps {
   pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
-  onNewChatInProject?: (projectPath: string) => void;
+  onNewChatInProject?: (projectPath: string, groupId?: string) => void;
   // Create new standalone chat
   onNewChat?: () => void;
   // Pending focus for project tabs (navigate to a topic inside a project)
-  pendingProjectFocus?: { projectPath: string; topicId: string } | null;
+  pendingProjectFocus?: { projectPath: string; topicId: string; targetGroupId?: string } | null;
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside a project (keyed by projectPath)
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;

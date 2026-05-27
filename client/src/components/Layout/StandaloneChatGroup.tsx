@@ -79,10 +79,10 @@ interface StandaloneChatGroupProps {
   // Pending pane request for project tabs
   pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null;
   onPendingProjectPaneConsumed?: () => void;
-  // Create new chat in a project
-  onNewChatInProject?: (projectPath: string) => void;
+  // Create new chat in a project (optional groupId = the tab bar clicked)
+  onNewChatInProject?: (projectPath: string, groupId?: string) => void;
   // Pending focus for project tabs (navigate to a topic inside a project)
-  pendingProjectFocus?: { projectPath: string; topicId: string } | null;
+  pendingProjectFocus?: { projectPath: string; topicId: string; targetGroupId?: string } | null;
   onPendingProjectFocusConsumed?: () => void;
   // Report which topic is active inside the focused project
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
@@ -599,8 +599,9 @@ export function StandaloneChatGroup({
           pendingTerminalSessionId={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalSessionId : undefined}
           pendingTerminalType={pendingProjectPane && pendingProjectPane.projectPath === projectPath ? pendingProjectPane.terminalType : undefined}
           onPendingPaneConsumed={onPendingProjectPaneConsumed}
-          onNewChat={onNewChatInProject ? () => onNewChatInProject(projectPath) : undefined}
+          onNewChat={onNewChatInProject ? (groupId?: string) => onNewChatInProject(projectPath, groupId) : undefined}
           pendingFocusTopicId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.topicId : null}
+          pendingFocusTargetGroupId={pendingProjectFocus && pendingProjectFocus.projectPath === projectPath ? pendingProjectFocus.targetGroupId : undefined}
           onPendingFocusConsumed={onPendingProjectFocusConsumed}
           onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(projectPath, topicId) : undefined}
           onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(projectPath, paneIds) : undefined}
