@@ -212,8 +212,12 @@ export function useProjectChatSync(
       if (savedTopicId && currentSet.has(savedTopicId)) {
         const targetPaneId = createPaneId('chat', savedTopicId);
         const curGroups = groupsRef.current;
+        // Search by pane membership regardless of group type — a chat created
+        // via a specific tab bar's "+ new chat" can live in a non-'chat' group
+        // (e.g. alongside terminals). Gating on g.type === 'chat' would skip it
+        // and fail to re-activate it on reload.
         const containingGroup = curGroups.find(
-          g => g.type === 'chat' && g.paneIds.includes(targetPaneId),
+          g => g.paneIds.includes(targetPaneId),
         );
         if (containingGroup) {
           activateInGroup = {

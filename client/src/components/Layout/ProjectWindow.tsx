@@ -61,9 +61,12 @@ export interface ProjectWindowPaneProps {
   pendingTerminalSessionId?: string;
   pendingTerminalType?: 'shell' | 'claude-code';
   onPendingPaneConsumed?: () => void;
-  onNewChat?: () => void;
+  // groupId = the tab bar whose "+ new chat" was clicked, so the chat lands there
+  onNewChat?: (groupId?: string) => void;
   // Navigate to a specific topic inside the project (from external focus)
   pendingFocusTopicId?: string | null;
+  // Group the pending-focus chat should land in (mixed-group placement)
+  pendingFocusTargetGroupId?: string;
   onPendingFocusConsumed?: () => void;
   // Report which topic is currently active in this project window
   onActiveTopicChange?: (topicId: string | null) => void;
@@ -80,7 +83,7 @@ export function ProjectWindowPane({
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
-  pendingFocusTopicId, onPendingFocusConsumed,
+  pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange,
   masterPaneId,
 }: ProjectWindowPaneProps) {
@@ -128,6 +131,7 @@ export function ProjectWindowPane({
     pendingTerminalType,
     onPendingPaneConsumed,
     pendingFocusTopicId,
+    pendingFocusTargetGroupId,
     onPendingFocusConsumed,
     onWSMessage,
     claudeSkipPermissions,
@@ -270,8 +274,12 @@ export function ProjectWindowPane({
     onOpenPanesChange,
   });
 
-  const handleNewChatInGroup = useCallback((_groupId: string) => {
-    onNewChat?.();
+  const handleNewChatInGroup = useCallback((groupId: string) => {
+    // Pass the clicked group's id so the new chat lands as a tab in THAT group
+    // (even a terminal/utility group), instead of the type-affinity fallback
+    // that would split a new chat column. Empty id (empty-state button) → no
+    // target → reopenChatPane's normal fallback chain.
+    onNewChat?.(groupId);
   }, [onNewChat]);
 
 

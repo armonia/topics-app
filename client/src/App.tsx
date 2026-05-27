@@ -362,7 +362,7 @@ function App() {
     tickPendingAction(args.key);
   }, []);
 
-  const handleClosePanelDeferred = useCallback((topicId: string) => {
+  const handleClosePanelDeferred = useCallback((topicId: string, onCommit?: () => void) => {
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
     // Pre-shift focus to the tab that WILL receive focus on commit, so the
@@ -384,7 +384,12 @@ function App() {
       kind: 'close-tab',
       label,
       color: topic?.color,
-      commit: () => handleClosePanel(topicId),
+      // Run the upstream commit (handleClosePanel — drops the pane from the
+      // store + openPanels) BEFORE the kind-specific side effect (e.g. server
+      // DELETE for terminal/browser). Order matters: pane has to unmount
+      // first so the xterm cleanup goes through `intentionalClose=true` and
+      // doesn't paint "[Session ended]" when the PTY exits.
+      commit: () => { handleClosePanel(topicId); onCommit?.(); },
       // Restore focus if the user cancels mid-countdown — without this, the
       // tab they pressed cancel on isn't the one in front anymore. We only
       // restore when we actually shifted (focusBeforeClose is non-null),
@@ -864,7 +869,7 @@ function App() {
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
           onPendingProjectPaneConsumed={() => setPendingProjectPane(null)}
-          onNewChatInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
+          onNewChatInProject={(projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId)}
           onNewChat={() => handleQuickCreateTopic()}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}

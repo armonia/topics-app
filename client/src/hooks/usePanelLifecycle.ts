@@ -140,7 +140,7 @@ function ensurePaneRegistered(
   });
 }
 
-interface PendingProjectFocus { projectPath: string; topicId: string }
+interface PendingProjectFocus { projectPath: string; topicId: string; targetGroupId?: string }
 interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' }
 interface ContextMenuState { x: number; y: number; topic: Topic }
 
@@ -218,7 +218,7 @@ export interface UsePanelLifecycleReturn {
     handleOpenProjectBoard: (projectPath: string) => void;
     handleArchiveProject: (projectPath: string, archive: boolean) => Promise<boolean>;
     handleTopicContextMenu: (e: React.MouseEvent, topic: Topic) => void;
-    handleQuickCreateTopic: (projectPath?: string) => Promise<Topic | null>;
+    handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
     promoteDraft: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
     handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean) => Promise<void>;
@@ -274,6 +274,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const focusedPanelIdRef = useRefMirror(focusedPanelId);
   const openPanelsRef = useRefMirror(openPanels);
   const topicsRef = useRefMirror(topics);
+  // Mirrored so the stable handleFocusPanel callback (deps: [openPanel]) can
+  // read the current project paths + sessions when applying the broad-path
+  // guard — without these it would close over the first render's values.
+  const workspaceProjectsRef = useRefMirror(workspaceProjects);
+  const terminalSessionsRef = useRefMirror(terminalSessions);
 
 
   // ---- 4-6. Pane-store <-> React three-effect bridge (CRITIQUE C3) ----
@@ -1010,18 +1015,32 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // standalone terminal pane is opened.
     if (topicId.startsWith('terminal:')) {
       const sessionId = topicId.slice('terminal:'.length);
-      const session = terminalSessions.find(s => s.id === sessionId);
+      const session = terminalSessionsRef.current.find(s => s.id === sessionId);
       if (session) {
         // Inline routing — duplicates the body of handleTerminalClick but
         // avoids reaching into it here (avoids a deps cycle).
         if (session.cwd) {
-          const projectPaneId = createPaneId('project', session.cwd);
-          ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: session.cwd });
-          setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
-          setFocusedPanelId(projectPaneId);
-          usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
-          setPendingProjectPane({ projectPath: session.cwd, type: 'terminal' as PaneType, terminalSessionId: sessionId });
-          return;
+          // Same broad-path guard as handleTerminalClick: a cwd that is an
+          // ANCESTOR of a known project (e.g. the home dir, parent of all
+          // your projects) is too broad to be a project — its window would
+          // adopt every terminal/chat underneath it. Open such a session as
+          // a standalone terminal instead of a catch-all home project tab.
+          const knownProjectPaths = new Set<string>();
+          for (const t of Object.values(topicsRef.current)) {
+            if (t.projectPath) knownProjectPaths.add(t.projectPath);
+          }
+          for (const p of workspaceProjectsRef.current) knownProjectPaths.add(p);
+          const cwd = session.cwd;
+          const isBroad = [...knownProjectPaths].some(p => p !== cwd && p.startsWith(cwd + '/'));
+          if (knownProjectPaths.has(cwd) && !isBroad) {
+            const projectPaneId = createPaneId('project', session.cwd);
+            ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: session.cwd });
+            setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+            setFocusedPanelId(projectPaneId);
+            usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
+            setPendingProjectPane({ projectPath: session.cwd, type: 'terminal' as PaneType, terminalSessionId: sessionId });
+            return;
+          }
         }
       }
       // Fall through: open as a standalone terminal pane.
@@ -1104,7 +1123,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [createTopic, openPanel]);
 
   // FLAG-V1: MUST be useCallback'd — keyboard hook depends on stable identity.
-  const handleQuickCreateTopic = useCallback(async (projectPath?: string): Promise<Topic | null> => {
+  const handleQuickCreateTopic = useCallback(async (projectPath?: string, targetGroupId?: string): Promise<Topic | null> => {
     if (projectPath) {
       const topic = await createTopic({
         name: 'New Chat',
@@ -1117,7 +1136,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath });
         setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
         setFocusedPanelId(projectPaneId);
-        setPendingProjectFocus({ projectPath, topicId: topic.id });
+        // targetGroupId, when present, routes the new chat into the exact group
+        // whose "+ new chat" the user clicked (consumed by useProjectLayout's
+        // pending-focus effect → reopenChatPane). Empty string = no target.
+        setPendingProjectFocus({ projectPath, topicId: topic.id, targetGroupId: targetGroupId || undefined });
       }
       return topic;
     }
@@ -1203,7 +1225,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
       setFocusedPanelId(paneId);
-      setPendingSoloPanelId(paneId);
+      // Don't mark the new terminal as a top-level solo cell — that would
+      // render it as its own column outside any tab bar (the "split" the user
+      // sees when clicking + → Claude Code on the standalone/non-project tab
+      // bar). Let it land as a regular tab in the standalone group instead,
+      // mirroring the project tab bar behaviour. The user can manually split
+      // it into its own cell via the existing split affordances.
       if (isMobile) setSidebarCollapsed(true);
     } catch {}
   }, [isMobile, terminalOps, setSidebarCollapsed]);

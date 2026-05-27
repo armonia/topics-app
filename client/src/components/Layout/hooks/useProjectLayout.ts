@@ -96,6 +96,9 @@ export interface UseProjectLayoutArgs {
   pendingTerminalType?: 'shell' | 'claude-code';
   onPendingPaneConsumed?: () => void;
   pendingFocusTopicId?: string | null;
+  // Group the chat should land in (set when the user clicks a specific tab
+  // bar's "+ new chat"). Lets a chat be placed into a non-chat group.
+  pendingFocusTargetGroupId?: string;
   onPendingFocusConsumed?: () => void;
   // External APIs:
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
@@ -178,7 +181,7 @@ export interface UseProjectLayoutReturn {
   /** Add a chat pane (if missing) and place it into a group via the
    *  fallback chain documented in PLAN section "Hook 2 of 4 / Resolution".
    *  Used by `useProjectChatSync.reopenTopic` in Commit 4. */
-  reopenChatPane: (topicId: string, title: string) => void;
+  reopenChatPane: (topicId: string, title: string, targetGroupId?: string) => void;
 }
 
 export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutReturn {
@@ -192,6 +195,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     pendingTerminalType,
     onPendingPaneConsumed,
     pendingFocusTopicId,
+    pendingFocusTargetGroupId,
     onPendingFocusConsumed,
     onWSMessage,
     claudeSkipPermissions,
@@ -281,7 +285,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // a group → the pane was orphaned (invisible) and focus snapped back
   // to the previously-active pane. `reopenChatPane` has the full
   // fallback chain (focused group → first chat group → create new).
-  const reopenChatPaneRef = useRef<((topicId: string, title: string) => void) | null>(null);
+  const reopenChatPaneRef = useRef<((topicId: string, title: string, targetGroupId?: string) => void) | null>(null);
+  // When the user creates a chat via a SPECIFIC group's "+ new chat" button,
+  // reopenChatPane places it into that (possibly non-chat) group. The chat-sync
+  // delta-add can materialize the same topic as an ORPHAN pane in the same
+  // commit; without this guard the orphan-sync effect would bucket it into a
+  // 'chat' group by type-affinity and race our targeted placement. We park the
+  // pane id here so orphan-sync skips it for one tick, letting reopenChatPane win.
+  const pendingTargetedChatRef = useRef<{ paneId: string } | null>(null);
 
   // --- Stop streaming (closes pane locally if first-message stop) ---
   const handleStopStreaming = useCallback((paneId: string) => {
@@ -492,7 +503,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         }
       }
 
-      const orphanPanes = panes.filter(p => !paneToGroupIdx.has(p.id));
+      // Skip the pane that reopenChatPane is about to place into an explicit
+      // target group — see pendingTargetedChatRef. Leaving it orphan for this
+      // tick prevents type-affinity from claiming it into a 'chat' group.
+      const targetedChatId = pendingTargetedChatRef.current?.paneId;
+      const orphanPanes = panes.filter(
+        p => !paneToGroupIdx.has(p.id) && p.id !== targetedChatId,
+      );
 
       if (!anyGroupChanged && orphanPanes.length === 0) return prev;
 
@@ -740,9 +757,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       onPendingFocusConsumed?.();
       return;
     }
-    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'Chat');
+    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'Chat', pendingFocusTargetGroupId);
     onPendingFocusConsumed?.();
-  }, [pendingFocusTopicId, topics, projectPath, onPendingFocusConsumed]);
+  }, [pendingFocusTopicId, pendingFocusTargetGroupId, topics, projectPath, onPendingFocusConsumed]);
 
   // --- Default focused group ---
   useEffect(() => {
@@ -1678,8 +1695,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // --- reopenChatPane: add stub + place in group via fallback chain ---
   // Used by `useProjectChatSync.reopenTopic` in Commit 4. Unused this commit.
   const reopenChatPane = useCallback(
-    (topicId: string, title: string) => {
+    (topicId: string, title: string, targetGroupId?: string) => {
       const paneId = createPaneId('chat', topicId);
+      // An explicit target group (the tab bar the user clicked "+ new chat" on).
+      // Treat empty/missing/closed ids as "no target" → normal fallback chain.
+      const targetGroup = targetGroupId
+        ? groupsRef.current.find(g => g.id === targetGroupId)
+        : undefined;
 
       // 1) Already exists AND already in a group? Just focus its group.
       // If it exists in `panes` but not in any group (orphan — happens when
@@ -1688,14 +1710,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const existing = panesRef.current.find(p => p.id === paneId);
       if (existing) {
         const g = groupsRef.current.find(g => g.paneIds.includes(paneId));
-        if (g) {
+        // With an explicit target, a pane sitting in the wrong group must be
+        // RELOCATED (covers the race where orphan-sync claimed it into a 'chat'
+        // group first) — fall through to the targeted-placement block below.
+        if (g && !(targetGroup && g.id !== targetGroup.id)) {
           setFocusedGroupId(g.id);
           setGroups(prev =>
             prev.map(gg => (gg.id === g.id ? { ...gg, activePaneId: paneId } : gg)),
           );
           return;
         }
-        // Orphan pane — fall through to placement (skip step 2 add).
+        // Orphan or needs relocation — fall through (skip step 2 add).
       }
 
       // 2) Add the pane stub (skip if it already exists as orphan).
