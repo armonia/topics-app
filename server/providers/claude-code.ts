@@ -134,17 +134,30 @@ function topicsAppBaseUrl(): string {
   // The MCP subprocess always runs on the same host as topics-app (spawned
   // by the same Bun process), so localhost is sufficient and avoids
   // depending on hostname resolution.
-  return `http://127.0.0.1:${port}`;
+  //
+  // Protocol must match the server's actual listener: server.ts enables TLS
+  // when certs/ exists and NO_TLS is unset. A mismatch (http:// against an
+  // https listener) makes every gateway fetch fail with "socket connection
+  // closed unexpectedly", which breaks all MCP tools. Mirror that detection
+  // here. The MCP server disables cert verification for this loopback origin.
+  // certs/ lives at the repo root (server.ts resolves it via its own
+  // import.meta.dir); this file is two levels deeper under server/providers/.
+  const certsDir = join(import.meta.dir, "..", "..", "certs");
+  const useTls = !process.env.NO_TLS
+    && existsSync(join(certsDir, "fullchain.pem"))
+    && existsSync(join(certsDir, "key.pem"));
+  const proto = useTls ? "https" : "http";
+  return `${proto}://127.0.0.1:${port}`;
 }
 
-function mcpConfigPathForSession(sessionKey: string): string {
+export function mcpConfigPathForSession(sessionKey: string): string {
   // Slugify sessionKey for filesystem safety; keep it deterministic so
   // re-spawns overwrite the same path instead of leaking files.
   const safe = sessionKey.replace(/[^A-Za-z0-9._-]/g, "_");
   return join(MCP_CONFIG_DIR, `${safe}.json`);
 }
 
-function writeMcpConfigForSession(sessionKey: string): string {
+export function writeMcpConfigForSession(sessionKey: string): string {
   try {
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
   } catch { /* race-tolerant */ }
@@ -168,7 +181,7 @@ function writeMcpConfigForSession(sessionKey: string): string {
   return path;
 }
 
-function cleanupMcpConfigForSession(sessionKey: string): void {
+export function cleanupMcpConfigForSession(sessionKey: string): void {
   try {
     unlinkSync(mcpConfigPathForSession(sessionKey));
   } catch { /* file may not exist, ignore */ }

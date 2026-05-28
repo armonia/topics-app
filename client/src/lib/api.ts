@@ -1602,6 +1602,15 @@ export const masterApi = {
   async getSessions(): Promise<{ sessions: MasterSession[] }> {
     return request<{ sessions: MasterSession[] }>(`/topics/master/sessions`);
   },
+  /** refactor-master-into-kanban (AD-3) — parse the lead's latest `## Next`
+   *  block and upsert its proposals as kanban cards. Idempotent. Call when the
+   *  Master reply finishes. `topicId` defaults to the single global lead. */
+  async ingest(topicId?: string): Promise<{ proposals: number; upserted: unknown[] }> {
+    return request<{ proposals: number; upserted: unknown[] }>(`/topics/master/ingest`, {
+      method: 'POST',
+      body: JSON.stringify(topicId ? { topicId } : {}),
+    });
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

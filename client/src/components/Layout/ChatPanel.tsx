@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { LazyPane } from './LazyPane';
 import { Settings, Pin, X, ExternalLink, Layers, Globe } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
-import { topicsApi, commandApi } from '../../lib/api';
+import { topicsApi, commandApi, masterApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
@@ -138,6 +138,18 @@ export function ChatPanel({
   const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
 
+  // refactor-master-into-kanban (AD-3) — when the Master (lead) finishes a
+  // reply, ingest its `## Next` proposals into the kanban as cards. Fire on the
+  // streaming true→false edge so we ingest exactly once per completed reply.
+  const masterStreaming = topic.agentTeamRole === 'lead' && isSessionStreaming(topic.sessionKey);
+  const masterStreamingRef = useRef(false);
+  useEffect(() => {
+    if (topic.agentTeamRole === 'lead' && masterStreamingRef.current && !masterStreaming) {
+      masterApi.ingest(topic.id).catch(() => {});
+    }
+    masterStreamingRef.current = masterStreaming;
+  }, [masterStreaming, topic.agentTeamRole, topic.id]);
+
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
   return (
@@ -160,7 +172,7 @@ export function ChatPanel({
               <span className="leading-none flex items-center justify-center w-6 h-6 flex-shrink-0"><TopicIcon name={topic.icon} size={16} color={topic.color || undefined} /></span>
               <span className="text-[14px] font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
               {currentMessages.length > 0 && (
-                <span className="text-[10px] text-app-text-muted tabular-nums ml-1">{currentMessages.length} msg</span>
+                <span className="text-[11px] text-app-text-muted tabular-nums ml-1">{currentMessages.length} msg</span>
               )}
             </div>
           )}

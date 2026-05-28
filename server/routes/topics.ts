@@ -15,7 +15,9 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
+import { getTerminalSessionById } from "./terminal";
 import { buildProviderHistory } from "../utils/build-provider-history";
+import { runMasterIngest } from "../lib/master-ingest";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
@@ -225,7 +227,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
   function resolveProvider(topic?: Topic | null): AIProvider {
     if (topic?.provider) {
-      try { return getProvider(topic.provider); } catch {}
+      // Legacy coercion: Master topics were once created with the experimental
+      // "claude-code-team" provider, which is NOT a registered chat provider —
+      // getProvider would throw and we'd silently fall back to a non-deterministic
+      // default. Map it to the real subscription-backed CLI provider so old leads
+      // (and the removed PTY-teams path) keep working without a data migration.
+      // See change refactor-master-into-kanban (AD-1).
+      const name = topic.provider === "claude-code-team" ? "claude-code" : topic.provider;
+      try { return getProvider(name); } catch {}
     }
     return getDefaultProvider();
   }
@@ -927,18 +936,25 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       assignedTo: r.assigned_to || null, dueDate: r.due_date || null,
       chatId: r.chat_id || null, createdAt: r.created_at, completedAt: r.completed_at || null,
       updatedAt: r.updated_at,
+      // Master proposal fields (migration 026). claudeTaskId != null marks a
+      // proposal card; assignedTopicId is the session it targets (jump target).
+      claudeTaskId: r.claude_task_id || null, assignedTopicId: r.assigned_topic_id || null,
     }));
   }
 
   function saveTask(projectId: string, task: any) {
+    // claude_task_id + assigned_topic_id are carried through so a manual edit
+    // (PATCH) of a Master proposal card doesn't strip its proposal marker /
+    // jump target (INSERT OR REPLACE rewrites the whole row). See migration 026.
     db.prepare(`
-      INSERT OR REPLACE INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, due_date, chat_id, created_at, completed_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, due_date, chat_id, created_at, completed_at, updated_at, claude_task_id, assigned_topic_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       task.id, projectId, task.text, task.description || null,
       task.status, task.priority ?? 2, task.kanbanOrder ?? 0,
       task.assignedTo || null, task.dueDate || null, task.chatId || null,
-      task.createdAt, task.completedAt || null, task.updatedAt || new Date().toISOString()
+      task.createdAt, task.completedAt || null, task.updatedAt || new Date().toISOString(),
+      task.claudeTaskId || null, task.assignedTopicId || null
     );
   }
 
@@ -1138,6 +1154,51 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/topics/master/ingest — parse the lead's latest `## Next` block
+    // and upsert its proposals as kanban cards (refactor-master-into-kanban,
+    // AD-3). Idempotent: one card per session ref, keyed by claude_task_id, so
+    // re-emitting updates the same card. Body: { topicId? } (defaults to the
+    // single global lead). The client calls this when the Master reply ends.
+    if (method === "POST" && pathname === "/api/topics/master/ingest") {
+      try {
+        const body = await readJSON(req).catch(() => ({} as any));
+        const lead = (body?.topicId
+          ? db.prepare("SELECT id, session_key FROM topics WHERE id = ? AND agent_team_role = 'lead' AND archived = 0").get(body.topicId)
+          : db.prepare("SELECT id, session_key FROM topics WHERE (project_path IS NULL OR project_path = '') AND agent_team_role = 'lead' AND archived = 0 ORDER BY updated_at DESC LIMIT 1").get()
+        ) as { id: string; session_key: string } | undefined;
+        if (!lead) return json({ error: "no active master lead" }, 404);
+
+        const msg = db.prepare(
+          "SELECT content FROM messages WHERE session_key = ? AND role = 'assistant' AND (partial IS NULL OR partial = 0) ORDER BY sort_order DESC LIMIT 1"
+        ).get(lead.session_key) as { content: string } | undefined;
+        if (!msg?.content) return json({ proposals: 0, upserted: [] });
+
+        // Session refs proposals can bind to: open non-lead topics + claude-code terminals.
+        const refTopics = db.prepare(
+          "SELECT id, name FROM topics WHERE archived = 0 AND (agent_team_role IS NULL OR agent_team_role != 'lead')"
+        ).all() as { id: string; name: string }[];
+        const refTerminals = db.prepare(
+          "SELECT id, name FROM terminal_sessions WHERE type = 'claude-code'"
+        ).all() as { id: string; name: string }[];
+        const sessions = [
+          ...refTopics.map((t) => ({ topicId: t.id, name: t.name })),
+          ...refTerminals.map((t) => ({ topicId: `terminal:${t.id}`, name: t.name || "Claude Code" })),
+        ];
+
+        const result = runMasterIngest({
+          db,
+          resolveProjectId: getProjectIdForTopic,
+          broadcast: broadcastToAll,
+          leadTopicId: lead.id,
+          sessions,
+          content: msg.content,
+        });
+        return json(result);
+      } catch (err) {
+        return json({ error: String(err) }, 500);
+      }
+    }
+
     if (method === "POST" && pathname === "/api/topics/master") {
       const body = await readJSON(req);
       const projectPath = body?.projectPath as string | undefined;
@@ -1145,6 +1206,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         || (projectPath
           ? `Master · ${projectPath.split("/").pop() || projectPath}`
           : "Master · Global");
+
+      // Note: we intentionally do NOT hard-fail here if the `claude-code`
+      // provider isn't registered yet — creation must always succeed, and
+      // `resolveProvider` resolves (and coerces) the provider at send time.
+      // A missing `claude` CLI surfaces as a normal provider error then, not as
+      // a failed Master creation. See refactor-master-into-kanban (AD-1).
 
       // Snapshot helper — captures open topics + tasks at a moment in time.
       // Used both to refresh a resumed Master and to seed a new one with an
@@ -1356,7 +1423,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         systemPrompt: (body?.systemPrompt as string | undefined) || defaultMasterPrompt,
         contextFiles: [], pinnedMessages: [],
         sortOrder: Object.keys(data.topics).length,
-        provider: body?.provider || "claude-code-team",
+        // Master runs on the subscription-backed `claude-code` chat provider
+        // (spawns the `claude` CLI via stream-json — no SDK, no ANTHROPIC_API_KEY).
+        // NOT "claude-code-team": that experimental PTY path was removed from the
+        // Master flow. See change refactor-master-into-kanban (AD-1).
+        provider: body?.provider || "claude-code",
       };
       if (projectPath) (topic as any).projectPath = projectPath;
       // Seed initialMessage with current workspace snapshot so the lead's
@@ -1690,6 +1761,26 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           topic = getTopicById(byTopic.id);
         } else if (bySession) {
           topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+        }
+
+        // Terminal-originated open: the MCP bridge for a Claude Code *terminal*
+        // passes the terminal session id as the sessionKey, which matches no
+        // chat topic. Instead of 404, open the browser in the same layout group
+        // as the terminal pane. The client resolves the group from the pane id
+        // — works for both standalone (group:default) and project layouts — and
+        // uses that group's own browser context, then navigates. We don't
+        // pre-open a server browser context here (the contextId differs between
+        // standalone and project rendering); the client's RemoteBrowserPanel
+        // drives the actual open/navigate once the pane mounts.
+        if (!topic && bySession) {
+          const term = getTerminalSessionById(decodeURIComponent(bySession.sessionKey));
+          if (term) {
+            const body = (await readJSON(req)) as { url?: unknown } | null;
+            const url = typeof body?.url === "string" ? body.url : "";
+            if (!url) return json({ error: "url (string) is required" }, 400);
+            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, url });
+            return json({ url, title: "" });
+          }
         }
         if (!topic) return json({ error: "Topic not found" }, 404);
 
@@ -4162,6 +4253,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           assignedTo: row.assigned_to, dueDate: row.due_date,
           chatId: row.chat_id, createdAt: row.created_at, completedAt: row.completed_at,
           updatedAt: new Date().toISOString(),
+          // Preserve Master proposal fields across manual edits.
+          claudeTaskId: row.claude_task_id, assignedTopicId: row.assigned_topic_id,
         };
         if (body.text !== undefined) task.text = body.text;
         if (body.description !== undefined) task.description = body.description;
