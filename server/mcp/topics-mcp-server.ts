@@ -156,6 +156,18 @@ function error(id: number | string | null, code: number, message: string, data?:
   return { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } };
 }
 
+/**
+ * Extra fetch init that disables TLS cert verification. topics-app serves a
+ * self-signed cert over https on a loopback origin (127.0.0.1); the default
+ * verifier would reject it with "self signed certificate in certificate
+ * chain". We only ever connect to that single local origin, so skipping
+ * verification is safe. `tls` is a Bun-specific fetch extension; cast to keep
+ * the standard fetch types happy.
+ */
+function loopbackTlsInit(): RequestInit {
+  return { tls: { rejectUnauthorized: false } } as RequestInit;
+}
+
 export async function callOpenBrowserPane(
   args: ParsedArgs,
   toolArgs: { url?: unknown },
@@ -172,6 +184,9 @@ export async function callOpenBrowserPane(
     method: "POST",
     headers,
     body: JSON.stringify({ url: toolArgs.url }),
+    // topics-app serves a self-signed cert on this loopback origin; skip
+    // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
+    ...loopbackTlsInit(),
   });
 
   if (!resp.ok) {
@@ -207,6 +222,7 @@ async function httpJson(
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    ...loopbackTlsInit(),
   });
 
   const text = await resp.text().catch(() => "");
