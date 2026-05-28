@@ -224,8 +224,8 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(tab.name); const I = d.icon; return <I size={12} style={{ color: d.color }} />; })()}</span>
               <span className={`truncate ${tab.preview ? 'italic' : ''}`}>{tab.name}</span>
               {isModified && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Unsaved changes" />}
-              {status === 'saved' && <span className="text-[10px] text-green-500 flex-shrink-0">✓</span>}
-              {status === 'error' && <span className="text-[10px] text-red-500 flex-shrink-0">!</span>}
+              {status === 'saved' && <span className="text-[11px] text-green-500 flex-shrink-0">✓</span>}
+              {status === 'error' && <span className="text-[11px] text-red-500 flex-shrink-0">!</span>}
               <button
                 onClick={(e) => closeTab(i, e)}
                 className="ml-auto p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 flex-shrink-0 transition-opacity"
@@ -241,7 +241,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       {activeTab && (
         <BreadcrumbNav filePath={activeTab.path} projectPath={projectPath} openFile={openFile} actions={
           <>
-            {!activeIsMedia && !activeMdPreview && !(activeIsHtml && activeHtmlPreview) && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+            {!activeIsMedia && !activeMdPreview && !(activeIsHtml && activeHtmlPreview) && <span className="text-[11px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
             {!activeIsMedia && !(activeIsHtml && activeHtmlPreview) && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
             {activeIsMd && <PreviewBtn previewing={activeMdPreview} onClick={togglePreview} />}
             {activeIsHtml && <PreviewBtn previewing={activeHtmlPreview} onClick={toggleHtmlPreview} label="HTML" />}

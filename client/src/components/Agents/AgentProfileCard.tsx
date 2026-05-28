@@ -50,11 +50,11 @@ export function AgentProfileCard({ profile, onEdit, onAssign, onViewSessions }: 
             <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColor(profile.status)}`} title={statusLabel(profile.status)} />
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${role.className}`}>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${role.className}`}>
               {role.label}
             </span>
             {profile.modelPreference && (
-              <span className="text-[10px] text-app-text-tertiary bg-app-hover px-1 rounded">
+              <span className="text-[11px] text-app-text-tertiary bg-app-hover px-1 rounded">
                 {profile.modelPreference}
               </span>
             )}
@@ -68,7 +68,7 @@ export function AgentProfileCard({ profile, onEdit, onAssign, onViewSessions }: 
           {profile.capabilities.map((cap) => (
             <span
               key={cap}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-app-hover text-app-text-secondary"
+              className="text-[11px] px-1.5 py-0.5 rounded bg-app-hover text-app-text-secondary"
             >
               {cap}
             </span>
@@ -78,14 +78,14 @@ export function AgentProfileCard({ profile, onEdit, onAssign, onViewSessions }: 
 
       {/* Footer: actions */}
       <div className="flex items-center gap-2 mt-auto pt-1">
-        <span className="text-[10px] text-app-text-tertiary">
+        <span className="text-[11px] text-app-text-tertiary">
           Max tasks: {profile.maxConcurrentTasks}
         </span>
         <div className="flex-1" />
         {onViewSessions && (
           <button
             onClick={onViewSessions}
-            className="text-[10px] px-2 py-0.5 rounded bg-app-hover text-app-text-secondary hover:text-app-text transition-colors"
+            className="text-[11px] px-2 py-0.5 rounded bg-app-hover text-app-text-secondary hover:text-app-text transition-colors"
           >
             Sessions
           </button>
@@ -93,7 +93,7 @@ export function AgentProfileCard({ profile, onEdit, onAssign, onViewSessions }: 
         {onAssign && (
           <button
             onClick={onAssign}
-            className="text-[10px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
           >
             Assign
           </button>
@@ -101,7 +101,7 @@ export function AgentProfileCard({ profile, onEdit, onAssign, onViewSessions }: 
         {onEdit && (
           <button
             onClick={onEdit}
-            className="text-[10px] px-2 py-0.5 rounded bg-app-hover text-app-text-secondary hover:text-app-text transition-colors"
+            className="text-[11px] px-2 py-0.5 rounded bg-app-hover text-app-text-secondary hover:text-app-text transition-colors"
           >
             Edit
           </button>

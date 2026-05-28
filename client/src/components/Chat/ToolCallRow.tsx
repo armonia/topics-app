@@ -115,7 +115,7 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
             <ToolCardBody detail={detail} isError={isError} />
           )}
           {toolCall.userResponse && status !== 'waiting_for_input' && (
-            <div className="mt-1.5 text-[10px] text-app-text-muted">
+            <div className="mt-1.5 text-[11px] text-app-text-muted">
               <span className="uppercase tracking-wide">Answered</span>
               <span className="ml-1 font-mono">
                 {toolCall.userResponse.kind === 'questions'
@@ -128,7 +128,7 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
           )}
           {toolCall.error && status === 'error' && detail.type !== 'shell' && (
             <div className="mt-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-red-500 mb-0.5">Error</div>
+              <div className="text-[11px] uppercase tracking-wide text-red-500 mb-0.5">Error</div>
               <pre className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-40 bg-red-500/5 rounded px-2 py-1.5">
                 {toolCall.error}
               </pre>

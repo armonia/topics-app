@@ -115,7 +115,7 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
         <span className={`text-[11px] ${statusColor}`}>
           {statusLabel}
         </span>
-        <span className="text-[10px] text-app-text-muted">
+        <span className="text-[11px] text-app-text-muted">
           {formatDuration(startedAt, completedAt)}
         </span>
         <div className="flex-1" />
@@ -144,7 +144,7 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
       {status === 'running' && (
         <div className="flex items-center gap-2 px-3 py-1 border-t border-app-border bg-elevated flex-shrink-0">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-[10px] text-app-text-muted">
+          <span className="text-[11px] text-app-text-muted">
             Streaming output... ({offset} lines)
           </span>
         </div>

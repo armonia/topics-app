@@ -11,6 +11,7 @@ import fs from "fs";
 import { augmentPath } from "../utils/path-env";
 import { classifyFrame } from "../lib/pty-activity";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
+import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 
 interface TerminalSession {
   id: string;
@@ -28,6 +29,15 @@ interface TerminalSession {
 
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
+
+/**
+ * Look up a live terminal session by its id. Used by the browser open-pane
+ * endpoint to resolve a terminal-originated `open_browser_pane` call (the MCP
+ * bridge passes the terminal id as the session-key) when no chat topic matches.
+ */
+export function getTerminalSessionById(id: string): TerminalSession | undefined {
+  return sessions.get(id);
+}
 
 // --- Per-session pty activity tracking ----------------------------------
 // All pty output flows through handleBridgeMessage's "data" case, so this is
@@ -331,6 +341,12 @@ function handleBridgeMessage(msg: any) {
       const exitedSession = sessions.get(msg.id);
       sessions.delete(msg.id);
       clearTerminalActivity(msg.id);
+      // Remove the per-session MCP bridge config written at spawn. A resumable
+      // (dormant) claude session rewrites it on revive, so clearing it now is
+      // safe — claude isn't running between exit and revive. No-op for shells.
+      if (exitedSession?.type === 'claude-code' || exitedSession?.type === 'claude-code-team') {
+        cleanupMcpConfigForSession(msg.id);
+      }
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
         for (const ws of sockets) {
@@ -556,6 +572,22 @@ async function createSession(id: string, name: string, cwd: string, command?: st
       args.push('--session-id', resolvedClaudeSessionId);
     }
     if (skipPermissions) args.push('--dangerously-skip-permissions');
+    // Bridge the Topics MCP server into the interactive CLI so a terminal
+    // Claude Code can surface a browser pane next to itself (the chat path
+    // does the same in providers/claude-code.ts). We key the config by the
+    // terminal session id — the MCP tool POSTs to
+    // /api/sessions/<id>/browser/open-pane, which the endpoint resolves to
+    // THIS terminal (not a chat topic) and opens the browser in the same
+    // group as the terminal pane, for both standalone and project layouts.
+    // `--mcp-config` MERGES with the user's global MCP servers, so nothing
+    // the user already had is lost. Cleaned up in the `exit` handler below.
+    try {
+      const mcpPath = writeMcpConfigForSession(id);
+      args.push('--mcp-config', mcpPath);
+    } catch (err) {
+      // Non-fatal: a missing bridge just means no open_browser_pane tool.
+      console.warn(`[Terminal] MCP config write failed for ${id}:`, err);
+    }
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];

@@ -125,8 +125,14 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     if (!handler) { onClosePanel(paneId); return; }
 
     if (handler.localManaged) ordering.ops.removeLocalPane(paneId);
-    onClosePanel(paneId);
-    handler.sideEffect?.(paneId);
+    // Defer the server-side DELETE to the pending-action commit (3s after the
+    // user clicks X). Firing it inline would kill the PTY immediately and the
+    // xterm pane would print "[Session ended]" while the close countdown is
+    // still painting — looking to the user like the timer didn't apply.
+    onClosePanel(
+      paneId,
+      handler.sideEffect ? () => handler.sideEffect!(paneId) : undefined,
+    );
     if (handler.localManaged && activePaneId === paneId) {
       const remaining = validatedOrderedIds.filter((id) => id !== paneId);
       if (remaining.length > 0) onFocusPanel(remaining[0]);

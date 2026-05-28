@@ -42,7 +42,7 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
   return (
     <div className="space-y-1.5">
       <div>
-        <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">
+        <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
           {cwd ? `Command (cwd: ${cwd})` : 'Command'}
         </div>
         <pre className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-blue-400/40">
@@ -51,10 +51,10 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
       </div>
       {output && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5 flex items-center gap-2">
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5 flex items-center gap-2">
             <span>Output</span>
             {typeof exitCode === 'number' && (
-              <span className={`text-[10px] font-mono ${exitCode === 0 ? 'text-green-500' : 'text-red-500'}`}>exit {exitCode}</span>
+              <span className={`text-[11px] font-mono ${exitCode === 0 ? 'text-green-500' : 'text-red-500'}`}>exit {exitCode}</span>
             )}
           </div>
           <pre className={`text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
@@ -76,13 +76,13 @@ export function ReadCard({ filePath, content, offset, limit }: {
     : '';
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-app-text-muted">
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">
         File{meta}
       </div>
       <div className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
       {content && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Content</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Content</div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
             {content}
           </pre>
@@ -99,7 +99,7 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-app-text-muted">File</div>
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">File</div>
       <div className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
       {unifiedDiff ? (
         <pre className="text-[11px] font-mono whitespace-pre overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
@@ -116,7 +116,7 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
         <div className="grid grid-cols-2 gap-1.5">
           {oldString && (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-red-500/70 mb-0.5">- Before</div>
+              <div className="text-[11px] uppercase tracking-wide text-red-500/70 mb-0.5">- Before</div>
               <pre className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-red-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-red-500/40">
                 {oldString}
               </pre>
@@ -124,7 +124,7 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
           )}
           {newString && (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-green-500/70 mb-0.5">+ After</div>
+              <div className="text-[11px] uppercase tracking-wide text-green-500/70 mb-0.5">+ After</div>
               <pre className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40">
                 {newString}
               </pre>
@@ -141,11 +141,11 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
 export function WriteCard({ filePath, content }: { filePath: string; content?: string }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-app-text-muted">New file</div>
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">New file</div>
       <div className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
       {content && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
             Contents · {content.length.toLocaleString()} chars
           </div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40">
@@ -167,7 +167,7 @@ export function SearchCard({ query, toolName, content, mode, numFiles, numMatche
   const label = toolName === 'grep' ? 'Pattern' : toolName === 'glob' ? 'Glob' : 'Query';
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-app-text-muted">
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">
         {label} {mode ? `· ${mode}` : ''}
       </div>
       <pre className="text-[11px] font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
@@ -196,13 +196,13 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-app-text-muted flex items-center gap-2">
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted flex items-center gap-2">
         <span>URL</span>
         {typeof statusCode === 'number' && (
-          <span className={`text-[10px] font-mono ${statusCode >= 400 ? 'text-red-500' : 'text-green-500'}`}>HTTP {statusCode}</span>
+          <span className={`text-[11px] font-mono ${statusCode >= 400 ? 'text-red-500' : 'text-green-500'}`}>HTTP {statusCode}</span>
         )}
         {typeof bytes === 'number' && (
-          <span className="text-[10px] text-app-text-muted">{(bytes / 1024).toFixed(1)} KB</span>
+          <span className="text-[11px] text-app-text-muted">{(bytes / 1024).toFixed(1)} KB</span>
         )}
       </div>
       <a href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-mono text-blue-500 hover:underline break-all block">
@@ -210,7 +210,7 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
       </a>
       {prompt && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Prompt</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Prompt</div>
           <pre className="text-[11px] text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
             {prompt}
           </pre>
@@ -218,7 +218,7 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
       )}
       {result && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Response</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Response</div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
             {result}
           </pre>
@@ -271,7 +271,7 @@ export function SubAgentCard({ subAgentType, description, actions, result }: {
         <div className="text-[11px] italic text-app-text-muted">Sub-agent starting…</div>
       ) : (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
             Activity · {actions.length} step{actions.length === 1 ? '' : 's'}
           </div>
           <ul className="space-y-0.5 max-h-72 overflow-auto bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-purple-500/40">
@@ -292,7 +292,7 @@ export function SubAgentCard({ subAgentType, description, actions, result }: {
       )}
       {result && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Final result</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Final result</div>
           <pre className="text-[11px] text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-56 bg-app-hover/40 rounded px-2 py-1.5">
             {result}
           </pre>
@@ -307,7 +307,7 @@ export function SubAgentCard({ subAgentType, description, actions, result }: {
 export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
       <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-blue-400/40 max-h-80 overflow-auto">
         {text}
       </pre>
@@ -323,7 +323,7 @@ export function McpCard({ server, tool, args, result }: {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[11px]">
-        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium">
+        <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium">
           {server}
         </span>
         <span className="text-app-text-muted">·</span>
@@ -331,7 +331,7 @@ export function McpCard({ server, tool, args, result }: {
       </div>
       {args && Object.keys(args).length > 0 && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Arguments</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Arguments</div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
             {JSON.stringify(args, null, 2)}
           </pre>
@@ -339,7 +339,7 @@ export function McpCard({ server, tool, args, result }: {
       )}
       {result && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Result</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Result</div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
             {result}
           </pre>
@@ -356,7 +356,7 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
     <div className="space-y-1.5">
       {args && Object.keys(args).length > 0 && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Arguments</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Arguments</div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
             {JSON.stringify(args, null, 2)}
           </pre>
@@ -364,7 +364,7 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
       )}
       {result && (
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-app-text-muted mb-0.5">Result</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Result</div>
           <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-56 bg-app-hover/40 rounded px-2 py-1.5">
             {result}
           </pre>

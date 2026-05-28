@@ -87,7 +87,7 @@ export function CommandMenu({
           >
             <Terminal size={14} className="text-primary" />
             <span>Status</span>
-            <span className="ml-auto text-[10px] text-app-text-muted">/status</span>
+            <span className="ml-auto text-[11px] text-app-text-muted">/status</span>
           </button>
 
           {/* Model picker */}
@@ -111,7 +111,7 @@ export function CommandMenu({
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-[11px] text-app-text truncate">{model.name}</div>
-                      <div className="text-[10px] text-app-text-muted truncate">{model.description}</div>
+                      <div className="text-[11px] text-app-text-muted truncate">{model.description}</div>
                     </div>
                     {currentModel === model.id && (
                       <Check size={12} className="text-emerald-500 dark:text-emerald-400 flex-shrink-0" />
@@ -129,7 +129,7 @@ export function CommandMenu({
           >
             <Brain size={14} className="text-purple-500 dark:text-purple-400" />
             <span>Reasoning</span>
-            <span className="ml-auto text-[10px] text-app-text-muted">/reasoning</span>
+            <span className="ml-auto text-[11px] text-app-text-muted">/reasoning</span>
           </button>
 
           <div className="h-px bg-app-border my-1" />
@@ -141,7 +141,7 @@ export function CommandMenu({
           >
             <Trash2 size={14} />
             <span>Clear conversation</span>
-            <span className="ml-auto text-[10px] text-app-text-muted">/clear</span>
+            <span className="ml-auto text-[11px] text-app-text-muted">/clear</span>
           </button>
         </div>
       )}

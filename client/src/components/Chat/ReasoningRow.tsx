@@ -30,7 +30,7 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true }: Prop
         {collapsed ? <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />}
         <Brain size={13} className="text-purple-500 flex-shrink-0" />
         <span className="text-app-text">Reasoning</span>
-        <span className="text-[10px] text-app-text-muted">({length.toLocaleString()} chars)</span>
+        <span className="text-[11px] text-app-text-muted">({length.toLocaleString()} chars)</span>
         {partial && (
           <span className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse flex-shrink-0" />
         )}

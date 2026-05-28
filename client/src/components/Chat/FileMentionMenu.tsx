@@ -119,7 +119,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
         <span className="text-[11px] text-app-text-muted font-medium">Files</span>
         {filter && <span className="text-[11px] text-primary font-mono">@{filter}</span>}
         <div className="flex-1" />
-        <span className="text-[10px] text-app-text-muted">↑↓ navigate · Enter select · Esc close</span>
+        <span className="text-[11px] text-app-text-muted">↑↓ navigate · Enter select · Esc close</span>
       </div>
       
       {/* File list */}
@@ -155,7 +155,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
                 <File size={14} className="text-app-text-muted flex-shrink-0" />
                 <span className="text-[12px] font-medium truncate">{file.name}</span>
                 {dir && (
-                  <span className="text-[10px] text-app-text-muted truncate ml-auto flex-shrink-0">
+                  <span className="text-[11px] text-app-text-muted truncate ml-auto flex-shrink-0">
                     {dir}
                   </span>
                 )}

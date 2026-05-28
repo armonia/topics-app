@@ -69,7 +69,8 @@ export default {
         'accelerate': 'cubic-bezier(0.4, 0, 1, 1)',
       },
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+        // Keep in sync with --font-ui in src/index.css (system stack, no Inter).
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
       },
     },
   },

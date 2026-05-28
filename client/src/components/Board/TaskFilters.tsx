@@ -40,14 +40,14 @@ export function TaskFilters({
   const hasFilters = statusFilter !== null || priorityFilter !== null || !!assignedFilter;
 
   return (
-    <div className="flex items-center gap-1.5 px-1 py-1 text-[10px]">
+    <div className="flex items-center gap-1.5 px-1 py-1 text-[11px]">
       <Filter size={12} className="text-app-text-muted flex-shrink-0" />
 
       {/* Status filter */}
       <select
         value={statusFilter || ''}
         onChange={e => onStatusFilter(e.target.value ? e.target.value as TaskStatus : null)}
-        className="bg-surface border border-app-border rounded px-1.5 py-0.5 text-[10px] text-app-text focus:outline-none focus:border-primary"
+        className="bg-surface border border-app-border rounded px-1.5 py-0.5 text-[11px] text-app-text focus:outline-none focus:border-primary"
       >
         <option value="">All Status</option>
         <option value="backlog">Backlog ({stats.backlog})</option>
@@ -61,7 +61,7 @@ export function TaskFilters({
       <select
         value={priorityFilter ?? ''}
         onChange={e => onPriorityFilter(e.target.value !== '' ? parseInt(e.target.value) : null)}
-        className="bg-surface border border-app-border rounded px-1.5 py-0.5 text-[10px] text-app-text focus:outline-none focus:border-primary"
+        className="bg-surface border border-app-border rounded px-1.5 py-0.5 text-[11px] text-app-text focus:outline-none focus:border-primary"
       >
         <option value="">All Priority</option>
         {Object.entries(PRIORITY_LABELS).map(([val, label]) => (
@@ -75,7 +75,7 @@ export function TaskFilters({
         value={assignedFilter || ''}
         onChange={e => onAssignedFilter(e.target.value || null)}
         placeholder="Assigned to..."
-        className="bg-surface border border-app-border rounded px-1.5 py-0.5 text-[10px] text-app-text w-24 focus:outline-none focus:border-primary"
+        className="bg-surface border border-app-border rounded px-1.5 py-0.5 text-[11px] text-app-text w-24 focus:outline-none focus:border-primary"
       />
 
       {/* Active filter count */}

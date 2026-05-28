@@ -50,7 +50,7 @@ interface StandaloneChatGroupProps {
   /** Master pane id (if open). Threaded so non-Master ChatPanels can
    *  render a "← Master" back affordance. */
   masterPaneId?: string | null;
-  onClosePanel: (topicId: string) => void;
+  onClosePanel: (topicId: string, onCommit?: () => void) => void;
   /** Optional bypass-the-countdown close, plumbed to PaneTabBar's
    *  right-click "Close now" entry. Falls back to onClosePanel. */
   onClosePanelImmediate?: (topicId: string) => void;
@@ -696,7 +696,7 @@ export function StandaloneChatGroup({
             Previously every pane-type branch rendered its own copy of
             this header; consolidating it lets the body switch underneath
             without re-mounting the tab bar / re-running its hooks. */}
-        <div className="flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
+        <div className="chrome-glass flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
           <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
           {onToggleSidebar && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1">
@@ -709,8 +709,14 @@ export function StandaloneChatGroup({
             the active one is `display: flex`, the rest are `display: none`
             and removed from layout entirely. Preserves chat scroll,
             history caches, terminal buffers, virtuoso state, and form
-            drafts across tab switches. */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-surface overflow-hidden relative">
+            drafts across tab switches.
+            `chrome-glass`: under Electron-mac this backdrop goes transparent so
+            the native vibrancy reads through; each content pane wrapper below
+            re-paints its own opaque `bg-surface`, while `project` and `terminal`
+            panes stay transparent to frost (matching GroupLayout so a standalone
+            shell rides the vibrancy like one inside a project). Outside Electron,
+            `bg-surface` is the backdrop. */}
+        <div className="chrome-glass flex-1 flex flex-col min-h-0 min-w-0 bg-surface overflow-hidden relative">
           {visitedPanes.length === 0 ? (
             <div className="flex-1" aria-hidden="true" />
           ) : (
@@ -722,7 +728,7 @@ export function StandaloneChatGroup({
                   // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
                   // and GroupLayout's keep-alive wrapper.
                   key={stableKeyOf(pane)}
-                  className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${pane.type === 'project' || pane.type === 'terminal' ? '' : 'bg-surface'}`}
                   style={{ display: isPaneActive ? 'flex' : 'none' }}
                   aria-hidden={!isPaneActive}
                 >

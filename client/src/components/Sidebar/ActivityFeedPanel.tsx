@@ -134,7 +134,7 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
         {/* Filter toggle */}
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className={`p-1 rounded text-[10px] font-medium transition-colors ${
+          className={`p-1 rounded text-[11px] font-medium transition-colors ${
             filters.categories.size > 0
               ? 'text-primary bg-primary/10'
               : 'text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover'
@@ -148,10 +148,10 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
 
         {/* Connection status */}
         {!connected && (
-          <span className="text-[10px] text-red-500">disconnected</span>
+          <span className="text-[11px] text-red-500">disconnected</span>
         )}
         {paused && (
-          <span className="text-[10px] text-yellow-500">paused</span>
+          <span className="text-[11px] text-yellow-500">paused</span>
         )}
       </div>
 
@@ -191,7 +191,7 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
               <button
                 key={cat}
                 onClick={() => toggleCategory(cat)}
-                className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+                className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] transition-colors ${
                   active
                     ? 'bg-primary/10 text-primary'
                     : 'bg-elevated text-app-text-muted opacity-50'
@@ -235,7 +235,7 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
       {isScrolledUp && (
         <button
           onClick={jumpToBottom}
-          className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 text-[10px] bg-primary text-white rounded-full shadow-md hover:bg-primary-hover transition-colors"
+          className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 text-[11px] bg-primary text-white rounded-full shadow-md hover:bg-primary-hover transition-colors"
         >
           <ArrowDown size={10} />
           Latest

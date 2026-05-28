@@ -236,7 +236,7 @@ function ProjectChip({ projectPath, color }: { projectPath: string | null; color
   const tone = color || "var(--app-text-muted)";
   return (
     <span
-      className="text-[10px] px-1.5 py-0.5 rounded-md font-medium tracking-tight flex items-center flex-shrink-0 max-w-[140px]"
+      className="text-[11px] px-1.5 py-0.5 rounded-md font-medium tracking-tight flex items-center flex-shrink-0 max-w-[140px]"
       style={{
         color: tone,
         borderColor: tone,
@@ -626,7 +626,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
         <span className="text-[11px] font-medium text-purple-200/90 uppercase tracking-wide">
           Master · {sessions.length} sessioni
         </span>
-        <div className="flex items-center gap-1.5 text-[10px] text-app-text-muted/80 ml-1">
+        <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted/80 ml-1">
           {summary.update > 0 && <Pill state="update" count={summary.update} label="nuove" />}
           {summary.streaming > 0 && <Pill state="streaming" count={summary.streaming} label="in corso" />}
           {summary.waiting > 0 && <Pill state="waiting" count={summary.waiting} label="in attesa" />}
@@ -649,7 +649,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
                 onClick={(e) => { e.stopPropagation(); setSize(s); }}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setSize(s); } }}
                 data-active={active}
-                className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${active ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
+                className={`p-1 rounded text-[11px] transition-colors cursor-pointer ${active ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
                 title={SIZE_LABEL[s]}
                 aria-label={SIZE_LABEL[s]}
               >
@@ -670,7 +670,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
             onClick={(e) => { e.stopPropagation(); setView("list"); }}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setView("list"); } }}
             data-active={view === "list"}
-            className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${view === "list" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
+            className={`p-1 rounded text-[11px] transition-colors cursor-pointer ${view === "list" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
             title="Vista lista"
             aria-label="Vista lista"
           >
@@ -682,7 +682,7 @@ export function MasterBoardStrip({ onMessage, onJumpToTopic, onAskMaster, lastAs
             onClick={(e) => { e.stopPropagation(); setView("kanban"); }}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setView("kanban"); } }}
             data-active={view === "kanban"}
-            className={`p-1 rounded text-[10px] transition-colors cursor-pointer ${view === "kanban" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
+            className={`p-1 rounded text-[11px] transition-colors cursor-pointer ${view === "kanban" ? "bg-purple-500/25 text-purple-100" : "text-app-text-muted hover:text-app-text"}`}
             title="Vista kanban"
             aria-label="Vista kanban"
           >
@@ -865,11 +865,11 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing, size }: Sessio
         : null
     : null;
   const verbBadge = action ? (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold tracking-wide flex-shrink-0 ${VERB_BADGE[action.verb]}`}>
+    <span className={`text-[11px] px-1.5 py-0.5 rounded border font-semibold tracking-wide flex-shrink-0 ${VERB_BADGE[action.verb]}`}>
       {action.verb.toUpperCase()}
     </span>
   ) : implicitBadge ? (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold tracking-wide flex-shrink-0 ${implicitBadge.cls}`}>
+    <span className={`text-[11px] px-1.5 py-0.5 rounded border font-semibold tracking-wide flex-shrink-0 ${implicitBadge.cls}`}>
       {implicitBadge.label}
     </span>
   ) : null;
@@ -898,12 +898,12 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing, size }: Sessio
         <div className="flex items-center gap-1.5 min-w-0">
           <ProjectChip projectPath={s.projectPath} color={s.color} />
           <span className={`truncate min-w-0 ${(action || implicitBadge) ? "text-[11px] text-app-text-muted/85" : "text-[12.5px] font-medium text-app-text"}`}>{s.name}</span>
-          {s.role === "teammate" && <span className="text-[10px] flex-shrink-0" title="teammate">🤝</span>}
+          {s.role === "teammate" && <span className="text-[11px] flex-shrink-0" title="teammate">🤝</span>}
           {s.sessionType === "claude-code-terminal" && (
             <ClaudeIcon size={11} className="flex-shrink-0 text-[#D97757]" />
           )}
           {s.unread > 0 && (
-            <span className="text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-200 font-medium tabular-nums flex-shrink-0">
+            <span className="text-[11px] px-1 rounded bg-emerald-500/20 text-emerald-200 font-medium tabular-nums flex-shrink-0">
               {s.unread}
             </span>
           )}
@@ -912,7 +912,7 @@ function SessionRow({ row, onJump, onArchive, archiving, pulsing, size }: Sessio
               {STATE_LABEL[s.state]}
             </span>
           )}
-          <span className="text-[10px] text-app-text-muted/60 tabular-nums ml-auto flex-shrink-0">
+          <span className="text-[11px] text-app-text-muted/60 tabular-nums ml-auto flex-shrink-0">
             {fmtAgo(s.lastAt)}
           </span>
         </div>
@@ -1051,16 +1051,16 @@ function KanbanView({ rows, onJump, onArchive, archivingId, pulsing, size }: Kan
                   {tint.badgeText}
                 </span>
               )}
-              <span className={`text-[10px] uppercase tracking-wide font-medium ${tint.labelColor}`}>
+              <span className={`text-[11px] uppercase tracking-wide font-medium ${tint.labelColor}`}>
                 {col.label}
               </span>
-              <span className={`text-[10px] tabular-nums ml-auto ${tint.countColor}`}>
+              <span className={`text-[11px] tabular-nums ml-auto ${tint.countColor}`}>
                 {list.length}
               </span>
             </div>
             <div className="flex flex-col gap-1 p-1.5 overflow-y-auto min-h-0 flex-1">
               {list.length === 0 ? (
-                <div className="text-[10px] text-app-text-muted/50 italic px-1 py-2 text-center">
+                <div className="text-[11px] text-app-text-muted/50 italic px-1 py-2 text-center">
                   —
                 </div>
               ) : (

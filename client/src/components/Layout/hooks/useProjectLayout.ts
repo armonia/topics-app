@@ -417,9 +417,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // panel consumes it via `onNavigateConsumed`. If the broadcast races the
   // pane mount, the navigateUrl prop will be honoured on first render.
   useEffect(() => {
-    const ensureBrowserPaneAndNavigate = (url: string) => {
+    const ensureBrowserPaneAndNavigate = (url: string, targetGroupId?: string) => {
       if (!url) return;
-      const fgid = focusedGroupIdRef.current;
+      // Default to the focused group (chat-driven navigation), but allow an
+      // explicit target so a terminal-originated open lands in the SAME group
+      // as the terminal pane rather than wherever focus happens to be.
+      const fgid = targetGroupId ?? focusedGroupIdRef.current;
       if (!fgid) return;
       const groupPanes = groupsRef.current.find(g => g.id === fgid)?.paneIds || [];
       const existing = panesRef.current.find(
@@ -455,9 +458,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     };
 
     const unsubWS = onWSMessage((msg: WSMessage) => {
-      const m = msg as unknown as { type?: string; topicId?: string; url?: string };
+      const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string };
       if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
         ensureBrowserPaneAndNavigate(m.url);
+      }
+      // Terminal-originated open: only the project window whose layout actually
+      // contains the terminal pane reacts; it opens the browser in that exact
+      // group (next to the terminal), not the focused group.
+      if (m.type === 'browser:open-near-pane' && m.url && m.paneId) {
+        const g = groupsRef.current.find(gr => gr.paneIds.includes(m.paneId!));
+        if (g) ensureBrowserPaneAndNavigate(m.url, g.id);
       }
     });
 
@@ -1733,6 +1743,48 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           preview: false,
         };
         setPanes(prev => (prev.some(p => p.id === paneId) ? prev : [...prev, newPane]));
+      }
+
+      // 2b) Explicit target group: place (or relocate) the chat there,
+      // regardless of the group's type — this is what lets a chat live in the
+      // same tab bar as terminals. Remove the pane from any other group first.
+      if (targetGroup) {
+        // Tell orphan-sync to leave this pane alone for the current render
+        // burst so type-affinity can't claim it into a 'chat' group; relocation
+        // below is the correctness guarantee, this just avoids a 1-frame flash.
+        pendingTargetedChatRef.current = { paneId };
+        setGroups(prev => {
+          const next = prev
+            .map(g => {
+              if (g.id === targetGroup.id) {
+                return {
+                  ...g,
+                  paneIds: g.paneIds.includes(paneId) ? g.paneIds : [...g.paneIds, paneId],
+                  activePaneId: paneId,
+                };
+              }
+              if (g.paneIds.includes(paneId)) {
+                const filtered = g.paneIds.filter(id => id !== paneId);
+                return {
+                  ...g,
+                  paneIds: filtered,
+                  activePaneId:
+                    g.activePaneId === paneId ? filtered[0] || g.activePaneId : g.activePaneId,
+                };
+              }
+              return g;
+            })
+            .filter(g => g.paneIds.length > 0);
+          return next;
+        });
+        setFocusedGroupId(targetGroup.id);
+        // Clear after the synchronous re-render burst (relocation has landed).
+        setTimeout(() => {
+          if (pendingTargetedChatRef.current?.paneId === paneId) {
+            pendingTargetedChatRef.current = null;
+          }
+        }, 0);
+        return;
       }
 
       // 3) Place in a chat group via fallback chain.

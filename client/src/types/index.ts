@@ -834,6 +834,18 @@ export interface WSBrowserNavigateMessage {
   url: string;
 }
 /**
+ * Open a browser pane in the same layout group as a specific pane, then
+ * navigate it. Emitted when a Claude Code *terminal* calls open_browser_pane
+ * (the chat path uses topic-targeted `browser:navigate` instead). `paneId` is
+ * the terminal's pane id (`terminal:<sessionId>`); whichever layout currently
+ * renders that pane — standalone or project — opens the browser beside it.
+ */
+export interface WSBrowserOpenNearPaneMessage {
+  type: 'browser:open-near-pane';
+  paneId: string;
+  url: string;
+}
+/**
  * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
  * Split into init (full snapshot keyed by store key) vs updated (single
  * key/value pair) so consumers can narrow without optional-field casts.
@@ -1002,6 +1014,7 @@ export type WSMessage =
   | WSGitStatusMessage
   | WSScriptsUpdatedMessage
   | WSBrowserNavigateMessage
+  | WSBrowserOpenNearPaneMessage
   | WSUIStateInitMessage
   | WSUIStateUpdatedMessage
   | WSProjectMessage

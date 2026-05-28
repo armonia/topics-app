@@ -95,7 +95,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2">
             <div className="flex items-center gap-2 mb-1">
               <Link2 size={12} className="text-green-500" />
-              <span className={`text-[10px] font-medium ${getTypeColor(status.type)}`}>
+              <span className={`text-[11px] font-medium ${getTypeColor(status.type)}`}>
                 {getTypeLabel(status.type)}
               </span>
             </div>
@@ -124,7 +124,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
             </div>
 
             {status.expiresAt && (
-              <div className="text-[9px] text-green-600 dark:text-green-400 mt-1">
+              <div className="text-[11px] text-green-600 dark:text-green-400 mt-1">
                 Expires: {new Date(status.expiresAt).toLocaleString('en-US')}
               </div>
             )}
@@ -167,7 +167,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
           </button>
 
           {status?.error && (
-            <div className="text-[10px] text-red-500 bg-red-50 dark:bg-red-900/20 rounded p-2">
+            <div className="text-[11px] text-red-500 bg-red-50 dark:bg-red-900/20 rounded p-2">
               {status.error}
             </div>
           )}
@@ -178,7 +178,7 @@ export function RemoteAccessPanel({ enabled = true }: RemoteAccessPanelProps) {
       <button
         onClick={fetchStatus}
         disabled={loading}
-        className="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[10px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
+        className="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
       >
         <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
         Refresh

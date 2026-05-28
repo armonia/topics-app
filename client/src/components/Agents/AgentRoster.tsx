@@ -118,7 +118,7 @@ export function AgentRoster() {
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
-                className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                className={`text-[11px] px-2 py-1 rounded transition-colors ${
                   isActive
                     ? 'bg-primary/20 text-primary'
                     : 'bg-app-hover text-app-text-tertiary hover:text-app-text-secondary'
@@ -180,7 +180,7 @@ export function AgentRoster() {
               </button>
             </div>
             <div className="px-4 py-3">
-              <label className="text-[10px] text-app-text-muted uppercase tracking-wider block mb-1">Topic ID</label>
+              <label className="text-[11px] text-app-text-muted uppercase tracking-wider block mb-1">Topic ID</label>
               <form onSubmit={e => { e.preventDefault(); const input = (e.target as HTMLFormElement).elements.namedItem('topicInput') as HTMLInputElement; if (input.value.trim()) setAssignTopicId(input.value.trim()); }}>
                 <input
                   name="topicInput"

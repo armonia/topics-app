@@ -208,6 +208,26 @@ export function GroupLayout({
     }
   }, [onSplitGroup, edgeDropTargetRef, dndScope]);
 
+  // When a cross-group tab drag moves over THIS group's tab bar (a sibling of
+  // the content area), the user is aiming to drop the tab INTO the bar — not to
+  // split the group. The edge "area" overlay can have been painted moments
+  // earlier, while the pointer transited the content's top edge band on its way
+  // up to the bar, and a missed `dragleave` (common on a fast drag or in the
+  // frame right before a drop) would leave it stuck. Clearing on every tab-bar
+  // dragover guarantees the preview is gone while the pointer is over the bar —
+  // so it can't show "split here" when you only want a tab, and can't survive
+  // the drop. We never preventDefault here: PaneTabBar still owns the drop.
+  // Wired in the CAPTURE phase — PaneTabBar's per-tab dragover calls
+  // stopPropagation, so a bubble-phase handler on this wrapper would be skipped
+  // exactly when the pointer is over a tab (the common aim). Capture runs
+  // top-down before that, so the clear fires for every dragover in the bar.
+  const handleTabBarDragOver = useCallback((groupId: string) => () => {
+    if (edgeDropTargetRef.current?.groupId === groupId) {
+      edgeDropTargetRef.current = null;
+      setEdgeDropTarget(null);
+    }
+  }, [edgeDropTargetRef]);
+
   const handleGroupContentDragLeave = useCallback((groupId: string) => (e: React.DragEvent) => {
     // Ignore a dragleave that merely crossed into a child of the content area
     // (the pane body) — only clear when the pointer actually left, or the edge
@@ -350,17 +370,21 @@ export function GroupLayout({
     const emptyAvailableTypes = availableTypesForGroup('chat', '');
     return (
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
-        <div className="border-b border-app-border flex-shrink-0">
-          <PaneTabBar
-            panes={[]}
-            activePaneId={null}
-            onActivate={() => {}}
-            onClose={() => {}}
-            onAddPane={(type, subType) => (onAddPaneWhenEmpty ?? (() => {}))(type, subType)}
-            availableTypes={emptyAvailableTypes}
-            dndScope={dndScope}
-            onNewChat={onNewChatInGroup ? () => onNewChatInGroup('') : undefined}
-          />
+        {/* Match the populated branch's chrome row (h-10) so the empty
+            project tab bar aligns with the sidebar header. */}
+        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+            <PaneTabBar
+              panes={[]}
+              activePaneId={null}
+              onActivate={() => {}}
+              onClose={() => {}}
+              onAddPane={(type, subType) => (onAddPaneWhenEmpty ?? (() => {}))(type, subType)}
+              availableTypes={emptyAvailableTypes}
+              dndScope={dndScope}
+              onNewChat={onNewChatInGroup ? () => onNewChatInGroup('') : undefined}
+            />
+          </div>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
           <div className="text-sm">No chats open</div>
@@ -439,8 +463,10 @@ export function GroupLayout({
                     style={{ width: `${row.widths[groupIdx] * 100}%` }}
                   >
                     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-                      {/* Per-group tab bar */}
-                      <div className="border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+                      {/* Per-group tab bar — h-10 to match the project sidebar header
+                          and the StandaloneChatGroup header (consistent chrome row). */}
+                      <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0" onDragOverCapture={handleTabBarDragOver(groupId)}>
+                        <div className="flex-1 flex items-center min-w-0 overflow-hidden">
                         <PaneTabBar
                           panes={groupPanes}
                           activePaneId={group.activePaneId}
@@ -494,16 +520,11 @@ export function GroupLayout({
                           onPinPane={onPinPane ? (paneId) => onPinPane(groupId, paneId) : undefined}
                           tabNotifications={groupNotifications}
                         />
+                        </div>
                       </div>
                       {/* Active pane content */}
                       <div
-                        className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${
-                          isFullyFocused
-                            ? 'ring-1 ring-inset ring-primary/20'
-                            : isFocusedGroup
-                              ? 'ring-1 ring-inset ring-primary/10'
-                              : ''
-                        }`}
+                        className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
                         onMouseDownCapture={() => {
                           if (!isFocusedGroup && group.activePaneId) {
                             onActivatePane(groupId, group.activePaneId);
@@ -545,7 +566,15 @@ export function GroupLayout({
                             return (
                               <div
                                 key={stableKeyOf(pane)}
-                                className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"
+                                // Content panes paint their own opaque bg so they stay crisp once
+                                // the shared backdrop (#main-content) is transparent under Electron
+                                // vibrancy. `project` and `terminal` panes stay transparent here so
+                                // they ride exactly ONE extra glass layer over the shared group-cell
+                                // backdrop (which is itself .chrome-glass): the project sidebar's
+                                // own .chrome-glass, or the terminal container's own .chrome-glass.
+                                // Adding glass here too would stack a third layer and darken the
+                                // terminal relative to the sidebar.
+                                className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${pane.type === 'project' || pane.type === 'terminal' ? '' : 'bg-surface'}`}
                                 style={{ display: isPaneActive ? 'flex' : 'none' }}
                                 aria-hidden={!isPaneActive}
                               >

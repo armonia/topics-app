@@ -51,7 +51,7 @@
   --dashboard-bg-primary: hsl(0 0% 100%);
   --dashboard-surface-light: hsl(0 0% 98%);
   --dashboard-surface-dark: hsl(0 0% 96%);
-  --dashboard-input-surface: hsl(60 20% 99%);
+  --dashboard-input-surface: hsl(220 20% 99%);
   --dashboard-border: hsl(0 0% 0% / 0.12);
   --dashboard-text-primary: hsl(0 0% 0%);
   --dashboard-text-secondary: hsl(0 0% 15%);
@@ -90,13 +90,13 @@
   --bg-input: #fafafa;
   --bg-inset: #f8f8f8;
   --text: #1a1a1a;
-  --text-secondary: #666666;
-  --text-tertiary: #8b8b8b;
-  --text-muted: #888888;
-  --text-placeholder: #b0b0b0;
+  --text-secondary: #5a5a5a;
+  --text-tertiary: #707070;
+  --text-muted: #6b6b6b;
+  --text-placeholder: #949494;
   --text-heading: #333333;
   --text-body: #444444;
-  --text-faint: #aaaaaa;
+  --text-faint: #8a8a8a;
   --text-hover: #555555;
   --border: #e8e8e8;
   --border-light: #e0e0e0;
@@ -122,10 +122,14 @@
   --color-text-muted: var(--text-muted);
   --color-accent-success: #10b981;
   --color-accent-warning: #f59e0b;
-  --font-ui: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Canonical UI font stack — system fonts only (SF on macOS, Segoe on
+   * Windows, Roboto on Android/Linux). Inter was previously listed first but
+   * never bundled/loaded, so it silently fell back to system-ui anyway; listing
+   * it was misleading. Keep this in sync with `fontFamily.sans` in tailwind.config.js. */
+  --font-ui: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
 
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   
@@ -172,29 +176,32 @@
   }
 }
 
-/* Dark mode overrides */
+/* Dark mode overrides
+ * Palette re-tinted from pure-neutral grays to a subtle COOL blue-gray (hue ~220).
+ * Pure neutral darks read "warm/muddy" on most displays; a faint cool cast gives
+ * the premium near-black look (Linear/Vercel/Raycast) and kills the brownish feel. */
 .dark {
-  --bg: #111111;
-  --bg-surface: #1a1a1a;
-  --bg-elevated: #222222;
-  --bg-hover: #2a2a2a;
-  --bg-code: #0d0d1a;
-  --bg-panel: #1e1e1e;
-  --bg-input: #222222;
-  --bg-inset: #1e1e1e;
-  --text: #e5e5e5;
-  --text-secondary: #999999;
-  --text-tertiary: #8b8b8b;
-  --text-muted: #666666;
-  --text-placeholder: #555555;
-  --text-heading: #cccccc;
-  --text-body: #bbbbbb;
-  --text-faint: #666666;
-  --text-hover: #cccccc;
-  --border: #2a2a2a;
-  --border-light: #3a3a3a;
-  --border-subtle: #2a2a2a;
-  --border-input: #333333;
+  --bg: hsl(222 16% 8.5%);
+  --bg-surface: hsl(222 14% 11%);
+  --bg-elevated: hsl(220 13% 14%);
+  --bg-hover: hsl(220 12% 17%);
+  --bg-code: hsl(225 22% 9%);
+  --bg-panel: hsl(222 14% 11.5%);
+  --bg-input: hsl(220 13% 13%);
+  --bg-inset: hsl(222 15% 10%);
+  --text: #e6e8ec;
+  --text-secondary: #aab0ba;
+  --text-tertiary: #969ca6;
+  --text-muted: #8a9099;
+  --text-placeholder: #6b7079;
+  --text-heading: #ccced4;
+  --text-body: #bbbec5;
+  --text-faint: #7d838d;
+  --text-hover: #ccced4;
+  --border: hsl(220 11% 18%);
+  --border-light: hsl(220 10% 24%);
+  --border-subtle: hsl(220 12% 15%);
+  --border-input: hsl(220 10% 21%);
   --spinner-track: #555555;
   --resize-handle: #374151;
   --skeleton-from: #374151;
@@ -238,7 +245,7 @@ html, body, #root {
 }
 
 /* Dark mode: force exact match to eliminate safe-area color mismatch on OLED */
-.dark html, .dark body, .dark #root { background-color: #111111; }
+.dark html, .dark body, .dark #root { background-color: var(--bg); }
 
 #root > div {
   max-width: 100vw;
@@ -352,6 +359,19 @@ textarea, input[type="text"] {
   box-sizing: border-box;
 }
 
+/* Native <select> dropdowns — make the OS-rendered option popup follow the
+ * theme. Chromium paints the popup from the control's own colors, so without an
+ * explicit option background the list falls back to white — unreadable against
+ * the cool dark palette. This one rule themes every native select (current and
+ * future); per-component Tailwind classes can only reach the closed control. */
+select {
+  color: var(--text);
+}
+option {
+  background-color: var(--bg-surface);
+  color: var(--text);
+}
+
 /* Prevent overscroll white flash */
 html, body {
   background-color: var(--bg, #1a1a1a);
@@ -360,7 +380,7 @@ html, body {
 /* App background color for safe areas */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .dark body, .dark html {
-    background-color: #0d0d0d;
+    background-color: var(--bg);
   }
 }
 
@@ -1008,4 +1028,74 @@ input[type="range"]::-webkit-slider-thumb {
   &:focus-within::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.15);
   }
+}
+
+/* ─── macOS native vibrancy (Electron only) ──────────────────────────────
+ * The main window is created with `vibrancy:'sidebar'` + a transparent native
+ * background (electron-app/main.ts). macOS blur only shows where the ENTIRE
+ * layer stack is translucent — so we punch html/body/#root fully transparent
+ * and let the chrome carry a single translucent tint that frosts over the
+ * blurred desktop. Content panes keep their opaque `--bg-surface`, so dense
+ * text (chat, terminal, code) stays crisp and readable.
+ *
+ * The `.electron-mac` class is set pre-paint by the head script in index.html. */
+html.electron-mac,
+html.electron-mac body,
+html.electron-mac #root {
+  background-color: transparent !important;
+}
+
+/* Chrome (sidebar / top bar / pane gutters use var(--bg)) → frosted glass.
+ * Single translucent layer = clean frost, no compounding. */
+html.electron-mac.dark {
+  --bg: hsl(222 16% 9% / 0.5);
+}
+html.electron-mac:not(.dark) {
+  --bg: hsl(220 24% 97% / 0.55);
+}
+
+/* The frosted backdrop is painted ONCE by the outer app wrapper (its `--bg` is
+ * translucent above). `#main-content` also carries `bg-app-bg`; null it out so
+ * the layers don't compound (which would make panes-area frost darker than the
+ * sidebar). Now every translucent chrome surface rides the same single layer. */
+html.electron-mac #main-content {
+  background-color: transparent !important;
+}
+
+/* Frosted-glass: ONE uniform tier. Every translucent chrome surface — the main
+ * Topics sidebar, the project sidebar, tab bars, group backdrops — paints the
+ * same single `.chrome-glass` tint over the shared base frost, so the whole
+ * chrome reads as one continuous sheet of glass. (The Topics sidebar is matched
+ * by name here rather than carrying the class, but uses the identical tokens.)
+ * Content panes (chat / terminal / editor) keep their opaque `bg-surface`. */
+html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
+html.electron-mac.dark .chrome-glass {
+  background-color: hsl(224 26% 4.5% / 0.55) !important;
+}
+html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
+html.electron-mac:not(.dark) .chrome-glass {
+  background-color: hsl(220 16% 90% / 0.55) !important;
+}
+
+/* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
+ * `.chrome-glass` must NOT repaint its tint — only the OUTERMOST one in any
+ * subtree paints. Otherwise the 0.55 alpha compounds (2 layers = darker than 1)
+ * and surfaces drift apart: e.g. the project sidebar (sidebar + group-cell = 2)
+ * vs a terminal (container + group-cell = 2) both ended up darker than intended,
+ * and any deeper nesting darker still. Collapsing nested glass to transparent
+ * makes every frosted chrome surface render exactly one identical tint over the
+ * shared base frost. */
+html.electron-mac .chrome-glass .chrome-glass {
+  background-color: transparent !important;
+}
+
+/* Terminal panes ride the vibrancy like the project sidebar. Their roots carry
+ * an opaque `bg-surface` (web fallback); under Electron we null it so the
+ * `.chrome-glass` terminal container frosts over the desktop instead of
+ * compositing on an opaque backdrop (which would reintroduce the blue cast the
+ * single frosted layer avoids). The xterm background is transparent, so the
+ * frosted tint reads through behind the (opaque) terminal text. */
+html.electron-mac [data-testid="terminal-panel"],
+html.electron-mac [data-testid="single-terminal-pane"] {
+  background-color: transparent !important;
 }

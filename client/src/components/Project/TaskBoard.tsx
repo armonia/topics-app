@@ -78,7 +78,7 @@ export function TaskBoard({ topicId, projectId, onWSMessage, onOpenBoard }: Task
         <span>Tasks</span>
         <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${!collapsed ? 'rotate-90' : ''}`} />
         {pendingCount > 0 && (
-          <span className="ml-1 bg-primary text-white text-[9px] px-1.5 py-0.5 rounded-full leading-none font-bold">
+          <span className="ml-1 bg-primary text-white text-[11px] px-1.5 py-0.5 rounded-full leading-none font-bold">
             {pendingCount}
           </span>
         )}
@@ -167,7 +167,7 @@ function TaskList({
   const renderGroup = (label: string, items: BoardTask[], colorClass: string) =>
     items.length > 0 && (
       <div className="mb-1.5">
-        <div className={`text-[10px] font-semibold ${colorClass} px-1 py-0.5 uppercase tracking-wider`}>{label}</div>
+        <div className={`text-[11px] font-semibold ${colorClass} px-1 py-0.5 uppercase tracking-wider`}>{label}</div>
         {items.map(task => (
           <div key={task.id} className="group flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-black/3 dark:hover:bg-white/3">
             <button onClick={() => handleToggle(task)} className={`flex-shrink-0 ${task.status === 'done' ? 'text-green-500' : task.status === 'in_progress' ? 'text-yellow-500' : 'text-app-placeholder hover:text-primary'}`}>
@@ -200,8 +200,8 @@ function TaskList({
             placeholder="Task description..."
             className="flex-1 text-[11px] bg-surface border border-app-border rounded px-2 py-1 focus:outline-none focus:border-primary text-app-text placeholder-app-placeholder"
           />
-          <button onClick={handleAdd} className="text-[10px] bg-primary text-white px-2 py-1 rounded hover:opacity-90 transition-opacity">Add</button>
-          <button onClick={() => { setShowInput(false); setNewText(''); }} className="text-[10px] text-app-text-muted px-1 py-1">Cancel</button>
+          <button onClick={handleAdd} className="text-[11px] bg-primary text-white px-2 py-1 rounded hover:opacity-90 transition-opacity">Add</button>
+          <button onClick={() => { setShowInput(false); setNewText(''); }} className="text-[11px] text-app-text-muted px-1 py-1">Cancel</button>
         </div>
       ) : (
         <button onClick={() => setShowInput(true)} className="flex items-center gap-1 px-1 py-1 text-[11px] text-app-text-muted hover:text-primary transition-colors w-full">

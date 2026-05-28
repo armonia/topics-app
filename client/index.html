@@ -26,6 +26,15 @@
         var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) document.documentElement.classList.add('dark');
 
+        // Electron on macOS: tag <html> so the app can let native window vibrancy
+        // (configured in electron-app/main.ts) show through the chrome. Set before
+        // first paint so the opaque base never masks the blur.
+        try {
+          if (window.electronAPI && window.electronAPI.platform === 'darwin') {
+            document.documentElement.classList.add('electron-mac');
+          }
+        } catch(e) {}
+
         // Pre-apply sidebar collapsed state
         try {
           var settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
@@ -36,7 +45,9 @@
     <style>
       /* Critical CSS — must match React theme colors exactly */
       html, body, #root { background-color: #f8f9fa; color: #1a1a1a; }
-      html.dark, html.dark body, html.dark #root { background-color: #1a1a1a; color: #e6edf3; }
+      html.dark, html.dark body, html.dark #root { background-color: #121419; color: #e6edf3; }
+      /* Electron+macOS: stay transparent pre-paint so native vibrancy isn't masked */
+      html.electron-mac, html.electron-mac body, html.electron-mac #root { background-color: transparent; }
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>

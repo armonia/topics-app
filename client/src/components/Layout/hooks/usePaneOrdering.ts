@@ -318,6 +318,32 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           return next;
         });
       }
+      // Terminal-originated open: a Claude Code terminal asked to surface a URL
+      // next to itself. Only the standalone group that actually renders that
+      // terminal pane reacts (membership check on `prev`); every other group
+      // and the project windows ignore it. We reuse the same browser singleton
+      // as chat-driven navigation — the terminal's browser shares the group's
+      // one browser pane rather than spawning a second.
+      if (msg.type === 'browser:open-near-pane' && msg.url && msg.paneId) {
+        let navigateUrl: string = msg.url;
+        try {
+          const parsed = new URL(navigateUrl);
+          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+            parsed.hostname = window.location.hostname;
+            parsed.protocol = window.location.protocol;
+            navigateUrl = parsed.toString();
+          }
+        } catch { /* not a valid URL, leave as-is */ }
+        setOrderedIds(prev => {
+          if (!prev.includes(msg.paneId)) return prev; // terminal not in this group
+          const { next, resolvedId } = browserSingletonReducer(prev);
+          if (resolvedId) {
+            persistBrowserPane(resolvedId);
+            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
+          }
+          return next;
+        });
+      }
     });
     return unsub;
   }, [onWSMessage, onFocusPanel, onBrowserNavigateUrl]);

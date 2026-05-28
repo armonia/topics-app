@@ -85,13 +85,13 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           {/* Connections */}
           <div className="flex items-center gap-3 px-2 py-1.5 rounded bg-elevated">
             <div className="flex-1 flex items-center gap-2" title="WebSocket — connessioni client attive">
-              <span className="text-[10px] text-app-text-muted">WS</span>
+              <span className="text-[11px] text-app-text-muted">WS</span>
               <span className="text-[11px] font-medium text-app-text">
                 {status.connections.wsClients}
               </span>
             </div>
             <div className="flex-1 flex items-center gap-2" title="Streams — flussi dati in tempo reale attivi">
-              <span className="text-[10px] text-app-text-muted">Streams</span>
+              <span className="text-[11px] text-app-text-muted">Streams</span>
               <span className={`text-[11px] font-medium ${
                 status.connections.activeStreams > 0 ? 'text-primary' : 'text-app-text'
               }`}>
@@ -99,7 +99,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               </span>
             </div>
             <div className="flex-1 flex items-center gap-2" title="Topics — argomenti attualmente attivi">
-              <span className="text-[10px] text-app-text-muted">Topics</span>
+              <span className="text-[11px] text-app-text-muted">Topics</span>
               <span className="text-[11px] font-medium text-app-text">
                 {status.topics.activeCount}
               </span>
@@ -172,7 +172,7 @@ function StatusRow({ icon, label, value, detail, color }: StatusRowProps) {
         {value}
       </span>
       {detail && (
-        <span className="text-[10px] text-app-text-muted flex-shrink-0">{detail}</span>
+        <span className="text-[11px] text-app-text-muted flex-shrink-0">{detail}</span>
       )}
     </div>
   );

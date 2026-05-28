@@ -135,7 +135,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   href={`http://${window.location.hostname}:${port}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] text-primary hover:underline flex-shrink-0"
+                  className="text-[11px] text-primary hover:underline flex-shrink-0"
                   onClick={e => e.stopPropagation()}
                 >
                   :{port}
@@ -151,7 +151,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 </button>
               )}
               {!running && !isStopping && (
-                <span className="text-[10px] text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
+                <span className="text-[11px] text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
               )}
             </div>
           </div>

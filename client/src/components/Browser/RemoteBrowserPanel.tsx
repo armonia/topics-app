@@ -247,7 +247,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
       >
         {/* Phase 30 BROWSER-CHAT-02 — connection indicator pillola (top-right) */}
         <div
-          className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium pointer-events-none transition-colors browser-connection-indicator ${connectionClassPill}`}
+          className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium pointer-events-none transition-colors browser-connection-indicator ${connectionClassPill}`}
           data-testid="browser-connection-indicator"
         >
           <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />

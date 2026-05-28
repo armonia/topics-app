@@ -72,7 +72,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
             ))}
           </div>
         )}
-        <span className="ml-auto text-[10px]">{expanded ? 'Hide' : 'Show'}</span>
+        <span className="ml-auto text-[11px]">{expanded ? 'Hide' : 'Show'}</span>
       </button>
 
       {/* Expanded timeline */}
@@ -109,7 +109,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cp.gitHash ? 'bg-primary' : 'bg-app-placeholder'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="text-app-text truncate">{cp.description}</div>
-                    <div className="text-[10px] text-app-placeholder">
+                    <div className="text-[11px] text-app-placeholder">
                       {formatTimeAgo(cp.timestamp)} - {cp.messageCount} msgs
                       {cp.gitHash && <span className="ml-1 text-primary">{cp.gitHash.slice(0, 7)}</span>}
                     </div>

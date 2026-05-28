@@ -151,7 +151,7 @@ function QuestionsForm({
           <legend className="text-[11px] font-medium text-app-text">
             {q.question}
             {q.header && (
-              <span className="ml-2 text-[10px] uppercase tracking-wide text-app-text-muted">
+              <span className="ml-2 text-[11px] uppercase tracking-wide text-app-text-muted">
                 {q.header}
               </span>
             )}
@@ -171,7 +171,7 @@ function QuestionsForm({
                 <div className="flex-1 min-w-0">
                   <div className="text-app-text">{opt.label}</div>
                   {opt.description && (
-                    <div className="text-[10px] text-app-text-muted truncate">{opt.description}</div>
+                    <div className="text-[11px] text-app-text-muted truncate">{opt.description}</div>
                   )}
                 </div>
               </label>

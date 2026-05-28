@@ -174,7 +174,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
       {/* Breadcrumb path bar */}
       <BreadcrumbNav filePath={filePath} projectPath={projectPath} openFile={handleBreadcrumbOpen} actions={
         <>
-          {!isMedia && !mdPreview && !(isHtml && htmlPreview) && <span className="text-[10px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+          {!isMedia && !mdPreview && !(isHtml && htmlPreview) && <span className="text-[11px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
           {!isMedia && !(isHtml && htmlPreview) && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
           {isMd && <PreviewBtn previewing={mdPreview} onClick={togglePreview} />}
           {isHtml && <PreviewBtn previewing={htmlPreview} onClick={toggleHtmlPreview} label="HTML" />}
@@ -183,7 +183,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
       } />
 
       {diff && (
-        <div className="flex items-center gap-2 px-3 py-1 border-b border-app-border bg-elevated flex-shrink-0 text-[10px] text-app-text-muted">
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-app-border bg-elevated flex-shrink-0 text-[11px] text-app-text-muted">
           <GitBranch size={12} className="text-amber-500 flex-shrink-0" />
           <span>Original (HEAD)</span>
           <span>|</span>

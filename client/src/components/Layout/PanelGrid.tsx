@@ -809,6 +809,13 @@ export function PanelGrid({
     colIdx: number;
     zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
     centerSide?: 'left' | 'right';
+    /** True when the drag is a PANE_TAB (not a GRID_ITEM). A tab over the
+     *  cell's `top` zone is aiming at the tab bar that lives there, not asking
+     *  to split the cell — the drop handler no-ops that case (it returns on
+     *  `top`/`center`), so we must NOT paint the rectangular split overlay for
+     *  it either, or the user sees a phantom "area" preview while just adding a
+     *  tab. Edge splits (left/right/bottom) still paint. */
+    isTab?: boolean;
   } | null>(null);
   // Ref mirror so the drop handler always has the latest value — React
   // state may not be committed yet when drop fires immediately after
@@ -873,7 +880,7 @@ export function PanelGrid({
     // release time and let children handle the reorder/drop. We don't
     // stopPropagation here so the child's dragover can also run.
     if (isTabDrag && !isGridDrag && (zone === 'center' || zone === 'top')) {
-      const target = { rowIdx, colIdx, zone, centerSide };
+      const target = { rowIdx, colIdx, zone, centerSide, isTab: true };
       setGridDropTarget(target);
       gridDropTargetRef.current = target;
       return;
@@ -881,7 +888,7 @@ export function PanelGrid({
 
     // Edge zone (or any GRID_ITEM drag): handle at grid level
     e.stopPropagation(); // Prevent children from also handling this edge drag
-    const target = { rowIdx, colIdx, zone, centerSide };
+    const target = { rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag };
     setGridDropTarget(target);
     gridDropTargetRef.current = target; // sync update for immediate drop access
   }, []);
@@ -1398,8 +1405,14 @@ export function PanelGrid({
               const isTarget = gridDropTarget?.rowIdx === rowIdx && gridDropTarget?.colIdx === colIdx;
               const zone = isTarget ? gridDropTarget!.zone : null;
               const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
+              // A tab dragged over the `top` zone is aiming at the tab bar that
+              // sits there, not splitting the cell (the drop no-ops it). Suppress
+              // the rectangular split overlay for that case so no phantom "area"
+              // preview shows — and can't linger past the drop. Real edge splits
+              // (left/right/bottom), and all GRID_ITEM drags, still paint.
+              const suppressSplitOverlay = isTarget && gridDropTarget!.isTab && zone === 'top';
 
-              const splitOverlayStyle: React.CSSProperties | null = (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom')
+              const splitOverlayStyle: React.CSSProperties | null = (!suppressSplitOverlay && (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom'))
                 ? {
                     position: 'absolute',
                     pointerEvents: 'none',
@@ -1464,7 +1477,7 @@ export function PanelGrid({
                     })()}
 
                     {/* Edge drop zone overlay (top/bottom/left/right) */}
-                    {zone && zone !== 'center' && (
+                    {zone && zone !== 'center' && !suppressSplitOverlay && (
                       <div
                         className="absolute pointer-events-none z-30"
                         style={{

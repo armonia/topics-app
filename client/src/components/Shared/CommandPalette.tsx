@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Plus, Settings, Moon, Sun, File, FolderOpen, FolderPlus, Loader2, TerminalSquare, RotateCcw } from 'lucide-react';
+import {
+  Search, Plus, Settings, Moon, Sun, File, FolderPlus,
+  Loader2, TerminalSquare, RotateCcw, ChevronDown, ChevronRight,
+} from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
 import { basename } from '../../lib/path-utils';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
@@ -13,12 +16,18 @@ export interface CommandAction {
   id: string;
   label: string;
   description?: string;
-  icon: React.ReactNode;
-  category: 'project' | 'topic' | 'action' | 'command' | 'file' | 'message' | 'recent-closed';
+  icon: React.ReactNode | null;
+  category: 'project' | 'topic' | 'action' | 'command' | 'file' | 'message' | 'recent-closed' | 'recent-file';
   shortcut?: string;
   action: () => void;
   /** Raw content for highlight rendering in message results */
   _rawContent?: string;
+  /** Sort timestamp used when mixing topics with recently-closed in the main list. */
+  _ts?: number;
+  /** Optional override for the row's title tooltip — used when the row
+   *  carries a long path (cwd, file path) that we want fully revealed on
+   *  hover, not just the truncated description. */
+  titleOverride?: string;
 }
 
 function fuzzyMatch(query: string, target: string): boolean {
@@ -78,6 +87,28 @@ export function CommandPalette({
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Persisted accordion state so the user's collapse preference survives reloads.
+  const [projectsCollapsed, setProjectsCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('cmdk-projects-collapsed') === '1'; } catch { return false; }
+  });
+  const [recentiCollapsed, setRecentiCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('cmdk-recent-tabs-collapsed') === '1'; } catch { return false; }
+  });
+  const toggleProjects = useCallback(() => {
+    setProjectsCollapsed(v => {
+      const next = !v;
+      try { localStorage.setItem('cmdk-projects-collapsed', next ? '1' : '0'); } catch { /* storage unavailable */ }
+      return next;
+    });
+  }, []);
+  const toggleRecenti = useCallback(() => {
+    setRecentiCollapsed(v => {
+      const next = !v;
+      try { localStorage.setItem('cmdk-recent-tabs-collapsed', next ? '1' : '0'); } catch { /* storage unavailable */ }
+      return next;
+    });
+  }, []);
+
   // Debounced message search
   useEffect(() => {
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
@@ -127,14 +158,8 @@ export function CommandPalette({
     }
   }, [projectPath, isOpen]);
 
-  // Build actions list — order: projects, topics, files, actions
-  const actions = useMemo((): CommandAction[] => {
-    const items: CommandAction[] = [];
-
-    // ── Projects ──────────────────────────────────────────────────────
-    // Sources: topics' projectPath (legacy) + persisted recent-projects
-    // (so a project the user just opened shows up even before any topic
-    // is created in it). Recent first, then alphabetic for the rest.
+  // ── Projects column (always visible accordion, left) ────────────────────
+  const projectItems = useMemo((): CommandAction[] => {
     const recentProjects: string[] = (() => {
       try {
         const raw = localStorage.getItem('recent-projects');
@@ -144,152 +169,143 @@ export function CommandPalette({
     const projectPaths = new Set<string>();
     Object.values(topics).forEach(t => { if (t.projectPath) projectPaths.add(t.projectPath); });
     recentProjects.forEach(p => projectPaths.add(p));
-    const orderedProjects = [
+    const ordered = [
       ...recentProjects.filter(p => projectPaths.has(p)),
       ...Array.from(projectPaths).filter(p => !recentProjects.includes(p)).sort(),
     ];
-    orderedProjects
-      .forEach(pp => {
-        items.push({
-          id: `project-${pp}`,
-          label: getProjectLabel(pp),
-          description: pp,
-          icon: <FolderOpen size={14} />,
-          category: 'project',
-          action: () => { onOpenProject?.(pp); onClose(); },
-        });
-      });
+    return ordered.map(pp => ({
+      id: `project-${pp}`,
+      label: getProjectLabel(pp),
+      description: pp,
+      // No icon — convention used across the app (see TopicTree.tsx): a
+      // project icon is only shown when one comes from a real manifest.
+      // Until that exists, a generic folder glyph would be a "fake" affordance.
+      icon: null,
+      category: 'project' as const,
+      action: () => { onOpenProject?.(pp); onClose(); },
+    }));
+  }, [topics, onOpenProject, onClose]);
 
-    // ── Topics ────────────────────────────────────────────────────────
-    Object.values(topics)
+  // ── Tab recenti (closed tabs, always visible accordion under Projects) ──
+  // Moved out of the main list so the right column reads as a clean topic
+  // feed. Each entry carries the same metadata as before — pane type icon,
+  // cwd/project anchor, full path in tooltip.
+  const recentItems = useMemo((): CommandAction[] => {
+    if (!closedTabs || !onReopenClosedTab) return [];
+    return closedTabs.slice(0, 20).map((record, i) => {
+      const paneType = record.pane.type;
+      const config = PANE_CONFIG[paneType];
+      const timeAgo = formatTimeAgo(record.closedAt);
+      const icon = record.terminal?.sessionType === 'claude-code'
+        ? <ClaudeIcon size={14} />
+        : paneType === 'terminal'
+          ? <TerminalSquare size={14} />
+          : <RotateCcw size={14} />;
+      const parts: string[] = [`Chiusa ${timeAgo}`];
+      const cwd = record.terminal?.cwd;
+      const projectLabel = record.projectPath ? getProjectLabel(record.projectPath) : null;
+      if (paneType === 'terminal' && cwd) {
+        const cwdLabel = getProjectLabel(cwd);
+        parts.push(projectLabel && projectLabel !== cwdLabel
+          ? `${projectLabel} · ${cwdLabel}`
+          : cwdLabel);
+      } else if (projectLabel) {
+        parts.push(projectLabel);
+      }
+      const titleOverride = (paneType === 'terminal' && cwd)
+        ? cwd
+        : record.projectPath || undefined;
+      return {
+        id: `closed-${record.id}`,
+        label: record.pane.title || config?.label || paneType,
+        description: parts.join(' · '),
+        icon,
+        category: 'recent-closed' as const,
+        _ts: record.closedAt,
+        shortcut: i === 0 ? '⌘⇧U' : undefined,
+        titleOverride,
+        action: () => { onReopenClosedTab(record); onClose(); },
+      };
+    });
+  }, [closedTabs, onReopenClosedTab, onClose]);
+
+  // ── Topics (right column main list, sorted by recency) ──────────────────
+  const topicItems = useMemo((): CommandAction[] => {
+    return Object.values(topics)
       .filter(t => !t.archived)
-      .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
-      .forEach(topic => {
-        items.push({
+      .map(topic => {
+        // Guard against NaN — topics without updatedAt/createdAt (e.g. the
+        // Master/system topics, or chats created before timestamps were
+        // tracked) would otherwise produce NaN which corrupts sort order
+        // and pins them silently at the top of the list.
+        const raw = new Date(topic.updatedAt || topic.createdAt).getTime();
+        const ts = Number.isFinite(raw) ? raw : 0;
+        return {
           id: `topic-${topic.id}`,
           label: topic.name,
           description: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
           icon: <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />,
-          category: 'topic',
+          category: 'topic' as const,
+          _ts: ts,
           action: () => { onOpenTopic(topic.id); onClose(); },
-        });
-      });
+        };
+      })
+      .sort((a, b) => (b._ts || 0) - (a._ts || 0));
+  }, [topics, onOpenTopic, onClose]);
 
-    // ── Files ─────────────────────────────────────────────────────────
-    // Recent files (show when query is empty and projectPath exists)
-    if (projectPath && !query.trim()) {
-      try {
-        const key = `recent-files-${projectPath}`;
-        const recent: { path: string; name: string; timestamp: number }[] = JSON.parse(localStorage.getItem(key) || '[]');
-        recent.forEach(r => {
-          items.push({
-            id: `recent-${r.path}`,
-            label: r.name,
-            description: r.path,
-            icon: <File size={14} />,
-            category: 'file',
-            action: () => {
-              onOpenFile?.(projectPath + '/' + r.path);
-              onClose();
-            },
-          });
-        });
-      } catch {}
-    }
-
-    // File search (show when query has text)
-    if (projectPath && query.trim() && onOpenFile) {
-      const q = query.toLowerCase();
-      const matchingFiles = fileList
-        .filter(f => {
-          const name = basename(f).toLowerCase();
-          const path = f.toLowerCase();
-          return name.includes(q) || path.includes(q) || fuzzyMatch(q, path);
-        })
-        .slice(0, 20);
-
-      matchingFiles.forEach(f => {
+  // ── File search results (only when query has text) ──────────────────────
+  const searchFileItems = useMemo((): CommandAction[] => {
+    if (!projectPath || !query.trim() || !onOpenFile) return [];
+    const q = query.toLowerCase();
+    return fileList
+      .filter(f => {
+        const name = basename(f).toLowerCase();
+        const path = f.toLowerCase();
+        return name.includes(q) || path.includes(q) || fuzzyMatch(q, path);
+      })
+      .slice(0, 20)
+      .map(f => {
         const name = basename(f) || f;
-        items.push({
+        return {
           id: `file-${f}`,
           label: name,
           description: f,
           icon: <File size={14} />,
-          category: 'file',
-          action: () => {
-            onOpenFile(projectPath + '/' + f);
-            onClose();
-          },
-        });
+          category: 'file' as const,
+          action: () => { onOpenFile(projectPath + '/' + f); onClose(); },
+        };
       });
-    }
+  }, [projectPath, query, fileList, onOpenFile, onClose]);
 
-    // ── Recently Closed ────────────────────────────────────────────────
-    if (closedTabs && closedTabs.length > 0 && onReopenClosedTab) {
-      closedTabs.slice(0, 10).forEach((record, i) => {
-        const paneType = record.pane.type;
-        const config = PANE_CONFIG[paneType];
-        const timeAgo = formatTimeAgo(record.closedAt);
-        const icon = record.terminal?.sessionType === 'claude-code'
-          ? <ClaudeIcon size={14} />
-          : paneType === 'terminal'
-            ? <TerminalSquare size={14} />
-            : <RotateCcw size={14} />;
-        items.push({
-          id: `closed-${record.id}`,
-          label: record.pane.title || config?.label || paneType,
-          description: `${timeAgo}${record.projectPath ? ' · ' + getProjectLabel(record.projectPath) : ''}`,
-          icon,
-          category: 'recent-closed',
-          shortcut: i === 0 ? '⌘⇧U' : undefined,
-          action: () => { onReopenClosedTab(record); onClose(); },
-        });
-      });
-    }
-
-    // ── Actions (last) ────────────────────────────────────────────────
-    items.push({
-      id: 'new-topic',
-      label: 'New Chat',
-      description: 'Create a new topic',
-      icon: <Plus size={14} />,
-      category: 'action',
-      shortcut: isElectron ? '⌘N' : undefined,
-      action: () => { onNewTopic(); onClose(); },
-    });
-    items.push({
-      id: 'settings',
-      label: 'Settings',
-      description: 'Open app settings',
-      icon: <Settings size={14} />,
-      category: 'action',
-      shortcut: '⌘,',
-      action: () => { onOpenSettings(); onClose(); },
-    });
-    items.push({
-      id: 'toggle-theme',
-      label: themeMode === 'dark' ? 'Switch to Light Mode' : themeMode === 'light' ? 'Switch to Dark Mode' : 'Toggle Theme',
-      icon: themeMode === 'dark' ? <Sun size={14} /> : <Moon size={14} />,
-      category: 'action',
-      action: () => { onToggleTheme(); onClose(); },
-    });
-
-    return items;
-  }, [topics, themeMode, onNewTopic, onOpenSettings, onToggleTheme, onOpenTopic, onOpenProject, onClose, projectPath, query, fileList, onOpenFile]);
-
-  // Filter actions (file items are already pre-filtered in the actions builder)
-  const filtered = useMemo(() => {
-    if (!query.trim()) return actions;
+  // ── Query-based filtering ───────────────────────────────────────────────
+  // Files are pre-filtered by the search effect above; for the other lists
+  // we filter on label/description here. With empty query everything is shown.
+  const filterByQuery = useCallback((arr: CommandAction[]) => {
+    if (!query.trim()) return arr;
     const q = query.toLowerCase();
-    return actions.filter(a =>
-      a.category === 'file' ||
+    return arr.filter(a =>
       a.label.toLowerCase().includes(q) ||
       (a.description && a.description.toLowerCase().includes(q))
     );
-  }, [actions, query]);
+  }, [query]);
 
-  // Merge filtered items with search results
-  const allItems = useMemo(() => [...filtered, ...searchResults], [filtered, searchResults]);
+  const filteredProjects = useMemo(() => filterByQuery(projectItems), [projectItems, filterByQuery]);
+  const filteredRecenti = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
+  const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
+
+  // Flat order for keyboard nav: visible projects → visible recenti → main → files → messages.
+  // Collapsed accordions don't contribute to nav targets (their items aren't rendered).
+  const allItems = useMemo(() => {
+    const arr: CommandAction[] = [];
+    if (!projectsCollapsed) arr.push(...filteredProjects);
+    if (!recentiCollapsed) arr.push(...filteredRecenti);
+    arr.push(...filteredMain, ...searchFileItems, ...searchResults);
+    return arr;
+  }, [
+    projectsCollapsed, recentiCollapsed,
+    filteredProjects, filteredRecenti, filteredMain,
+    searchFileItems, searchResults,
+  ]);
 
   // Reset selection on filter change
   useEffect(() => {
@@ -334,37 +350,21 @@ export function CommandPalette({
 
   if (!isOpen) return null;
 
-  // Group by category
-  const groupedActions = allItems.reduce((acc, action) => {
-    if (!acc[action.category]) acc[action.category] = [];
-    acc[action.category].push(action);
-    return acc;
-  }, {} as Record<string, CommandAction[]>);
-
-  const categoryLabels: Record<string, string> = {
-    project: 'Projects',
-    topic: 'Topics',
-    file: 'Files',
-    message: 'Messages',
-    'recent-closed': 'Recently Closed',
-    action: 'Actions',
-    command: 'Commands',
-  };
-
-  // Fixed category order
-  const categoryOrder = ['project', 'topic', 'file', 'message', 'recent-closed', 'action', 'command'];
-
-  let globalIdx = 0;
+  // Each rendered row needs a stable global index for keyboard nav. We build
+  // the indices in the same order `allItems` enumerates them so arrow keys
+  // and rendered selection stay in sync.
+  const indexOf = (id: string) => allItems.findIndex(it => it.id === id);
 
   return (
-    <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
+    <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
       <div className="fixed inset-0 bg-black/30 dark:bg-black/50" />
       <div
-        className="relative w-full max-w-lg mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter"
+        className="relative w-full max-w-4xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter flex flex-col"
         onClick={e => e.stopPropagation()}
+        style={{ maxHeight: '76vh' }}
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-app-border">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-app-border flex-shrink-0">
           <Search size={16} className="text-app-text-muted flex-shrink-0" />
           <input
             ref={inputRef}
@@ -372,141 +372,302 @@ export function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={projectPath ? "Search files, topics, messages, actions..." : "Search topics, messages, actions..."}
+            placeholder={projectPath ? "Cerca file, topic, messaggi…" : "Cerca topic, messaggi…"}
             className="flex-1 bg-transparent text-[14px] text-app-text placeholder-app-placeholder outline-none"
           />
           <kbd className="kbd">ESC</kbd>
         </div>
 
-        {/* Results */}
-        <div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1" role="listbox" aria-label="Results">
-          {allItems.length === 0 && !searchLoading ? (
-            <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">
-              No results found
-            </div>
-          ) : (
-            <>
-              {categoryOrder.filter(cat => groupedActions[cat]?.length > 0).map(category => {
-                const items = groupedActions[category];
-                return (
-                <div key={category}>
-                  <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
-                    {categoryLabels[category] || category}
-                    {category === 'message' && searchLoading && (
-                      <Loader2 size={10} className="animate-spin" />
-                    )}
+        {/* Body: 3-column split. Left = Projects (always-visible accordion).
+            Center = Topics + File/Messaggi su query. Right = Tab recenti
+            (always-visible accordion). */}
+        <div className="flex-1 min-h-0 flex">
+          {/* Left column — Projects only */}
+          <aside className="w-[200px] flex-shrink-0 border-r border-app-border flex flex-col bg-app-bg/40">
+            <div className="overflow-y-auto py-1 flex-1 min-h-0">
+              <AccordionHeader
+                label="Progetti"
+                count={filteredProjects.length}
+                collapsed={projectsCollapsed}
+                onToggle={toggleProjects}
+              />
+              {!projectsCollapsed && (
+                filteredProjects.length > 0 ? (
+                  <div className="pb-1">
+                    {filteredProjects.map(item => {
+                      const idx = indexOf(item.id);
+                      return (
+                        <PaletteRow
+                          key={item.id}
+                          item={item}
+                          idx={idx}
+                          selected={idx === selectedIndex}
+                          onHover={setSelectedIndex}
+                          compact
+                        />
+                      );
+                    })}
                   </div>
-                  {items.map(item => {
-                    const idx = globalIdx++;
-                    return (
-                      <button
-                        key={item.id}
-                        role="option"
-                        aria-selected={idx === selectedIndex}
-                        data-cmd-idx={idx}
-                        onClick={item.action}
-                        onMouseEnter={() => setSelectedIndex(idx)}
-                        className={`w-full px-4 py-2 flex items-center gap-3 text-left transition-colors ${
-                          idx === selectedIndex
-                            ? 'bg-primary/10 text-primary dark:text-primary-dark'
-                            : 'text-app-text hover:bg-app-hover'
-                        }`}
-                      >
-                        <span className={idx === selectedIndex ? 'text-primary dark:text-primary-dark' : 'text-app-text-muted'}>
-                          {item.icon}
-                        </span>
-                        <span className="flex-1 min-w-0">
-                          <span className="text-[13px] font-medium truncate block">
-                            {item._rawContent ? highlightQuery(item.label, query) : item.label}
-                          </span>
-                          {item.description && (
-                            <span className="text-[11px] text-app-text-muted truncate block">{item.description}</span>
-                          )}
-                        </span>
-                        {item.shortcut && (
-                          <kbd className="kbd">{item.shortcut}</kbd>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-                );
-              })}
-              {searchLoading && !groupedActions['message'] && (
-                <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
-                  Messages <Loader2 size={10} className="animate-spin" />
-                </div>
+                ) : (
+                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessun progetto</div>
+                )
               )}
-            </>
-          )}
+            </div>
+          </aside>
+
+          {/* Center column — main results */}
+          <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
+            {allItems.length === 0 && !searchLoading ? (
+              <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">
+                Nessun risultato
+              </div>
+            ) : (
+              <>
+                {/* Topics & Recently Closed (merged + sorted by recency) */}
+                {filteredMain.length > 0 && (
+                  <>
+                    <SectionHeader label="Topic" />
+                    {filteredMain.map(item => {
+                      const idx = indexOf(item.id);
+                      return (
+                        <PaletteRow
+                          key={item.id}
+                          item={item}
+                          idx={idx}
+                          selected={idx === selectedIndex}
+                          onHover={setSelectedIndex}
+                          highlightTerm={query}
+                        />
+                      );
+                    })}
+                  </>
+                )}
+
+                {/* File search results */}
+                {searchFileItems.length > 0 && (
+                  <>
+                    <SectionHeader label="File" />
+                    {searchFileItems.map(item => {
+                      const idx = indexOf(item.id);
+                      return (
+                        <PaletteRow
+                          key={item.id}
+                          item={item}
+                          idx={idx}
+                          selected={idx === selectedIndex}
+                          onHover={setSelectedIndex}
+                          highlightTerm={query}
+                        />
+                      );
+                    })}
+                  </>
+                )}
+
+                {/* Messages */}
+                {(searchResults.length > 0 || searchLoading) && (
+                  <SectionHeader
+                    label="Messaggi"
+                    rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null}
+                  />
+                )}
+                {searchResults.map(item => {
+                  const idx = indexOf(item.id);
+                  return (
+                    <PaletteRow
+                      key={item.id}
+                      item={item}
+                      idx={idx}
+                      selected={idx === selectedIndex}
+                      onHover={setSelectedIndex}
+                      highlightTerm={query}
+                    />
+                  );
+                })}
+              </>
+            )}
+          </div>
+
+          {/* Right column — Tab recenti (recently closed) */}
+          <aside className="w-[240px] flex-shrink-0 border-l border-app-border flex flex-col bg-app-bg/40">
+            <div className="overflow-y-auto py-1 flex-1 min-h-0">
+              <AccordionHeader
+                label="Tab recenti"
+                count={filteredRecenti.length}
+                collapsed={recentiCollapsed}
+                onToggle={toggleRecenti}
+              />
+              {!recentiCollapsed && (
+                filteredRecenti.length > 0 ? (
+                  <div className="pb-1">
+                    {filteredRecenti.map(item => {
+                      const idx = indexOf(item.id);
+                      return (
+                        <PaletteRow
+                          key={item.id}
+                          item={item}
+                          idx={idx}
+                          selected={idx === selectedIndex}
+                          onHover={setSelectedIndex}
+                          compact
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">
+                    Nessuna tab chiusa
+                  </div>
+                )
+              )}
+            </div>
+          </aside>
         </div>
 
-        {/* Pinned quick actions — always visible */}
-        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap">
-          <button
-            onClick={() => { onNewTopic(); onClose(); }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
-          >
-            <Plus size={12} /> New Chat
-          </button>
+        {/* Actions bar — single row, scrolls horizontally if needed.
+            Lives at the bottom and is always visible. Action items are NOT
+            duplicated into the result list (the bar is the canonical surface). */}
+        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-nowrap overflow-x-auto flex-shrink-0 scrollbar-thin">
+          <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isElectron ? '⌘N' : undefined} />
           {onNewClaude && (
-            <button
-              onClick={() => { onNewClaude(); onClose(); }}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
-            >
-              <ClaudeIcon size={12} /> Claude
-            </button>
+            <ActionPill icon={<ClaudeIcon size={12} />} label="Claude" onClick={() => { onNewClaude(); onClose(); }} />
           )}
           {onNewTerminal && (
-            <button
-              onClick={() => { onNewTerminal(); onClose(); }}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
-            >
-              <TerminalSquare size={12} /> Terminal
-            </button>
+            <ActionPill icon={<TerminalSquare size={12} />} label="Terminal" onClick={() => { onNewTerminal(); onClose(); }} />
           )}
           {onNewProject && (
-            <button
-              onClick={() => { onNewProject(); onClose(); }}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
-            >
-              <FolderPlus size={12} /> Project
-            </button>
+            <ActionPill icon={<FolderPlus size={12} />} label="Project" onClick={() => { onNewProject(); onClose(); }} />
           )}
-          <button
-            onClick={() => { onOpenSettings(); onClose(); }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
-          >
-            <Settings size={12} /> Settings
-          </button>
-          <button
+          <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
+          <ActionPill
+            icon={themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />}
+            label="Theme"
             onClick={() => { onToggleTheme(); onClose(); }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors"
-          >
-            {themeMode === 'dark' ? <Sun size={12} /> : <Moon size={12} />} Theme
-          </button>
+          />
         </div>
 
-        {/* Footer with hints */}
-        <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[10px] text-app-text-muted">
-          <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> navigate</span>
-          <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> select</span>
-          <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> close</span>
+        {/* Footer hints */}
+        <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[11px] text-app-text-muted flex-shrink-0">
+          <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> naviga</span>
+          <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> apri</span>
+          <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> chiudi</span>
         </div>
       </div>
     </div>
   );
 }
 
+// ─── Subcomponents ──────────────────────────────────────────────────────────
+
+function AccordionHeader({ label, count, collapsed, onToggle }: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full px-3 py-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-app-text-muted uppercase tracking-wider hover:text-app-text transition-colors"
+    >
+      {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+      <span className="flex-1 text-left">{label}</span>
+      <span className="text-[10px] tabular-nums opacity-70">{count}</span>
+    </button>
+  );
+}
+
+function SectionHeader({ label, rightSlot }: { label: string; rightSlot?: React.ReactNode }) {
+  return (
+    <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
+      {label}
+      {rightSlot}
+    </div>
+  );
+}
+
+interface PaletteRowProps {
+  item: CommandAction;
+  idx: number;
+  selected: boolean;
+  onHover: (idx: number) => void;
+  compact?: boolean;
+  highlightTerm?: string;
+}
+
+function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: PaletteRowProps) {
+  // Fixed row height keeps closed-tabs, topics, files etc. visually aligned
+  // even when some have a description line and some don't. The icon slot is
+  // a fixed 14×14 box (rendered empty when item.icon is null) so labels
+  // line up across rows with and without icon.
+  const rowHeight = compact ? 'h-9' : 'h-11';
+  return (
+    <button
+      role="option"
+      aria-selected={selected}
+      data-cmd-idx={idx}
+      onClick={item.action}
+      onMouseEnter={() => onHover(idx)}
+      title={item.titleOverride || item.description}
+      className={`w-full ${compact ? 'px-3' : 'px-4'} ${rowHeight} flex items-center gap-2.5 text-left transition-colors ${
+        selected
+          ? 'bg-primary/10 text-primary dark:text-primary-dark'
+          : 'text-app-text hover:bg-app-hover'
+      }`}
+    >
+      <span
+        className={`w-[14px] h-[14px] flex items-center justify-center flex-shrink-0 ${
+          selected ? 'text-primary dark:text-primary-dark' : 'text-app-text-muted'
+        }`}
+        aria-hidden={!item.icon}
+      >
+        {item.icon}
+      </span>
+      <span className="flex-1 min-w-0 flex flex-col justify-center">
+        <span className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-medium truncate block leading-tight`}>
+          {highlightTerm ? highlightQuery(item.label, highlightTerm) : item.label}
+        </span>
+        {item.description && (
+          <span className="text-[11px] text-app-text-muted truncate block leading-tight mt-0.5">
+            {item.description}
+          </span>
+        )}
+      </span>
+      {item.shortcut && (
+        <kbd className="kbd flex-shrink-0">{item.shortcut}</kbd>
+      )}
+    </button>
+  );
+}
+
+function ActionPill({ icon, label, shortcut, onClick }: {
+  icon: React.ReactNode;
+  label: string;
+  shortcut?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors flex-shrink-0 whitespace-nowrap"
+      title={shortcut ? `${label} (${shortcut})` : label}
+    >
+      {icon} {label}
+      {shortcut && <kbd className="kbd ml-1 opacity-60">{shortcut}</kbd>}
+    </button>
+  );
+}
+
 function formatTimeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return 'just now';
+  if (seconds < 60) return 'ora';
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes}m fa`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${hours}h fa`;
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return `${days}g fa`;
 }
 
 function highlightQuery(text: string, query: string): React.ReactNode {

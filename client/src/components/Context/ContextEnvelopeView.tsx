@@ -83,7 +83,7 @@ function ProviderBadge({ envelope }: { envelope: ContextEnvelope }) {
   return (
     <span className="flex items-center gap-1.5 text-xs">
       <span className="font-mono text-gray-500 dark:text-gray-400">{envelope.providerName}</span>
-      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${cls}`}>
+      <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${cls}`}>
         {envelope.providerStrategy}
       </span>
     </span>
@@ -125,7 +125,7 @@ function PreviewTab({ preview }: { preview: { envelope: ContextEnvelope; payload
             <div className="truncate"><span className="text-gray-400">cwd:</span> <span className="font-mono">{meta.workingDir}</span></div>
           )}
           {meta.worktreeId && (
-            <div><span className="text-gray-400">worktree:</span> <span className="font-mono text-[10px]">{meta.worktreeId}</span></div>
+            <div><span className="text-gray-400">worktree:</span> <span className="font-mono text-[11px]">{meta.worktreeId}</span></div>
           )}
           {typeof meta.totalStoredMessages === 'number' && (
             <div><span className="text-gray-400">messages in DB:</span> {meta.totalStoredMessages}</div>
@@ -148,7 +148,7 @@ function PreviewTab({ preview }: { preview: { envelope: ContextEnvelope; payload
       </details>
       <details className="text-xs">
         <summary className="cursor-pointer text-gray-500 dark:text-gray-400">Raw envelope JSON</summary>
-        <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded overflow-auto max-h-64 text-[10px]">
+        <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded overflow-auto max-h-64 text-[11px]">
           {JSON.stringify(preview.envelope, null, 2)}
         </pre>
       </details>
@@ -176,7 +176,7 @@ function HistoryTab({ entries, dropped }: { entries: EnvelopeHistoryEntry[]; dro
               : 'text-gray-700 dark:text-gray-300'
           }`}
         >
-          <span className="font-mono text-[10px] text-gray-400 mt-0.5">{e.role}</span>
+          <span className="font-mono text-[11px] text-gray-400 mt-0.5">{e.role}</span>
           <span className="flex-1 truncate">
             {e.excluded ? (
               <em className="text-xs">excluded · {e.excludeReason}</em>
@@ -210,12 +210,12 @@ function SnapshotsTab({ snapshots, onClear }: { snapshots: ContextEnvelope[]; on
         const enabled = s.systemBlocks.filter((b) => b.enabled && b.injectedByTopicsApp).length;
         return (
           <div key={i} className="border border-gray-200 dark:border-gray-700 rounded p-2">
-            <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+            <div className="flex justify-between text-[11px] text-gray-500 mb-1">
               <span>{ts} · {s.providerName} ({s.providerStrategy})</span>
               <span>{enabled} blocks · {s.history.length} turns</span>
             </div>
             <div className="text-gray-700 dark:text-gray-300 truncate">
-              <span className="font-mono text-[10px] text-gray-400">user:</span>{' '}
+              <span className="font-mono text-[11px] text-gray-400">user:</span>{' '}
               {s.userMessage.content.slice(0, 120)}{s.userMessage.content.length > 120 ? '…' : ''}
             </div>
           </div>
@@ -223,7 +223,7 @@ function SnapshotsTab({ snapshots, onClear }: { snapshots: ContextEnvelope[]; on
       })}
       <button
         onClick={onClear}
-        className="text-[10px] text-red-500 hover:underline mt-1"
+        className="text-[11px] text-red-500 hover:underline mt-1"
       >
         Clear snapshots
       </button>

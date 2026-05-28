@@ -33,6 +33,8 @@ export function ProjectSidebar({
   onOpenBoard,
   onOpenProcessLog,
 }: ProjectSidebarProps) {
+  // Project name = last segment of the project path (the folder name).
+  const projectName = projectPath.split('/').filter(Boolean).pop() || 'Project';
   // Auto-collapse on mobile
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
@@ -151,7 +153,7 @@ export function ProjectSidebar({
     const iconSize = 16;
     const btnClass = `${'w-7 h-7'} flex items-center justify-center rounded transition-colors`;
     return (
-      <div className="w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
+      <div className="chrome-glass w-10 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col items-center py-2 gap-1">
         <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Expand sidebar" icon={PanelLeftOpen} />
         <div className="w-6 h-px bg-app-border my-1" />
         <button
@@ -186,8 +188,8 @@ export function ProjectSidebar({
         <div className="fixed inset-0 bg-black/50 z-40" onClick={onToggleCollapse} aria-hidden="true" />
         <div className="fixed inset-y-0 left-0 z-50 w-[280px] bg-elevated flex flex-col overflow-hidden shadow-lg border-r border-app-border">
           {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-app-border">
-            <span className="text-[12px] font-medium text-app-text">Project</span>
+          <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
+            <span className="text-[12px] font-semibold text-app-text truncate" title={projectName}>{projectName}</span>
             <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Hide sidebar" icon={PanelLeftClose} />
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom */}
@@ -250,7 +252,7 @@ export function ProjectSidebar({
                 <span>Processes</span>
                 <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 {runningCount > 0 && (
-                  <span className="ml-auto text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                  <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                     {runningCount}
                   </span>
                 )}
@@ -268,10 +270,10 @@ export function ProjectSidebar({
   }
 
   return (
-    <div className="w-56 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border">
-        <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wide">Project</span>
+    <div className="chrome-glass w-56 flex-shrink-0 border-r border-app-border bg-elevated flex flex-col overflow-hidden">
+      {/* Header — height matches the pane tab bar (h-10) */}
+      <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-app-border flex-shrink-0">
+        <span className="text-[12px] font-semibold text-app-text-secondary truncate" title={projectName}>{projectName}</span>
         <SidebarToggleButton onClick={onToggleCollapse} size="sm" title="Hide sidebar" icon={PanelLeftClose} />
       </div>
 
@@ -343,17 +345,17 @@ export function ProjectSidebar({
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
                 {cachedGit && cachedGit.fileCount > 0 && (
-                  <span className="text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
+                  <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
                     {cachedGit.fileCount}
                   </span>
                 )}
                 {cachedGit && cachedGit.behind > 0 && (
-                  <span className="text-[9px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
+                  <span className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
                     ↓{cachedGit.behind}
                   </span>
                 )}
                 {cachedGit && cachedGit.ahead > 0 && (
-                  <span className="text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
+                  <span className="text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
                     ↑{cachedGit.ahead}
                   </span>
                 )}
@@ -400,7 +402,7 @@ export function ProjectSidebar({
             <span>Processes</span>
             <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             {runningCount > 0 && (
-              <span className="ml-auto text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+              <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                 {runningCount}
               </span>
             )}

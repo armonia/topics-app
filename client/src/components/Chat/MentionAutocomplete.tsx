@@ -119,7 +119,7 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
           >
             <span className="text-[14px] flex-shrink-0">{item.avatarEmoji}</span>
             <span className="text-[11px] font-medium truncate flex-1">@{item.name}</span>
-            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${roleClass}`}>
+            <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${roleClass}`}>
               {isAll ? 'everyone' : item.role}
             </span>
           </button>

@@ -84,7 +84,7 @@ function OverflowMenu({
               >
                 <Icon size={14} className="text-app-text-muted" />
                 <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
-                <span className="text-[10px] text-app-text-muted text-right truncate">{cmd.description}</span>
+                <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
               </button>
             );
           })}
@@ -104,7 +104,7 @@ function OverflowMenu({
             >
               {isCallActive ? <PhoneOff size={14} /> : <Phone size={14} />}
               {isCallActive ? 'End call' : 'Voice call'}
-              <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧C</span>
+              <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧C</span>
             </button>
           )}
           {sttSupported && !isCallActive && (
@@ -118,7 +118,7 @@ function OverflowMenu({
             >
               {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
               {isListening ? 'Stop dictation' : 'Dictation mode'}
-              <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧D</span>
+              <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧D</span>
             </button>
           )}
           <button
@@ -133,7 +133,7 @@ function OverflowMenu({
           >
             {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
             {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
-            <span className="ml-auto text-[10px] text-app-text-muted">⌘⇧S</span>
+            <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
           </button>
         </div>
       )}
@@ -221,7 +221,7 @@ function MessageQueueBadge({
               />
             ))}
           </ul>
-          <div className="px-3 pb-2 pt-1 text-[10px] text-app-text-muted">
+          <div className="px-3 pb-2 pt-1 text-[11px] text-app-text-muted">
             Sent automatically when the current response finishes.
           </div>
         </div>
@@ -253,7 +253,7 @@ function QueuedRow({
 
   return (
     <li className="px-3 py-1.5 grid grid-cols-[20px_1fr_auto] gap-2 items-start group">
-      <span className="text-[10px] font-mono text-app-text-muted pt-1.5 select-none">{index + 1}.</span>
+      <span className="text-[11px] font-mono text-app-text-muted pt-1.5 select-none">{index + 1}.</span>
       <textarea
         ref={taRef}
         value={content}
@@ -690,7 +690,7 @@ export function ChatInput({
         <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 px-3 py-2 flex items-center gap-2 flex-shrink-0`}>
           <div className="flex-1 min-w-0">
             <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">No response received</div>
-            <div className="text-[10px] text-amber-600 dark:text-amber-500">The connection may have been interrupted</div>
+            <div className="text-[11px] text-amber-600 dark:text-amber-500">The connection may have been interrupted</div>
           </div>
           <button
             onClick={() => { const lastMsg = currentMessages[currentMessages.length - 1]; if (lastMsg?.content) sendMessageDirect(lastMsg.content); }}
@@ -761,7 +761,7 @@ export function ChatInput({
               <div className="mx-3 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-amber-500 rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                  <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
                     Editing message
                   </div>
                 </div>
@@ -776,7 +776,7 @@ export function ChatInput({
               <div className="mx-3 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-primary rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] text-app-text-tertiary font-medium">
+                  <div className="text-[11px] text-app-text-tertiary font-medium">
                     Replying to {replyingTo.role === 'user' ? 'yourself' : 'assistant'}
                   </div>
                   <div className="text-[11px] text-app-text-secondary truncate">
@@ -792,7 +792,7 @@ export function ChatInput({
             {/* Row 0c: Context pills (inside card) */}
             {hasContext && (
               <div className="px-3 mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-                <span className="text-[10px] text-app-text-muted font-medium flex-shrink-0">Context</span>
+                <span className="text-[11px] text-app-text-muted font-medium flex-shrink-0">Context</span>
                 {contextFilePaths.length > 0 && (
                   <ContextPills
                     files={contextFilePaths.map(cf => ({

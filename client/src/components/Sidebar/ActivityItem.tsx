@@ -59,7 +59,7 @@ export function ActivityItem({ event }: ActivityItemProps) {
       <div className="flex items-start gap-1.5">
         {/* Time */}
         <span
-          className="text-[10px] font-mono text-app-text-muted flex-shrink-0 w-[28px] text-right mt-[1px]"
+          className="text-[11px] font-mono text-app-text-muted flex-shrink-0 w-[28px] text-right mt-[1px]"
           title={new Date(event.timestamp).toISOString()}
         >
           {formatRelativeTime(event.timestamp)}
@@ -85,7 +85,7 @@ export function ActivityItem({ event }: ActivityItemProps) {
 
       {/* Expanded detail */}
       {expanded && hasDetail && (
-        <div className="mt-1 ml-[40px] text-[10px] font-mono text-app-text-muted bg-elevated rounded px-2 py-1 break-all max-h-[120px] overflow-y-auto">
+        <div className="mt-1 ml-[40px] text-[11px] font-mono text-app-text-muted bg-elevated rounded px-2 py-1 break-all max-h-[120px] overflow-y-auto">
           {event.detail || event.raw}
         </div>
       )}

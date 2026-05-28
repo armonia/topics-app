@@ -145,7 +145,7 @@ export const MessageBubble = memo(function MessageBubble({
       {dateSep && (
         <div className="flex items-center gap-3 my-3">
           <div className="flex-1 h-px bg-app-border" />
-          <span className="text-[10px] font-medium text-app-text-muted uppercase tracking-wider">{dateSep}</span>
+          <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wider">{dateSep}</span>
           <div className="flex-1 h-px bg-app-border" />
         </div>
       )}
@@ -227,7 +227,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           {/* Queued indicator for offline messages */}
           {msg.role === 'user' && (msg.queued || msg.partial) && (
-            <div className="text-[10px] text-amber-500 mt-0.5 text-right">
+            <div className="text-[11px] text-amber-500 mt-0.5 text-right">
               Queued
             </div>
           )}
@@ -263,7 +263,7 @@ export const MessageBubble = memo(function MessageBubble({
           )}
           {/* Timestamp on hover */}
           {msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
-            <div className={`text-[10px] text-app-placeholder mt-0.5 transition-opacity ${isTouchDevice ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'} ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+            <div className={`text-[11px] text-app-placeholder mt-0.5 transition-opacity ${isTouchDevice ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'} ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
               {formatTimestamp(msg.timestamp)}
             </div>
           )}

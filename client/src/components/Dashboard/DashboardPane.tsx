@@ -58,7 +58,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
           {loading && (
             <RefreshCw size={12} className="animate-spin text-app-text-muted" />
           )}
-          <span className="text-[10px] text-app-text-muted">Auto-refresh 60s</span>
+          <span className="text-[11px] text-app-text-muted">Auto-refresh 60s</span>
         </div>
       </div>
 

@@ -32,12 +32,12 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
           {value}
         </span>
         {unit && (
-          <span className="text-[10px] text-app-text-muted leading-none flex-shrink-0">
+          <span className="text-[11px] text-app-text-muted leading-none flex-shrink-0">
             {unit}
           </span>
         )}
       </div>
-      <span className="text-[10px] text-app-text-muted leading-tight truncate">
+      <span className="text-[11px] text-app-text-muted leading-tight truncate">
         {label}
       </span>
     </div>

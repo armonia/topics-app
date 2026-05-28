@@ -80,7 +80,7 @@ export function BoardMemoryPanel({ projectId, onWSMessage }: BoardMemoryPanelPro
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-app-border/40">
         <Brain size={14} className="text-emerald-400" />
         <span className="text-[12px] font-medium">Board Memory</span>
-        <span className="text-[10px] text-app-text-muted ml-1">({memory.length})</span>
+        <span className="text-[11px] text-app-text-muted ml-1">({memory.length})</span>
         <button onClick={load} className="ml-auto text-app-text-muted hover:text-app-text" title="Refresh">
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -100,7 +100,7 @@ export function BoardMemoryPanel({ projectId, onWSMessage }: BoardMemoryPanelPro
               {entry.tags.map(tag => (
                 <span
                   key={tag}
-                  className="text-[9px] px-1.5 py-[1px] rounded-sm font-medium"
+                  className="text-[11px] px-1.5 py-[1px] rounded-sm font-medium"
                   style={{
                     backgroundColor: `${TAG_COLORS[tag] || '#6b7280'}22`,
                     color: TAG_COLORS[tag] || '#6b7280',
@@ -109,11 +109,11 @@ export function BoardMemoryPanel({ projectId, onWSMessage }: BoardMemoryPanelPro
                   {tag}
                 </span>
               ))}
-              <span className="text-[9px] text-app-text-muted ml-auto">
+              <span className="text-[11px] text-app-text-muted ml-auto">
                 {timeAgo(entry.createdAt)}
               </span>
               {entry.source && (
-                <span className="text-[9px] text-app-text-muted">
+                <span className="text-[11px] text-app-text-muted">
                   {entry.source}
                 </span>
               )}
@@ -145,7 +145,7 @@ export function BoardMemoryPanel({ projectId, onWSMessage }: BoardMemoryPanelPro
         />
         <div className="flex items-center gap-1.5 mt-1">
           <input
-            className="flex-1 text-[10px] bg-app-bg/60 border border-app-border/40 rounded px-1.5 py-0.5
+            className="flex-1 text-[11px] bg-app-bg/60 border border-app-border/40 rounded px-1.5 py-0.5
                        text-app-text placeholder:text-app-text-muted/50
                        focus:outline-none focus:border-primary/40"
             placeholder="Tags (comma-separated)"
@@ -155,15 +155,15 @@ export function BoardMemoryPanel({ projectId, onWSMessage }: BoardMemoryPanelPro
           <button
             onClick={handleSubmit}
             disabled={!newContent.trim()}
-            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded
+            className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded
                        bg-primary/20 text-primary hover:bg-primary/30
                        disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <Send size={10} />
             Save
           </button>
-          {saved && <span className="text-[10px] text-emerald-400 ml-1">Saved</span>}
-          {saveError && <span className="text-[10px] text-red-400 ml-1">{saveError}</span>}
+          {saved && <span className="text-[11px] text-emerald-400 ml-1">Saved</span>}
+          {saveError && <span className="text-[11px] text-red-400 ml-1">{saveError}</span>}
         </div>
       </div>
     </div>

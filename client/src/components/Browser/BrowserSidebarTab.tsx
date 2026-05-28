@@ -65,7 +65,7 @@ export function BrowserSidebarTab({ contextId, url, agentActive, onClick, onClos
       <div className="flex-1 min-w-0">
         <div className="text-[11px] text-app-text truncate">{truncatedUrl || 'about:blank'}</div>
         {agentActive && (
-          <div className="flex items-center gap-1 text-[9px] text-red-500">
+          <div className="flex items-center gap-1 text-[11px] text-red-500">
             <Circle size={6} className="fill-red-500" />
             live
           </div>

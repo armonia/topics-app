@@ -234,7 +234,7 @@ export const TopicItem = memo(function TopicItem({
           <>
             {topic.updatedAt && (
               <span
-                className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums"
+                className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums"
                 title={new Date(topic.updatedAt).toLocaleString()}
               >
                 {relativeTime(topic.updatedAt)}
@@ -283,7 +283,7 @@ export const TopicItem = memo(function TopicItem({
               <>
                 {topic.updatedAt && (
                   <span
-                    className="text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden"
+                    className="text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden"
                     title={new Date(topic.updatedAt).toLocaleString()}
                   >
                     {relativeTime(topic.updatedAt)}
@@ -319,7 +319,7 @@ export const TopicItem = memo(function TopicItem({
       {/* Assigned agents badge */}
       {assignedAgentCount > 0 && (
         <span
-          className="flex-shrink-0 flex items-center gap-0.5 text-[10px] text-purple-500 dark:text-purple-400"
+          className="flex-shrink-0 flex items-center gap-0.5 text-[11px] text-purple-500 dark:text-purple-400"
           title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
         >
           <Bot size={12} />

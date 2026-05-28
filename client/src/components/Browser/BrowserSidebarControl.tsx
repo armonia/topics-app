@@ -117,7 +117,7 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
         })}
 
         {contexts.length === 0 && (
-          <p className="px-2 py-1 text-[10px] text-app-text-muted">
+          <p className="px-2 py-1 text-[11px] text-app-text-muted">
             No active browser contexts
           </p>
         )}

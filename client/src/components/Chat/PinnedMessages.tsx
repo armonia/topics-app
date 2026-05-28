@@ -11,7 +11,7 @@ export function PinnedMessages({ show, pinnedMessages }: PinnedMessagesProps) {
 
   return (
     <div className="border-b border-app-border bg-yellow-50/50 dark:bg-yellow-900/10 p-2 max-h-28 overflow-y-auto flex-shrink-0">
-      <div className="text-[10px] font-medium text-yellow-600/70 dark:text-yellow-400/60 mb-1 flex items-center gap-1">
+      <div className="text-[11px] font-medium text-yellow-600/70 dark:text-yellow-400/60 mb-1 flex items-center gap-1">
         <Pin size={14} /> Pinned
       </div>
       {pinnedMessages.map(msg => (

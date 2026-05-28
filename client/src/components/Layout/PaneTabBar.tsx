@@ -454,17 +454,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {panes.map((pane, paneIdx) => {
         const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
-        // Only render the visual "active tab" highlight when this group
-        // actually owns focus. Otherwise the local-active fallback used by
-        // the content router would also paint a selected tab, producing two
-        // simultaneous highlights across split groups. See `groupIsFocused`
-        // prop docstring above.
-        const isActive = groupIsFocused && activePaneId === pane.id;
-        // Tri-state: full highlight when fully focused, dimmed-active when
-        // the tab is the active one in this group but the App focus is
-        // elsewhere (e.g. project sits next to a focused sibling in split
-        // view), inactive otherwise.
-        const isActiveDimmed = isActive && !isAppFocused;
+        // Every split group always shows ITS active tab — there's exactly one
+        // active tab per group, so no double-highlight problem. The highlight is
+        // full when this group owns focus AND the app is focused, and otherwise
+        // dimmed-active, so the active tab stays visible in unfocused splits too.
+        const isSelected = activePaneId === pane.id;
+        const isFullyActive = isSelected && groupIsFocused && isAppFocused;
+        const isActiveDimmed = isSelected && !(groupIsFocused && isAppFocused);
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
@@ -474,7 +470,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // Streaming spinner: chat panes pulse during an LLM stream;
         // Loading affordance is owned by the canonical widgets below —
         // each reads from StreamingContext, no upstream prop needed.
-        const badgeCount = !isActive && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
+        const badgeCount = !isSelected && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
           <div
@@ -483,14 +479,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // submission and the tab visibly flashes.
             key={pane.stableKey ?? pane.id}
             data-pane-id={pane.id}
-            data-active={isActive ? 'true' : 'false'}
+            data-active={isSelected ? 'true' : 'false'}
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
             // sum past the fixed 150px and spill into the next tab. The label
             // already truncates; this guarantees the rest can't escape either.
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
-              isActive && !isActiveDimmed
+              isFullyActive
                 ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
                 : isActiveDimmed
                   ? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary ring-1 ring-black/[0.03]'
@@ -510,9 +506,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {showLeftIndicator && (
               <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
             )}
-            {isActive && pane.color && (
-              <div className="absolute inset-0 rounded-md pointer-events-none" style={{ backgroundColor: pane.color, opacity: 0.10 }} />
-            )}
+            {/* No selection colour wash: the tab colour is an auto-assigned
+                topic default ("invented"), not a manifest-provided colour, so a
+                selected tab just uses the normal selected styling. When a real
+                project manifest (icon + colour) is wired, drive the wash from
+                that instead. */}
             {/* PendingAction progress fill — covers the tab background L→R
                 during the 3 s soft-close countdown. Sub-component subscribes
                 to the context per-pane so an unrelated pane's state changes
@@ -524,7 +522,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
               <ClaudeIcon size={14} className="flex-shrink-0 text-[#D97757]" />
             ) : Icon ? (
-              <Icon size={14} className="flex-shrink-0" style={pane.color ? { color: pane.color } : undefined} />
+              <Icon size={14} className="flex-shrink-0" />
             ) : null}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
             {/* Claude Code session phase indicator — runs/tools/approvals.
@@ -538,12 +536,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {pane.type === 'project' && pane.projectPath && <ProjectClaudePhaseIndicator projectPath={pane.projectPath} />}
             {pane.type === 'project' && projectStatus?.[pane.id] && (() => {
               const ps = projectStatus[pane.id];
-              const showBranch = ps.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
+              // The project tab shows the project NAME (the label above) — never
+              // the git branch. The branch added noise and pushed the name into
+              // truncation; the useful at-a-glance status (dirty file count,
+              // ahead/behind, running processes) stays. Branch lives in the
+              // git/terminal panes where it's actually actionable.
               return (
-                <span className="flex items-center gap-1 min-w-0 overflow-hidden text-[10px] font-medium">
-                  {showBranch && (
-                    <span className="truncate max-w-[80px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>
-                  )}
+                <span className="flex items-center gap-1 min-w-0 overflow-hidden text-[11px] font-medium">
                   {ps.gitFileCount > 0 && (
                     <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>
                   )}

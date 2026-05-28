@@ -246,12 +246,12 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
               : ''
             }`}>{node.name}</span>
             {gitStatus && !isSelected && (
-              <span className={`text-[10px] flex-shrink-0 ml-1 ${getGitStatusColor(gitStatus)}`}>
+              <span className={`text-[11px] flex-shrink-0 ml-1 ${getGitStatusColor(gitStatus)}`}>
                 {getGitStatusLabel(gitStatus)}
               </span>
             )}
             {node.size !== undefined && !isDir && !gitStatus && (
-              <span className="ml-auto text-[10px] text-app-text-faint flex-shrink-0">
+              <span className="ml-auto text-[11px] text-app-text-faint flex-shrink-0">
                 {node.size < 1024 ? `${node.size}B` : node.size < 1048576 ? `${(node.size / 1024).toFixed(1)}K` : `${(node.size / 1048576).toFixed(1)}M`}
               </span>
             )}

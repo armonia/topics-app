@@ -10,7 +10,7 @@ export function ApprovalBanner({ approval, onReview }: ApprovalBannerProps) {
   if (approval.status !== 'pending') return null;
 
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/10 border border-yellow-500/20 rounded text-[10px]">
+    <div className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/10 border border-yellow-500/20 rounded text-[11px]">
       <ShieldAlert size={12} className="text-yellow-500 flex-shrink-0" />
       <span className="text-yellow-600 dark:text-yellow-400 flex-1">
         Approval required

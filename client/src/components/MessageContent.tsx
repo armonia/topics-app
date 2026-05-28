@@ -323,7 +323,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
             }}
           />
         </div>
-        <div className={`flex justify-between text-[10px] tabular-nums ${isUserMessage ? 'text-white/60' : 'text-app-text-muted'}`}>
+        <div className={`flex justify-between text-[11px] tabular-nums ${isUserMessage ? 'text-white/60' : 'text-app-text-muted'}`}>
           <span>{fmt(currentTime)}</span>
           <span>{fmt(duration)}</span>
         </div>
@@ -417,27 +417,27 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       {/* Header with language + controls */}
       <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
-          {language && <span className="text-[10px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
-          <span className="text-[10px] text-gray-500">{lineCount} lines</span>
+          {language && <span className="text-[11px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
+          <span className="text-[11px] text-gray-500">{lineCount} lines</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowLineNumbers(p => !p)}
-            className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
             title="Toggle line numbers"
           >
             #
           </button>
           <button
             onClick={() => setWordWrap(p => !p)}
-            className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-500 hover:text-gray-300'}`}
             title="Toggle word wrap"
           >
             ↩
           </button>
           <button
             onClick={handleCopy}
-            className="text-gray-400 hover:text-gray-200 rounded px-1.5 py-0.5 text-[10px] flex items-center gap-1 transition-colors"
+            className="text-gray-400 hover:text-gray-200 rounded px-1.5 py-0.5 text-[11px] flex items-center gap-1 transition-colors"
           >
             {copied ? <><Check size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
           </button>

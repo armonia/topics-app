@@ -40,7 +40,7 @@ const EventRow = memo(function EventRow({ event }: { event: JournalEvent }) {
         <div className="text-[11px] text-app-text leading-[16px] break-words">
           {event.summary}
         </div>
-        <div className="text-[10px] text-app-text-muted mt-0.5">
+        <div className="text-[11px] text-app-text-muted mt-0.5">
           {formatTime(event.timestamp)}
           {event.sessionKey && (
             <span className="ml-2 opacity-70">{event.sessionKey.split(':').pop()?.slice(0, 8)}</span>
@@ -136,7 +136,7 @@ export function JournalPanel({ enabled = true }: JournalPanelProps) {
 
       {/* Error */}
       {error && (
-        <div className="px-3 py-1.5 text-[10px] text-red-500 bg-red-50 dark:bg-red-900/10 flex-shrink-0">
+        <div className="px-3 py-1.5 text-[11px] text-red-500 bg-red-50 dark:bg-red-900/10 flex-shrink-0">
           {error}
         </div>
       )}

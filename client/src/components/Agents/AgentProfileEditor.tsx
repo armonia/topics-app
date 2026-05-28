@@ -83,7 +83,7 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
           {/* Avatar + Name */}
           <div className="flex items-start gap-3">
             <div>
-              <div className="text-[10px] text-app-text-muted mb-1">Avatar</div>
+              <div className="text-[11px] text-app-text-muted mb-1">Avatar</div>
               <div className="flex flex-wrap gap-1 w-[72px]">
                 {EMOJI_OPTIONS.map(e => (
                   <button
@@ -101,7 +101,7 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
               </div>
             </div>
             <div className="flex-1">
-              <div className="text-[10px] text-app-text-muted mb-1">Name</div>
+              <div className="text-[11px] text-app-text-muted mb-1">Name</div>
               <input
                 type="text"
                 value={name}
@@ -114,13 +114,13 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
 
           {/* Role */}
           <div>
-            <div className="text-[10px] text-app-text-muted mb-1">Role</div>
+            <div className="text-[11px] text-app-text-muted mb-1">Role</div>
             <div className="flex gap-1.5">
               {ROLE_OPTIONS.map(opt => (
                 <button
                   key={opt.value}
                   onClick={() => setRole(opt.value)}
-                  className={`text-[10px] px-3 py-1 rounded font-medium transition-colors ${
+                  className={`text-[11px] px-3 py-1 rounded font-medium transition-colors ${
                     role === opt.value
                       ? 'bg-primary/20 text-primary'
                       : 'bg-black/5 dark:bg-white/5 text-app-text-muted hover:text-app-text'
@@ -134,7 +134,7 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
 
           {/* Model Preference */}
           <div>
-            <div className="text-[10px] text-app-text-muted mb-1">Model Preference</div>
+            <div className="text-[11px] text-app-text-muted mb-1">Model Preference</div>
             <input
               type="text"
               value={modelPreference}
@@ -146,7 +146,7 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
 
           {/* Max Concurrent Tasks */}
           <div className="flex items-center gap-2">
-            <div className="text-[10px] text-app-text-muted flex-1">Max Concurrent Tasks</div>
+            <div className="text-[11px] text-app-text-muted flex-1">Max Concurrent Tasks</div>
             <input
               type="number"
               min={1}
@@ -159,7 +159,7 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
 
           {/* Capabilities */}
           <div>
-            <div className="text-[10px] text-app-text-muted mb-1">Capabilities (comma-separated)</div>
+            <div className="text-[11px] text-app-text-muted mb-1">Capabilities (comma-separated)</div>
             <input
               type="text"
               value={capabilitiesText}

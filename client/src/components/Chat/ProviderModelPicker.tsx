@@ -268,7 +268,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-500" />
                     <span className="text-[11px] font-semibold text-app-text">{label}</span>
                     {entry.isDefault && (
-                      <span className="ml-auto text-[9px] bg-primary/20 text-primary px-1 rounded">Default</span>
+                      <span className="ml-auto text-[11px] bg-primary/20 text-primary px-1 rounded">Default</span>
                     )}
                   </div>
                   {provModels.map((m) => {
@@ -292,7 +292,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                         }`}
                       >
                         <span className="font-mono">{m}</span>
-                        {isSelected && <span className="ml-auto text-[10px]">✓</span>}
+                        {isSelected && <span className="ml-auto text-[11px]">✓</span>}
                       </button>
                     );
                   })}
@@ -303,7 +303,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
 
           {/* Footer */}
           <div className="px-2.5 py-2 border-t border-app-border flex items-center justify-between gap-2">
-            <div className="text-[10px] text-app-text-muted truncate">
+            <div className="text-[11px] text-app-text-muted truncate">
               {override ? (
                 <button onClick={clearOverride} className="hover:text-app-text underline">Reset to default</button>
               ) : effective ? (
@@ -315,7 +315,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             {onOpenSettings && (
               <button
                 onClick={() => { onOpenSettings(); setOpen(false); }}
-                className="flex items-center gap-1 text-[10px] text-app-text-muted hover:text-app-text"
+                className="flex items-center gap-1 text-[11px] text-app-text-muted hover:text-app-text"
               >
                 <Settings size={10} />
                 Settings

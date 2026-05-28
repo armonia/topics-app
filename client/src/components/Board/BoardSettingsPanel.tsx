@@ -116,7 +116,7 @@ export function BoardSettingsPanel({ projectId, onClose }: BoardSettingsPanelPro
         </div>
 
         <div className="flex items-center gap-2 px-4 py-3 border-t border-app-border">
-          {saveError && <span className="text-[10px] text-red-400 flex-1">{saveError}</span>}
+          {saveError && <span className="text-[11px] text-red-400 flex-1">{saveError}</span>}
           <div className="flex-1" />
           <button onClick={onClose} className="text-[11px] text-app-text-muted px-3 py-1.5">Cancel</button>
           <button

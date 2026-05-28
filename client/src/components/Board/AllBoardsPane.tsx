@@ -249,7 +249,7 @@ export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) 
             {activeTask ? (
               <div className="bg-surface border border-app-border rounded-lg px-3 py-2 shadow-lg opacity-95 max-w-[240px]">
                 <div className="text-[12px] text-app-text truncate">{activeTask.text}</div>
-                <div className="text-[10px] text-app-text-muted mt-0.5">{getProjectLabel(activeTask.projectId)}</div>
+                <div className="text-[11px] text-app-text-muted mt-0.5">{getProjectLabel(activeTask.projectId)}</div>
               </div>
             ) : null}
           </DragOverlay>
@@ -277,7 +277,7 @@ function GlobalColumn({ column, tasks, isOver, onJumpToTopic }: {
         <span className={`text-[11px] font-semibold uppercase tracking-wider ${column.color}`}>
           {column.label}
         </span>
-        <span className="text-[10px] text-app-text-muted ml-auto tabular-nums">{tasks.length}</span>
+        <span className="text-[11px] text-app-text-muted ml-auto tabular-nums">{tasks.length}</span>
       </div>
 
       {/* Cards */}
@@ -287,7 +287,7 @@ function GlobalColumn({ column, tasks, isOver, onJumpToTopic }: {
             <SortableGlobalCard key={task.id} task={task} onJumpToTopic={onJumpToTopic} />
           ))}
           {tasks.length === 0 && (
-            <div className="text-[10px] text-app-placeholder text-center py-4 italic">Empty</div>
+            <div className="text-[11px] text-app-placeholder text-center py-4 italic">Empty</div>
           )}
         </div>
       </SortableContext>
@@ -319,16 +319,16 @@ function SortableGlobalCard({ task, onJumpToTopic }: { task: BoardTask; onJumpTo
     >
       <div className="text-[12px] text-app-text leading-tight">{task.text}</div>
       <div className="flex items-center gap-1.5 mt-1.5">
-        <span className="text-[9px] text-app-text-muted bg-app-bg px-1.5 py-0.5 rounded truncate max-w-[120px]">
+        <span className="text-[11px] text-app-text-muted bg-app-bg px-1.5 py-0.5 rounded truncate max-w-[120px]">
           {getProjectLabel(task.projectId)}
         </span>
         {task.priority > 2 && (
-          <span className={`text-[9px] font-bold ${priorityColors[task.priority] || ''}`}>
+          <span className={`text-[11px] font-bold ${priorityColors[task.priority] || ''}`}>
             P{task.priority}
           </span>
         )}
         {task.assignedTo && (
-          <span className="text-[9px] text-app-text-muted truncate max-w-[60px]">
+          <span className="text-[11px] text-app-text-muted truncate max-w-[60px]">
             {task.assignedTo}
           </span>
         )}
@@ -342,7 +342,7 @@ function SortableGlobalCard({ task, onJumpToTopic }: { task: BoardTask; onJumpTo
               onJumpToTopic?.(task.assignedTopicId!);
             }}
             title="Jump to teammate Topic"
-            className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[9px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
+            className="ml-auto flex items-center gap-0.5 px-1 py-[1px] rounded text-[11px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
           >
             <Crown size={8} />
             <span>teammate</span>

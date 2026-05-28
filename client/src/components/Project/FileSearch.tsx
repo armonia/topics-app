@@ -142,14 +142,14 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
           {/* Toggles */}
           <button
             onClick={() => setCaseSensitive(v => !v)}
-            className={`px-1.5 py-0.5 text-[10px] font-mono rounded border ${caseSensitive ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
+            className={`px-1.5 py-0.5 text-[11px] font-mono rounded border ${caseSensitive ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
             title="Case sensitive"
           >
             Aa
           </button>
           <button
             onClick={() => setUseRegex(v => !v)}
-            className={`px-1.5 py-0.5 text-[10px] font-mono rounded border ${useRegex ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
+            className={`px-1.5 py-0.5 text-[11px] font-mono rounded border ${useRegex ? 'border-primary text-primary bg-primary/10' : 'border-app-spinner text-app-text-muted'}`}
             title="Use regex"
           >
             .*
@@ -190,7 +190,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
                         idx === selectedIdx ? 'bg-primary/15' : 'hover:bg-app-hover'
                       }`}
                     >
-                      <span className="text-[10px] text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
+                      <span className="text-[11px] text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
                         {r.lineNumber}
                       </span>
                       <span className="text-xs text-app-text-body font-mono truncate">
@@ -203,7 +203,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
             ));
           })()}
           {!loading && results.length >= 100 && (
-            <div className="text-center text-app-text-muted text-[10px] py-2">Showing first 100 results</div>
+            <div className="text-center text-app-text-muted text-[11px] py-2">Showing first 100 results</div>
           )}
         </div>
       </div>

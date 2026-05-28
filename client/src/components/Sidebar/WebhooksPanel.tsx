@@ -221,14 +221,14 @@ function WebhookRow({ webhook, onToggle, onEdit, onDelete }: WebhookRowProps) {
 
       <div className="flex-1 min-w-0">
         <div className="text-[11px] font-medium text-app-text truncate">{webhook.name}</div>
-        <div className="flex items-center gap-2 text-[10px] text-app-text-muted">
+        <div className="flex items-center gap-2 text-[11px] text-app-text-muted">
           <span className="truncate max-w-[120px]">{webhook.url}</span>
           {webhook.events.length > 0 && (
             <span className="bg-app-hover rounded px-1">{webhook.events.length} events</span>
           )}
         </div>
         {testResult && (
-          <div className={`text-[10px] mt-0.5 ${testResult.status === 'success' ? 'text-green-500' : 'text-red-500'}`}>
+          <div className={`text-[11px] mt-0.5 ${testResult.status === 'success' ? 'text-green-500' : 'text-red-500'}`}>
             Test: {testResult.status}
           </div>
         )}
@@ -318,9 +318,9 @@ function WebhookForm({ webhook, onSave, onCancel }: WebhookFormProps) {
 
       {webhook && (
         <div>
-          <div className="text-[10px] text-app-text-muted mb-1">Secret</div>
+          <div className="text-[11px] text-app-text-muted mb-1">Secret</div>
           <div className="flex items-center gap-1">
-            <div className="flex-1 px-2 py-1 text-[10px] bg-app-hover border border-app-border rounded text-app-text-muted font-mono truncate">
+            <div className="flex-1 px-2 py-1 text-[11px] bg-app-hover border border-app-border rounded text-app-text-muted font-mono truncate">
               {'•'.repeat(12)}
             </div>
             <button onClick={copySecret} className="p-1 text-app-text-muted hover:text-app-text" title="Copy secret">
@@ -334,10 +334,10 @@ function WebhookForm({ webhook, onSave, onCancel }: WebhookFormProps) {
       )}
 
       <div>
-        <div className="text-[10px] text-app-text-muted mb-1">Events</div>
+        <div className="text-[11px] text-app-text-muted mb-1">Events</div>
         <div className="grid grid-cols-2 gap-1">
           {KNOWN_EVENTS.map(event => (
-            <label key={event} className="flex items-center gap-1.5 text-[10px] text-app-text cursor-pointer">
+            <label key={event} className="flex items-center gap-1.5 text-[11px] text-app-text cursor-pointer">
               <input
                 type="checkbox"
                 checked={events.includes(event)}

@@ -153,7 +153,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
       {/* Disabled jobs (collapsed) */}
       {disabledJobs.length > 0 && (
         <details className="group">
-          <summary className="px-2 py-1 text-[10px] text-app-text-muted cursor-pointer hover:text-app-text-secondary list-none flex items-center gap-1">
+          <summary className="px-2 py-1 text-[11px] text-app-text-muted cursor-pointer hover:text-app-text-secondary list-none flex items-center gap-1">
             <ChevronRight size={10} className="group-open:rotate-90 transition-transform text-app-text-muted" />
             {disabledJobs.length} disabled
           </summary>
@@ -229,7 +229,7 @@ function JobRow({ job, onToggle, onRun, onDelete }: JobRowProps) {
         <div className="text-[11px] font-medium text-app-text truncate">
           {name}
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-app-text-muted">
+        <div className="flex items-center gap-2 text-[11px] text-app-text-muted">
           <span className="flex items-center gap-0.5">
             <ScheduleIcon size={10} />
             {formatSchedule(job.schedule)}

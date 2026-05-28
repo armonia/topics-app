@@ -63,7 +63,7 @@ export function HeartbeatTimeline({ agentId, agentName }: HeartbeatTimelineProps
       <div className="flex items-center gap-1.5 px-2 py-1">
         <Activity size={12} className="text-app-text-muted" />
         <span className="text-[11px] font-medium text-app-text">Session History</span>
-        <span className="text-[10px] text-app-text-muted ml-auto">{sessions.length} sessions</span>
+        <span className="text-[11px] text-app-text-muted ml-auto">{sessions.length} sessions</span>
       </div>
 
       <div className="space-y-0.5 max-h-[300px] overflow-y-auto">
@@ -78,34 +78,34 @@ export function HeartbeatTimeline({ agentId, agentName }: HeartbeatTimelineProps
             {/* Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-app-text font-medium">{session.status}</span>
+                <span className="text-[11px] text-app-text font-medium">{session.status}</span>
                 {session.taskId && (
-                  <span className="text-[9px] px-1 py-px rounded bg-primary/10 text-primary truncate max-w-[120px]">
+                  <span className="text-[11px] px-1 py-px rounded bg-primary/10 text-primary truncate max-w-[120px]">
                     {session.taskId.slice(0, 8)}
                   </span>
                 )}
               </div>
-              <div className="text-[9px] text-app-text-muted">
+              <div className="text-[11px] text-app-text-muted">
                 {formatTime(session.startedAt)}
                 {session.completedAt && ` — ${formatTime(session.completedAt)}`}
               </div>
             </div>
 
             {/* Duration */}
-            <span className="text-[10px] text-app-text-muted flex-shrink-0">
+            <span className="text-[11px] text-app-text-muted flex-shrink-0">
               {formatDuration(session.startedAt, session.completedAt)}
             </span>
 
             {/* Tokens */}
             {session.totalTokens > 0 && (
-              <span className="text-[9px] text-app-text-muted flex-shrink-0">
+              <span className="text-[11px] text-app-text-muted flex-shrink-0">
                 {session.totalTokens.toLocaleString()}t
               </span>
             )}
 
             {/* Error */}
             {session.errorMessage && (
-              <span className="text-[9px] text-red-400 truncate max-w-[100px]" title={session.errorMessage}>
+              <span className="text-[11px] text-red-400 truncate max-w-[100px]" title={session.errorMessage}>
                 {session.errorMessage}
               </span>
             )}

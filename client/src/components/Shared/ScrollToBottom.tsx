@@ -20,7 +20,7 @@ export function ScrollToBottom({ show, newCount, onClick, bottomOffset = 0 }: Sc
     >
       <ArrowDown size={16} />
       {newCount > 0 && (
-        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1">
           {newCount > 99 ? '99+' : newCount}
         </span>
       )}

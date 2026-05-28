@@ -22,10 +22,15 @@ const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
 const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 
 const DARK_THEME = {
-  background: '#1a1a1a',
+  // Near-neutral dark gray matched to the project sidebar's dark chrome. The
+  // chrome is translucent vibrancy (reads gray, not blue), so an OPAQUE terminal
+  // must stay near-neutral — at this low lightness any blue channel is amplified
+  // and immediately reads "blue". Keep R/G/B within ~3 (whisper of cool, never
+  // warm); darken to match the sidebar, never raise saturation.
+  background: '#0d0e10',
   foreground: '#d4d4d8',
   cursor: '#a1a1aa',
-  cursorAccent: '#1a1a1a',
+  cursorAccent: '#0d0e10',
   selectionBackground: '#3f3f4640',
   black: '#18181b',
   red: '#f87171',
@@ -70,7 +75,11 @@ const LIGHT_THEME = {
 };
 
 function getTerminalTheme(isDark: boolean) {
-  return isDark ? DARK_THEME : LIGHT_THEME;
+  // xterm background is transparent so the container's .chrome-glass (the exact
+  // frosted vibrancy of the project sidebar) shows through — identical CSS,
+  // identical pixels. The container keeps an opaque fallback bg for non-Electron
+  // web, where .chrome-glass is a no-op.
+  return { ...(isDark ? DARK_THEME : LIGHT_THEME), background: 'rgba(0,0,0,0)' };
 }
 
 interface SingleTerminalPaneProps {
@@ -133,6 +142,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       cursorStyle: 'bar',
       scrollback: 5000,
       allowProposedApi: true,
+      allowTransparency: true,
       // @ts-expect-error copyOnSelect exists at runtime but missing from v6 types
       copyOnSelect: true,
       // xterm.js v6: default renderer is DOM (real DOM nodes → native iOS text selection)
@@ -464,11 +474,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         </div>
       )}
 
-      {/* Terminal area */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
+      {/* Terminal area — chrome-glass matches the project sidebar's frosted
+          vibrancy under Electron (xterm bg is transparent so it shows through);
+          inline bg is the opaque web fallback + covers any sub-cell edge gap. */}
+      <div
+        className="flex-1 min-h-0 relative overflow-hidden chrome-glass"
+        style={{ backgroundColor: isDarkRef.current ? DARK_THEME.background : LIGHT_THEME.background }}
+      >
         <div
           ref={containerRef}
-          className="absolute inset-0 p-1"
+          className="absolute inset-0"
           onClick={() => termRef.current?.term.focus()}
         />
         {/* Copy button for non-touch */}

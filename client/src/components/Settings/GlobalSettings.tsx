@@ -126,7 +126,7 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
           onChange={(e) => onChange('fontSize', parseInt(e.target.value))}
           className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
         />
-        <div className="flex justify-between text-[10px] text-app-text-muted mt-1">
+        <div className="flex justify-between text-[11px] text-app-text-muted mt-1">
           <span>12px</span>
           <span>15px</span>
           <span>18px</span>
@@ -426,14 +426,14 @@ function ProviderCard({ entry, expanded, testing, result, onToggle, onSetDefault
         {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
         <span className="text-[12px] font-semibold text-app-text">{label}</span>
-        <span className="text-[10px] text-app-text-muted">{STATUS_LABELS[entry.status]}</span>
-        {entry.version && <span className="text-[10px] text-app-text-muted">· v{entry.version}</span>}
+        <span className="text-[11px] text-app-text-muted">{STATUS_LABELS[entry.status]}</span>
+        {entry.version && <span className="text-[11px] text-app-text-muted">· v{entry.version}</span>}
         {modelsCount > 0 && (
-          <span className="text-[10px] text-app-text-muted">· {modelsCount} models</span>
+          <span className="text-[11px] text-app-text-muted">· {modelsCount} models</span>
         )}
         <div className="ml-auto flex items-center gap-1">
           {entry.isDefault && (
-            <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">Default</span>
+            <span className="text-[11px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">Default</span>
           )}
         </div>
       </button>
@@ -511,7 +511,7 @@ function ProviderCard({ entry, expanded, testing, result, onToggle, onSetDefault
 
           {/* Freshness footer */}
           {entry.fetchedAt && (
-            <div className="text-[10px] text-app-text-muted pt-1">
+            <div className="text-[11px] text-app-text-muted pt-1">
               Updated {relativeTime(entry.fetchedAt)}
             </div>
           )}
@@ -550,7 +550,7 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
           <span className="break-words flex-1">{req.hint}</span>
           <button
             onClick={copy}
-            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface border border-app-border hover:bg-app-hover text-[10px]"
+            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface border border-app-border hover:bg-app-hover text-[11px]"
             title="Copy"
           >
             <Copy size={10} />
@@ -611,7 +611,7 @@ function ClaudeCodeModelPicker({ models, currentModel, onSaved }: { models: stri
         {saving && <RefreshCw size={11} className="animate-spin text-app-text-muted" />}
       </div>
       {error && (
-        <div className="mt-1 text-[10px] text-red-500">{error}</div>
+        <div className="mt-1 text-[11px] text-red-500">{error}</div>
       )}
     </div>
   );

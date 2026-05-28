@@ -132,7 +132,7 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
             {task.tags.map(tag => (
               <span
                 key={tag.id}
-                className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                className="text-[11px] px-1.5 py-0.5 rounded-full font-medium"
                 style={{ backgroundColor: tag.color + '20', color: tag.color }}
               >
                 {tag.name}
@@ -163,7 +163,7 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
 
         {/* Description */}
         <div>
-          <div className="text-[10px] font-semibold text-app-text-muted uppercase tracking-wider mb-1">Description</div>
+          <div className="text-[11px] font-semibold text-app-text-muted uppercase tracking-wider mb-1">Description</div>
           {editingDescription ? (
             <div className="space-y-1">
               <textarea
@@ -173,8 +173,8 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
                 autoFocus
               />
               <div className="flex gap-1">
-                <button onClick={handleSaveDescription} className="text-[10px] bg-primary text-white px-2 py-0.5 rounded">Save</button>
-                <button onClick={() => { setEditingDescription(false); setDescription(task.description || ''); }} className="text-[10px] text-app-text-muted px-2 py-0.5">Cancel</button>
+                <button onClick={handleSaveDescription} className="text-[11px] bg-primary text-white px-2 py-0.5 rounded">Save</button>
+                <button onClick={() => { setEditingDescription(false); setDescription(task.description || ''); }} className="text-[11px] text-app-text-muted px-2 py-0.5">Cancel</button>
               </div>
             </div>
           ) : (
@@ -189,18 +189,18 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
 
         {/* Comments */}
         <div>
-          <div className="flex items-center gap-1 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider mb-1">
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-app-text-muted uppercase tracking-wider mb-1">
             <MessageSquare size={12} />
             <span>Comments ({comments.length})</span>
           </div>
 
           {loadingComments ? (
-            <div className="text-[10px] text-app-placeholder py-2 text-center">Loading...</div>
+            <div className="text-[11px] text-app-placeholder py-2 text-center">Loading...</div>
           ) : (
             <div className="space-y-2">
               {comments.map(c => (
                 <div key={c.id} className="bg-black/3 dark:bg-white/3 rounded px-2 py-1.5">
-                  <div className="flex items-center gap-1 text-[9px] text-app-text-muted mb-0.5">
+                  <div className="flex items-center gap-1 text-[11px] text-app-text-muted mb-0.5">
                     <span className="font-medium">{c.author}</span>
                     <span>&middot;</span>
                     <span>{new Date(c.createdAt).toLocaleString()}</span>
@@ -211,7 +211,7 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
             </div>
           )}
 
-          {commentError && <div className="text-[10px] text-red-400 px-1 py-0.5">{commentError}</div>}
+          {commentError && <div className="text-[11px] text-red-400 px-1 py-0.5">{commentError}</div>}
 
           {/* Add comment */}
           <div className="flex items-center gap-1 mt-2">
@@ -234,7 +234,7 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
       </div>
 
       {/* Footer */}
-      <div className="flex items-center px-3 py-1.5 border-t border-app-border text-[9px] text-app-text-muted">
+      <div className="flex items-center px-3 py-1.5 border-t border-app-border text-[11px] text-app-text-muted">
         <span className="flex-1">
           Created {new Date(task.createdAt).toLocaleString()}
           {task.completedAt && <> &middot; Completed {new Date(task.completedAt).toLocaleString()}</>}
@@ -242,7 +242,7 @@ export function TaskDetailPanel({ task, projectId, tags: _tags, onClose, onUpdat
         {onArchive && (
           <button
             onClick={() => { onArchive(task.id); onClose(); }}
-            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded text-app-text-muted hover:text-yellow-500 hover:bg-yellow-500/10 transition-colors"
+            className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded text-app-text-muted hover:text-yellow-500 hover:bg-yellow-500/10 transition-colors"
             title="Archive task"
           >
             <Archive size={10} />

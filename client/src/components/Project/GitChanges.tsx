@@ -426,7 +426,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
         style={{ left: x, top: y }}
       >
-        <div className="px-3 py-1 text-[10px] text-app-text-muted truncate border-b border-app-border mb-0.5">
+        <div className="px-3 py-1 text-[11px] text-app-text-muted truncate border-b border-app-border mb-0.5">
           {label}
         </div>
         {count === 1 && (
@@ -517,7 +517,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       return (
         <div className="flex flex-col items-center justify-center py-4 gap-1">
           <p className="text-red-500 text-[11px]">{error}</p>
-          <button onClick={loadStatus} className="text-[10px] text-primary hover:underline">Retry</button>
+          <button onClick={loadStatus} className="text-[11px] text-primary hover:underline">Retry</button>
         </div>
       );
     }
@@ -554,17 +554,17 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               </button>
             )}
             {hasData && fileCount > 0 && (
-              <span className="text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full" title={`${fileCount} changed files`}>
+              <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full" title={`${fileCount} changed files`}>
                 {fileCount}
               </span>
             )}
             {hasData && gitStatus!.behind > 0 && (
-              <button onClick={handlePull} disabled={pulling} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-[9px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 transition-colors" title={`Pull ${gitStatus!.behind} commits`}>
+              <button onClick={handlePull} disabled={pulling} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 transition-colors" title={`Pull ${gitStatus!.behind} commits`}>
                 {pulling ? <div className="w-2.5 h-2.5 border border-red-300 border-t-red-500 rounded-full animate-spin" /> : <>↓{gitStatus!.behind}</>}
               </button>
             )}
             {hasData && gitStatus!.ahead > 0 && (
-              <button onClick={handlePush} disabled={pushing} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-[9px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 disabled:opacity-40 transition-colors" title={`Push ${gitStatus!.ahead} commits`}>
+              <button onClick={handlePush} disabled={pushing} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 disabled:opacity-40 transition-colors" title={`Push ${gitStatus!.ahead} commits`}>
                 {pushing ? <div className="w-2.5 h-2.5 border border-green-300 border-t-green-500 rounded-full animate-spin" /> : <>↑{gitStatus!.ahead}</>}
               </button>
             )}
@@ -579,11 +579,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {/* Expandable content */}
         {expanded && notGit && (
           <div className="px-3 py-2 flex items-center gap-2">
-            <span className="text-[10px] text-app-text-muted">No git repository</span>
+            <span className="text-[11px] text-app-text-muted">No git repository</span>
             <button
               onClick={handleInit}
               disabled={initializing}
-              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
             >
               {initializing ? (
                 <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
@@ -596,14 +596,14 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         )}
         {expanded && error && !notGit && (
           <div className="px-3 py-1">
-            <p className="text-red-500 text-[10px]">{error}</p>
-            <button onClick={loadStatus} className="text-[9px] text-primary hover:underline">Retry</button>
+            <p className="text-red-500 text-[11px]">{error}</p>
+            <button onClick={loadStatus} className="text-[11px] text-primary hover:underline">Retry</button>
           </div>
         )}
         {expanded && hasData && (
           <>
             {gitStatus!.files.length === 0 ? (
-              <div className="px-3 py-3 text-center text-app-text-tertiary text-[10px]">
+              <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
                 <CheckCircle size={14} className="mx-auto mb-1 opacity-40" />
                 Clean working tree
               </div>
@@ -632,7 +632,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     </span>
                     <span className="truncate text-app-text-body min-w-0">
                       {basename}
-                      {dir && <span className="text-app-text-muted ml-1 text-[9px]">{dir}</span>}
+                      {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
                     </span>
                     <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover/file:opacity-100 transition-all flex-shrink-0">
                       {group === 'unstaged' && (
@@ -689,7 +689,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                     <button
                       onClick={handleCommit}
                       disabled={committing || !commitMessage.trim() || stagedFiles.length === 0}
-                      className="flex items-center gap-0.5 px-1.5 h-[22px] text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                      className="flex items-center gap-0.5 px-1.5 h-[22px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                       title="Commit staged changes"
                     >
                       {committing ? (
@@ -736,7 +736,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                 {!showAddRemote ? (
                   <button
                     onClick={() => setShowAddRemote(true)}
-                    className="flex items-center gap-1 text-[10px] text-app-text-muted hover:text-primary transition-colors"
+                    className="flex items-center gap-1 text-[11px] text-app-text-muted hover:text-primary transition-colors"
                   >
                     <Link size={10} />
                     Add remote
@@ -835,12 +835,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         onClick={(e) => handleFileSelect(file.path, group, e)}
         onContextMenu={(e) => handleContextMenu(e, file.path, group)}
       >
-        <span className={`${st.color} ${st.bg} text-[10px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
+        <span className={`${st.color} ${st.bg} text-[11px] font-bold px-1 py-0.5 rounded leading-none flex-shrink-0 min-w-[18px] text-center`}>
           {st.text}
         </span>
         <span className="truncate text-app-text-body min-w-0">
           {basename}
-          {dir && <span className="text-app-text-muted ml-1 text-[10px]">{dir}</span>}
+          {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
         </span>
         <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
           {group === 'unstaged' && (
@@ -971,7 +971,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             <button
               onClick={handleCommit}
               disabled={committing || !commitMessage.trim() || fullStagedFiles.length === 0}
-              className="w-full flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="w-full flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {committing ? (
                 <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
@@ -1001,7 +1001,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   <div className="flex items-center justify-between px-2 py-1 group/hdr select-none">
                     <button
                       onClick={() => setStagedExpanded(v => !v)}
-                      className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+                      className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
                     >
                       {stagedExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                       Staged ({fullStagedFiles.length})
@@ -1024,7 +1024,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   <div className="flex items-center justify-between px-2 py-1 group/hdr select-none">
                     <button
                       onClick={() => setUnstagedExpanded(v => !v)}
-                      className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+                      className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
                     >
                       {unstagedExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                       Changes ({fullUnstagedFiles.length})
@@ -1068,7 +1068,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
           <>
             <div className="px-3 py-1.5 border-b border-app-border bg-elevated dark:bg-app-panel flex-shrink-0 flex items-center justify-between">
               <span className="text-[12px] text-app-text-secondary">{selectedFile}</span>
-              <div className="flex items-center gap-2 text-[10px] text-app-text-muted">
+              <div className="flex items-center gap-2 text-[11px] text-app-text-muted">
                 <span>Original (HEAD)</span>
                 <span>|</span>
                 <span>Modified (Working)</span>
@@ -1297,7 +1297,7 @@ function CompactFileList({
             <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleStaged}
-                className="flex items-center gap-1 text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+                className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
               >
                 {stagedExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 Staged ({stagedFiles.length})
@@ -1318,7 +1318,7 @@ function CompactFileList({
             <div className="flex items-center justify-between px-3 py-1 group/hdr select-none">
               <button
                 onClick={onToggleUnstaged}
-                className="flex items-center gap-1 text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+                className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
               >
                 {unstagedExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 Changes ({unstagedFiles.length})
@@ -1379,14 +1379,14 @@ function AddRemoteForm({ name, url, onNameChange, onUrlChange, onAdd, onCancel, 
           value={name}
           onChange={e => onNameChange(e.target.value)}
           placeholder="name"
-          className="w-[60px] h-[20px] px-1 text-[10px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+          className="w-[60px] h-[20px] px-1 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
         />
         <input
           type="text"
           value={url}
           onChange={e => onUrlChange(e.target.value)}
           placeholder="https://github.com/..."
-          className="flex-1 min-w-0 h-[20px] px-1 text-[10px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+          className="flex-1 min-w-0 h-[20px] px-1 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
           onKeyDown={e => {
             if (e.key === 'Enter') { e.preventDefault(); onAdd(); }
             if (e.key === 'Escape') onCancel();
@@ -1396,7 +1396,7 @@ function AddRemoteForm({ name, url, onNameChange, onUrlChange, onAdd, onCancel, 
         <button
           onClick={onAdd}
           disabled={adding || !name.trim() || !url.trim()}
-          className="px-1.5 h-[20px] text-[9px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+          className="px-1.5 h-[20px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
         >
           {adding ? <div className="w-2 h-2 border border-white/30 border-t-white rounded-full animate-spin" /> : 'Add'}
         </button>
@@ -1433,7 +1433,7 @@ function RemotesSection({
       <div className="flex items-center justify-between px-3 py-1 group/hdr">
         <button
           onClick={onToggle}
-          className="flex items-center gap-1 text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+          className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
         >
           {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
           <Globe size={10} />
@@ -1469,7 +1469,7 @@ function RemotesSection({
             >
               <Globe size={10} className="text-app-text-muted flex-shrink-0" />
               <span className="font-medium text-app-text-heading">{r.name}</span>
-              <span className="truncate text-app-text-muted text-[10px] min-w-0">{r.fetchUrl}</span>
+              <span className="truncate text-app-text-muted text-[11px] min-w-0">{r.fetchUrl}</span>
               <button
                 onClick={() => onRemove(r.name)}
                 className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover/remote:opacity-100 flex-shrink-0"

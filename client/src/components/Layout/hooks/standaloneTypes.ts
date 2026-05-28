@@ -17,7 +17,7 @@ import type { Topic, WSMessage, PaneType, PanelTab } from '../../../types';
 export interface UsePaneOrderingArgs {
   topicIds: string[];
   persistOrder: boolean;
-  onClosePanel: (paneId: string) => void;
+  onClosePanel: (paneId: string, onCommit?: () => void) => void;
   onFocusPanel: (paneId: string) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   pendingBrowserPane?: string | null;
@@ -109,7 +109,7 @@ export interface UsePaneLifecycleArgs {
   topics: Record<string, Topic>;
   topicIds: string[];
   gridItemKey: string;
-  onClosePanel: (paneId: string) => void;
+  onClosePanel: (paneId: string, onCommit?: () => void) => void;
   onFocusPanel: (paneId: string) => void;
   onCloseMultiplePanels?: (panelIds: string[]) => void;
   onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;

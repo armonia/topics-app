@@ -97,7 +97,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           <div className={`mt-1 mb-2 border rounded-lg overflow-hidden text-left ${statusColor()}`}>
             {Object.keys(toolCall.args).length > 0 && (
               <div className="px-3 py-2 border-b border-inherit">
-                <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
+                <div className="text-[11px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
                 <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
                   {JSON.stringify(toolCall.args, null, 2)}
                 </pre>
@@ -105,7 +105,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
             )}
             {toolCall.result && (
               <div className="px-3 py-2 border-b border-inherit">
-                <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
+                <div className="text-[11px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
                 <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
                   {toolCall.result}
                 </pre>
@@ -113,7 +113,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
             )}
             {toolCall.error && (
               <div className="px-3 py-2">
-                <div className="text-[10px] uppercase text-red-500 mb-1 font-semibold">Error</div>
+                <div className="text-[11px] uppercase text-red-500 mb-1 font-semibold">Error</div>
                 <pre data-testid="tool-call-error" className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
                   {toolCall.error}
                 </pre>
@@ -149,7 +149,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {/* Arguments */}
           {Object.keys(toolCall.args).length > 0 && (
             <div className="px-3 py-2 border-b border-inherit">
-              <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
+              <div className="text-[11px] uppercase text-app-text-muted mb-1 font-semibold">Arguments</div>
               <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-32">
                 {JSON.stringify(toolCall.args, null, 2)}
               </pre>
@@ -158,7 +158,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {/* Result */}
           {toolCall.result && (
             <div className="px-3 py-2">
-              <div className="text-[10px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
+              <div className="text-[11px] uppercase text-app-text-muted mb-1 font-semibold">Result</div>
               <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-48">
                 {toolCall.result}
               </pre>
@@ -167,7 +167,7 @@ export const ToolCallBadge = memo(function ToolCallBadge({ toolCall, compact = f
           {/* Error */}
           {toolCall.error && (
             <div className="px-3 py-2">
-              <div className="text-[10px] uppercase text-red-500 mb-1 font-semibold">Error</div>
+              <div className="text-[11px] uppercase text-red-500 mb-1 font-semibold">Error</div>
               <pre data-testid="tool-call-error" className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-32">
                 {toolCall.error}
               </pre>

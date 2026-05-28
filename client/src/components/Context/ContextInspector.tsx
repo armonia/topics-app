@@ -134,7 +134,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                 <FileText size={12} className="text-app-text-tertiary flex-shrink-0" />
                 <span className="truncate flex-1">{node.name}</span>
                 {node.tokens !== undefined && (
-                  <span className="text-[10px] text-app-text-muted flex-shrink-0">~{node.tokens} tok</span>
+                  <span className="text-[11px] text-app-text-muted flex-shrink-0">~{node.tokens} tok</span>
                 )}
               </button>
             )}
@@ -216,7 +216,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             {/* OpenClaw Base Context */}
             {openclawSources.length > 0 && (
               <div>
-                <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+                <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
                   OpenClaw Base Context
                 </div>
                 {renderSourceGroup(openclawSources)}
@@ -226,7 +226,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             {/* Memory */}
             {(memorySources.length > 0 || true) && (
               <div>
-                <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+                <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
                   Memory
                 </div>
                 {memorySources.length > 0 ? (
@@ -239,7 +239,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
 
             {/* System Prompt */}
             <div>
-              <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
                 System Prompt
               </div>
               {promptSources.length > 0 ? (
@@ -252,7 +252,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             {/* Context Templates */}
             {topic.projectPath && (
               <div>
-                <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+                <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
                   Context Templates
                 </div>
                 {templateSources.length > 0 ? (
@@ -265,9 +265,9 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
 
             {/* Context Files */}
             <div>
-              <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2 flex items-center">
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2 flex items-center">
                 <span className="flex-1">Context Files</span>
-                <label className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-primary hover:bg-primary/10 cursor-pointer transition-colors">
+                <label className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-primary hover:bg-primary/10 cursor-pointer transition-colors">
                   <Upload size={10} />
                   <span>Add</span>
                   <input
@@ -284,7 +284,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                     <div key={source.id} className="flex items-center gap-2 px-4 py-2 hover:bg-app-hover/50 border-b border-app-border last:border-b-0">
                       <span className="text-[13px]">{'\u{1F4CE}'}</span>
                       <span className="text-[12px] text-app-text truncate flex-1">{source.label}</span>
-                      <span className="text-[10px] text-app-text-muted tabular-nums">~{source.tokens > 1000 ? `${(source.tokens / 1000).toFixed(1)}K` : source.tokens} tok</span>
+                      <span className="text-[11px] text-app-text-muted tabular-nums">~{source.tokens > 1000 ? `${(source.tokens / 1000).toFixed(1)}K` : source.tokens} tok</span>
                       <button
                         onClick={() => handleRemoveContextFile(source.id.replace('file:', ''))}
                         className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 text-app-text-muted hover:text-red-500 transition-colors"
@@ -301,7 +301,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
 
             {/* Pinned Messages */}
             <div>
-              <div className="px-4 py-1.5 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
                 Pinned Messages
               </div>
               {pinnedSources.length > 0 ? (

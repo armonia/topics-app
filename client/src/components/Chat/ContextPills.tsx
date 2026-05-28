@@ -23,7 +23,7 @@ export function ContextPills({ files, onRemove, onToggle, excludedPaths, compact
   return (
     <div data-testid="context-pills" className={`flex items-center gap-1.5 overflow-x-auto scrollbar-hide ${compact ? '' : 'px-3 py-1.5 border-t border-app-border'}`}>
       {!compact && (
-        <span className="text-[10px] text-app-text-muted font-medium mr-0.5 flex-shrink-0">Context</span>
+        <span className="text-[11px] text-app-text-muted font-medium mr-0.5 flex-shrink-0">Context</span>
       )}
       {files.map(file => (
         <ContextPill
@@ -61,7 +61,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
   return (
     <span
       data-testid="context-pill"
-      className={`context-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-medium flex-shrink-0 transition-all ${
+      className={`context-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-medium flex-shrink-0 transition-all ${
         excluded ? excludedStyle : activeStyles[file.type]
       } ${onToggle ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-110' : ''}`}
       onClick={onToggle}
@@ -70,7 +70,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
       {icon}
       <span className="truncate max-w-[100px]">{file.name}</span>
       {file.tokens != null && file.tokens > 0 && (
-        <span className="text-[9px] opacity-60 flex-shrink-0">
+        <span className="text-[11px] opacity-60 flex-shrink-0">
           {file.tokens >= 1000 ? `${(file.tokens / 1000).toFixed(1)}k` : `${file.tokens}`}
         </span>
       )}

@@ -267,7 +267,7 @@ export function ProcessList({ topicId }: ProcessListProps) {
                     <div className="text-[12px] font-medium text-app-text truncate">
                       {proc.label}
                     </div>
-                    <div className="text-[10px] text-app-text-muted">
+                    <div className="text-[11px] text-app-text-muted">
                       {formatDuration(proc.startedAt, proc.completedAt)}
                       {proc.status === 'running' && ' (running)'}
                     </div>
@@ -285,7 +285,7 @@ export function ProcessList({ topicId }: ProcessListProps) {
                 </div>
                 {expandedProcess === proc.sessionKey && (
                   <div className="px-3 py-2 bg-elevated border-t border-app-border text-[11px] text-app-text-secondary">
-                    <p>Session: <code className="text-[10px] bg-app-hover px-1 py-0.5 rounded">{proc.sessionKey}</code></p>
+                    <p>Session: <code className="text-[11px] bg-app-hover px-1 py-0.5 rounded">{proc.sessionKey}</code></p>
                     <p>Started: {new Date(proc.startedAt).toLocaleString()}</p>
                     {proc.completedAt && <p>Completed: {new Date(proc.completedAt).toLocaleString()}</p>}
                   </div>

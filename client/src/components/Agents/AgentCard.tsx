@@ -99,7 +99,7 @@ export function AgentCard({ session, onNavigateToTopic }: AgentCardProps) {
             {session.displayName}
           </span>
           {session.model && (
-            <span className="text-[10px] text-app-text-tertiary bg-app-hover px-1 rounded flex-shrink-0">
+            <span className="text-[11px] text-app-text-tertiary bg-app-hover px-1 rounded flex-shrink-0">
               {shortModelName(session.model)}
             </span>
           )}
@@ -107,14 +107,14 @@ export function AgentCard({ session, onNavigateToTopic }: AgentCardProps) {
 
         {/* Channel + last activity */}
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] text-app-text-tertiary">
+          <span className="text-[11px] text-app-text-tertiary">
             {channelBadge(session.channel)}
           </span>
-          <span className="text-[10px] text-app-text-tertiary">
+          <span className="text-[11px] text-app-text-tertiary">
             {formatRelativeTime(session.updatedAt)}
           </span>
           {session.totalTokens != null && session.totalTokens > 0 && (
-            <span className="text-[10px] text-app-text-tertiary">
+            <span className="text-[11px] text-app-text-tertiary">
               {formatTokens(session.totalTokens)} tok
             </span>
           )}
@@ -134,7 +134,7 @@ export function AgentCard({ session, onNavigateToTopic }: AgentCardProps) {
 
         {/* Last message preview */}
         {session.lastMessage && (
-          <p className="text-[10px] text-app-text-tertiary mt-1 truncate italic">
+          <p className="text-[11px] text-app-text-tertiary mt-1 truncate italic">
             {session.lastMessage}
           </p>
         )}

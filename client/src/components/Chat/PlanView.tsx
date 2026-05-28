@@ -94,7 +94,7 @@ export const PlanView = memo(function PlanView({ content, onApprove, onReject, i
         <span className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
           Implementation Plan
         </span>
-        <span className="text-[10px] text-app-text-muted">
+        <span className="text-[11px] text-app-text-muted">
           {steps.length} step{steps.length !== 1 ? 's' : ''}
         </span>
       </div>
@@ -124,7 +124,7 @@ export const PlanView = memo(function PlanView({ content, onApprove, onReject, i
                 key={step.number}
                 className="flex items-start gap-2.5 p-2 rounded-lg bg-white/50 dark:bg-surface/50 border border-app-border"
               >
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[11px] font-bold flex items-center justify-center mt-0.5">
                   {step.number}
                 </span>
                 <div className="flex-1 min-w-0">

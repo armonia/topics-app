@@ -52,7 +52,7 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
   if (parts.length === 0) return null;
 
   return (
-    <div data-testid="message-meta-footer" className="mt-2 text-[10px] text-app-text-muted flex items-center gap-1.5 flex-wrap">
+    <div data-testid="message-meta-footer" className="mt-2 text-[11px] text-app-text-muted flex items-center gap-1.5 flex-wrap">
       {parts.map((p, i) => (
         <span key={i} className="flex items-center gap-1.5">
           {i > 0 && <span className="text-app-text-muted/60">·</span>}

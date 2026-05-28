@@ -114,10 +114,15 @@ interface TerminalPanelProps {
 }
 
 const DARK_THEME = {
-  background: '#1a1a1a',
+  // Near-neutral dark gray matched to the project sidebar's dark chrome. The
+  // chrome is translucent vibrancy (reads gray, not blue), so an OPAQUE terminal
+  // must stay near-neutral — at this low lightness any blue channel is amplified
+  // and immediately reads "blue". Keep R/G/B within ~3 (whisper of cool, never
+  // warm); darken to match the sidebar, never raise saturation.
+  background: '#0d0e10',
   foreground: '#d4d4d8',
   cursor: '#a1a1aa',
-  cursorAccent: '#1a1a1a',
+  cursorAccent: '#0d0e10',
   selectionBackground: '#3f3f4640',
   black: '#18181b',
   red: '#f87171',
@@ -162,7 +167,11 @@ const LIGHT_THEME = {
 };
 
 function getTerminalTheme(isDark: boolean) {
-  return isDark ? DARK_THEME : LIGHT_THEME;
+  // xterm background is transparent so the container's .chrome-glass (the exact
+  // frosted vibrancy of the project sidebar) shows through — identical CSS,
+  // identical pixels. The container keeps an opaque fallback bg for non-Electron
+  // web, where .chrome-glass is a no-op.
+  return { ...(isDark ? DARK_THEME : LIGHT_THEME), background: 'rgba(0,0,0,0)' };
 }
 
 export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPanelProps) {
@@ -227,6 +236,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
       cursorStyle: 'bar',
       scrollback: 5000,
       allowProposedApi: true,
+      allowTransparency: true,
     });
 
     const fitAddon = new FitAddon();
@@ -715,7 +725,7 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
               >
                 <ClaudeIcon size={14} className="text-[#D97757]" />
                 <span className="flex-1 text-left">Claude Code</span>
-                <label className="flex items-center gap-1 text-[10px] text-app-text-muted" onClick={e => e.stopPropagation()}>
+                <label className="flex items-center gap-1 text-[11px] text-app-text-muted" onClick={e => e.stopPropagation()}>
                   <input type="checkbox" checked={claudeSkipPermissions} onChange={e => setClaudeSkipPermissions(e.target.checked)} className="w-3 h-3 rounded accent-[#D97757]" />
                   <span>yolo</span>
                 </label>
@@ -732,13 +742,14 @@ export function TerminalPanel({ projectPath, topicId, initialType }: TerminalPan
         </div>
       )}
 
-      {/* Terminal containers */}
-      <div className="flex-1 min-h-0 relative" style={{ backgroundColor: isDark ? DARK_THEME.background : LIGHT_THEME.background }}>
+      {/* Terminal containers — chrome-glass matches the project sidebar's
+          frosted vibrancy under Electron; inline bg is the opaque web fallback. */}
+      <div className="flex-1 min-h-0 relative chrome-glass" style={{ backgroundColor: isDark ? DARK_THEME.background : LIGHT_THEME.background }}>
         {tabs.map(tab => (
           <div
             key={tab.id}
             id={`terminal-${tab.id}`}
-            className="absolute inset-0 p-1"
+            className="absolute inset-0"
             style={{ display: activeTabId === tab.id ? 'block' : 'none' }}
             onClick={() => {
               const entry = terminalsRef.current.get(tab.id);

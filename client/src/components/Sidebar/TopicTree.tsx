@@ -368,7 +368,8 @@ export function TopicTree({
             data-testid={`project-toggle-${item.name}`}
           >
             <ChevronRight size={12} className={`transition-transform duration-150 flex-shrink-0 text-app-text-secondary ${isExpanded ? 'rotate-90' : ''}`} />
-            <FolderOpen size={14} className="flex-shrink-0 text-app-text-secondary" />
+            {/* No hardcoded folder icon — show a project icon only when one comes
+                from a real manifest (none today, so the row is just caret + name). */}
             <span className="truncate flex-1">{item.name}</span>
           </button>
           <div className="flex items-center pr-1 flex-shrink-0">
@@ -386,7 +387,7 @@ export function TopicTree({
               const showBranch = ps?.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
               const hasStatus = ps && (showBranch || ps.gitFileCount > 0 || ps.gitAhead > 0 || ps.gitBehind > 0 || ps.runningProcessCount > 0);
               return hasStatus ? (
-                <span className={`flex items-center gap-1 text-[10px] font-medium mr-1.5 min-w-0 ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
+                <span className={`flex items-center gap-1 text-[11px] font-medium mr-1.5 min-w-0 ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
                   {showBranch && <span className="truncate max-w-[60px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>}
                   {ps.gitFileCount > 0 && <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>}
                   {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
@@ -406,7 +407,7 @@ export function TopicTree({
             {item.unreadCount > 0 ? (
               <NotificationBadge count={item.unreadCount} className={isTouch ? '' : 'group-hover/proj:hidden'} />
             ) : (
-              <span className={`text-[10px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{children.length}</span>
+              <span className={`text-[11px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{children.length}</span>
             )}
             {/* Action buttons on hover */}
             {!isTouch && (
@@ -558,11 +559,11 @@ export function TopicTree({
           {activeStreamingCount > 0 && (
             <span className="flex items-center gap-1 pr-3">
               <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[10px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
+              <span className="text-[11px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
             </span>
           )}
           {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
-            <span className="text-[10px] text-app-text-muted tabular-nums pr-3">
+            <span className="text-[11px] text-app-text-muted tabular-nums pr-3">
               {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
             </span>
           )}
@@ -577,7 +578,7 @@ export function TopicTree({
           >
             <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
             <span className="flex-1 truncate text-app-text">Master</span>
-            <span className="text-[10px] text-app-text-muted/70 tabular-nums pr-3">⇧⌘M</span>
+            <span className="text-[11px] text-app-text-muted/70 tabular-nums pr-3">⇧⌘M</span>
           </button>
         )}
         <div className="border-t border-app-border" />
@@ -673,7 +674,7 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
 
   return (
     <div
-      className={`group/terminal w-full flex items-center h-10 md:h-7 transition-colors border-b border-app-border/40 md:border-b-0 relative ${
+      className={`group/terminal w-full flex items-center h-11 md:h-8 transition-colors border-b border-app-border/40 md:border-b-0 relative ${
         isActive ? 'bg-primary/10 text-primary' : 'text-app-text hover:bg-app-hover'
       }`}
       style={{ paddingLeft: 12 + depth * 16 }}
@@ -694,12 +695,12 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
         <TerminalStreamingSpinner sessionId={s.id} className="mr-1" />
         <TerminalFinishedDot sessionId={s.id} className="mr-1" />
         {projectName && (
-          <span className="text-[10px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
+          <span className="text-[11px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
             {projectName}
           </span>
         )}
         {s.clients > 0 && (
-          <span className="text-[10px] text-app-text-tertiary" title={`${s.clients} connected`}>
+          <span className="text-[11px] text-app-text-tertiary" title={`${s.clients} connected`}>
             {s.clients}
           </span>
         )}
@@ -935,7 +936,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
-      <span className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
+      <span className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
         {relativeTime(bc.lastActivity)}
       </span>
       {onCloseBrowser && (

@@ -144,7 +144,7 @@ export function SidebarStatusBar() {
           ref={statusBtnRef}
           data-testid="connection-status"
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-          className={`flex items-center gap-1.5 text-[10px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
+          className={`flex items-center gap-1.5 text-[11px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
           title="System Status"
         >
           {openclawAvailable ? (
@@ -179,7 +179,7 @@ export function SidebarStatusBar() {
           )}
         </button>
 
-        <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-[10px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' ago' : 'dev'}`}>
+        <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' ago' : 'dev'}`}>
           {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
           <button
             onClick={handleRefresh}

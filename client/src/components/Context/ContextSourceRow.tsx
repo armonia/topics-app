@@ -78,7 +78,7 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
         <span className="text-[12px] text-app-text truncate flex-1 min-w-0">{source.label}</span>
 
         {/* Token count */}
-        <span className="text-[10px] text-app-text-muted tabular-nums flex-shrink-0">
+        <span className="text-[11px] text-app-text-muted tabular-nums flex-shrink-0">
           ~{formatTokens(source.tokens)} tok
           {!source.countInBudget && <span className="ml-1 text-app-text-muted italic">(archive)</span>}
         </span>

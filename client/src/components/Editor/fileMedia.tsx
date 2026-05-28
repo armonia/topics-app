@@ -41,7 +41,7 @@ export function MediaViewer({ filePath, mediaType, filename }: { filePath: strin
           <button onClick={() => setZoom(z => Math.max(0.1, z - 0.25))} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Zoom out">
             <ZoomOut size={14} />
           </button>
-          <button onClick={resetZoom} className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-app-hover text-[10px] text-app-text-muted tabular-nums min-w-[40px]" title="Reset zoom">
+          <button onClick={resetZoom} className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-app-hover text-[11px] text-app-text-muted tabular-nums min-w-[40px]" title="Reset zoom">
             {Math.round(zoom * 100)}%
           </button>
           <button onClick={() => setZoom(z => Math.min(5, z + 0.25))} className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-muted" title="Zoom in">

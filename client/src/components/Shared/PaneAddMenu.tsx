@@ -242,7 +242,7 @@ export function PaneAddMenuItems({
                 <ClaudeIcon size={iconSize} className="text-[#D97757] flex-shrink-0" />
                 <span className="flex-1 text-left">Claude Code</span>
                 <label
-                  className="flex items-center gap-1 text-[10px] text-app-text-muted"
+                  className="flex items-center gap-1 text-[11px] text-app-text-muted"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <input

@@ -37,14 +37,14 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
         <div className="px-4 py-3 space-y-3 overflow-y-auto">
           {/* Task info */}
           <div>
-            <div className="text-[10px] text-app-text-muted uppercase tracking-wider mb-0.5">Task</div>
+            <div className="text-[11px] text-app-text-muted uppercase tracking-wider mb-0.5">Task</div>
             <div className="text-[12px] text-app-text font-medium">{approval.taskText || approval.taskId}</div>
           </div>
 
           {/* Transition */}
           {approval.fromStatus && approval.toStatus && (
             <div>
-              <div className="text-[10px] text-app-text-muted uppercase tracking-wider mb-0.5">Status Change</div>
+              <div className="text-[11px] text-app-text-muted uppercase tracking-wider mb-0.5">Status Change</div>
               <div className="text-[11px] text-app-text">
                 {approval.fromStatus} &rarr; <strong>{approval.toStatus}</strong>
               </div>
@@ -54,7 +54,7 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
           {/* Confidence */}
           {approval.confidenceScore !== null && (
             <div>
-              <div className="text-[10px] text-app-text-muted uppercase tracking-wider mb-0.5">Confidence</div>
+              <div className="text-[11px] text-app-text-muted uppercase tracking-wider mb-0.5">Confidence</div>
               <div className="flex items-center gap-2">
                 {(() => {
                   const pct = Math.round(approval.confidenceScore);
@@ -79,7 +79,7 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
           {/* Rubric scores */}
           {approval.rubricScores && Object.keys(approval.rubricScores).length > 0 && (
             <div>
-              <div className="flex items-center gap-1 text-[10px] text-app-text-muted uppercase tracking-wider mb-1">
+              <div className="flex items-center gap-1 text-[11px] text-app-text-muted uppercase tracking-wider mb-1">
                 <BarChart3 size={10} />
                 <span>Rubric Scores</span>
               </div>
@@ -97,7 +97,7 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
           {/* Justification */}
           {approval.justification && (
             <div>
-              <div className="text-[10px] text-app-text-muted uppercase tracking-wider mb-0.5">Justification</div>
+              <div className="text-[11px] text-app-text-muted uppercase tracking-wider mb-0.5">Justification</div>
               <div className="text-[11px] text-app-text bg-black/3 dark:bg-white/3 rounded px-2 py-1.5 whitespace-pre-wrap">
                 {approval.justification}
               </div>
@@ -106,7 +106,7 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
 
           {/* Review comment */}
           <div>
-            <div className="text-[10px] text-app-text-muted uppercase tracking-wider mb-0.5">Comment (optional)</div>
+            <div className="text-[11px] text-app-text-muted uppercase tracking-wider mb-0.5">Comment (optional)</div>
             <textarea
               value={comment}
               onChange={e => setComment(e.target.value)}
@@ -118,7 +118,7 @@ export function ApprovalReviewModal({ approval, onApprove, onReject, onClose }: 
 
         {/* Actions */}
         <div className="flex items-center gap-2 px-4 py-3 border-t border-app-border">
-          <div className="text-[9px] text-app-text-muted flex-1">
+          <div className="text-[11px] text-app-text-muted flex-1">
             Requested by {approval.requestedBy} &middot; {new Date(approval.createdAt).toLocaleString()}
             {approval.expiresAt && (
               <> &middot; Expires {new Date(approval.expiresAt).toLocaleString()}</>

@@ -99,7 +99,7 @@ export function KanbanColumn({
       <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-app-border/30">
         <span className={`w-1.5 h-1.5 rounded-full ${color.replace('text-', 'bg-')}`} />
         <span className="text-[11px] font-medium text-app-text truncate">{label}</span>
-        <span className="ml-auto text-[10px] text-app-text-muted bg-app-bg/80 rounded px-1 min-w-[18px] text-center">
+        <span className="ml-auto text-[11px] text-app-text-muted bg-app-bg/80 rounded px-1 min-w-[18px] text-center">
           {tasks.length}
         </span>
       </div>
@@ -108,7 +108,7 @@ export function KanbanColumn({
       <div className="flex-1 overflow-y-auto px-1 py-1 space-y-1 min-h-[40px]">
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           {tasks.length === 0 && !adding ? (
-            <div className="text-[10px] text-app-text-muted text-center py-4 italic select-none">
+            <div className="text-[11px] text-app-text-muted text-center py-4 italic select-none">
               No tasks
             </div>
           ) : (
@@ -148,7 +148,7 @@ export function KanbanColumn({
         ) : (
           <button
             onClick={startAdding}
-            className="flex items-center gap-1 w-full text-[10px] text-app-text-muted
+            className="flex items-center gap-1 w-full text-[11px] text-app-text-muted
                        hover:text-app-text hover:bg-app-bg/60 rounded px-1.5 py-0.5
                        transition-colors cursor-pointer"
           >

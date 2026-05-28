@@ -29,7 +29,7 @@ export function NotificationBadge({ count, className = '', ariaLabel, title }: N
   const display = count > 99 ? '99+' : String(count);
   return (
     <span
-      className={`flex-shrink-0 bg-primary text-white text-[10px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none ${className}`}
+      className={`flex-shrink-0 bg-primary text-white text-[11px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none ${className}`}
       aria-label={ariaLabel ?? `${count} unread`}
       title={title}
     >
