@@ -4,8 +4,7 @@
  * canonical handlers in browser-tools-handler.ts.
  *
  * Pre-existing coverage: NONE. Added as part of the "fix browser-pane-from-chat"
- * remediation (plan: /Users/user/.claude/plans/breezy-crafting-charm.md)
- * so the new tool→UI-broadcast wiring in topics.ts has a regression-proof
+ * remediation so the new tool→UI-broadcast wiring in topics.ts has a regression-proof
  * contract on the underlying dispatch behaviour:
  *   - contextId resolution falls back from topic.browserState.contextId to topic.id
  *   - browser_open delegates to service.navigate(contextId, url)

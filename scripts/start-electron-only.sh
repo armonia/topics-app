@@ -1,7 +1,7 @@
 #!/bin/bash
 # Launch ONLY Electron (assumes server already running on :3333)
 set -e
-APP_DIR="/Users/user/Projects/topics-app"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
 
 export NODE_ENV=production

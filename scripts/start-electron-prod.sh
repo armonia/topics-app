@@ -3,7 +3,7 @@
 # Starts the Bun server + client watcher, waits for it to be ready, then launches Electron
 set -e
 
-APP_DIR="/Users/user/Projects/topics-app"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCKFILE="/tmp/topics-electron-prod.lock"
 cd "$APP_DIR"
 

@@ -6,7 +6,7 @@
 
 ```bash
 # Run all tests (~3.5 minutes)
-cd /Users/user/.openclaw/workspace
+cd "$HOME/.openclaw/workspace"
 bash topics-app/tests/e2e/run-all.sh
 
 # Run a single test
