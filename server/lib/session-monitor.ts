@@ -65,3 +65,29 @@ export function startSessionMonitor(
   (handle as { unref?: () => void }).unref?.();
   return () => clearInterval(handle);
 }
+
+// ---------------------------------------------------------------------------
+// Controlled singleton — the monitor is NEVER auto-started. It runs ONLY when
+// the user explicitly enables it from Topics (start/stop endpoints), so nothing
+// happens "a caso". Default OFF on every server start.
+// ---------------------------------------------------------------------------
+let _activeStop: (() => void) | null = null;
+
+export function isSessionMonitorRunning(): boolean {
+  return _activeStop !== null;
+}
+
+/** Idempotent: enabling an already-running monitor is a no-op. */
+export function enableSessionMonitor(
+  db: SessionMonitorDeps["db"],
+  broadcast: SessionMonitorDeps["broadcast"],
+  intervalMs?: number,
+): void {
+  if (_activeStop) return;
+  _activeStop = startSessionMonitor(db, broadcast, intervalMs);
+}
+
+/** Idempotent: disabling a stopped monitor is a no-op. */
+export function disableSessionMonitor(): void {
+  if (_activeStop) { _activeStop(); _activeStop = null; }
+}

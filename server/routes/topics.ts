@@ -20,6 +20,7 @@ import { buildProviderHistory } from "../utils/build-provider-history";
 import { runMasterIngest } from "../lib/master-ingest";
 import { getTerminalBuffer } from "./terminal";
 import { extractLatestNextBlock } from "../lib/terminal-scrape";
+import { enableSessionMonitor, disableSessionMonitor, isSessionMonitorRunning } from "../lib/session-monitor";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
@@ -1153,6 +1154,21 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         return json({ sessions }, 200);
       } catch (err) {
         return json({ error: String(err) }, 500);
+      }
+    }
+
+    // GET/POST /api/master/monitor — control the periodic attention monitor.
+    // It is NEVER auto-started; the user turns it on from Topics (nothing runs
+    // "a caso"). Free: it only reads unread state, no model call.
+    if (pathname === "/api/master/monitor") {
+      if (method === "GET") {
+        return json({ enabled: isSessionMonitorRunning() });
+      }
+      if (method === "POST") {
+        const body = await readJSON(req).catch(() => ({} as any));
+        if (body?.enabled) enableSessionMonitor(db, broadcastToAll);
+        else disableSessionMonitor();
+        return json({ enabled: isSessionMonitorRunning() });
       }
     }
 

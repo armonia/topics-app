@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { sweepOnce, startSessionMonitor } from "./session-monitor";
+import {
+  sweepOnce, startSessionMonitor,
+  enableSessionMonitor, disableSessionMonitor, isSessionMonitorRunning,
+} from "./session-monitor";
 
 function stubDb(rows: unknown[] | (() => unknown[])) {
   return { query: (_sql: string) => ({ all: () => (typeof rows === "function" ? rows() : rows) }) };
@@ -59,5 +62,26 @@ describe("startSessionMonitor", () => {
     const countAfterStop = msgs.length;
     await new Promise((r) => setTimeout(r, 40));
     expect(msgs.length).toBe(countAfterStop);
+  });
+});
+
+describe("controlled singleton (enable/disable — user-driven only)", () => {
+  test("not running until explicitly enabled; idempotent enable/disable", async () => {
+    disableSessionMonitor(); // clean slate
+    expect(isSessionMonitorRunning()).toBe(false);
+
+    const msgs: any[] = [];
+    enableSessionMonitor(stubDb([{ id: "t1", name: "A", unread: 1 }]), (m) => msgs.push(m), 10);
+    expect(isSessionMonitorRunning()).toBe(true);
+    enableSessionMonitor(stubDb([]), () => {}, 10); // no-op while running
+    expect(isSessionMonitorRunning()).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 30));
+    disableSessionMonitor();
+    expect(isSessionMonitorRunning()).toBe(false);
+    const after = msgs.length;
+    await new Promise((r) => setTimeout(r, 30));
+    expect(msgs.length).toBe(after); // stopped → no more pings
+    disableSessionMonitor(); // no-op, no throw
   });
 });
