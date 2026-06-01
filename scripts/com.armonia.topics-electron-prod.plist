@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TEMPLATE — do NOT put real secrets here (this file is committed to git).
+
+  1. Copy this file to ~/Library/LaunchAgents/com.armonia.topics-electron-prod.plist
+  2. Replace every /path/to/topics-app with the absolute path to your clone
+  3. Fill in GATEWAY_TOKEN (and the optional ELEVENLABS_API_KEY) from your .env
+  4. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.armonia.topics-electron-prod.plist
+
+  The values you fill in live only in your local (installed) copy, never in the repo.
+-->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -7,10 +17,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/user/Projects/topics-app/scripts/start-electron-prod.sh</string>
+        <string>/path/to/topics-app/scripts/start-electron-prod.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/user/Projects/topics-app</string>
+    <string>/path/to/topics-app</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PORT</key>
@@ -18,13 +28,13 @@
         <key>NODE_ENV</key>
         <string>production</string>
         <key>GATEWAY_TOKEN</key>
-        <string>***REMOVED***</string>
+        <string>REPLACE_WITH_YOUR_GATEWAY_TOKEN</string>
         <key>GATEWAY_URL</key>
         <string>http://127.0.0.1:18789</string>
         <key>ELEVENLABS_API_KEY</key>
-        <string>***REMOVED***</string>
+        <string>REPLACE_WITH_YOUR_ELEVENLABS_API_KEY_OR_LEAVE_BLANK</string>
         <key>PATH</key>
-        <string>/Users/user/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/path/to/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

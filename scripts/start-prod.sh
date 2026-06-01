@@ -1,6 +1,7 @@
 #!/bin/bash
 # Start prod server with auto-reload for both server and client
-cd /Users/user/Projects/topics-app
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$APP_DIR"
 
 # ─── Single-instance guard (2026-05-11) ────────────────────────────────────
 # Without this, every `launchctl bootout`/`bootstrap` cycle (or any glitchy
@@ -108,4 +109,4 @@ is_git_op_in_progress() {
 
 # Start server with watch mode (ignore client/public to avoid restart on client rebuild)
 # Use wait-based approach so the shell stays alive and can clean up children on exit
-/Users/user/.bun/bin/bun --watch --watch-ignore='public/**' --watch-ignore='client/**' --watch-ignore='uploads/**' run /Users/user/Projects/topics-app/server.ts
+bun --watch --watch-ignore='public/**' --watch-ignore='client/**' --watch-ignore='uploads/**' run "$APP_DIR/server.ts"

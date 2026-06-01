@@ -25,8 +25,12 @@ export function initVapid(): VapidKeys {
     console.log("[Push] Generated new VAPID keys");
   }
 
+  // VAPID "subject" must be a mailto: or https: URL identifying the app
+  // operator. Override via VAPID_SUBJECT env var; the default is a neutral
+  // placeholder so the public repo ships no private contact/host info.
+  const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
   webpush.setVapidDetails(
-    "mailto:push@example.com",
+    vapidSubject,
     vapidKeys!.publicKey,
     vapidKeys!.privateKey
   );

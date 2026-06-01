@@ -4,10 +4,10 @@ import { homedir } from "os";
 
 describe("claudeProjectDirName", () => {
   it("encodes / and . as - (matches Claude Code's projects dir naming)", () => {
-    expect(claudeProjectDirName("/Users/user/.claude/jarvis")).toBe("-Users-zorahrel--claude-jarvis");
-    expect(claudeProjectDirName("/Users/user/Projects/Quadra")).toBe("-Users-zorahrel-Projects-Quadra");
-    expect(claudeProjectDirName("/Users/user/Sites/Armonia/armonia-site")).toBe("-Users-zorahrel-Sites-Armonia-armonia-site");
-    expect(claudeProjectDirName("/Users/user/Projects/guidoai")).toBe("-Users-zorahrel-Projects-guidoai");
+    expect(claudeProjectDirName("/Users/test/.claude/agent")).toBe("-Users-test--claude-agent");
+    expect(claudeProjectDirName("/Users/test/Projects/Alpha")).toBe("-Users-test-Projects-Alpha");
+    expect(claudeProjectDirName("/Users/test/Sites/Example/example-site")).toBe("-Users-test-Sites-Example-example-site");
+    expect(claudeProjectDirName("/Users/test/Projects/sampleapp")).toBe("-Users-test-Projects-sampleapp");
   });
 });
 
