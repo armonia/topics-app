@@ -54,7 +54,12 @@ async function killServer(): Promise<void> {
   throw new Error("Server did not stop within 10s");
 }
 
-/** Start the test server (same env as global-setup) */
+/** Start the test server (same env as global-setup).
+ *  TOPICS_PTY_SOCKET is REQUIRED here: without it the restarted server derives
+ *  its bridge socket from cwd = the PRODUCTION bridge, and its reconcile kills
+ *  the dev server's live Claude PTYs (knocking real sessions dormant). The
+ *  start-test-server.sh script now also defaults this, but we set it explicitly
+ *  so the isolation is visible at the call site and independent of the script. */
 function startServer(): void {
   const scriptPath = resolve(__dirname, "../../scripts/start-test-server.sh");
   const proc = spawn("bash", [scriptPath], {
@@ -65,6 +70,7 @@ function startServer(): void {
       BUN_PORT: String(TEST_PORT),
       DATA_DIR: "/tmp/topics-test-data",
       NO_TLS: "1",
+      TOPICS_PTY_SOCKET: "/tmp/topics-pty-bridge-e2e-test.sock",
       GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
       GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",
     },
