@@ -56,6 +56,7 @@ import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
+import { startSessionMonitor } from "./server/lib/session-monitor";
 
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 if (!process.env.GATEWAY_TOKEN) {
@@ -344,6 +345,12 @@ const stopUiStateBackup = startUiStateBackupTicker(ctx.db);
 initVapid();
 // Start agent heartbeat checker
 startHeartbeatChecker(db, broadcastToAll);
+
+// Free periodic "what needs attention" ping (interactive-claude-primitive).
+// Reads unread state only (one indexed query, NO model call → no Agent SDK
+// credit) and broadcasts `master:digest` when sessions need the user. The
+// Master's reasoning stays human-triggered.
+startSessionMonitor(db, broadcastToAll);
 
 // Init activity monitor (watches gateway log files)
 const activityMonitor = new ActivityMonitor();
