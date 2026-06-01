@@ -103,12 +103,13 @@ describe("MCP stdio server (subprocess)", () => {
     expect(resp.result.serverInfo.name).toBe("topics-app");
   });
 
-  test("tools/list returns all 7 tools", async () => {
+  test("tools/list returns all tools", async () => {
     const resp = await client.request(2, "tools/list");
     const names = resp.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
       "open_browser_pane", "run_script", "list_processes",
       "read_process_output", "stop_process", "list_tasks", "update_task",
+      "list_sessions", "read_session", "write_session", "close_session",
     ]);
   });
 

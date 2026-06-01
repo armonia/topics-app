@@ -22,6 +22,10 @@ import {
   callStopProcess,
   callListTasks,
   callUpdateTask,
+  callListSessions,
+  callReadSession,
+  callWriteSession,
+  callCloseSession,
   handleMessage,
 } from "./topics-mcp-server";
 
@@ -215,6 +219,10 @@ describe("handleMessage", () => {
       "stop_process",
       "list_tasks",
       "update_task",
+      "list_sessions",
+      "read_session",
+      "write_session",
+      "close_session",
     ]);
     const browser = tools.find((t) => t.name === "open_browser_pane")!;
     expect(browser.inputSchema.required).toEqual(["url"]);
@@ -455,5 +463,88 @@ describe("callUpdateTask", () => {
     await expect(
       callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", project_id: "p", status: "done" }, fetchImpl),
     ).rejects.toThrow(/blocked by unfinished dependencies/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session control — list / read / write / close (interactive-claude-primitive)
+// ---------------------------------------------------------------------------
+
+describe("callListSessions", () => {
+  test("GETs the global terminal sessions endpoint and formats rows", async () => {
+    const seen: { url?: string; method?: string } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url); seen.method = init?.method;
+      return new Response(JSON.stringify({ sessions: [
+        { id: "s1", name: "Auth", type: "claude-code", status: "running", cwd: "/p/a" },
+      ] }), { status: 200 });
+    });
+    const text = await callListSessions({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(seen.url).toBe("http://x/api/terminal/sessions");
+    expect(seen.method).toBe("GET");
+    expect(text).toContain("s1 — Auth [claude-code running] cwd=/p/a");
+  });
+
+  test("handles an array response and empty list", async () => {
+    const empty = stubFetch(async () => new Response(JSON.stringify([]), { status: 200 }));
+    expect(await callListSessions({ baseUrl: "http://x", sessionKey: "s" }, {}, empty)).toBe("No active sessions.");
+  });
+});
+
+describe("callReadSession", () => {
+  test("GETs the buffer endpoint and returns text", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({ id: "s1", buffer: "hello from pty" }), { status: 200 });
+    });
+    const text = await callReadSession({ baseUrl: "http://x", sessionKey: "s" }, { session_id: "s1" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/terminal/sessions/s1/buffer");
+    expect(text).toBe("hello from pty");
+  });
+
+  test("empty buffer → (empty); missing id throws", async () => {
+    const f = stubFetch(async () => new Response(JSON.stringify({ buffer: "" }), { status: 200 }));
+    expect(await callReadSession({ baseUrl: "http://x", sessionKey: "s" }, { session_id: "s1" }, f)).toBe("(empty)");
+    await expect(callReadSession({ baseUrl: "http://x", sessionKey: "s" }, {}, f)).rejects.toThrow(/session_id/);
+  });
+});
+
+describe("callWriteSession", () => {
+  test("POSTs input to the send endpoint", async () => {
+    const seen: { url?: string; method?: string; body?: string } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url); seen.method = init?.method; seen.body = init?.body as string;
+      return new Response(JSON.stringify({ ok: true, sent: 5 }), { status: 200 });
+    });
+    const text = await callWriteSession({ baseUrl: "http://x", sessionKey: "s" }, { session_id: "s1", input: "ls\n" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/terminal/sessions/s1/send");
+    expect(seen.method).toBe("POST");
+    expect(JSON.parse(seen.body!)).toEqual({ input: "ls\n" });
+    expect(text).toBe("sent 5 chars to s1");
+  });
+
+  test("missing input throws", async () => {
+    const f = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(callWriteSession({ baseUrl: "http://x", sessionKey: "s" }, { session_id: "s1" }, f)).rejects.toThrow(/input/);
+  });
+});
+
+describe("callCloseSession", () => {
+  test("DELETEs the session endpoint", async () => {
+    const seen: { url?: string; method?: string } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url); seen.method = init?.method;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const text = await callCloseSession({ baseUrl: "http://x", sessionKey: "s" }, { session_id: "s1" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/terminal/sessions/s1");
+    expect(seen.method).toBe("DELETE");
+    expect(text).toBe("closed s1");
+  });
+
+  test("missing id throws", async () => {
+    const f = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(callCloseSession({ baseUrl: "http://x", sessionKey: "s" }, {}, f)).rejects.toThrow(/session_id/);
   });
 });
