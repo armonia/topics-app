@@ -36,6 +36,14 @@ interface TrayState {
   // emits status `idle` (after a 30s grace) — NOT `completed` — so the old
   // count-based check missed every transition. We mirror the client's logic.
   prevSessionStatusByKey: Map<string, string>;
+  // Per-Claude-session lifecycle phase (chat topics + claude-code terminals),
+  // keyed by the session's stable id (sessionKey for chats, else csid). Feeds
+  // the menu-bar status glyph (loading / pending-question / error) and the
+  // tray menu's Claude section. Resting/finished phases are pruned out.
+  claudePhaseBySession: Map<string, ClaudeSessionEntry>;
+  // Previous phase per session for transition→notification edge detection
+  // (mirrors prevSessionStatusByKey, for the session:state stream).
+  prevClaudePhaseBySession: Map<string, string>;
 }
 
 interface Preferences {
@@ -65,6 +73,32 @@ interface WSMessage {
   content?: string;
   preview?: string;
   messageId?: string;
+  // `session:state` envelope (server: claude-session-tracker.ts:197). The
+  // Claude Code lifecycle phase of one chat / claude-code terminal session.
+  // sessionKey is `topic:<id>` for chats, null for topic-less terminals.
+  state?: {
+    phase?: string;
+    sessionKey?: string | null;
+    claudeSessionId?: string;
+    error?: { code?: string; message?: string } | null;
+    pendingApproval?: { kind?: string; prompt?: string } | null;
+  };
+}
+
+// Claude lifecycle phases as classified for the tray. Kept as plain strings
+// (the canonical enum lives in server/lib/claude-session-state.ts); we only
+// need the buckets that drive the menu-bar status glyph.
+const CLAUDE_WORKING_PHASES = new Set(['running', 'tool-running']);
+const CLAUDE_PENDING_PHASES = new Set(['awaiting-approval', 'paused']);
+const CLAUDE_ERROR_PHASES = new Set(['error']);
+// Phases a session can rest at without needing the user's eyes — dropped from
+// the per-session map so the aggregate counts don't leak completed work.
+const CLAUDE_GONE_PHASES = new Set(['completed', 'dormant']);
+
+interface ClaudeSessionEntry {
+  phase: string;
+  topicId: string | null;
+  csid: string;
 }
 
 interface NotificationOptions {
@@ -748,6 +782,8 @@ const trayState: TrayState = {
   topics: new Map(),
   focusedTopicId: null,
   prevSessionStatusByKey: new Map(),
+  claudePhaseBySession: new Map(),
+  prevClaudePhaseBySession: new Map(),
 };
 
 let trayIcons: Partial<TrayIcons> = {};
@@ -787,6 +823,11 @@ function startWSBridge(): void {
     console.log('[Topics Electron] WS bridge connected');
     wsReconnectDelay = 1000;
     fetchTopicCache();
+    // Bootstrap Claude phase from the authoritative snapshot. session:state is
+    // transition-only, so without this the tray would show no Claude status
+    // until the next phase change — and stale entries from before a reconnect
+    // would linger. Re-fetching on every (re)connect makes it self-healing.
+    fetchClaudeSessions();
     if (topicCacheTimer) clearInterval(topicCacheTimer);
     topicCacheTimer = setInterval(fetchTopicCache, 60000);
   });
@@ -890,6 +931,10 @@ function handleWSMessage(msg: WSMessage): void {
       onStateChanged();
       break;
 
+    case 'session:state':
+      handleClaudeSessionState(msg);
+      break;
+
     case 'message':
       // Legacy/sync path (topics.ts:1353 etc.). Kept for compatibility; the
       // hot path for AI replies is `message:new` below.
@@ -964,6 +1009,43 @@ function getTopicName(topicId: string): string {
   return topicId;
 }
 
+// ============ Claude Session Snapshot ============
+
+/**
+ * Rebuild the Claude phase map from the server's authoritative snapshot.
+ * Called on every WS (re)connect: drops stale entries (sessions that ended
+ * while we were disconnected) and seeds prev-phase so we don't re-notify for
+ * states that were already true before we connected.
+ */
+function fetchClaudeSessions(): void {
+  const req = serverGet('/api/claude-sessions', (res) => {
+    let data = '';
+    res.on('data', (chunk: string) => data += chunk);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const sessions: Array<Record<string, unknown>> = Array.isArray(json.sessions) ? json.sessions : [];
+        trayState.claudePhaseBySession.clear();
+        for (const s of sessions) {
+          const phase = typeof s.phase === 'string' ? s.phase : null;
+          if (!phase || CLAUDE_GONE_PHASES.has(phase)) continue;
+          const sessionKey = typeof s.sessionKey === 'string' ? s.sessionKey : null;
+          const csid = typeof s.claudeSessionId === 'string' ? s.claudeSessionId : '';
+          const key = sessionKey || csid;
+          if (!key) continue;
+          const topicId = topicIdFromSessionKey(sessionKey);
+          trayState.claudePhaseBySession.set(key, { phase, topicId, csid: csid || key });
+          // Seed prev-phase: a state already true at connect time must not fire
+          // a fresh desktop notification.
+          trayState.prevClaudePhaseBySession.set(key, phase);
+        }
+        scheduleTrayMenuRebuild();
+      } catch (_e) { /* ignore parse errors */ }
+    });
+  });
+  req.on('error', () => {});
+}
+
 // ============ Dynamic Tray Menu ============
 
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -995,6 +1077,25 @@ function rebuildTrayMenu(): void {
 
   if (trayState.agentCount > 0) {
     items.push({ label: `Agents: ${trayState.agentCount} active`, enabled: false });
+  }
+
+  // Claude chat status — loading / pending-question / error. The icon + title
+  // carry the at-a-glance signal; this section names the specific chats so the
+  // user can jump straight to the one that needs them.
+  const claude = deriveClaudeAggregate();
+  if (claude.working || claude.pending || claude.error) {
+    items.push({ type: 'separator' });
+    const summary: string[] = [];
+    if (claude.error) summary.push(`${claude.error} error${claude.error > 1 ? 's' : ''}`);
+    if (claude.pending) summary.push(`${claude.pending} awaiting you`);
+    if (claude.working) summary.push(`${claude.working} working`);
+    items.push({ label: `Claude: ${summary.join('  ·  ')}`, enabled: false });
+    for (const a of claude.attention.slice(0, 8)) {
+      if (!a.topicId) continue;
+      const tag = CLAUDE_ERROR_PHASES.has(a.phase) ? '⚠️' : '❓';
+      const tid = a.topicId;
+      items.push({ label: `  ${tag} ${getTopicName(tid)}`, click: () => navigateToTopic(tid) });
+    }
   }
 
   const unreadTopics: { topicId: string; unreadCount: number; name: string }[] = [];
@@ -1040,11 +1141,12 @@ function rebuildTrayMenu(): void {
   tray.setContextMenu(contextMenu);
 
   const totalUnread = getTotalUnread();
-  if (totalUnread > 0) {
-    tray.setToolTip(`${appLabel} (${totalUnread} unread)`);
-  } else {
-    tray.setToolTip(appLabel);
-  }
+  const tipParts: string[] = [];
+  if (claude.error) tipParts.push(`⚠️ ${claude.error}`);
+  if (claude.pending) tipParts.push(`❓ ${claude.pending}`);
+  if (claude.working) tipParts.push(`⏳ ${claude.working}`);
+  if (totalUnread > 0) tipParts.push(`${totalUnread} unread`);
+  tray.setToolTip(tipParts.length ? `${appLabel} — ${tipParts.join('  ·  ')}` : appLabel);
 }
 
 function getTotalUnread(): number {
@@ -1061,24 +1163,39 @@ function updateTrayIcon(): void {
   if (!tray || !trayIcons.normal) return;
 
   const totalUnread = getTotalUnread();
+  const agg = deriveClaudeAggregate();
+  const glyph = claudeStatusGlyph(agg);
+  const hasAttention = glyph !== '' || totalUnread > 0;
 
-  if (totalUnread > 0) {
+  // Icon: attention variant when anything wants the user (unread OR a Claude
+  // chat pending/errored), disconnected when the gateway is down, else normal.
+  if (hasAttention) {
     tray.setImage(trayIcons.unread!);
-    tray.setTitle(String(totalUnread), { fontType: 'monospacedDigit' });
   } else if (!trayState.gatewayConnected) {
     tray.setImage(trayIcons.disconnected!);
-    tray.setTitle('');
   } else {
     tray.setImage(trayIcons.normal);
-    tray.setTitle('');
   }
+
+  // Title: status glyph (⚠️ error / ❓ pending-question) + unread count. The
+  // emoji is OS-colored, so error vs pending is distinguishable at a glance
+  // even though the menu-bar template icon is monochrome.
+  const titleParts: string[] = [];
+  if (glyph) titleParts.push(glyph);
+  if (totalUnread > 0) titleParts.push(String(totalUnread));
+  tray.setTitle(titleParts.join(' '), { fontType: 'monospacedDigit' });
 }
 
 function updateDockBadge(): void {
   if (process.platform !== 'darwin' || !app.dock) return;
   const totalUnread = getTotalUnread();
+  const agg = deriveClaudeAggregate();
   if (totalUnread > 0) {
     app.dock.setBadge(String(totalUnread));
+  } else if (agg.error > 0 || agg.pending > 0) {
+    // Red dock badge for an errored / pending Claude chat even with no unread
+    // message count to show.
+    app.dock.setBadge('!');
   } else {
     app.dock.setBadge(isDev ? 'DEV' : '');
   }
@@ -1164,6 +1281,37 @@ function setTopicCooldown(topicId: string): void {
   notificationCooldowns.set(topicId, Date.now());
 }
 
+/**
+ * Topic-scoped desktop-notification gate shared by every notify* path:
+ *   - optional focus-suppression (don't notify the chat you're staring at),
+ *   - per-topic 10s cooldown (no back-to-back spam on one topic).
+ * Centralises the pattern each trigger used to re-implement. Returns true if a
+ * notification was actually shown.
+ */
+function notifyForTopic(opts: {
+  topicId: string | null | undefined;
+  id: string;
+  title: string;
+  body: string;
+  /** Suppress while the user is focused on this topic. Default true. */
+  suppressWhenFocused?: boolean;
+}): boolean {
+  const { topicId, id, title, body, suppressWhenFocused = true } = opts;
+  if (
+    suppressWhenFocused && topicId &&
+    mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() &&
+    trayState.focusedTopicId === topicId
+  ) {
+    return false;
+  }
+  if (topicId) {
+    if (isTopicOnCooldown(topicId)) return false;
+    setTopicCooldown(topicId);
+  }
+  showNotification({ id, title, body, topicId: topicId || undefined });
+  return true;
+}
+
 // ============ Notification Triggers ============
 
 function handleNewMessage(msg: WSMessage): void {
@@ -1173,47 +1321,139 @@ function handleNewMessage(msg: WSMessage): void {
   const topicId = msg.topicId || msg.sessionKey?.replace('topic:', '');
   if (!topicId) return;
 
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() && trayState.focusedTopicId === topicId) {
-    return;
-  }
-
-  if (isTopicOnCooldown(topicId)) return;
-  setTopicCooldown(topicId);
-
-  const topicName = getTopicName(topicId);
   const messageText = msg.preview || msg.content || msg.message?.content || msg.message?.text || '';
   const preview = messageText.length > 100 ? messageText.substring(0, 100) + '...' : messageText;
 
-  showNotification({
-    id: `msg-${topicId}-${Date.now()}`,
-    title: topicName,
-    body: preview || 'New message',
+  notifyForTopic({
     topicId,
+    id: `msg-${topicId}-${Date.now()}`,
+    title: getTopicName(topicId),
+    body: preview || 'New message',
   });
 }
 
 function notifyAgentCompleted(session: WSMessage['sessions'] extends (infer T)[] | undefined ? T : never): void {
   const topicId = session.topic_id || session.topicId;
   const agentLabel = session.agent_id || session.agentId || 'Agent';
-
-  // Cooldown is keyed by topic so two agents firing back-to-back on the
-  // same topic don't spam the user, but parallel topics still each get
-  // their cue. We always fire (we already missed the visible count for
-  // years because of the old check) — focus-suppression is opt-in via
-  // user setting and lives on the renderer side, not here.
-  if (topicId && isTopicOnCooldown(topicId)) return;
-  if (topicId) setTopicCooldown(topicId);
-
   const topicName = topicId ? getTopicName(topicId) : null;
-  const title = topicName ? `${topicName} · agent done` : 'Agent completed';
-  const body = topicName ? agentLabel : `${agentLabel} session finished`;
 
-  showNotification({
-    id: `agent-${session.id || topicId || 'x'}-${Date.now()}`,
-    title,
-    body,
+  // suppressWhenFocused:false — we always fire; focus-suppression for agents is
+  // opt-in via a user setting and lives on the renderer side, not here. The
+  // per-topic cooldown (inside notifyForTopic) still prevents back-to-back spam.
+  notifyForTopic({
     topicId,
+    id: `agent-${session.id || topicId || 'x'}-${Date.now()}`,
+    title: topicName ? `${topicName} · agent done` : 'Agent completed',
+    body: topicName ? agentLabel : `${agentLabel} session finished`,
+    suppressWhenFocused: false,
   });
+}
+
+// ============ Claude Session Phase (loading / pending-question / error) ============
+
+/** topicId for a session:state frame. Chats key off sessionKey `topic:<id>`;
+ *  topic-less claude-code terminals have a null sessionKey. */
+function topicIdFromSessionKey(sessionKey: string | null | undefined): string | null {
+  if (!sessionKey) return null;
+  return sessionKey.startsWith('topic:') ? sessionKey.slice('topic:'.length) : null;
+}
+
+/**
+ * Ingest a `session:state` broadcast. Maintains a per-session phase map that
+ * drives the menu-bar status glyph (loading / pending-question / error) and
+ * the tray menu's Claude section, and fires edge-triggered desktop
+ * notifications for the two actionable phases the tray never surfaced before
+ * (error, awaiting-approval). Finished/resting phases are pruned so the
+ * aggregate counts only reflect work that still wants the user's eyes.
+ */
+function handleClaudeSessionState(msg: WSMessage): void {
+  const state = msg.state;
+  if (!state || typeof state.phase !== 'string') return;
+  const phase = state.phase;
+  // Stable key: chats off sessionKey, terminals off claudeSessionId — mirrors
+  // the client's useClaudeSessionState fallback.
+  const key = (msg.sessionKey ?? state.sessionKey) || state.claudeSessionId;
+  if (!key) return;
+  const topicId = topicIdFromSessionKey(msg.sessionKey ?? state.sessionKey);
+
+  const prevPhase = trayState.prevClaudePhaseBySession.get(key);
+
+  if (CLAUDE_GONE_PHASES.has(phase)) {
+    // Finished/resting: drop from BOTH maps so neither the aggregate counts nor
+    // the prev-phase table leak completed sessions over a long-lived tray.
+    trayState.claudePhaseBySession.delete(key);
+    trayState.prevClaudePhaseBySession.delete(key);
+  } else {
+    trayState.claudePhaseBySession.set(key, { phase, topicId, csid: state.claudeSessionId || key });
+    trayState.prevClaudePhaseBySession.set(key, phase);
+  }
+
+  // Edge-triggered notification. awaiting-user / completed are already covered
+  // by the message:new reply notification, so we only add the two states that
+  // had no desktop cue: error and awaiting-approval.
+  if (phase !== prevPhase) {
+    if (CLAUDE_ERROR_PHASES.has(phase)) {
+      notifyClaudeSessionState(topicId, 'error', state);
+    } else if (phase === 'awaiting-approval') {
+      notifyClaudeSessionState(topicId, 'awaiting-approval', state);
+    }
+  }
+
+  onStateChanged();
+}
+
+interface ClaudeAggregate {
+  working: number;
+  pending: number;
+  error: number;
+  /** Sessions wanting attention (error + pending), for the menu listing. */
+  attention: Array<{ topicId: string | null; phase: string }>;
+}
+
+function deriveClaudeAggregate(): ClaudeAggregate {
+  let working = 0, pending = 0, error = 0;
+  const attention: Array<{ topicId: string | null; phase: string }> = [];
+  for (const entry of trayState.claudePhaseBySession.values()) {
+    if (CLAUDE_ERROR_PHASES.has(entry.phase)) { error++; attention.push({ topicId: entry.topicId, phase: entry.phase }); }
+    else if (CLAUDE_PENDING_PHASES.has(entry.phase)) { pending++; attention.push({ topicId: entry.topicId, phase: entry.phase }); }
+    else if (CLAUDE_WORKING_PHASES.has(entry.phase)) { working++; }
+  }
+  // Errors first, then pending, so the menu lists the loudest items on top.
+  attention.sort((a, b) => (CLAUDE_ERROR_PHASES.has(b.phase) ? 1 : 0) - (CLAUDE_ERROR_PHASES.has(a.phase) ? 1 : 0));
+  return { working, pending, error, attention };
+}
+
+/** Menu-bar status glyph for the most severe Claude state. Empty when nothing
+ *  needs the user — "working" lives in the tooltip/menu, not the title, so the
+ *  menu bar doesn't flicker on every tool call. */
+function claudeStatusGlyph(agg: ClaudeAggregate): string {
+  if (agg.error > 0) return '⚠️';
+  if (agg.pending > 0) return '❓';
+  return '';
+}
+
+function notifyClaudeSessionState(
+  topicId: string | null,
+  phase: 'error' | 'awaiting-approval',
+  state: NonNullable<WSMessage['state']>,
+): void {
+  const label = topicId ? getTopicName(topicId) : 'Claude';
+  const csid = state.claudeSessionId || 'x';
+  if (phase === 'error') {
+    notifyForTopic({
+      topicId,
+      id: `claude-error-${topicId || csid}-${Date.now()}`,
+      title: `⚠️ ${label}`,
+      body: state.error?.message || 'La sessione Claude è andata in errore',
+    });
+  } else {
+    notifyForTopic({
+      topicId,
+      id: `claude-approval-${topicId || csid}-${Date.now()}`,
+      title: `❓ ${label}`,
+      body: state.pendingApproval?.prompt || 'Claude ha bisogno della tua approvazione',
+    });
+  }
 }
 
 function notifyApproval(msg: WSMessage): void {

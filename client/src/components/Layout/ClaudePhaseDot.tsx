@@ -26,6 +26,9 @@ const COLORS: Partial<Record<ClaudeSessionPhase, { bg: string; pulse: boolean; t
   running:            { bg: 'bg-indigo-500', pulse: true,  title: 'Claude is generating…' },
   'tool-running':     { bg: 'bg-blue-500',   pulse: true,  title: 'Claude is running a tool' },
   'awaiting-approval':{ bg: 'bg-orange-500', pulse: false, title: 'Awaiting your approval' },
+  // paused = an approval request that timed out but is still unanswered. Show
+  // it (amber) rather than letting the question silently disappear.
+  paused:             { bg: 'bg-amber-500',  pulse: false, title: 'Approval timed out — still waiting on you' },
   'awaiting-user':    { bg: 'bg-gray-400',   pulse: false, title: 'Claude replied — waiting for you' },
   error:              { bg: 'bg-red-500',    pulse: false, title: 'Session error' },
 };

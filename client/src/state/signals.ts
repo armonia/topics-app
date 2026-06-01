@@ -30,10 +30,17 @@ import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId, getProjectPathFromPaneId } from './pane/adapters';
 
 /** Claude phases that mean "Claude needs you" — worth a notification badge.
- *  Loading-ish phases (running / tool-running) surface as spinners instead. */
+ *  Loading-ish phases (running / tool-running) surface as spinners instead.
+ *
+ *  `paused` is included: the reaper demotes awaiting-approval→paused after a
+ *  10-minute timeout but DELIBERATELY keeps `pendingApproval` "so the UI can
+ *  still display what was being asked" (claude-session-state.ts:301-307). If
+ *  paused weren't notable, that un-answered question would silently vanish
+ *  from the badge/dot the moment it timed out — the opposite of the intent. */
 export const NOTABLE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
   'awaiting-approval',
   'awaiting-user',
+  'paused',
   'error',
 ]);
 

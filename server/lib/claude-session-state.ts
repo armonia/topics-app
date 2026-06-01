@@ -153,9 +153,15 @@ export function applyHook(
 
     case 'UserPromptSubmit':
       // Always advances to running and clears any prior approval/tool state.
+      // Also clears a stale error: submitting a new prompt is the user
+      // resuming after a failure, so the error must not linger on the now-
+      // running session (mirrors SessionStart). transition() treats
+      // error:undefined as a no-op when there was no error, so rev only bumps
+      // when a real error is actually cleared.
       return transition(base, {
         phase: 'running',
         pendingApproval: undefined,
+        error: undefined,
         // Leave lastTool unchanged — a PostToolUse may still be in flight.
       }, now);
 

@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ClaudeSessionState, WSMessage } from '../types';
+import { subscribeLifecycle } from '../lib/wsFrameBus';
 import { useRefMirror } from './useRefMirror';
 import { useWSSubscription } from './useWSSubscription';
 
@@ -43,11 +44,13 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
   // Ref mirror so the WS handler reads the freshest map without re-binding.
   const sessionsRef = useRefMirror(sessions);
 
-  // Bootstrap from server snapshot.
-  useEffect(() => {
+  const fetchUrl = opts.fetchUrl ?? '/api/claude-sessions';
+
+  // Fetch the authoritative snapshot and REPLACE the local map. Returns a
+  // cancel fn so an in-flight fetch can be abandoned on unmount / re-fetch.
+  const bootstrap = useCallback((): (() => void) => {
     let cancelled = false;
-    const url = opts.fetchUrl ?? '/api/claude-sessions';
-    fetch(url)
+    fetch(fetchUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((body: { sessions?: ClaudeSessionState[] }) => {
         if (cancelled) return;
@@ -70,7 +73,28 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
         }
       });
     return () => { cancelled = true; };
-  }, [opts.fetchUrl]);
+  }, [fetchUrl]);
+
+  // Bootstrap from server snapshot on mount.
+  useEffect(() => bootstrap(), [bootstrap]);
+
+  // Re-bootstrap on WS RECONNECT. `session:state` is transition-only, so a
+  // phase that changed while the socket was down (or a session that ended)
+  // never reaches us — leaving stale attention badges / phase dots that the
+  // stream alone can't heal. Re-fetching the authoritative snapshot on every
+  // reconnect resets the map to server truth. The first 'open' coincides with
+  // the mount fetch above, so we skip it to avoid a duplicate request.
+  useEffect(() => {
+    let seenFirstOpen = false;
+    let cancelInFlight: (() => void) | undefined;
+    const unsub = subscribeLifecycle((event) => {
+      if (event !== 'open') return;
+      if (!seenFirstOpen) { seenFirstOpen = true; return; }
+      cancelInFlight?.();
+      cancelInFlight = bootstrap();
+    });
+    return () => { unsub(); cancelInFlight?.(); };
+  }, [bootstrap]);
 
   // Live updates — `useWSSubscription` owns the subscribe/cleanup
   // shape; we only define the per-message body.
