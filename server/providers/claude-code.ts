@@ -23,6 +23,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
+import { TOPICS_AGENT_SYSTEM_PROMPT } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
 
 // ============ Config ============
@@ -886,6 +887,9 @@ export class ClaudeCodeProvider implements AIProvider {
       "--model", model,
       "--setting-sources", "user,project,local",
       "--mcp-config", mcpConfigPath,
+      // Nudge the agent to launch dev servers via mcp__topics__run_script so they
+      // appear in the Processes panel instead of leaking into the bare shell.
+      "--append-system-prompt", TOPICS_AGENT_SYSTEM_PROMPT,
       "--input-format", "stream-json",
       "--output-format", "stream-json",
       ...(isNewSession ? ["--session-id", claudeSessionId] : ["--resume", claudeSessionId]),
