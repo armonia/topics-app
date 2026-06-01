@@ -1,3 +1,10 @@
 name: refactor-master-into-kanban
-status: approved
+status: superseded
+superseded_by: interactive-claude-primitive
 created: 2026-05-25
+note: |
+  Superseded 2026-06-01. Premise (claude-code `--print` provider = subscription)
+  invalidated by Anthropic's 2026-06-15 billing change (--print → metered Agent
+  SDK credit at API rates). The reusable parts (## Next parser, proposal→card
+  mapping, ingest core, kanban cards) carry over to interactive-claude-primitive,
+  which rebuilds the Master as an interactive human-driven PTY.
