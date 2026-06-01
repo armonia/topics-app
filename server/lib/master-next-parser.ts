@@ -91,7 +91,20 @@ export function parseNextActions(
   md: string | undefined | null,
   sessions: NextSessionRef[],
 ): ParsedProposal[] {
-  const block = parseNextBlock(md);
+  return parseNextRows(parseNextBlock(md), sessions);
+}
+
+/**
+ * Parse the ROWS of an already-extracted `## Next` block body (no heading).
+ * Use this when the block was extracted elsewhere — e.g. scraped from a
+ * terminal buffer via `extractLatestNextBlock` (interactive-claude-primitive
+ * AD-2/AD-3) — so we don't re-run heading detection (which takes the FIRST
+ * block; scrollback wants the LAST).
+ */
+export function parseNextRows(
+  block: string | undefined | null,
+  sessions: NextSessionRef[],
+): ParsedProposal[] {
   if (!block || sessions.length === 0) return [];
 
   const byId = new Map(sessions.map((s) => [s.topicId.toLowerCase(), s]));
