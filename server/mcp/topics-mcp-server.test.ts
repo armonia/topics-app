@@ -255,6 +255,35 @@ describe("handleMessage", () => {
     }
   });
 
+  test("tools/call routes write_session + close_session through the registry", async () => {
+    const orig = globalThis.fetch;
+    const seen: { url: string; method?: string }[] = [];
+    (globalThis as any).fetch = stubFetch(async (url, init) => {
+      seen.push({ url: String(url), method: init?.method });
+      return new Response(JSON.stringify({ ok: true, sent: 3 }), { status: 200 });
+    });
+    try {
+      const w = await handleMessage(
+        { jsonrpc: "2.0", id: 10, method: "tools/call", params: { name: "write_session", arguments: { session_id: "s1", input: "ls\n" } } },
+        ARGS,
+      );
+      expect((w!.result as any).isError).toBeUndefined();
+      expect((w!.result as any).content[0].text).toContain("to s1");
+      expect(seen[0].url).toContain("/api/terminal/sessions/s1/send");
+      expect(seen[0].method).toBe("POST");
+
+      const c = await handleMessage(
+        { jsonrpc: "2.0", id: 11, method: "tools/call", params: { name: "close_session", arguments: { session_id: "s1" } } },
+        ARGS,
+      );
+      expect((c!.result as any).content[0].text).toBe("closed s1");
+      expect(seen[1].url).toContain("/api/terminal/sessions/s1");
+      expect(seen[1].method).toBe("DELETE");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   test("tools/call with unknown name → -32601 error", async () => {
     const resp = await handleMessage(
       { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nope", arguments: {} } },

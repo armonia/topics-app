@@ -36,6 +36,28 @@
 - [ ] 6.2 Confirm `/status` in primitive terminals shows subscription (no API billing) — manual + documented.
 - [ ] 6.3 NOT TOUCHED invariants: KanbanBoard core, PanelGrid, open_browser_pane MCP tool.
 
+## Status — autonomous session 2026-06-02
+
+**Done + verified (branch `refactor-master-into-kanban`):**
+- §1.1/§2/§3 (server): terminal-Master role prompt (`master-orchestrator-prompt.ts`),
+  `role:'master'` in createSession, `getTerminalBuffer` + `GET .../:id/buffer`,
+  buffer-scrape ingest branch (`{ terminalId }`) reusing `runMasterIngest`
+  (contentIsBlock) + `terminal-scrape.ts`. Compile-clean.
+- **Session control — read / write / close (the goal):** MCP tools
+  `list_sessions`, `read_session`, `write_session`, `close_session` backed by
+  the global terminal endpoints. VERIFIED:
+  - live PTY integration test (`tests/integration/master-sessions.test.ts`):
+    shell session create → write `echo` → read buffer (marker asserted) →
+    close → gone. Real pty bridge, free, isolated DATA_DIR, no user sessions.
+  - MCP unit + dispatch round-trip (`handleMessage` tools/call for
+    write/close) + e2e tool-list. 47 MCP tests, 443 server, all green.
+
+**Still pending (needs running server + authenticated claude + human):**
+- §1.1 client default-to-terminal-primitive / hide paid engines in the picker.
+- §4 "Aggiorna proposte" UI button in the Master pane.
+- §5 retire MasterBoardStrip + structured chat (dormant-first).
+- §6 Playwright E2E with a real claude Master (human-driven by design).
+
 ## Reused verbatim from refactor-master-into-kanban
 
 - `server/lib/master-next-parser.ts`, `master-proposals.ts`, `master-ingest.ts` (+ their bun:tests).
