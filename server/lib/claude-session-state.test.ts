@@ -111,6 +111,29 @@ describe('applyHook — phase transitions', () => {
     expect(s1.rev).toBe(3);
   });
 
+  it('UserPromptSubmit clears a stale error when resuming after a failure', () => {
+    const s0 = freshState({
+      phase: 'error',
+      rev: 4,
+      error: { code: 'pty-crashed', message: 'PTY exited with code 137', failedAt: T0 },
+    });
+    const s1 = applyHook(s0, hook('UserPromptSubmit'), T0 + TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.error).toBeUndefined();
+    expect(s1.rev).toBe(5);
+  });
+
+  it('UserPromptSubmit with no prior error does not bump rev for the error field alone', () => {
+    // error:undefined in the delta must be a no-op when there was no error —
+    // otherwise every prompt would churn rev. rev still bumps for the phase
+    // change (running already? then it must be a true no-op).
+    const s0 = freshState({ phase: 'running', rev: 9 });
+    const s1 = applyHook(s0, hook('UserPromptSubmit'), T0 + TICK);
+    // phase unchanged (running→running) AND no error to clear → identity no-op.
+    expect(s1.phase).toBe('running');
+    expect(s1.rev).toBe(9);
+  });
+
   it('Stop transitions to awaiting-user', () => {
     const s0 = freshState({ phase: 'running', rev: 1 });
     const s1 = applyHook(s0, hook('Stop'), T0 + TICK);

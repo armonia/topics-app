@@ -51,6 +51,9 @@ interface ProviderProps {
 const PHASE_WEIGHT: Partial<Record<ClaudeSessionPhase, number>> = {
   'awaiting-approval': 5,
   error: 4,
+  // paused = a timed-out-but-unanswered approval (see NOTABLE_CLAUDE_PHASES);
+  // ranks just under a fresh approval so a project tab still surfaces it.
+  paused: 4,
   'awaiting-user': 3,
   'tool-running': 2,
   running: 1,
