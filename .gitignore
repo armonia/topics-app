@@ -61,6 +61,8 @@ public/index.html
 
 # Electron build artifacts
 electron-app/dist/
+electron-app/server-dist/
+electron-app/release/
 
 # Internal/confidential docs - DO NOT COMMIT
 CLAUDE.md
