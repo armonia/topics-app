@@ -1615,6 +1615,15 @@ function createAppMenu(): void {
         ]),
       ],
     },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Check for Updates…',
+          click: () => { void checkForUpdatesManual(); },
+        },
+      ],
+    },
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -2605,7 +2614,7 @@ app.on('second-instance', () => {
   console.log('[Topics Electron] Second instance detected, ignoring.');
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // When running unpacked (LaunchAgent dev/prod scripts both run
   // node_modules/.bin/electron, never a built .app bundle), macOS uses the
   // generic Electron icon. Force our own. When packaged via electron-builder
@@ -2621,6 +2630,9 @@ app.whenReady().then(() => {
   createAppMenu();
   // Phase 30.1 polish — overlay manager IPC handlers register here.
   initOverlayManager();
+  // Packaged builds: spawn + health-wait the bundled server before loading
+  // the window (no-op in dev / when a server is already running).
+  await startBundledServer();
   createWindow();
   createTray();
   startWSBridge();
@@ -2682,6 +2694,7 @@ app.on('before-quit', (e) => {
 
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch { /* best effort */ }
+  stopBundledServer();
   stopWSBridge();
   stopNotificationCleanup();
   stopAssetWatcher();
@@ -2923,6 +2936,23 @@ async function setupAutoUpdater() {
     autoUpdater.on('download-progress', (p: { percent?: number }) =>
       broadcastUpdaterStatus({ state: 'downloading', progress: p?.percent }));
     autoUpdater.on('update-downloaded', () => broadcastUpdaterStatus({ state: 'ready' }));
+    // Native restart prompt — fires alongside the renderer toast 'ready' state.
+    autoUpdater.on('update-downloaded', async (info: { version?: string }) => {
+      const { dialog } = await import('electron');
+      const { response } = await dialog.showMessageBox({
+        type: 'info',
+        buttons: ['Restart & Install', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        message: 'A new version of Topics is ready',
+        detail: `Version ${info?.version ?? ''} has been downloaded. Restart to install it now?`,
+      });
+      if (response === 0) {
+        // Bypass the before-quit hide-trap so the installer can run.
+        (app as unknown as { isQuitting: boolean }).isQuitting = true;
+        autoUpdater.quitAndInstall(false, true);
+      }
+    });
     autoUpdater.on('error', (err: Error) =>
       broadcastUpdaterStatus({ state: 'error', error: err?.message || String(err) }));
 
@@ -2978,3 +3008,168 @@ ipcMain.handle('updater:quit-and-install', async () => {
     return { ok: false, reason: err?.message || String(err) };
   }
 });
+
+// ─── Phase E.2 · Native "Check for Updates" + bundled server lifecycle ─────
+//
+// Everything below is ADDITIVE and guarded by app.isPackaged, so the dev
+// flow (Vite HMR + the LaunchAgent/start-prod.sh prod scripts, where
+// app.isPackaged === false and/or DEV_URL is set) is completely untouched.
+
+/** Manual "Check for Updates…" handler, wired to the Help menu. */
+async function checkForUpdatesManual(): Promise<void> {
+  const { dialog } = await import('electron');
+  if (!app.isPackaged) {
+    await dialog.showMessageBox({
+      type: 'info',
+      message: 'Updates are disabled in development builds.',
+      detail: `You are running Topics ${app.getVersion()} from source.`,
+    });
+    return;
+  }
+  try {
+    const { autoUpdater } = await import('electron-updater');
+    const result = await autoUpdater.checkForUpdates();
+    const current = app.getVersion();
+    const latest = result?.updateInfo?.version;
+    if (!latest || latest === current) {
+      await dialog.showMessageBox({
+        type: 'info',
+        message: 'Topics is up to date.',
+        detail: `You are on version ${current}.`,
+      });
+      return;
+    }
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `Topics ${latest} is available`,
+      detail: `You are on ${current}. Download it now? You'll be asked to restart once it's ready.`,
+    });
+    if (response === 0) await autoUpdater.downloadUpdate();
+  } catch (err: any) {
+    await dialog.showMessageBox({
+      type: 'error',
+      message: 'Update check failed',
+      detail: err?.message || String(err),
+    });
+  }
+}
+
+// ── Bundled server child (packaged builds only) ────────────────────────────
+// On a clean machine the user has no `bun` and no LaunchAgent, so the packaged
+// app ships its own bun runtime + server source under Resources/server (see
+// electron-builder `extraResources`) and spawns it here. In dev this is a
+// no-op: the server is owned by `bun run dev:server` / start-prod.sh.
+
+const SERVER_PORT = Number(process.env.PORT) || 3333;
+let serverChild: import('child_process').ChildProcess | null = null;
+
+function resolveServerRuntime(): { serverDir: string; binDir: string; bunPath: string } {
+  const serverDir = path.join(process.resourcesPath, 'server');
+  const binDir = path.join(serverDir, 'bin');
+  const bunName = process.platform === 'win32' ? 'bun.exe' : 'bun';
+  return { serverDir, binDir, bunPath: path.join(binDir, bunName) };
+}
+
+/** Is something already serving on the TLS port? (legacy LaunchAgent or a
+ *  separately-started server) — if so we reuse it instead of double-binding. */
+function serverAlreadyUp(timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = https.request(
+      { host: '127.0.0.1', port: SERVER_PORT, path: '/', method: 'HEAD', timeout: timeoutMs, rejectUnauthorized: false },
+      (res) => { res.resume(); req.destroy(); resolve(true); },
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.end();
+  });
+}
+
+function waitForServer(timeoutMs = 30_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const tick = async () => {
+      if (await serverAlreadyUp()) return resolve(true);
+      if (Date.now() > deadline) return resolve(false);
+      setTimeout(tick, 500);
+    };
+    void tick();
+  });
+}
+
+async function startBundledServer(): Promise<void> {
+  // Dev / external-server guard — only manage a server in a packaged build
+  // with no externally-provided URL.
+  if (!app.isPackaged || process.env.DEV_URL) return;
+
+  if (await serverAlreadyUp(1500)) {
+    console.log('[Server] Port already served — reusing existing server');
+    return;
+  }
+
+  const { serverDir, binDir, bunPath } = resolveServerRuntime();
+  if (!fs.existsSync(bunPath)) {
+    console.error('[Server] Bundled bun runtime missing:', bunPath);
+    return;
+  }
+
+  // extraResources copies can drop the +x bit — restore it best-effort so the
+  // bundled bun/node and node-pty's spawn-helper stay executable.
+  if (process.platform !== 'win32') {
+    for (const f of ['bun', 'node']) {
+      try { fs.chmodSync(path.join(binDir, f), 0o755); } catch { /* best effort */ }
+    }
+    try {
+      const helper = path.join(serverDir, 'node_modules', 'node-pty', 'prebuilds',
+        `${process.platform}-${process.arch}`, 'spawn-helper');
+      if (fs.existsSync(helper)) fs.chmodSync(helper, 0o755);
+    } catch { /* best effort */ }
+  }
+
+  const { spawn } = await import('child_process');
+  console.log('[Server] Spawning bundled server:', bunPath, 'in', serverDir);
+  serverChild = spawn(bunPath, ['run', path.join(serverDir, 'server.ts')], {
+    cwd: serverDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      PORT: String(SERVER_PORT),
+      // server/pty-bridge.mjs is spawned as `node …`; put the bundled node on
+      // PATH so embedded terminals work with no system node installed.
+      PATH: `${binDir}${path.delimiter}${process.env.PATH || ''}`,
+    },
+  });
+  serverChild.stdout?.on('data', (d) => console.log('[server]', String(d).trimEnd()));
+  serverChild.stderr?.on('data', (d) => console.error('[server]', String(d).trimEnd()));
+  serverChild.on('error', (err) => console.error('[Server] spawn error:', err));
+  serverChild.on('exit', (code, sig) => {
+    console.error(`[Server] child exited code=${code} sig=${sig}`);
+    serverChild = null;
+  });
+
+  const healthy = await waitForServer(30_000);
+  if (!healthy) {
+    const { dialog } = await import('electron');
+    await dialog.showMessageBox({
+      type: 'error',
+      message: 'Topics server failed to start',
+      detail: 'The bundled server did not become ready within 30 seconds. Please relaunch the app.',
+    });
+  }
+}
+
+/** Stop the bundled server child. Idempotent. SIGTERM lets server.ts flush
+ *  Claude children and release its singleton lock. */
+function stopBundledServer(): void {
+  if (!serverChild || serverChild.killed) { serverChild = null; return; }
+  try {
+    serverChild.kill('SIGTERM');
+  } catch (e) {
+    console.warn('[Server] kill failed:', e);
+  }
+  serverChild = null;
+}

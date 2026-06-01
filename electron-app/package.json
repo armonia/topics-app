@@ -6,8 +6,12 @@
   "scripts": {
     "build:ts": "tsc && node -e \"require('fs').readdirSync('.').filter(f=>f.endsWith('.png')||f.endsWith('.html')||f.endsWith('.icns')).forEach(f=>{require('fs').copyFileSync(f,'dist/'+f);require('fs').chmodSync('dist/'+f,0o644)})\"",
     "start": "npm run build:ts && electron dist/main.js",
-    "build": "npm run build:ts && electron-builder --mac",
-    "postinstall": "/usr/libexec/PlistBuddy -c \"Set :CFBundleName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null; /usr/libexec/PlistBuddy -c \"Set :CFBundleDisplayName 'Topics DEV'\" node_modules/electron/dist/Electron.app/Contents/Info.plist 2>/dev/null; cp icon.icns node_modules/electron/dist/Electron.app/Contents/Resources/electron.icns 2>/dev/null; touch node_modules/electron/dist/Electron.app 2>/dev/null || true",
+    "stage:server": "node ../scripts/stage-server-dist.mjs",
+    "build": "npm run build:ts && npm run stage:server && electron-builder",
+    "dist:mac": "npm run build:ts && npm run stage:server && electron-builder --mac",
+    "dist:win": "npm run build:ts && npm run stage:server && electron-builder --win",
+    "dist:linux": "npm run build:ts && npm run stage:server && electron-builder --linux",
+    "postinstall": "node postinstall.mjs",
     "dev": "npm run build:ts && electronmon dist/main.js"
   },
   "dependencies": {
@@ -26,14 +30,36 @@
   "build": {
     "appId": "com.topics.app",
     "productName": "Topics",
+    "asar": true,
+    "asarUnpack": ["**/*.node"],
+    "extraResources": [
+      { "from": "server-dist", "to": "server", "filter": ["**/*"] }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
-        "dmg",
-        "zip",
-        "dir"
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
       ]
+    },
+    "win": {
+      "icon": "icon.png",
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "icon": "icon.png",
+      "category": "Utility",
+      "target": ["AppImage", "deb"]
     },
     "publish": {
       "provider": "github",
@@ -42,25 +68,17 @@
       "releaseType": "release"
     },
     "files": [
-      "dist/main.js",
-      "dist/main.js.map",
-      "dist/preload.js",
-      "dist/preload.js.map",
+      "dist/main.js", "dist/main.js.map",
+      "dist/preload.js", "dist/preload.js.map",
       "dist/overlay.html",
-      "dist/overlay-manager.js",
-      "dist/overlay-manager.js.map",
-      "dist/overlay-renderer.js",
-      "dist/overlay-renderer.js.map",
-      "dist/overlay-preload.js",
-      "dist/overlay-preload.js.map",
-      "icon.icns",
+      "dist/overlay-manager.js", "dist/overlay-manager.js.map",
+      "dist/overlay-renderer.js", "dist/overlay-renderer.js.map",
+      "dist/overlay-preload.js", "dist/overlay-preload.js.map",
+      "icon.icns", "icon.png",
       "tray-icon.png",
-      "trayTemplate.png",
-      "trayTemplate@2x.png",
-      "trayUnreadTemplate.png",
-      "trayUnreadTemplate@2x.png",
-      "trayDisconnectedTemplate.png",
-      "trayDisconnectedTemplate@2x.png"
+      "trayTemplate.png", "trayTemplate@2x.png",
+      "trayUnreadTemplate.png", "trayUnreadTemplate@2x.png",
+      "trayDisconnectedTemplate.png", "trayDisconnectedTemplate@2x.png"
     ]
   }
 }
