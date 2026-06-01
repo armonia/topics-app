@@ -56,7 +56,7 @@ Open an issue with:
 
 ## Security
 
-If you find a security vulnerability, please report it privately rather than opening a public issue. See the [Security section](README.md#security) in the README.
+If you find a security vulnerability, please report it privately rather than opening a public issue. See [SECURITY.md](SECURITY.md) for how to report it.
 
 ## License
 

@@ -1,158 +1,94 @@
 # Topics
 
-> A powerful companion app for [OpenClaw](https://github.com/openclaw/openclaw) — organize your AI conversations into focused topics with project context.
+> A desktop companion for [OpenClaw](https://github.com/openclaw/openclaw) — organize your AI conversations into focused topics, each with its own project context, terminal, and browser.
 
-## Features
+<!-- Optional: drop a screenshot or short GIF here once available -->
+<!-- ![Topics screenshot](docs/screenshot.png) -->
 
-- 🗂️ **Topic-based organization** — Group related conversations by project or context
-- 🖥️ **Multi-panel layout** — Work on multiple topics side-by-side
-- 📁 **Project integration** — File explorer, Git changes, and process monitoring
-- 🌐 **Integrated browser** — Browse the web without leaving the app
-- ⏰ **Cron Jobs** — View and manage scheduled tasks
-- 🌍 **Remote Access** — Share your Topics instance via Tailscale or Cloudflare Tunnel
-- 📊 **Context visualization** — See how much context each conversation uses
-- 📱 **Mobile-friendly** — Responsive design works on any device
-- 🔔 **Unread badges** — Never miss new messages
+## Download
 
-## Quick Start
+Grab the latest build for your platform from the **[latest release](https://github.com/armonia/topics-app/releases/latest)**:
 
-### Prerequisites
+| Platform | File |
+|----------|------|
+| **macOS** (Apple Silicon / Intel) | `Topics-*.dmg` |
+| **Windows** | `Topics-Setup-*.exe` |
+| **Linux** | `Topics-*.AppImage` · `.deb` |
 
-- [Bun](https://bun.sh/) or Node.js 18+
-- [OpenClaw](https://github.com/openclaw/openclaw) running locally
+All builds and their checksums live on the [Releases](https://github.com/armonia/topics-app/releases) page.
 
-### Installation
+> On first launch macOS may warn that the app is from an unidentified developer — right-click the app and choose **Open**. Windows SmartScreen may ask you to confirm. (Signed/notarized builds are tracked in the issues.)
 
-```bash
-# Clone the repository
-git clone https://github.com/armonia/topics-app.git
-cd topics-app
+## Auto-update
 
-# Install dependencies
-bun install
+Topics checks GitHub Releases for new versions. Use **menu → Check for Updates**: the app downloads the update once you confirm, then installs it on restart. Updates are never applied silently.
 
-# Build the client
-cd client && bun run build && cd ..
+## What it does
 
-# Copy and edit environment config
-cp .env.example .env
-
-# Start the server
-bun run server.ts
-```
-
-The server will start at `http://localhost:3333`.
-
-### Desktop App (Electron)
-
-```bash
-cd electron-app
-npm install
-npm start
-```
+- **Topic-based organization** — group related conversations by project or context
+- **Project integration** — file explorer, Git changes, embedded terminal and browser per topic
+- **Context visualization** — see how much context each conversation uses
+- **Standalone or OpenClaw** — talk to OpenClaw, or run against the Anthropic API directly
 
 ## Configuration
 
-Copy `.env.example` to `.env` and customize:
-
-```bash
-cp .env.example .env
-```
-
-### Environment Variables
+Topics reads configuration from environment variables (or a `.env` file). Copy `.env.example` to `.env` and set what you need:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | Server port | `3333` |
-| `HOST` | Server host | `localhost` |
-| `OPENCLAW_GATEWAY_URL` | OpenClaw gateway URL | `http://localhost:3000` |
+| `PORT` | Local server port | `3333` |
+| `AI_PROVIDER` | `openclaw` or `claude` | `openclaw` |
+| `GATEWAY_TOKEN` | OpenClaw gateway token (required when `AI_PROVIDER=openclaw`) | — |
+| `GATEWAY_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=claude`) | — |
+| `CLAUDE_MODEL` | Model id for the `claude` provider | — |
+| `ELEVENLABS_API_KEY` | ElevenLabs key — enables text-to-speech (optional) | — |
+| `MOONDREAM_API_KEY` | Moondream key — enables browser vision grounding (optional) | — |
+| `APP_DATA_DIR` | Where conversations and app data are stored | `~/.openclaw` |
 
-## Development
+You bring your own keys. Topics stores everything locally — see [PRIVACY.md](PRIVACY.md).
 
-```bash
-# Start dev server with hot reload
-bun run dev
+## Build from source
 
-# Build client
-cd client && bun run build
-
-# Start Electron in dev mode
-cd electron-app && npm start
-```
-
-### Optional: spec-flow toolchain
-
-The `lint:gherkin`, `tag:scenarios`, and `uat` scripts in `package.json`
-require the [spec-flow](https://github.com/armonia/spec-flow) toolkit
-cloned alongside this repo:
+Requires [Bun](https://bun.sh/) and Node.js 18+.
 
 ```bash
-git clone --depth 1 https://github.com/armonia/spec-flow.git
+git clone https://github.com/armonia/topics-app.git
+cd topics-app
+bun install
+
+# Client (Vite/React/Tailwind) → public/
+cd client && bun run build && cd ..
+
+# Run the server
+cp .env.example .env   # then edit
+bun run start          # http://localhost:3333
 ```
 
-`spec-flow/` is gitignored — it stays a local sibling install. Without
-it, only those three scripts are unavailable; everything else works.
-
-## Architecture
-
-```
-topics-app/
-├── client/          # React frontend (Vite + TypeScript + Tailwind)
-├── electron-app/    # Desktop wrapper with browser integration
-├── server.ts        # Backend server (Bun/Node)
-├── public/          # Static assets
-└── messages/        # Stored conversations (gitignored)
-```
-
-## Integration with OpenClaw
-
-Topics integrates seamlessly with OpenClaw:
-
-1. **Session bridging** — Each topic creates an isolated OpenClaw session
-2. **Tool access** — Full access to OpenClaw tools (browser, exec, files, etc.)
-3. **Context management** — Custom system prompts per topic/project
-4. **Cron jobs** — View and manage OpenClaw scheduled tasks
-
-## Auto-Update
-
-Topics can auto-update from git:
+Desktop shell (Electron):
 
 ```bash
-# In the app menu: View → Check for Updates
-# Or manually:
-git pull origin main
+cd electron-app && npm install && npm start
 ```
 
-## Remote Access
-
-### Tailscale Funnel
+Package installers for the current OS (publishes to GitHub Releases when `GH_TOKEN` is set):
 
 ```bash
-tailscale funnel 3333
+cd electron-app && npm run build
 ```
 
-### Cloudflare Tunnel
-
-```bash
-cloudflared tunnel --url http://localhost:3333
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
 
 ## Security
 
-Topics is a **local development tool** designed to run on your own machine. It does not include authentication or access control on its API endpoints.
+Topics runs a **local server with no built-in authentication or access control**. It is meant to run on your own machine, bound to localhost.
 
-**Do not expose Topics to the public internet without additional security measures.** If you use remote access features (Tailscale, Cloudflare Tunnel), ensure you have appropriate authentication in place.
+**Do not expose Topics to the public internet.** If you use remote-access tooling (Tailscale, Cloudflare Tunnel, etc.), put your own authentication in front of it. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
-If you discover a security vulnerability, please report it privately by opening a GitHub issue marked as confidential rather than disclosing it publicly.
+## Legal
 
-## Contributing
+Topics is open source under the [MIT License](LICENSE) — provided **"as is", without warranty of any kind**.
 
-Pull requests are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
-
-## License
+Topics is an independent project by [Armonia](https://armonia.io). It is **not affiliated with or endorsed by** Anthropic, OpenClaw, or ElevenLabs. Those names and marks belong to their respective owners. Topics talks to third-party services using **keys and accounts you provide**, and your use of them is governed by each provider's own terms. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [PRIVACY.md](PRIVACY.md).
 
 MIT © [Armonia](https://armonia.io)
-
----
-
-Made with ❤️ by [Armonia](https://armonia.io) for the [OpenClaw](https://openclaw.ai) community.
