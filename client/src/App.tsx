@@ -23,7 +23,7 @@ import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
-import { useClosedTabs } from './state/pane/adapters';
+import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
@@ -1021,7 +1021,11 @@ function App() {
             themeMode={themeMode}
             projectPath={focusedProjectPath}
             onOpenFile={(path) => {
-              window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId: focusedPanelId } }));
+              // Target the searched project's WINDOW explicitly (not just the
+              // focused panel id) so the file opens ONLY in that project window,
+              // never in every project open in split view.
+              const topicId = focusedProjectPath ? createPaneId('project', focusedProjectPath) : focusedPanelId;
+              window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId } }));
               setShowSearch(false);
             }}
             isElectron={isElectron}
@@ -1047,7 +1051,11 @@ function App() {
           <FileSearch
             projectPath={showFileSearch.projectPath}
             onOpenFile={(path, lineNumber) => {
-              window.dispatchEvent(new CustomEvent('open-file', { detail: { path, lineNumber, topicId: focusedPanelId } }));
+              // The file-search modal is scoped to a specific project; target
+              // THAT project's window so the file opens only there.
+              window.dispatchEvent(new CustomEvent('open-file', {
+                detail: { path, lineNumber, topicId: createPaneId('project', showFileSearch.projectPath) },
+              }));
             }}
             onClose={() => setShowFileSearch(false)}
           />

@@ -436,17 +436,37 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         }}
         onDrop={(e) => {
           if (edgeSplitZone && onEdgeSplitDrop) {
-            e.preventDefault();
-            const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-            const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
-            if (sourcePaneId && sourceGroupId) {
-              onEdgeSplitDrop(sourcePaneId, sourceGroupId, edgeSplitZone);
+            // Re-verify the zone from the cursor's ACTUAL position at drop time.
+            // A fast drag can leave `edgeSplitZone` set from an earlier edge
+            // frame even though the release happened at center — which used to
+            // SPLIT when the user meant to MOVE the tab into this bar. Project
+            // groups always split (a foreign tab can't merge into a project's
+            // bar), so they skip the recheck; non-project groups only split when
+            // the cursor is genuinely in the EDGE_DROP_PX band at release.
+            const hasProjectPane = panes.some(p => p.type === 'project');
+            let doSplit = true;
+            if (!hasProjectPane) {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              doSplit = x < EDGE_DROP_PX || x > rect.width - EDGE_DROP_PX;
             }
+            if (doSplit) {
+              e.preventDefault();
+              const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+              const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+              if (sourcePaneId && sourceGroupId) {
+                onEdgeSplitDrop(sourcePaneId, sourceGroupId, edgeSplitZone);
+              }
+              setEdgeSplitZone(null);
+              setDraggedPaneId(null);
+              setDragOverIdx(null);
+              setCrossGroupDragActive(false);
+              return;
+            }
+            // Center release despite a stale edge zone → fall through to a normal
+            // move/reorder, appending to the end of this bar.
             setEdgeSplitZone(null);
-            setDraggedPaneId(null);
-            setDragOverIdx(null);
-            setCrossGroupDragActive(false);
-            return;
+            dragOverIdxRef.current = panes.length;
           }
           handleTabDrop(e);
         }}

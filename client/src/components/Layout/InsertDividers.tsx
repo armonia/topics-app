@@ -1,5 +1,22 @@
 import { useCallback, useState } from 'react';
-import { DND_TYPES } from '../../lib/dndTypes';
+import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+
+/**
+ * True for a PANE_TAB drag that belongs to a project window (any scope other
+ * than the standalone "main" scope). These dividers insert/reorder TOP-LEVEL
+ * grid cells, so a project's *internal* tab drag must not light them up — that
+ * was the "split border of another project" feedback the user saw while
+ * dragging a tab inside one project and grazing the border toward another.
+ * GRID_ITEM drags (top-level cell reorder) and standalone tabs are unaffected.
+ * Mirrors the scope guard PanelGrid applies to its cell split-area preview.
+ */
+function isForeignTabDrag(types: readonly string[]): boolean {
+  return (
+    types.includes(DND_TYPES.PANE_TAB) &&
+    !types.includes(DND_TYPES.GRID_ITEM) &&
+    !dragMatchesScope(types, STANDALONE_SCOPE)
+  );
+}
 
 /**
  * Drag-aware divider that sits between two grid cells.
@@ -47,6 +64,9 @@ export function ColumnInsertDivider({
       if (!isDragActive) return;
       const types = e.dataTransfer.types;
       if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      // A project's internal tab drag must not light up the top-level split
+      // borders (no preventDefault → the project keeps owning the drop).
+      if (isForeignTabDrag(types)) return;
       e.preventDefault();
       // stop the surrounding cell's dragover from re-claiming the drop target
       e.stopPropagation();
@@ -64,6 +84,7 @@ export function ColumnInsertDivider({
       if (!isDragActive) return;
       const types = e.dataTransfer.types;
       if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      if (isForeignTabDrag(types)) return;
       e.preventDefault();
       e.stopPropagation();
       onInsertBetween(rowIdx, colIdx, e);
@@ -130,6 +151,7 @@ export function RowInsertDivider({
       if (!isDragActive) return;
       const types = e.dataTransfer.types;
       if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      if (isForeignTabDrag(types)) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
@@ -146,6 +168,7 @@ export function RowInsertDivider({
       if (!isDragActive) return;
       const types = e.dataTransfer.types;
       if (!types.includes(DND_TYPES.PANE_TAB) && !types.includes(DND_TYPES.GRID_ITEM)) return;
+      if (isForeignTabDrag(types)) return;
       e.preventDefault();
       e.stopPropagation();
       onInsertBetween(rowIdx, e);

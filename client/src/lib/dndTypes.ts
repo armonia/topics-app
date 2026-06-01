@@ -23,6 +23,13 @@ export const DND_TYPES = {
 
 export type DndType = typeof DND_TYPES[keyof typeof DND_TYPES];
 
+/** The DnD scope of the top-level standalone window (its chat group + solo split
+ *  cells). Every project window uses its projectPath as scope instead. The
+ *  standalone grid must only react to tab drags of THIS scope — a project's
+ *  internal tab drag is owned entirely by that project. Shared so producers and
+ *  consumers can't drift on the literal. */
+export const STANDALONE_SCOPE = 'main';
+
 /**
  * Per-window/project DnD scope for tab drags. Tabs may only be reordered or
  * moved *within the same scope*: the top-level window is one scope ("main",

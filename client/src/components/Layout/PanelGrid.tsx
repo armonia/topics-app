@@ -3,13 +3,15 @@ import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, P
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import { useGridResize } from '../../hooks/useGridResize';
-import { DND_TYPES } from '../../lib/dndTypes';
+import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
+import { splitColumnWidths, appendColumnWidths } from './gridWidths';
+import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 
 /**
@@ -231,18 +233,20 @@ export function PanelGrid({
     setGridRows,
     gridRowHeights,
     setGridRowHeights,
-    soloTopicIdsRaw,
-    setSoloTopicIds,
+    soloCellsRaw,
+    setSoloCells,
   } = usePanelGridPersistence();
 
-  // ISSUE 6 FIX: Derive effective soloTopicIds synchronously filtered against openPanels.
-  // This avoids the transient render where naturalGridItems includes a solo item
-  // for a panel that no longer exists (the old useEffect had a dependency gap).
-  const soloTopicIds = useMemo(() => {
-    const openSet = new Set(openPanels);
-    const filtered = soloTopicIdsRaw.filter(id => openSet.has(id));
-    return filtered.length === soloTopicIdsRaw.length ? soloTopicIdsRaw : filtered;
-  }, [soloTopicIdsRaw, openPanels]);
+  // Effective split cells, pruned to currently-open panels (drops closed topics
+  // and any emptied cell) so naturalGridItems never references a gone pane.
+  // A cell may hold MULTIPLE tabs (multi-tab split column), coherent with the
+  // project groups model — see soloCells.ts.
+  const soloCells = useMemo(
+    () => pruneSoloCells(soloCellsRaw, new Set(openPanels)),
+    [soloCellsRaw, openPanels],
+  );
+  // Flat set of solo'd topics — what the rest of the grid checks membership on.
+  const soloTopicIds = useMemo(() => flattenSoloCells(soloCells), [soloCells]);
 
   // Track whether standalone group has utility panes (browser/terminal)
   const [standaloneHasUtility, setStandaloneHasUtility] = useState(false);
@@ -260,15 +264,15 @@ export function PanelGrid({
       items.push({ key: 'standalone', panelIds: regularPanels });
     }
 
-    // Solo panels get their own grid items
-    for (const id of openPanels) {
-      if (soloSet.has(id)) {
-        items.push({ key: `solo:${id}`, panelIds: [id] });
-      }
+    // One grid cell per SOLO CELL. A cell may hold multiple tabs (multi-tab
+    // split column), keyed by its primary (first) topic — `solo:<primary>`.
+    // A single-topic cell renders exactly like the old `solo:<id>`.
+    for (const cell of soloCells) {
+      items.push({ key: soloCellKey(cell), panelIds: cell });
     }
 
     return items;
-  }, [openPanels, soloTopicIds, standaloneHasUtility, pendingBrowserPane]);
+  }, [openPanels, soloCells, soloTopicIds, standaloneHasUtility, pendingBrowserPane]);
 
   // Live ref for the sync effect's setGridRows updater. The updater can run
   // AFTER another setGridRows from a user handler (e.g. handleSplitPane)
@@ -315,14 +319,16 @@ export function PanelGrid({
       const newKeys = liveItems.map(i => i.key).filter(k => !existing.has(k));
       if (newKeys.length === 0) return prev;
       if (prev.length === 0) {
-        return [{ itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) }];
+        return [{ itemKeys: newKeys, widths: appendColumnWidths([], newKeys.length) }];
       }
       const first = prev[0];
       const allKeys = [...first.itemKeys, ...newKeys];
       return [
         {
           itemKeys: allKeys,
-          widths: allKeys.map(() => 1 / allKeys.length),
+          // Give the new keys a fair share but keep the existing columns' manual
+          // widths in proportion (was `1/n` — reset the row on every pane add).
+          widths: appendColumnWidths(first.widths, newKeys.length),
           ...(first.cellStacks ? { cellStacks: first.cellStacks } : {}),
         },
         ...prev.slice(1),
@@ -579,7 +585,7 @@ export function PanelGrid({
     }
 
     // Mark as solo (only after limit checks pass)
-    setSoloTopicIds(prev => prev.includes(topicId) ? prev : [...prev, topicId]);
+    setSoloCells(prev => addSoloCell(prev, topicId));
 
     setGridRows(prev => {
       // Re-check limits in the updater — `prev` may have shifted between
@@ -655,9 +661,11 @@ export function PanelGrid({
           ? targetRow.itemKeys.indexOf(sourcePrimary)
           : -1;
         if (primaryIdx === -1) {
-          // Fallback: insert as a new top-level cell in the row.
+          // Fallback: insert as a new top-level cell in the row, keeping the
+          // existing columns' manual widths in proportion.
+          const prevWidths = targetRow.widths;
           targetRow.itemKeys.push(soloKey);
-          targetRow.widths = targetRow.itemKeys.map(() => 1 / targetRow.itemKeys.length);
+          targetRow.widths = appendColumnWidths(prevWidths, 1);
           return rows;
         }
         const stacks = targetRow.cellStacks ? { ...targetRow.cellStacks } : {};
@@ -701,8 +709,12 @@ export function PanelGrid({
         // Insert immediately to the right of the source column when we
         // have one — better UX than always at the end of the row.
         const insertAt = sourceColIdx >= 0 ? sourceColIdx + 1 : targetRow.itemKeys.length;
+        // Split the source column's width with the new pane; siblings keep their
+        // manual sizes (was `1/n` — the menu "Split Right" reset the whole row).
+        const donorIdx = sourceColIdx >= 0 ? sourceColIdx : Math.max(0, targetRow.itemKeys.length - 1);
+        const prevWidths = targetRow.widths;
         targetRow.itemKeys.splice(insertAt, 0, soloKey);
-        targetRow.widths = targetRow.itemKeys.map(() => 1 / targetRow.itemKeys.length);
+        targetRow.widths = splitColumnWidths(prevWidths, donorIdx, insertAt);
       }
       return rows;
     });
@@ -713,8 +725,16 @@ export function PanelGrid({
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
   const handleUnsoloTopic = useCallback((topicId: string) => {
-    setSoloTopicIds(prev => prev.filter(id => id !== topicId));
+    setSoloCells(prev => removeTopicFromCells(prev, topicId));
   }, []);
+
+  /* ---- Merge a tab INTO an existing split cell (multi-tab column).
+         Dropping a tab onto another split cell's bar lands it there as the
+         cell's next tab — coherent with project groups, no collapse. ---- */
+  const handleMergeIntoCell = useCallback((topicId: string, targetPrimary: string) => {
+    setSoloCells(prev => moveTopicToCell(prev, topicId, targetPrimary));
+    onFocusPanel(topicId);
+  }, [onFocusPanel]);
 
   /* ---- Auto-solo: a newly created utility pane (terminal/browser) created via
          quick-create should land in its own grid cell rather than join the
@@ -729,7 +749,7 @@ export function PanelGrid({
     // not already solo. A pane that's the only one open doesn't need solo.
     const otherOpen = openPanels.filter(p => p !== id).length > 0;
     if (otherOpen) {
-      setSoloTopicIds(prev => prev.includes(id) ? prev : [...prev, id]);
+      setSoloCells(prev => addSoloCell(prev, id));
     }
     onPendingSoloPanelIdConsumed?.();
   }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed]);
@@ -854,6 +874,21 @@ export function PanelGrid({
     const isGridDrag = e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM);
     const isTabDrag = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB);
     if (!isGridDrag && !isTabDrag) return;
+
+    // A PANE_TAB drag from a PROJECT window carries that project's scope. Every
+    // tab drag also carries PANEL_ID (for the standalone edge-split), so PANEL_ID
+    // alone can't tell a standalone tab from a project's internal one. The grid
+    // must ignore project tabs entirely — otherwise it paints its OWN cell
+    // drop-zone overlay on top of the project's edge-split preview (two feedbacks
+    // at once) and even on a *different* project's cell as the pointer passes it
+    // (the reported "split-area preview of another project"). Only standalone
+    // ("main"-scoped) tab drags concern the grid; project drags are owned by the
+    // project's GroupLayout/PaneTabBar, whose own drop still fires (we return
+    // without preventDefault, so the event keeps bubbling).
+    if (isTabDrag && !isGridDrag && !dragMatchesScope(e.dataTransfer.types, STANDALONE_SCOPE)) {
+      if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+      return;
+    }
 
     // Reject tab drags that don't carry PANEL_ID (shouldn't happen, but guard)
     if (isTabDrag && !isGridDrag && !e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) {
@@ -997,7 +1032,7 @@ export function PanelGrid({
         const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
 
         // Mark as solo first — if grid placement fails, the sync effect will clean up
-        setSoloTopicIds(prev => prev.includes(sourceTopicId) ? prev : [...prev, sourceTopicId]);
+        setSoloCells(prev => extractToOwnCell(prev, sourceTopicId));
 
         setGridRows(prev => {
           // Enforce grid limits
@@ -1041,7 +1076,9 @@ export function PanelGrid({
               ? tCol + 1
               : tCol;
             const newKeys = [...row.itemKeys.slice(0, insertAt), soloKey, ...row.itemKeys.slice(insertAt)];
-            rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) } : r);
+            // Split the target column's width with the new one; siblings keep
+            // their manual sizes (was `1/n`, which flattened the whole row).
+            rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: splitColumnWidths(r.widths, tCol, insertAt) } : r);
           }
 
           return rows;
@@ -1140,7 +1177,9 @@ export function PanelGrid({
           ? tCol + 1
           : tCol;
         const newKeys = [...row.itemKeys.slice(0, insertAt), effectiveKey, ...row.itemKeys.slice(insertAt)];
-        rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) } : r);
+        // Split the target column's width with the inserted one; leave siblings'
+        // manual widths intact (was `1/n`, which reset the whole row).
+        rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: splitColumnWidths(r.widths, tCol, insertAt) } : r);
       }
 
       return rows;
@@ -1293,6 +1332,7 @@ export function PanelGrid({
         gridItemKey={key}
         onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
         onAcceptSoloDrop={handleUnsoloTopic}
+        onMergeIntoCell={handleMergeIntoCell}
       />
     ),
     [
@@ -1476,21 +1516,9 @@ export function PanelGrid({
                       );
                     })()}
 
-                    {/* Edge drop zone overlay (top/bottom/left/right) */}
-                    {zone && zone !== 'center' && !suppressSplitOverlay && (
-                      <div
-                        className="absolute pointer-events-none z-30"
-                        style={{
-                          top: zone === 'bottom' ? '50%' : 0,
-                          bottom: zone === 'top' ? '50%' : 0,
-                          left: zone === 'right' ? '50%' : 0,
-                          right: zone === 'left' ? '50%' : 0,
-                          background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
-                          border: '2px dashed var(--primary)',
-                          borderRadius: '4px',
-                        }}
-                      />
-                    )}
+                    {/* The edge-split preview is painted once via `splitOverlayStyle`
+                        above (z-40, animated). A second identical overlay used to
+                        render here too — double-painting the dashed border. Removed. */}
                   </div>
 
                   {/* Column divider (between items in a row) — hidden on mobile */}

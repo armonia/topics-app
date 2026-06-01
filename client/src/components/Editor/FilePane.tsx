@@ -8,6 +8,7 @@ import { basename } from '../../lib/path-utils';
 import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
+import { createPaneId } from '../../state/pane/adapters';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
@@ -30,8 +31,13 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   const [darkMode, setDarkMode] = useState(false);
 
   const handleBreadcrumbOpen = useCallback((path: string, _name: string) => {
-    window.dispatchEvent(new CustomEvent('open-file', { detail: { path } }));
-  }, []);
+    // Tag with the OWNING project so breadcrumb navigation opens the file in
+    // THIS project window, not every project in split view (see the 'open-file'
+    // scoping in useProjectLayout). projectPath is always set for a file pane.
+    window.dispatchEvent(new CustomEvent('open-file', {
+      detail: { path, topicId: createPaneId('project', projectPath) },
+    }));
+  }, [projectPath]);
 
   const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('editor-word-wrap') === '1');
   const [mdPreview, setMdPreview] = useState(false);
