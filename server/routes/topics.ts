@@ -18,6 +18,8 @@ import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { getTerminalSessionById } from "./terminal";
 import { buildProviderHistory } from "../utils/build-provider-history";
 import { runMasterIngest } from "../lib/master-ingest";
+import { getTerminalBuffer } from "./terminal";
+import { extractLatestNextBlock } from "../lib/terminal-scrape";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
@@ -1162,6 +1164,40 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     if (method === "POST" && pathname === "/api/topics/master/ingest") {
       try {
         const body = await readJSON(req).catch(() => ({} as any));
+
+        // Session refs proposals can bind to: open non-lead topics + claude-code terminals.
+        const buildRefSessions = () => {
+          const refTopics = db.prepare(
+            "SELECT id, name FROM topics WHERE archived = 0 AND (agent_team_role IS NULL OR agent_team_role != 'lead')"
+          ).all() as { id: string; name: string }[];
+          const refTerminals = db.prepare(
+            "SELECT id, name FROM terminal_sessions WHERE type = 'claude-code'"
+          ).all() as { id: string; name: string }[];
+          return [
+            ...refTopics.map((t) => ({ topicId: t.id, name: t.name })),
+            ...refTerminals.map((t) => ({ topicId: `terminal:${t.id}`, name: t.name || "Claude Code" })),
+          ];
+        };
+
+        // interactive-claude-primitive AD-2: terminal Master. Scrape the PTY
+        // buffer (human-driven output, NOT a model call → subscription) for the
+        // latest `## Next` block and upsert cards. Body: { terminalId }.
+        if (body?.terminalId) {
+          const raw = await getTerminalBuffer(String(body.terminalId));
+          const block = extractLatestNextBlock(raw);
+          if (!block) return json({ proposals: 0, upserted: [] });
+          const result = runMasterIngest({
+            db,
+            resolveProjectId: getProjectIdForTopic,
+            broadcast: broadcastToAll,
+            leadTopicId: `terminal:${body.terminalId}`, // not a topic → event row degrades gracefully
+            sessions: buildRefSessions(),
+            content: block,
+            contentIsBlock: true,
+          });
+          return json(result);
+        }
+
         const lead = (body?.topicId
           ? db.prepare("SELECT id, session_key FROM topics WHERE id = ? AND agent_team_role = 'lead' AND archived = 0").get(body.topicId)
           : db.prepare("SELECT id, session_key FROM topics WHERE (project_path IS NULL OR project_path = '') AND agent_team_role = 'lead' AND archived = 0 ORDER BY updated_at DESC LIMIT 1").get()
@@ -1173,24 +1209,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         ).get(lead.session_key) as { content: string } | undefined;
         if (!msg?.content) return json({ proposals: 0, upserted: [] });
 
-        // Session refs proposals can bind to: open non-lead topics + claude-code terminals.
-        const refTopics = db.prepare(
-          "SELECT id, name FROM topics WHERE archived = 0 AND (agent_team_role IS NULL OR agent_team_role != 'lead')"
-        ).all() as { id: string; name: string }[];
-        const refTerminals = db.prepare(
-          "SELECT id, name FROM terminal_sessions WHERE type = 'claude-code'"
-        ).all() as { id: string; name: string }[];
-        const sessions = [
-          ...refTopics.map((t) => ({ topicId: t.id, name: t.name })),
-          ...refTerminals.map((t) => ({ topicId: `terminal:${t.id}`, name: t.name || "Claude Code" })),
-        ];
-
         const result = runMasterIngest({
           db,
           resolveProjectId: getProjectIdForTopic,
           broadcast: broadcastToAll,
           leadTopicId: lead.id,
-          sessions,
+          sessions: buildRefSessions(),
           content: msg.content,
         });
         return json(result);

@@ -7,7 +7,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { parseNextActions, type NextSessionRef } from "./master-next-parser";
+import { parseNextActions, parseNextRows, type NextSessionRef } from "./master-next-parser";
 import { GLOBAL_BOARD_ID, isTopicRef, proposalStatus, proposalTaskId } from "./master-proposals";
 
 export interface IngestDeps {
@@ -20,8 +20,13 @@ export interface IngestDeps {
   leadTopicId: string;
   /** Sessions the proposals may bind to (topics + claude-code terminals). */
   sessions: NextSessionRef[];
-  /** The lead's latest assistant message content. */
+  /** The proposal source text: a full message (chat Master) OR an already-
+   *  extracted `## Next` block body (terminal Master, scraped buffer). */
   content: string;
+  /** True when `content` is an already-extracted block body (use parseNextRows,
+   *  skip heading detection). Set by the terminal-buffer scrape path where the
+   *  LAST block was already isolated. interactive-claude-primitive AD-2. */
+  contentIsBlock?: boolean;
 }
 
 export interface IngestUpsert {
@@ -42,8 +47,10 @@ export interface IngestResult {
  * (keyed by claude_task_id). Idempotent: re-emitting updates the same card.
  */
 export function runMasterIngest(deps: IngestDeps): IngestResult {
-  const { db, resolveProjectId, broadcast, leadTopicId, sessions, content } = deps;
-  const proposals = parseNextActions(content, sessions);
+  const { db, resolveProjectId, broadcast, leadTopicId, sessions, content, contentIsBlock } = deps;
+  const proposals = contentIsBlock
+    ? parseNextRows(content, sessions)
+    : parseNextActions(content, sessions);
   const now = new Date().toISOString();
   const upserted: IngestUpsert[] = [];
 
@@ -73,11 +80,19 @@ export function runMasterIngest(deps: IngestDeps): IngestResult {
       ).run(taskId, projectId, text, status, (maxRow?.m ?? 0) + 1, p.topicId, now, completedAt, now, claudeTaskId, assignedTopicId);
     }
 
-    // Reasoning-trail event. topic_id = the LEAD (always a valid FK); the real
-    // session ref lives in the payload (terminals are not topics).
-    db.prepare(
-      "INSERT INTO task_events (claude_task_id, topic_id, ts, type, payload) VALUES (?, ?, ?, 'proposal', ?)"
-    ).run(claudeTaskId, leadTopicId, Date.now(), JSON.stringify({ verb: p.verb, ref: p.topicId, reason: p.reason }));
+    // Reasoning-trail event. topic_id was meant to be the lead, but a terminal
+    // Master is NOT a topic (task_events.topic_id has an FK to topics.id). Use
+    // the lead if it's a real topic, else the proposal's own topic, and wrap in
+    // try/catch so a non-topic lead degrades the TRAIL only — the card is
+    // already written. interactive-claude-primitive AD-2.
+    const eventTopicId = isTopicRef(leadTopicId) ? leadTopicId : (assignedTopicId || leadTopicId);
+    try {
+      db.prepare(
+        "INSERT INTO task_events (claude_task_id, topic_id, ts, type, payload) VALUES (?, ?, ?, 'proposal', ?)"
+      ).run(claudeTaskId, eventTopicId, Date.now(), JSON.stringify({ verb: p.verb, ref: p.topicId, reason: p.reason }));
+    } catch {
+      // FK miss (lead is a terminal, no topic ref) — skip the trail row, keep the card.
+    }
 
     broadcast({
       type: created ? "task:created" : "task:updated",
