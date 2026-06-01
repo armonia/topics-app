@@ -123,6 +123,49 @@ const TOOLS = [
       required: ["task_id", "project_id", "status"],
     },
   },
+  {
+    name: "list_sessions",
+    description:
+      "List the active Claude Code / terminal sessions in the workspace (id, name, type, cwd, status). Use this to see what the user has in flight before reading, writing to, or closing a session.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "read_session",
+    description:
+      "Read the scrollback (on-screen text) of a session by id, returned as plain text. Use this to see what a session is doing / its latest output. This is a read of already-displayed text, not a new model call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", description: "Session id from list_sessions." },
+      },
+      required: ["session_id"],
+    },
+  },
+  {
+    name: "write_session",
+    description:
+      "Send input (keystrokes) to a session by id, as if typed into it. Include a trailing newline to submit a command. Use this to act inside another session on the user's behalf (e.g. answer a prompt, run a command).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", description: "Session id from list_sessions." },
+        input: { type: "string", description: "Text to send. Add a trailing '\\n' to submit." },
+      },
+      required: ["session_id", "input"],
+    },
+  },
+  {
+    name: "close_session",
+    description:
+      "Close (terminate) a session by id. Reversible only by reopening — use when the work in that session is done and the user wants it cleared.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", description: "Session id from list_sessions." },
+      },
+      required: ["session_id"],
+    },
+  },
 ];
 
 interface ParsedArgs {
@@ -340,6 +383,69 @@ export async function callUpdateTask(
   return `task ${toolArgs.task_id} → ${body?.status ?? toolArgs.status}`;
 }
 
+// --- Session control (interactive-claude-primitive): read / write / close any
+// active session. These hit the GLOBAL terminal endpoints (not session-keyed),
+// so the Master can act across every session, not just its own. Reading/writing
+// a human-driven PTY is not itself a new model call by this app.
+export async function callListSessions(
+  args: ParsedArgs,
+  _toolArgs: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const body = await httpJson(args, "GET", "/api/terminal/sessions", undefined, fetchImpl);
+  const list = Array.isArray(body) ? body : (body?.sessions ?? []);
+  if (!list.length) return "No active sessions.";
+  return list.map((s: any) =>
+    `${s.id} — ${s.name ?? "(unnamed)"} [${s.type ?? "?"}${s.status ? " " + s.status : ""}]${s.cwd ? " cwd=" + s.cwd : ""}`,
+  ).join("\n");
+}
+
+export async function callReadSession(
+  args: ParsedArgs,
+  toolArgs: { session_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.session_id !== "string" || !toolArgs.session_id) {
+    throw new Error("read_session: 'session_id' (string) is required");
+  }
+  const path = `/api/terminal/sessions/${encodeURIComponent(toolArgs.session_id)}/buffer`;
+  const body = await httpJson(args, "GET", path, undefined, fetchImpl);
+  let buffer = typeof body?.buffer === "string" ? body.buffer : "";
+  const MAX = 8000;
+  let head = "";
+  if (buffer.length > MAX) { buffer = buffer.slice(-MAX); head = "…(truncated, showing tail)\n"; }
+  return head + (buffer || "(empty)");
+}
+
+export async function callWriteSession(
+  args: ParsedArgs,
+  toolArgs: { session_id?: unknown; input?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.session_id !== "string" || !toolArgs.session_id) {
+    throw new Error("write_session: 'session_id' (string) is required");
+  }
+  if (typeof toolArgs?.input !== "string" || !toolArgs.input) {
+    throw new Error("write_session: 'input' (string) is required");
+  }
+  const path = `/api/terminal/sessions/${encodeURIComponent(toolArgs.session_id)}/send`;
+  const body = await httpJson(args, "POST", path, { input: toolArgs.input }, fetchImpl);
+  return `sent ${body?.sent ?? toolArgs.input.length} chars to ${toolArgs.session_id}`;
+}
+
+export async function callCloseSession(
+  args: ParsedArgs,
+  toolArgs: { session_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.session_id !== "string" || !toolArgs.session_id) {
+    throw new Error("close_session: 'session_id' (string) is required");
+  }
+  const path = `/api/terminal/sessions/${encodeURIComponent(toolArgs.session_id)}`;
+  await httpJson(args, "DELETE", path, undefined, fetchImpl);
+  return `closed ${toolArgs.session_id}`;
+}
+
 /**
  * Tool dispatch registry. Each handler returns the human-readable text that
  * becomes the tool result's `content[0].text`. Adding a tool = one entry here
@@ -359,6 +465,10 @@ const TOOL_HANDLERS: Record<
   stop_process: (a, t, f) => callStopProcess(a, t, f),
   list_tasks: (a, t, f) => callListTasks(a, t, f),
   update_task: (a, t, f) => callUpdateTask(a, t, f),
+  list_sessions: (a, t, f) => callListSessions(a, t, f),
+  read_session: (a, t, f) => callReadSession(a, t, f),
+  write_session: (a, t, f) => callWriteSession(a, t, f),
+  close_session: (a, t, f) => callCloseSession(a, t, f),
 };
 
 export async function handleMessage(
