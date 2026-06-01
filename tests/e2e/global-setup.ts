@@ -84,6 +84,13 @@ async function startTestServer(): Promise<void> {
       // daemon lock + state files don't collide with the dev server
       // (which holds ~/.topics/daemon-process.lock).
       TOPICS_HOME: "/tmp/topics-test-data/.topics-home",
+      // Dedicated PTY-bridge socket. The bridge socket is otherwise derived
+      // from cwd, which the test server SHARES with the dev server — so the
+      // test server's reconcile would see the dev server's live Claude PTYs
+      // as "orphans" (absent from its test DB) and KILL them. An isolated
+      // socket gives the test run its own empty bridge. (Honored by
+      // getSocketPath() in server/routes/terminal.ts.)
+      TOPICS_PTY_SOCKET: "/tmp/topics-pty-bridge-e2e-test.sock",
       // Phase 30 plan 30-05: server's playwright-core ships an older
       // chromium-1208 manifest, but @playwright/test installs the current
       // chromium-1217 binary. Pin the BrowserService Chromium to the
