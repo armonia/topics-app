@@ -58,6 +58,23 @@
 - §5 retire MasterBoardStrip + structured chat (dormant-first).
 - §6 Playwright E2E with a real claude Master (human-driven by design).
 
+## Free periodic monitor (added 2026-06-02)
+
+User chose "monitor gratis + ping": a periodic, model-free nudge instead of
+paid auto-pilot. Built + tested:
+- `session-digest.ts` — pure `buildAttentionDigest(sessions)` → sessions with
+  unread / unseen replies + one-line summary. 5 bun:test.
+- `session-monitor.ts` — `startSessionMonitor(db, broadcast)`: every 5 min runs
+  ONE indexed unread query (no model call → free) and broadcasts `master:digest`
+  only when something needs attention. `sweepOnce` + start/stop. 6 bun:test
+  (incl. DB-error degrade, quiet-workspace silence, stop()).
+- Wired at boot in `server.ts` next to `startHeartbeatChecker`. Compile-clean,
+  455 server tests pass.
+- Client TODO (needs UI): show `master:digest` as a toast/nudge. The per-session
+  attention badges already exist via the signals/activity system.
+- Paid auto-pilot (Master reasoning on a timer / per-session workflows) is
+  explicitly NOT built — it would leave the subscription. Deferred as opt-in.
+
 ## Reused verbatim from refactor-master-into-kanban
 
 - `server/lib/master-next-parser.ts`, `master-proposals.ts`, `master-ingest.ts` (+ their bun:tests).
