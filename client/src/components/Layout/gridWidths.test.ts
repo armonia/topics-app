@@ -1,0 +1,91 @@
+import { describe, test, expect } from 'bun:test';
+import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths } from './gridWidths';
+
+const approx = (a: number[], b: number[]) => {
+  expect(a.length).toBe(b.length);
+  a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
+};
+
+describe('splitColumnWidths — preserves unaffected columns', () => {
+  test('single column splits in half', () => {
+    approx(splitColumnWidths([1], 0, 1), [0.5, 0.5]);
+  });
+
+  test('splitting the right column leaves the left untouched', () => {
+    // [0.3, 0.7], split the 0.7 col to its RIGHT (donor idx 1, insert at 2)
+    approx(splitColumnWidths([0.3, 0.7], 1, 2), [0.3, 0.35, 0.35]);
+  });
+
+  test('splitting the right column to its LEFT also preserves the sibling', () => {
+    // donor idx 1, insert at 1 → new col sits before the (now-halved) target
+    approx(splitColumnWidths([0.3, 0.7], 1, 1), [0.3, 0.35, 0.35]);
+  });
+
+  test('splitting the left column leaves the right untouched', () => {
+    approx(splitColumnWidths([0.3, 0.7], 0, 0), [0.15, 0.15, 0.7]);
+  });
+
+  test('result still sums to 1 (relative weights preserved)', () => {
+    const out = splitColumnWidths([0.2, 0.5, 0.3], 1, 2);
+    expect(out.reduce((s, w) => s + w, 0)).toBeCloseTo(1, 6);
+    // the 0.2 and 0.3 siblings are untouched; only the 0.5 is halved
+    approx(out, [0.2, 0.25, 0.25, 0.3]);
+  });
+
+  test('degenerate donor (zero / missing / NaN) falls back to equal split', () => {
+    approx(splitColumnWidths([0], 0, 1), [0.5, 0.5]);
+    approx(splitColumnWidths([], 0, 0), [1]); // n+1 = 1 → single equal col
+    approx(splitColumnWidths([0.5, 0.5], 5, 1), [1 / 3, 1 / 3, 1 / 3]); // out-of-range donor
+  });
+});
+
+describe('appendColumnWidths — preserves existing proportions', () => {
+  test('appending to an empty row → equal split', () => {
+    approx(appendColumnWidths([], 2), [0.5, 0.5]);
+  });
+  test('appending one column keeps the existing ratio intact', () => {
+    // [0.3, 0.7] + 1 col. The new col gets 1/3 share; the existing two stay
+    // in 3:7 ratio between themselves and the result sums to 1.
+    const out = appendColumnWidths([0.3, 0.7], 1);
+    expect(out.reduce((s, w) => s + w, 0)).toBeCloseTo(1, 6);
+    expect(out[0] / out[1]).toBeCloseTo(0.3 / 0.7, 6); // ratio preserved
+    expect(out[2]).toBeGreaterThan(0);
+  });
+  test('newCount <= 0 is a no-op copy', () => {
+    approx(appendColumnWidths([0.4, 0.6], 0), [0.4, 0.6]);
+  });
+});
+
+describe('removeColumnWidths — renormalises survivors', () => {
+  test('removing a column keeps the others in proportion', () => {
+    approx(removeColumnWidths([0.2, 0.3, 0.5], 0), [0.375, 0.625]);
+  });
+  test('removing the last remaining column yields []', () => {
+    expect(removeColumnWidths([1], 0)).toEqual([]);
+  });
+  test('all-zero survivors fall back to equal', () => {
+    approx(removeColumnWidths([0, 0, 1], 2), [0.5, 0.5]);
+  });
+});
+
+describe('normalizeWidths', () => {
+  test('scales to sum 1, proportions intact', () => {
+    approx(normalizeWidths([2, 6]), [0.25, 0.75]);
+  });
+  test('[] → []', () => {
+    expect(normalizeWidths([])).toEqual([]);
+  });
+  test('all-zero → equal', () => {
+    approx(normalizeWidths([0, 0, 0]), [1 / 3, 1 / 3, 1 / 3]);
+  });
+});
+
+describe('keepColumnWidths — multi-column survivor renormalise', () => {
+  test('keeps selected columns in proportion (drop the middle)', () => {
+    // a row [0.2, 0.5, 0.3]; group at idx 1 removed → keep [0,2] in 2:3 ratio
+    approx(keepColumnWidths([0.2, 0.5, 0.3], [0, 2]), [0.4, 0.6]);
+  });
+  test('keeping all is identity-after-normalise', () => {
+    approx(keepColumnWidths([0.3, 0.7], [0, 1]), [0.3, 0.7]);
+  });
+});

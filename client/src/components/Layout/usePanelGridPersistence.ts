@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { PanelGridRow, PanelGridCellStack } from '../../types';
+import { soloCellsFromFlat, flattenSoloCells } from './soloCells';
 
 /**
  * Sanitize one row read from localStorage. Returns `null` when the input is
@@ -76,7 +77,20 @@ const STORAGE_KEY = 'topics-panel-grid-layout';
 interface PanelGridPersistedData {
   gridRows?: PanelGridRow[];
   gridRowHeights?: number[];
-  soloTopicIds?: string[];
+  /** Multi-tab split cells (each inner array = one cell, primary first). */
+  soloCells?: string[][];
+}
+
+/** Validate a `soloCells` payload: array of non-empty string arrays. */
+function sanitizeSoloCells(raw: unknown): string[][] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: string[][] = [];
+  for (const cell of raw) {
+    if (!Array.isArray(cell)) continue;
+    const ids = cell.filter((id): id is string => typeof id === 'string');
+    if (ids.length > 0) out.push(ids);
+  }
+  return out;
 }
 
 function readPersisted(): PanelGridPersistedData {
@@ -85,6 +99,13 @@ function readPersisted(): PanelGridPersistedData {
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
+    // Prefer the new `soloCells`; migrate a legacy flat `soloTopicIds` (each
+    // topic → its own single-tab cell, which renders identically — no re-keying).
+    const soloCells =
+      sanitizeSoloCells(parsed.soloCells) ??
+      (Array.isArray(parsed.soloTopicIds)
+        ? soloCellsFromFlat((parsed.soloTopicIds as unknown[]).filter((x): x is string => typeof x === 'string'))
+        : undefined);
     return {
       gridRows: Array.isArray(parsed.gridRows)
         ? (parsed.gridRows
@@ -94,9 +115,7 @@ function readPersisted(): PanelGridPersistedData {
       gridRowHeights: Array.isArray(parsed.gridRowHeights)
         ? (parsed.gridRowHeights as number[])
         : undefined,
-      soloTopicIds: Array.isArray(parsed.soloTopicIds)
-        ? (parsed.soloTopicIds as string[])
-        : undefined,
+      soloCells,
     };
   } catch {
     return {};
@@ -108,8 +127,8 @@ export interface PanelGridPersistence {
   setGridRows: React.Dispatch<React.SetStateAction<PanelGridRow[]>>;
   gridRowHeights: number[];
   setGridRowHeights: React.Dispatch<React.SetStateAction<number[]>>;
-  soloTopicIdsRaw: string[];
-  setSoloTopicIds: React.Dispatch<React.SetStateAction<string[]>>;
+  soloCellsRaw: string[][];
+  setSoloCells: React.Dispatch<React.SetStateAction<string[][]>>;
 }
 
 export function usePanelGridPersistence(): PanelGridPersistence {
@@ -123,8 +142,8 @@ export function usePanelGridPersistence(): PanelGridPersistence {
   const [gridRowHeights, setGridRowHeights] = useState<number[]>(
     () => initial.gridRowHeights ?? [],
   );
-  const [soloTopicIdsRaw, setSoloTopicIds] = useState<string[]>(
-    () => initial.soloTopicIds ?? [],
+  const [soloCellsRaw, setSoloCells] = useState<string[][]>(
+    () => initial.soloCells ?? [],
   );
 
   // Persist on every state change. We use `useLayoutEffect` rather than
@@ -149,21 +168,24 @@ export function usePanelGridPersistence(): PanelGridPersistence {
         JSON.stringify({
           gridRows,
           gridRowHeights,
-          soloTopicIds: soloTopicIdsRaw,
+          soloCells: soloCellsRaw,
+          // Keep a flat mirror so a rollback to pre-multi-tab code still finds
+          // the user's split topics (it ignores `soloCells`).
+          soloTopicIds: flattenSoloCells(soloCellsRaw),
         }),
       );
     } catch {
       /* quota exceeded / private mode — silent */
     }
-  }, [gridRows, gridRowHeights, soloTopicIdsRaw]);
+  }, [gridRows, gridRowHeights, soloCellsRaw]);
 
   return {
     gridRows,
     setGridRows,
     gridRowHeights,
     setGridRowHeights,
-    soloTopicIdsRaw,
-    setSoloTopicIds,
+    soloCellsRaw,
+    setSoloCells,
   };
 }
 

@@ -53,6 +53,8 @@ import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
+import { splitColumnWidths, appendColumnWidths, keepColumnWidths } from '../gridWidths';
+import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
 
@@ -269,6 +271,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const topicsRef = useRefMirror(topics);
   const groupsRef = useRefMirror(groups);
   const focusedGroupIdRef = useRefMirror(focusedGroupId);
+  // Top-level focused PANEL id (which project window owns the focus), distinct
+  // from focusedGroupId (the focused group INSIDE this window). Used to scope
+  // global file-open events to the targeted project window — see the
+  // 'open-file' listener below.
+  const focusedPanelIdRef = useRefMirror(focusedPanelId);
   const rowsRef = useRefMirror(rows);
   const rowHeightsRef = useRefMirror(rowHeights);
 
@@ -616,11 +623,18 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     const allGroupIds = new Set(groups.map(g => g.id));
     let anyRowChanged = false;
     let newRows = curRows.map(r => {
-      const filtered = r.groupIds.filter(id => allGroupIds.has(id));
-      if (filtered.length === r.groupIds.length) return r;
+      // Keep the indices of groups that still exist, in order.
+      const keepIdx: number[] = [];
+      for (let i = 0; i < r.groupIds.length; i++) {
+        if (allGroupIds.has(r.groupIds[i])) keepIdx.push(i);
+      }
+      if (keepIdx.length === r.groupIds.length) return r;
       anyRowChanged = true;
-      const widths = filtered.map(() => 1 / filtered.length);
-      return { groupIds: filtered, widths };
+      const groupIds = keepIdx.map(i => r.groupIds[i]);
+      // Preserve the surviving columns' manual widths (renormalised) instead of
+      // flattening them to equal — dropping a group must not reset its siblings.
+      const widths = keepColumnWidths(r.widths, keepIdx);
+      return { groupIds, widths };
     });
     const beforeLen = newRows.length;
     newRows = newRows.filter(r => r.groupIds.length > 0);
@@ -635,7 +649,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       } else {
         const firstRow = newRows[0];
         const all = [...firstRow.groupIds, ...newGroupIds];
-        newRows = [{ groupIds: all, widths: all.map(() => 1 / all.length) }, ...newRows.slice(1)];
+        // Give the newly-appeared groups a fair share but keep the first row's
+        // existing columns in proportion (was `1/n` — reset on every add).
+        newRows = [{ groupIds: all, widths: appendColumnWidths(firstRow.widths, newGroupIds.length) }, ...newRows.slice(1)];
       }
     }
 
@@ -1437,12 +1453,20 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { path?: string };
-      if (detail?.path) handleOpenFile(detail.path);
+      const detail = (e as CustomEvent).detail as { path?: string; topicId?: string };
+      if (!detail?.path) return;
+      // SCOPE to THIS project window. 'open-file' is a GLOBAL window event and
+      // every mounted project window's useProjectLayout subscribes to it — so
+      // with two projects in split view a single dispatch would open the file
+      // in BOTH ("file opens on all splits"). Routing rule extracted to the
+      // unit-tested `shouldHandleOpenFile`; mirrors the projectPath scoping the
+      // global-tab:focus-inner listener already uses.
+      if (!shouldHandleOpenFile(detail, wrapperPaneId, focusedPanelIdRef.current)) return;
+      handleOpenFile(detail.path);
     };
     window.addEventListener('open-file', handler);
     return () => window.removeEventListener('open-file', handler);
-  }, [handleOpenFile]);
+  }, [handleOpenFile, wrapperPaneId]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1607,7 +1631,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             const newGroupIds = [...row.groupIds];
             const insertAt = edge === 'left' ? targetIdx : targetIdx + 1;
             newGroupIds.splice(insertAt, 0, newGroupId);
-            const newWidths = newGroupIds.map(() => 1 / newGroupIds.length);
+            // Split the TARGET column's width with the new group; leave every
+            // other column's width untouched. (Was `1/n` — flattened a manual
+            // resize on every split. See gridWidths.ts.)
+            const newWidths = splitColumnWidths(row.widths, targetIdx, insertAt);
             return { groupIds: newGroupIds, widths: newWidths };
           });
         } else {
@@ -1842,7 +1869,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         const firstRow = prev[0];
         const all = [...firstRow.groupIds, newGroupId];
         return [
-          { groupIds: all, widths: all.map(() => 1 / all.length) },
+          // Keep the first row's existing columns in proportion; the reopened
+          // chat takes a fair share (was `1/n` — reset the row on reopen).
+          { groupIds: all, widths: appendColumnWidths(firstRow.widths, 1) },
           ...prev.slice(1),
         ];
       });
