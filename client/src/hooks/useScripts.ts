@@ -72,6 +72,15 @@ function subscribe(listener: () => void) {
 function handleWSUpdate(incoming: ScriptProcessInfo[]) {
   scripts = incoming;
   emit();
+  // The broadcast snapshot omits ports (broadcastScriptsUpdate skips the lsof
+  // lookup to stay cheap), so a freshly-started server shows its running dot
+  // instantly but its :port link would otherwise wait up to one poll interval
+  // (15s while WS-connected). Backfill the port-enriched list once. The 2s
+  // server-side response cache + the `fetchingNow` guard prevent a fetch storm,
+  // and scripts:updated only fires on discrete start/stop events (no loop).
+  if (incoming.some(s => s.status === 'running' && (!s.ports || s.ports.length === 0))) {
+    fetchScripts();
+  }
 }
 
 // Called by WS handler to set connection state

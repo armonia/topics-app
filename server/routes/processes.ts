@@ -16,6 +16,10 @@ interface ScriptProcess {
   output: string[];       // circular buffer lines
   outputBytes: number;
   proc: ReturnType<typeof Bun.spawn> | null;
+  /** 'script' = launched by Topics (run_script / UI), output captured. 'detected'
+   *  = a listening server found under a Claude PTY that Topics did NOT spawn, so
+   *  we have its pid/ports but not its stdout. Defaults to 'script'. */
+  source?: "script" | "detected";
 }
 
 // Serializable subset for persistence
@@ -56,7 +60,9 @@ function persistPath(): string {
 function saveState() {
   invalidateScriptsCache();
   const data = {
-    running: Array.from(runningScripts.values()).map(sp => ({
+    // Detected processes are ephemeral (re-discovered every detector cycle) and
+    // were not spawned by us, so never persist them — only Topics-launched scripts.
+    running: Array.from(runningScripts.values()).filter(sp => sp.source !== "detected").map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
@@ -251,22 +257,47 @@ export async function getListeningPorts(): Promise<{ port: number; pid: number; 
   }
 }
 
-async function getDescendantPids(pid: number): Promise<Set<number>> {
-  const result = new Set<number>([pid]);
+// Cached process table (ppid → child pids). ONE `ps` snapshot replaces the old
+// recursive `pgrep -P` storm, which spawned one process per tree node, per
+// session, every detector cycle (and per script on every GET /api/scripts) — a
+// real subprocess/CPU drain that contended with the renderer. Refreshed at most
+// every PROC_TABLE_TTL; all getDescendantPids calls in a cycle share it.
+let _procTableAt = 0;
+let _childrenByPpid: Map<number, number[]> = new Map();
+const PROC_TABLE_TTL = 2000;
+
+async function getProcTable(): Promise<Map<number, number[]>> {
+  const now = Date.now();
+  if (now - _procTableAt < PROC_TABLE_TTL && _childrenByPpid.size) return _childrenByPpid;
+  const children = new Map<number, number[]>();
   try {
-    const proc = Bun.spawn(["pgrep", "-P", String(pid)], { stdout: "pipe", stderr: "pipe" });
-    const output = await new Response(proc.stdout).text();
+    const proc = Bun.spawn(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "pipe" });
+    const text = await new Response(proc.stdout).text();
     await proc.exited;
-    for (const line of output.trim().split("\n")) {
-      const childPid = parseInt(line.trim(), 10);
-      if (!isNaN(childPid) && !result.has(childPid)) {
-        result.add(childPid);
-        const grandchildren = await getDescendantPids(childPid);
-        for (const gp of grandchildren) result.add(gp);
-      }
+    for (const line of text.split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)$/);
+      if (!m) continue;
+      const pid = +m[1], ppid = +m[2];
+      const arr = children.get(ppid);
+      if (arr) arr.push(pid); else children.set(ppid, [pid]);
     }
-  } catch {}
-  return result;
+    _childrenByPpid = children;
+    _procTableAt = now;
+  } catch { /* keep the previous table on transient failure */ }
+  return _childrenByPpid;
+}
+
+async function getDescendantPids(pid: number): Promise<Set<number>> {
+  const children = await getProcTable();
+  const out = new Set<number>([pid]);
+  const stack = [pid];
+  while (stack.length) {
+    const p = stack.pop()!;
+    for (const c of children.get(p) ?? []) {
+      if (!out.has(c)) { out.add(c); stack.push(c); }
+    }
+  }
+  return out;
 }
 
 async function getPortsForProcess(pid: number): Promise<number[]> {
@@ -339,6 +370,7 @@ function getScriptsSnapshot(): any[] {
     startedAt: sp.startedAt,
     completedAt: sp.completedAt,
     exitCode: sp.exitCode,
+    source: sp.source ?? "script",
     ports: [] as number[],
   }));
   const recent = recentScripts.map(sp => ({
@@ -351,6 +383,7 @@ function getScriptsSnapshot(): any[] {
     startedAt: sp.startedAt,
     completedAt: sp.completedAt,
     exitCode: sp.exitCode,
+    source: sp.source ?? "script",
     ports: [] as number[],
   }));
   return [...running, ...recent];
@@ -375,6 +408,181 @@ function notifyScriptOutput(ctx: AppContext, processId: string) {
 
 function broadcastScriptsUpdate(ctx: AppContext) {
   ctx.broadcastToAll({ type: 'scripts:updated', scripts: getScriptsSnapshot() });
+}
+
+// ── Auto-detection of servers started inside Claude PTY sessions ──────────────
+// Claude often starts a dev server with a bare shell command (`bun run dev`)
+// instead of the run_script MCP tool. That process is a descendant of the
+// session's PTY but is never registered, so it's invisible in the Processes
+// panel. This detector periodically maps listening ports → owning pid → which
+// Claude PTY tree they belong to, and registers each as a tracked
+// (source:'detected') ScriptProcess so it shows up live with a working Stop.
+// Attribution is by PROCESS TREE (not cwd), so Topics' own servers and unrelated
+// machine processes are never mis-claimed.
+
+interface DetectionSession { ptyPid: number; cwd: string; sessionId: string; name: string }
+type DetectionSource = () => DetectionSession[];
+
+let _detectionSource: DetectionSource | null = null;
+let _detectionTimer: ReturnType<typeof setInterval> | null = null;
+const DETECTION_INTERVAL_MS = 4000;
+
+/** Wire the source of active Claude sessions and start the detection loop.
+ *  Called once from server.ts after the terminal + processes routers exist. */
+export function startProcessDetection(ctx: AppContext, getSessions: DetectionSource): void {
+  _detectionSource = getSessions;
+  if (_detectionTimer) return;
+  _detectionTimer = setInterval(() => { runDetectionCycle(ctx).catch((e) => console.error('[detect] cycle error:', e?.message || e)); }, DETECTION_INTERVAL_MS);
+  runDetectionCycle(ctx).catch((e) => console.error('[detect] cycle error:', e?.message || e)); // run once promptly
+}
+
+function detectedKey(pid: number): string { return `detected:${pid}`; }
+
+// Never register these as a "server" even if they hold a port: the claude
+// binary/daemon itself and the stdio Topics MCP bridge (defensive).
+function isNoiseCommand(cmd: string): boolean {
+  const c = cmd.toLowerCase();
+  return c.includes("claude") || c.includes("topics-mcp");
+}
+
+/** Full argv of a pid (`ps -o command=`), for a readable label. Falls back to "". */
+async function getCommandForPid(pid: number): Promise<string> {
+  try {
+    const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "pipe" });
+    const out = (await new Response(proc.stdout).text()).trim();
+    await proc.exited;
+    return out.split("\n")[0] || "";
+  } catch { return ""; }
+}
+
+// The port Topics itself listens on — never report it as a detected server.
+const OWN_PORT = Number(process.env.BUN_PORT) || 3333;
+// Sessions whose cwd is under one of these roots are tooling/infra, not user
+// projects, so we don't surface the long-running services living there (the
+// Claude config tree holds the user's router / vector DB / memory daemons). A
+// session in a real project dir (Projects/, Sites/, …) is detected normally.
+const INFRA_CWD_PREFIXES = [`${process.env.HOME || ""}/.claude`].filter(p => p.length > 1);
+function isInfraCwd(cwd: string): boolean {
+  return INFRA_CWD_PREFIXES.some(p => cwd === p || cwd.startsWith(p + "/"));
+}
+// A session cwd that is HOME (or an ancestor of it, or `/`) is too broad: cwd
+// attribution would then claim EVERY listening process under home (infra,
+// Electron, unrelated servers). Only sessions cwd'd into a specific project dir
+// get cwd-based detection. (Tree-based detection still applies to them.)
+const _HOME = process.env.HOME || "";
+function isBroadCwd(cwd: string): boolean {
+  if (!cwd || cwd === "/" || cwd === _HOME) return true;
+  return _HOME.length > 1 && (_HOME === cwd || _HOME.startsWith(cwd + "/"));
+}
+
+/** cwd of each pid via one batched lsof. Pids without a cwd are omitted. */
+async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (pids.length === 0) return out;
+  try {
+    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "pipe" });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    let cur = 0;
+    for (const line of text.split("\n")) {
+      if (line[0] === "p") cur = parseInt(line.slice(1), 10);
+      else if (line[0] === "n" && cur) out.set(cur, line.slice(1));
+    }
+  } catch {}
+  return out;
+}
+
+function isWithin(child: string, parent: string): boolean {
+  return child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
+}
+
+async function runDetectionCycle(ctx: AppContext): Promise<void> {
+  if (!_detectionSource) return;
+  // Active Claude sessions in REAL project dirs (skip the infra/config tree).
+  const sessions = _detectionSource().filter(s => s.ptyPid > 0 && !isInfraCwd(s.cwd));
+
+  // No eligible Claude sessions → reap any leftover detected entries and stop.
+  if (sessions.length === 0) {
+    let changed = false;
+    for (const sp of [...runningScripts.values()]) {
+      if (sp.source === "detected") { runningScripts.delete(sp.processId); changed = true; }
+    }
+    if (changed) broadcastScriptsUpdate(ctx);
+    return;
+  }
+
+  const allPorts = await getListeningPorts();
+
+  // Ports already owned by a Topics-launched (script) process — don't double-list.
+  const managedPorts = new Set<number>();
+  for (const sp of runningScripts.values()) {
+    if (sp.source === "detected" || !sp.pid) continue;
+    for (const p of await getPortsForProcess(sp.pid)) managedPorts.add(p);
+  }
+
+  // Candidate listening ports: not Topics' own, not already a tracked script,
+  // not the claude binary / MCP bridge itself.
+  const candidates = allPorts.filter(lp =>
+    lp.port !== OWN_PORT && !managedPorts.has(lp.port) && !isNoiseCommand(lp.command));
+
+  // Attribute each candidate to a session by, in order:
+  //  (1) cwd — it runs inside the session's project dir. PRIMARY signal: a dev
+  //      server Claude backgrounds reparents to launchd (ppid 1), so a
+  //      process-tree walk from the PTY misses it, but its cwd stays in the dir.
+  //  (2) tree — it's a live descendant of the session's PTY (catches a server
+  //      whose cwd is elsewhere, e.g. started in /tmp).
+  const pidSet = [...new Set(candidates.map(c => c.pid))];
+  const cwds = await getProcessCwds(pidSet);
+  const trees = new Map<string, Set<number>>();
+  for (const s of sessions) trees.set(s.sessionId, await getDescendantPids(s.ptyPid));
+  // cwd-attribution candidates: specific project dirs only (a session cwd'd at
+  // HOME would otherwise claim everything under it). Longest (most specific) wins
+  // when nested. Broad-cwd sessions still get TREE attribution below.
+  const byDepth = sessions.filter(s => !isBroadCwd(s.cwd)).sort((a, b) => b.cwd.length - a.cwd.length);
+
+  const desired = new Map<string, { pid: number; cwd: string; lsofCmd: string; ports: number[] }>();
+  for (const lp of candidates) {
+    const pcwd = cwds.get(lp.pid);
+    const owner = (pcwd ? byDepth.find(s => isWithin(pcwd, s.cwd)) : undefined)
+      || sessions.find(s => trees.get(s.sessionId)?.has(lp.pid));
+    if (!owner) continue;
+    if (lp.pid === owner.ptyPid) continue; // the claude process itself
+    const key = detectedKey(lp.pid);
+    const entry = desired.get(key);
+    if (entry) { if (!entry.ports.includes(lp.port)) entry.ports.push(lp.port); }
+    else desired.set(key, { pid: lp.pid, cwd: owner.cwd, lsofCmd: lp.command, ports: [lp.port] });
+  }
+
+  let changed = false;
+
+  // Reap detected entries whose server no longer holds a port (it stopped).
+  for (const sp of [...runningScripts.values()]) {
+    if (sp.source !== "detected") continue;
+    if (!desired.has(sp.processId)) { runningScripts.delete(sp.processId); changed = true; }
+  }
+
+  // Register newly-seen detected servers (existing ones keep their entry; ports
+  // refresh via the HTTP serialize path).
+  for (const [key, d] of desired) {
+    if (runningScripts.has(key)) continue;
+    const full = await getCommandForPid(d.pid);
+    runningScripts.set(key, {
+      processId: key,
+      scriptName: d.lsofCmd || "server",                 // short label (e.g. "node", "bun")
+      command: full || d.lsofCmd,                        // full argv when available
+      projectPath: d.cwd,
+      status: "running",
+      pid: d.pid,
+      startedAt: new Date().toISOString(),
+      output: ["[auto-detected running server — Topics did not launch it, so its logs are not captured here]"],
+      outputBytes: 0,
+      proc: null,
+      source: "detected",
+    });
+    changed = true;
+  }
+
+  if (changed) broadcastScriptsUpdate(ctx);
 }
 
 /**
@@ -519,6 +727,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
         projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
         startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+        source: sp.source ?? "script",
         ports: sp.pid ? await getPortsForProcess(sp.pid) : [],
       })),
     );
@@ -526,6 +735,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+      source: sp.source ?? "script",
       ports: [] as number[],
     }));
     return { scripts: [...runningList, ...recentList] };
@@ -541,6 +751,24 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
 
   /** Terminate a running script (process-group kill + delayed SIGKILL) and clean up. */
   function killRunningScript(sp: ScriptProcess): void {
+    if (sp.source === "detected") {
+      // We didn't spawn it (no `proc`, no exit handler). Kill the pid + its
+      // descendant tree directly — NOT a process-group kill, to avoid any chance
+      // of signalling the Claude PTY's group. Remove it immediately so Stop feels
+      // instant; the detector confirms on its next cycle.
+      const dpid = sp.pid;
+      runningScripts.delete(sp.processId);
+      if (dpid && isPidAlive(dpid)) {
+        getDescendantPids(dpid).then(tree => {
+          for (const p of tree) { try { process.kill(p, "SIGTERM"); } catch {} }
+          setTimeout(() => {
+            for (const p of tree) { try { process.kill(p, 0); process.kill(p, "SIGKILL"); } catch {} }
+          }, 5000);
+        }).catch(() => { try { process.kill(dpid, "SIGTERM"); } catch {} });
+      }
+      broadcastScriptsUpdate(ctx);
+      return;
+    }
     const pid = sp.pid;
     if (!pid || !isPidAlive(pid)) {
       sp.status = "error";

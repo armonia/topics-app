@@ -16,7 +16,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
@@ -45,7 +45,7 @@ import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders } from "./server/providers";
 import { createAgentApiRouter } from "./server/routes/agent-api";
-import { createProcessesRouter } from "./server/routes/processes";
+import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
@@ -271,6 +271,9 @@ const webhooksRouter = createWebhooksRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const agentApiRouter = createAgentApiRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
+// Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
+// etc.) into the Processes panel, attributing listening ports by PTY process tree.
+startProcessDetection(ctx, getClaudeSessionsForDetection);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);

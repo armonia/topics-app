@@ -157,6 +157,62 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
           </div>
         );
       })}
+
+      {/* Auto-detected running servers — started inside a Claude session via a
+          bare shell command (not a package.json script), surfaced here so they're
+          visible and stoppable like any tracked process. */}
+      {runningScripts
+        .filter(sp => sp.status === 'running' && sp.source === 'detected' && !(sp.scriptName in scripts))
+        .map(sp => {
+          const isStopping = stoppingScript === sp.processId;
+          const ports = sp.ports ?? [];
+          return (
+            <div key={sp.processId}>
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1 transition-colors group cursor-pointer ${isStopping ? 'opacity-60' : 'hover:bg-app-hover'}`}
+                onClick={() => { if (!isStopping) onOpenProcessLog?.(sp.processId, sp.scriptName); }}
+                title={sp.command}
+              >
+                {isStopping ? (
+                  <div className="w-[10px] h-[10px] border border-red-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                ) : (
+                  <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+                    <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
+                  </div>
+                )}
+                <span className={`truncate ${isStopping ? 'text-red-500/70' : 'text-green-500 font-medium'}`}>{sp.scriptName}</span>
+                <span
+                  className="text-[9px] uppercase tracking-wide px-1 py-px rounded bg-app-text-faint/15 text-app-text-faint flex-shrink-0"
+                  title="Started in a Claude session and auto-detected by Topics (logs not captured)"
+                >
+                  auto
+                </span>
+                <span className="flex-1" />
+                {!isStopping && ports.map(port => (
+                  <a
+                    key={port}
+                    href={`http://${window.location.hostname}:${port}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-primary hover:underline flex-shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    :{port}
+                  </a>
+                ))}
+                {!isStopping && (
+                  <button
+                    onClick={(e) => handleStopScript(sp.processId, sp.processId, e)}
+                    className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-40 group-hover:opacity-100"
+                    title="Stop"
+                  >
+                    <Square size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
     </div>
   );
 }

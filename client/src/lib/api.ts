@@ -851,6 +851,9 @@ export interface ScriptProcessInfo {
   completedAt?: string;
   exitCode?: number;
   ports: number[];
+  /** 'detected' = auto-discovered server started inside a Claude session (logs
+   *  not captured); 'script'/undefined = launched via Topics run_script/UI. */
+  source?: 'script' | 'detected';
 }
 
 export const scriptsApi = {
