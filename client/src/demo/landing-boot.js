@@ -23,12 +23,16 @@
   var P3 = "/demo/acme-mobile";     // their own running Claude Code sessions
   var ISO = "2026-06-02T09:30:00.000Z";
 
-  // App-level project wrapper pane id == createPaneId('project', PROJECT)
-  var PROJ_PANE = "project:" + encodeURIComponent(PROJECT);
-  // Inner project panes. The two stars are Claude Code agent sessions (the paid
-  // core value); browser/git/board/processes ride along as the supporting group.
-  var CC1 = "terminal:cc1", CC2 = "terminal:cc2", BROW = "browser:c1",
-      GIT = "git:g1", PROC = "process-log:p1", BOARD = "board:b1", SH = "terminal:sh1";
+  // The "figata": TWO projects open at once — acme-web stacked ABOVE acme-api,
+  // each its own ProjectWindow with a live Claude Code session. App-level pane
+  // id == createPaneId('project', path).
+  function projPaneId(p) { return "project:" + encodeURIComponent(p); }
+  var PROJ_A = projPaneId(PROJECT);   // top project
+  var PROJ_B = projPaneId(P2);        // bottom project
+  // Inner project panes (ids unique across the app). Each project's star is a
+  // Claude Code agent session (the paid core value).
+  var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3",
+      BROW = "browser:c1", GIT = "git:g1", GIT3 = "git:g3", BOARD = "board:b1";
 
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
@@ -37,17 +41,16 @@
     for (var i = 0; i < p.length; i++) { hash = p.charCodeAt(i) + ((hash << 5) - hash); hash = hash & hash; }
     return Math.abs(hash).toString(36);
   }
-  var PANES_KEY = "topics-project-panes-" + projectHash(PROJECT);
-  var LAYOUT_KEY = "topics-project-layout-" + projectHash(PROJECT);
 
   function set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  /* ---- 1a. App-level pane store: ONE project pane ----------------------- */
+  /* ---- 1a. App-level pane store: TWO project panes ---------------------- */
   var appPanes = {};
-  appPanes[PROJ_PANE] = { id: PROJ_PANE, type: "project", projectPath: PROJECT, title: "acme-web", stableKey: PROJ_PANE };
-  var paneStore = {
+  appPanes[PROJ_A] = { id: PROJ_A, type: "project", projectPath: PROJECT, title: "acme-web", stableKey: PROJ_A };
+  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2,      title: "acme-api", stableKey: PROJ_B };
+  set("pane-store-v2", JSON.stringify({
     panes: appPanes,
-    groups: { "group:default": { id: "group:default", paneIds: [PROJ_PANE], splitRatio: 0.5, splitAxis: "vertical" } },
+    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B], splitRatio: 0.5, splitAxis: "vertical" } },
     groupOrder: ["group:default"],
     closedStack: [],
     lastSeq: 1000,
@@ -57,41 +60,58 @@
     server_seq: 1000,
     savedAt: 1748856600000,
     senderId: "landing-demo",
-  };
-  set("pane-store-v2", JSON.stringify(paneStore));
-  set("pane-store-focused-id", PROJ_PANE);
-  // Wipe any stale App-level grid split from a previous visit (single pane now).
-  set("topics-panel-grid-layout", JSON.stringify({ gridRows: [], gridRowHeights: [], soloCells: [], soloTopicIds: [] }));
-
-  /* ---- 1b. Project-window inner layout: terminal | (browser/git/proc/board) */
-  var nonChatPanes = [
-    { id: CC1,   type: "terminal",    title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
-    { id: CC2,   type: "terminal",    title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
-    { id: BROW,  type: "browser",     title: "Preview",     projectPath: PROJECT },
-    { id: GIT,   type: "git",         title: "Git",         projectPath: PROJECT },
-    { id: BOARD, type: "board",       title: "Board",       projectPath: PROJECT },
-    { id: SH,    type: "terminal",    title: "zsh",         projectPath: PROJECT, terminalSessionId: "sh1", terminalType: "shell" },
-    { id: PROC,  type: "process-log", title: "dev",         projectPath: PROJECT, processId: "p1" },
-  ];
-  set(PANES_KEY, JSON.stringify({ nonChatPanes: nonChatPanes, openChatTopicIds: [], activeChatTopicId: undefined }));
-  // A 2×2 workspace: a real split BOTH ways — columns (vertical divider) AND a
-  // second row below (horizontal divider). Top: Claude Code agents | browser/git/
-  // board. Bottom: a shell | the running dev process log.
-  set(LAYOUT_KEY, JSON.stringify({
-    groups: [
-      { id: "pg-tl", paneIds: [CC1, CC2],       activePaneId: CC1,  type: "utility" },
-      { id: "pg-tr", paneIds: [BROW, GIT, BOARD], activePaneId: BROW, type: "utility" },
-      { id: "pg-bl", paneIds: [SH],             activePaneId: SH,   type: "utility" },
-      { id: "pg-br", paneIds: [PROC],           activePaneId: PROC, type: "utility" },
-    ],
-    rows: [
-      { groupIds: ["pg-tl", "pg-tr"], widths: [0.56, 0.44] },
-      { groupIds: ["pg-bl", "pg-br"], widths: [0.50, 0.50] },
-    ],
-    rowHeights: [0.62, 0.38],
-    sidebarCollapsed: false,
-    focusedGroupId: "pg-tl",
   }));
+  set("pane-store-focused-id", PROJ_A);
+
+  // Device-local grid overlay: SOLO each project into its OWN ROW so the two
+  // open projects stack with a real horizontal divider between them — "progetto
+  // sopra, progetto sotto". The grid item key for a solo cell is `solo:<paneId>`
+  // (see soloCells.ts soloCellKey) — it MUST match or the sync effect re-merges
+  // both into one row.
+  set("topics-panel-grid-layout", JSON.stringify({
+    gridRows: [
+      { itemKeys: ["solo:" + PROJ_A], widths: [1] },
+      { itemKeys: ["solo:" + PROJ_B], widths: [1] },
+    ],
+    gridRowHeights: [0.56, 0.44],
+    soloCells: [[PROJ_A], [PROJ_B]],
+    soloTopicIds: [PROJ_A, PROJ_B],
+  }));
+
+  /* ---- 1b. Per-project inner layouts ----------------------------------- *
+   * Each open project shows a live Claude Code session next to a tool view —
+   * so you read a session sopra (top project) and a session sotto (bottom).
+   *   acme-web (top):   two Claude sessions (tabs) | browser/git/board
+   *   acme-api (bottom): a Claude session | git diff                         */
+  function seedProject(path, panes, layout) {
+    set("topics-project-panes-" + projectHash(path), JSON.stringify({ nonChatPanes: panes, openChatTopicIds: [], activeChatTopicId: undefined }));
+    set("topics-project-layout-" + projectHash(path), JSON.stringify(layout));
+  }
+  seedProject(PROJECT, [
+    { id: CC1,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
+    { id: CC2,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
+    { id: BROW,  type: "browser",  title: "Preview",     projectPath: PROJECT },
+    { id: GIT,   type: "git",      title: "Git",         projectPath: PROJECT },
+    { id: BOARD, type: "board",    title: "Board",       projectPath: PROJECT },
+  ], {
+    groups: [
+      { id: "pgA-l", paneIds: [CC1, CC2],         activePaneId: CC1,  type: "utility" },
+      { id: "pgA-r", paneIds: [BROW, GIT, BOARD], activePaneId: BROW, type: "utility" },
+    ],
+    rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.55, 0.45] }],
+    rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
+  });
+  seedProject(P2, [
+    { id: CC3,  type: "terminal", title: "Claude Code", projectPath: P2, terminalSessionId: "cc3", terminalType: "claude-code" },
+    { id: GIT3, type: "git",      title: "Git",         projectPath: P2 },
+  ], {
+    groups: [
+      { id: "pgB-l", paneIds: [CC3],  activePaneId: CC3,  type: "utility" },
+      { id: "pgB-r", paneIds: [GIT3], activePaneId: GIT3, type: "utility" },
+    ],
+    rows: [{ groupIds: ["pgB-l", "pgB-r"], widths: [0.55, 0.45] }],
+    rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgB-l",
+  });
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
@@ -147,7 +167,9 @@
     (document.head || document.documentElement).appendChild(s);
   })();
   try {
-    sessionStorage.setItem("git-status-cache:" + PROJECT, JSON.stringify({ status: gitStatus(), remotes: [] }));
+    var gitCache = JSON.stringify({ status: gitStatus(), remotes: [] });
+    sessionStorage.setItem("git-status-cache:" + PROJECT, gitCache);
+    sessionStorage.setItem("git-status-cache:" + P2, gitCache);
   } catch (e) {}
 
   /* ---- mock data builders ----------------------------------------------- */
@@ -271,6 +293,24 @@
     "\x1b[2m  ⎿  3 matches\x1b[0m\n",
     "\n",
     "\x1b[38;5;215m⏺\x1b[0m Adding <EmptyState/> to the channels, sessions and errors lists.\n",
+    "\x1b[2m   esc to interrupt\x1b[0m\n",
+  ];
+  var CLAUDE_CC3 = [
+    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-api · main\x1b[0m\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m Add a token-bucket rate limiter to the public API\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m Adding middleware and wiring it into the router.\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mWrite\x1b[0m(src/middleware/rateLimit.ts)\n",
+    "\x1b[2m  ⎿  38 lines\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test rate-limit)\n",
+    "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m 12 passed \x1b[2m(248ms)\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m Limiter live: 100 req/min per key. Verifying the 429 headers…\n",
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
   var SHELL_LINES = [
@@ -414,7 +454,7 @@
       var idm = u.match(/\/ws\/terminal\/([^/?]+)/);
       var sid = idm ? idm[1] : "";
       // cc1/cc2 are Claude Code agent sessions; sh1 is a plain shell.
-      var lines = sid === "cc2" ? CLAUDE_CC2 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
+      var lines = sid === "cc2" ? CLAUDE_CC2 : sid === "cc3" ? CLAUDE_CC3 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
       // Raw PTY semantics: a bare \n is line-feed only (cursor drops a row but
       // keeps its column → staircase). Emit CRLF so xterm returns to col 0.
       lines.forEach(function (l, i) { setTimeout(function () { self._msg(l.replace(/\n/g, "\r\n")); }, 120 + i * 90); });
