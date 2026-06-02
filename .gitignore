@@ -115,3 +115,8 @@ videos/INDEX.md
 
 # Session-local .env backups
 .env.bak*
+
+# never publish app screenshots / capture scripts
+landing/app-shot.png
+landing/_capture.mjs
+landing/*-shot.png
