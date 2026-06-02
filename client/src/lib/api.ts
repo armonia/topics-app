@@ -1614,6 +1614,18 @@ export const masterApi = {
       body: JSON.stringify(topicId ? { topicId } : {}),
     });
   },
+  /** Read whether the periodic attention monitor is running. */
+  async getMonitor(): Promise<{ enabled: boolean }> {
+    return request<{ enabled: boolean }>(`/master/monitor`);
+  },
+  /** Turn the periodic attention monitor on/off. OFF by default, never
+   *  auto-starts — the user controls it. interactive-claude-primitive. */
+  async setMonitor(enabled: boolean): Promise<{ enabled: boolean }> {
+    return request<{ enabled: boolean }>(`/master/monitor`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

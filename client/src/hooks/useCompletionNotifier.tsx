@@ -251,6 +251,23 @@ export function useCompletionNotifier({
       }
       if (cfg.notificationsSound) playCompletionTone();
   });
+
+  // ── Master attention digest ────────────────────────────────────────────
+  // The (user-enabled) session monitor broadcasts `master:digest` every few
+  // minutes when sessions need attention — free, model-less. Surface it as a
+  // single info toast. Same notifications master switch; 30s cooldown (fixed
+  // key) so digests don't stack.
+  useWSSubscription(onWSMessage, 'master:digest', (msg) => {
+      const cfg = settingsRef.current;
+      if (!cfg.notificationsEnabled) return;
+      if (!msg.summary || msg.count <= 0) return;
+      const now = Date.now();
+      const last = cooldownRef.current.get('master:digest') ?? 0;
+      if (now - last < 30_000) return;
+      cooldownRef.current.set('master:digest', now);
+      success(msg.summary);
+      if (cfg.notificationsSound) playCompletionTone();
+  });
 }
 
 /**
