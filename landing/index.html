@@ -15,6 +15,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="preconnect" href="https://api.github.com" />
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./demo/demo.css" />
 </head>
 <body>
   <!-- icon sprite -->
@@ -100,13 +101,12 @@
         <p class="hero__meta reveal" style="--d:4"><span class="dot-live"></span> Free and open source · MIT · no telemetry</p>
       </div>
 
-      <!-- product window: the real Topics app -->
+      <!-- interactive product demo (React island, generic data) -->
       <div class="showcase reveal" style="--d:5" id="workspace">
         <div class="showcase__glow" aria-hidden="true"></div>
-        <figure class="window-real">
-          <img src="./app.png" alt="The Topics desktop app: a topic sidebar, a file tree, and a live Claude Code session, all in one window" width="1440" height="900" loading="eager" />
-          <span class="window-real__gloss" aria-hidden="true"></span>
-        </figure>
+        <div id="topics-demo" aria-label="Interactive Topics demo: switch topics and panes (browser, processes, git, kanban)">
+          <noscript><p style="padding:40px;text-align:center;color:var(--text-dim)">Enable JavaScript to explore the interactive Topics demo, or download the app below.</p></noscript>
+        </div>
       </div>
     </section>
 
@@ -237,5 +237,6 @@
   </footer>
 
   <script src="./app.js" defer></script>
+  <script type="module" src="./demo/demo.js"></script>
 </body>
 </html>
