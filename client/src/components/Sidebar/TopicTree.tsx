@@ -294,15 +294,19 @@ export function TopicTree({
   const renderTerminalItem = (item: SidebarItem, depth = 0) => {
     const ts = item.terminal!;
     const paneId = `terminal:${ts.id}`;
-    // Open anywhere — top-level or inside a project — counts as active so the
-    // sidebar row matches the terminal's tab state in either surface.
-    const isActive = focusedTopicId === paneId || allOpenPaneIds.has(paneId);
+    // Same selection semantics as chat rows: blue highlight ONLY for the
+    // focused (current) terminal; a merely-open-elsewhere terminal gets the
+    // subtle "open" styling, not the accent. (Open is computed across top-level
+    // AND project-internal panes so the row still reflects that a tab exists.)
+    const isFocused = focusedTopicId === paneId;
+    const isOpen = allOpenPaneIds.has(paneId);
 
     return (
       <TerminalSidebarItem
         key={item.id}
         session={ts}
-        isActive={isActive}
+        isFocused={isFocused}
+        isOpen={isOpen}
         notificationCount={item.notificationCount}
         isTouch={isTouch}
         depth={depth}
@@ -664,7 +668,10 @@ export function TopicTree({
 
 interface TerminalSidebarItemProps {
   session: TerminalSessionInfo;
-  isActive: boolean;
+  /** Currently-viewed terminal → blue accent (mirrors chat rows). */
+  isFocused: boolean;
+  /** Open as a tab somewhere but not the focused one → subtle "open" styling. */
+  isOpen: boolean;
   /** Unified attention count (finished claude-code turn) — rendered as the same
    *  NotificationBadge every other surface uses, instead of a one-off dot. */
   notificationCount?: number;
@@ -676,7 +683,7 @@ interface TerminalSidebarItemProps {
   onOpenAsProject?: (path: string) => void;
 }
 
-function TerminalSidebarItem({ session: s, isActive, notificationCount = 0, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
@@ -686,12 +693,19 @@ function TerminalSidebarItem({ session: s, isActive, notificationCount = 0, isTo
 
   return (
     <div
-      className={`group/terminal w-full flex items-center h-11 md:h-8 transition-colors border-b border-app-border/40 md:border-b-0 relative ${
-        isActive ? 'bg-primary/10 text-primary' : 'text-app-text hover:bg-app-hover'
-      }`}
+      // Same three-state model as chat (TopicItem) so "blue" means the SAME
+      // thing on every sidebar row: the item you're currently viewing — not
+      // merely "open somewhere".
+      className={[
+        'group/terminal w-full flex items-center h-11 md:h-8 transition-colors border-b border-app-border/40 md:border-b-0 relative',
+        isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
+        !isFocused && isOpen && 'bg-app-hover text-app-text',
+        !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
+      ].filter(Boolean).join(' ')}
       style={{ paddingLeft: 12 + depth * 16 }}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
+      {isFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
