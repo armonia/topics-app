@@ -329,7 +329,7 @@ function App() {
   const { focusedProjectPath } = panelLifecycle.derived;
   const {
     handleTopicClick, handleTopicDoubleClick, handleClosePanel,
-    handleProjectClick, handleFocusPanel, openMasterPane, handleReorderPanels,
+    handleProjectClick, handleFocusPanel, handleReorderPanels,
     handleOpenPanelAt, handleOpenAsProject, handleAddProjectPane,
     handleOpenProjectBoard, handleArchiveProject, handleTopicContextMenu,
     handleQuickCreateTopic, handleCreateTopic, promoteDraft,
@@ -727,35 +727,12 @@ function App() {
             stopSession={stopSession}
             onOpenProjectBoard={handleOpenProjectBoard}
             onOpenMaster={async () => {
-              try {
-                const r = await fetch('/api/topics/master', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-                if (!r.ok) return;
-                const data = await r.json();
-                if (!data?.id) return;
-                // Wait for the topic to be loaded in the topics map (the
-                // server broadcasts topic:created/updated via WS). If the
-                // user clicks the sidebar Master button before that lands,
-                // handleTopicClick would silently no-op (no topic entry to
-                // route on). Poll briefly then fall back to handleFocusPanel.
-                // openMasterPane sets the sticky intent flag so Effect 7b
-                // in usePanelLifecycle re-adds Master if the server hydrate
-                // round-trip strips it. Falls back to handleFocusPanel by id
-                // even if the topic entry isn't populated yet — the pane
-                // will render once it lands.
-                let attempts = 0;
-                const tryOpen = () => {
-                  if (topics[data.id]) {
-                    openMasterPane(data.id);
-                    return;
-                  }
-                  if (attempts++ < 10) {
-                    setTimeout(tryOpen, 100);
-                  } else {
-                    openMasterPane(data.id);
-                  }
-                };
-                tryOpen();
-              } catch { /* silent */ }
+              // Master is now an interactive `claude` PTY with the orchestrator
+              // system prompt (subscription, human-driven) — NOT a chat topic.
+              // Open it as a normal terminal TAB so it doesn't disrupt the
+              // layout. interactive-claude-primitive (was: POST /api/topics/master
+              // → chat pane, which broke the layout).
+              await handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
             }}
             boardTaskCounts={boardTaskCounts}
             onNewChat={() => handleQuickCreateTopic()}
