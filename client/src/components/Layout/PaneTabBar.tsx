@@ -14,7 +14,6 @@ import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndType
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
-import { TopicClaudePhaseIndicator, ProjectClaudePhaseIndicator } from './ClaudePhaseDot';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 
@@ -31,9 +30,10 @@ const ICONS: Record<string, React.FC<{ size: number; className?: string; style?:
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
 };
 
-// Tab-bar Claude indicators live in ClaudePhaseDot.tsx (TopicClaudePhaseIndicator
-// for chat tabs, ProjectClaudePhaseIndicator for project tabs). Don't roll
-// your own here — single source of truth so sidebar + tabs report identically.
+// Tab status reads as two orthogonal cues, both shared with the sidebar so the
+// surfaces can't drift: a StreamingSpinner ("working right now") and a
+// NotificationBadge ("needs you" — Claude awaiting/error, unread, finished
+// terminal turn, project rollup). There is no separate Claude phase dot.
 
 interface PaneTabBarProps {
   panes: Pane[];
@@ -545,15 +545,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <Icon size={14} className="flex-shrink-0" />
             ) : null}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
-            {/* Claude Code session phase indicator — runs/tools/approvals.
-                Only chat panes have a tracked Claude session (terminal
-                claude-code panes have a different sessionKey shape that the
-                tracker doesn't index by topicId yet). */}
-            {pane.type === 'chat' && pane.topicId && <TopicClaudePhaseIndicator topicId={pane.topicId} />}
-            {/* Project pane: aggregate phase across every chat inside the
-                project so the user sees "a Claude is running here" without
-                drilling in. */}
-            {pane.type === 'project' && pane.projectPath && <ProjectClaudePhaseIndicator projectPath={pane.projectPath} />}
             {pane.type === 'project' && projectStatus?.[pane.id] && (() => {
               const ps = projectStatus[pane.id];
               // The project tab shows the project NAME (the label above) — never

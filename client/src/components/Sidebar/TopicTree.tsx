@@ -15,9 +15,8 @@ import { createPaneId, useProjectTabStatus, getAddableTypesForScope } from '@/st
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
-import { ProjectClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
-import { ProjectStreamingSpinner, TerminalStreamingSpinner, TerminalFinishedDot } from '@/components/Layout/StreamingIndicator';
-import { useStreamingCount, signalsActions } from '@/state/signals';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { useStreamingCount, useAttentionSignals, signalsActions } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
@@ -179,6 +178,10 @@ export function TopicTree({
   // ── Build unified items ──────────────────────────────────────────────────
 
   const { lastNotifiedAt } = useTabNotifications();
+  // Attention signals — fed into buildSidebarItems so the sidebar badge counts
+  // the same thing the tab bar does (Claude needs-you, finished terminal turns),
+  // not just raw server unread.
+  const { claudeAttentionTopics, terminalFinishedIds } = useAttentionSignals();
   // Master Topics are surfaced exclusively by the dedicated "Master"
   // sidebar shortcut at the top of the tree — hide them from the
   // generic topic list so the user has a single, unambiguous entry
@@ -202,7 +205,9 @@ export function TopicTree({
     openPanels,
     projectOpenPanes,
     lastNotifiedAt,
-  }), [topicsForTree, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt]);
+    claudeAttentionTopics,
+    terminalFinishedIds,
+  }), [topicsForTree, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -267,7 +272,7 @@ export function TopicTree({
         isPreview={previewPanelId === topic.id}
         /* isStreaming is now read from StreamingContext inside TopicItem —
            no need to drill it through. */
-        unreadCount={item.unreadCount}
+        notificationCount={item.notificationCount}
         assignedAgentCount={topic.assignedAgents?.length || 0}
         onToggle={() => {}}
         onClick={(e) => onTopicClick(topic.id, e)}
@@ -298,6 +303,7 @@ export function TopicTree({
         key={item.id}
         session={ts}
         isActive={isActive}
+        notificationCount={item.notificationCount}
         isTouch={isTouch}
         depth={depth}
         onTerminalClick={onTerminalClick}
@@ -374,13 +380,11 @@ export function TopicTree({
             <span className="truncate flex-1">{item.name}</span>
           </button>
           <div className="flex items-center pr-1 flex-shrink-0">
-            {/* Two canonical project-level loading indicators, same
-                components the project tab uses (PaneTabBar):
-                  phase dot     → Claude lifecycle (running, awaiting…)
-                  streaming spinner → an SSE chunk is arriving right now
-                Both read from their respective contexts; we just place
-                them. */}
-            <ProjectClaudePhaseIndicator projectPath={pp} className="mr-1.5" />
+            {/* Project loading indicator — same component the project tab uses
+                (PaneTabBar): a spinner while any child is producing output.
+                "Needs you" (Claude awaiting, finished turns) is NOT a separate
+                dot anymore — it rolls up into the notification badge below, so
+                the sidebar row and the project tab show one consistent count. */}
             <ProjectStreamingSpinner projectPath={pp} className="mr-1.5" />
             {/* Git/process status indicators */}
             {(() => {
@@ -404,9 +408,10 @@ export function TopicTree({
                 </span>
               ) : null;
             })()}
-            {/* Unread / count */}
-            {item.unreadCount > 0 ? (
-              <NotificationBadge count={item.unreadCount} className={isTouch ? '' : 'group-hover/proj:hidden'} />
+            {/* Rolled-up notification count (children's unread + Claude
+                needs-you + finished turns) — same number as the project tab. */}
+            {item.notificationCount > 0 ? (
+              <NotificationBadge count={item.notificationCount} className={isTouch ? '' : 'group-hover/proj:hidden'} />
             ) : (
               <span className={`text-[11px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{children.length}</span>
             )}
@@ -505,7 +510,7 @@ export function TopicTree({
       browser: 'Browsers',
     };
     const isCollapsed = collapsedSections.has(type);
-    const totalUnread = items.reduce((sum, item) => sum + item.unreadCount, 0);
+    const totalUnread = items.reduce((sum, item) => sum + item.notificationCount, 0);
 
     return (
       <div key={type} className="flex-shrink-0 border-t border-app-border first:border-t-0">
@@ -660,6 +665,9 @@ export function TopicTree({
 interface TerminalSidebarItemProps {
   session: TerminalSessionInfo;
   isActive: boolean;
+  /** Unified attention count (finished claude-code turn) — rendered as the same
+   *  NotificationBadge every other surface uses, instead of a one-off dot. */
+  notificationCount?: number;
   isTouch: boolean;
   depth?: number;
   projectName?: string;
@@ -668,7 +676,7 @@ interface TerminalSidebarItemProps {
   onOpenAsProject?: (path: string) => void;
 }
 
-function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isActive, notificationCount = 0, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
@@ -695,9 +703,10 @@ function TerminalSidebarItem({ session: s, isActive, isTouch, depth = 0, project
         <span className="text-[12px] truncate flex-1">{s.name}</span>
         {/* Loading spinner — pulses while this session's pty is producing
             output, mirroring the terminal tab. Same source (useTerminalActivity)
-            so the sidebar row and the tab agree. */}
+            so the sidebar row and the tab agree. A finished turn surfaces as the
+            notification badge below, not a separate dot. */}
         <TerminalStreamingSpinner sessionId={s.id} className="mr-1" />
-        <TerminalFinishedDot sessionId={s.id} className="mr-1" />
+        <NotificationBadge count={notificationCount} className="mr-1" />
         {projectName && (
           <span className="text-[11px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
             {projectName}
@@ -940,6 +949,10 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
+      {/* Loading spinner — page load or an agent driving the browser, same
+          signal (useBrowserLoading) and component the browser TAB uses, so the
+          sidebar row and the tab agree. */}
+      <BrowserStreamingSpinner paneId={`browser:${bc.id}`} className="mr-1" />
       <span className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
         {relativeTime(bc.lastActivity)}
       </span>
