@@ -41,10 +41,7 @@
       "category": "public.app-category.productivity",
       "icon": "icon.icns",
       "identity": null,
-      "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
-      ]
+      "target": ["dmg", "zip"]
     },
     "win": {
       "icon": "icon.png",
