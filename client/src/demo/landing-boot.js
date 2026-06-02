@@ -18,14 +18,17 @@
  * ───────────────────────────────────────────────────────────────────────── */
 (function () {
   "use strict";
-  var PROJECT = "/demo/acme-web";
+  var PROJECT = "/demo/acme-web";   // the open project (the rich split below)
+  var P2 = "/demo/acme-api";        // sibling projects — shown in the sidebar with
+  var P3 = "/demo/acme-mobile";     // their own running Claude Code sessions
   var ISO = "2026-06-02T09:30:00.000Z";
 
   // App-level project wrapper pane id == createPaneId('project', PROJECT)
   var PROJ_PANE = "project:" + encodeURIComponent(PROJECT);
-  // Inner project panes
-  var TERM = "terminal:t1", BROW = "browser:c1", GIT = "git:g1",
-      PROC = "process-log:p1", BOARD = "board:b1";
+  // Inner project panes. The two stars are Claude Code agent sessions (the paid
+  // core value); browser/git/board/processes ride along as the supporting group.
+  var CC1 = "terminal:cc1", CC2 = "terminal:cc2", BROW = "browser:c1",
+      GIT = "git:g1", PROC = "process-log:p1", BOARD = "board:b1", SH = "terminal:sh1";
 
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
@@ -62,27 +65,45 @@
 
   /* ---- 1b. Project-window inner layout: terminal | (browser/git/proc/board) */
   var nonChatPanes = [
-    { id: TERM,  type: "terminal",    title: "zsh",     projectPath: PROJECT, terminalSessionId: "t1", terminalType: "shell" },
-    { id: BROW,  type: "browser",     title: "Preview", projectPath: PROJECT },
-    { id: GIT,   type: "git",         title: "Git",     projectPath: PROJECT },
-    { id: PROC,  type: "process-log", title: "dev",     projectPath: PROJECT, processId: "p1" },
-    { id: BOARD, type: "board",       title: "Board",   projectPath: PROJECT },
+    { id: CC1,   type: "terminal",    title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
+    { id: CC2,   type: "terminal",    title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
+    { id: BROW,  type: "browser",     title: "Preview",     projectPath: PROJECT },
+    { id: GIT,   type: "git",         title: "Git",         projectPath: PROJECT },
+    { id: BOARD, type: "board",       title: "Board",       projectPath: PROJECT },
+    { id: SH,    type: "terminal",    title: "zsh",         projectPath: PROJECT, terminalSessionId: "sh1", terminalType: "shell" },
+    { id: PROC,  type: "process-log", title: "dev",         projectPath: PROJECT, processId: "p1" },
   ];
   set(PANES_KEY, JSON.stringify({ nonChatPanes: nonChatPanes, openChatTopicIds: [], activeChatTopicId: undefined }));
+  // A 2×2 workspace: a real split BOTH ways — columns (vertical divider) AND a
+  // second row below (horizontal divider). Top: Claude Code agents | browser/git/
+  // board. Bottom: a shell | the running dev process log.
   set(LAYOUT_KEY, JSON.stringify({
     groups: [
-      { id: "pg-left",  paneIds: [TERM], activePaneId: TERM, type: "utility" },
-      { id: "pg-right", paneIds: [BROW, GIT, PROC, BOARD], activePaneId: BROW, type: "utility" },
+      { id: "pg-tl", paneIds: [CC1, CC2],       activePaneId: CC1,  type: "utility" },
+      { id: "pg-tr", paneIds: [BROW, GIT, BOARD], activePaneId: BROW, type: "utility" },
+      { id: "pg-bl", paneIds: [SH],             activePaneId: SH,   type: "utility" },
+      { id: "pg-br", paneIds: [PROC],           activePaneId: PROC, type: "utility" },
     ],
-    rows: [{ groupIds: ["pg-left", "pg-right"], widths: [0.42, 0.58] }],
-    rowHeights: [1],
+    rows: [
+      { groupIds: ["pg-tl", "pg-tr"], widths: [0.56, 0.44] },
+      { groupIds: ["pg-bl", "pg-br"], widths: [0.50, 0.50] },
+    ],
+    rowHeights: [0.62, 0.38],
     sidebarCollapsed: false,
-    focusedGroupId: "pg-right",
+    focusedGroupId: "pg-tl",
   }));
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
   set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
+  // Expand all three projects so their Claude Code sessions are visible at a
+  // glance (sidebar item id == "project:<path>", unencoded — see buildSidebarItems).
+  set("topics-sidebar-state", JSON.stringify({
+    expandedNodes: ["project:" + PROJECT, "project:" + P2, "project:" + P3],
+    viewMode: "timeline", showArchived: false,
+    showProjects: true, showChats: true, showTerminals: true,
+    showProjectsArchived: false, showChatsArchived: false, browserExpanded: false,
+  }));
   document.documentElement.classList.add("dark");
 
   /* ---- 1d. vibrancy emulation ------------------------------------------- *
@@ -111,15 +132,15 @@
           "radial-gradient(820px circle at 90% 0%, hsl(258 88% 66% / .26), transparent 55%)," +
           "radial-gradient(1100px circle at 62% 112%, hsl(187 86% 54% / .18), transparent 60%)," +
           "linear-gradient(180deg, #0a0e1a 0%, #06090f 58%, #04060b 100%);}" +
-      /* a second, slowly drifting glow layer for the same 'alive' feel as the
-       * landing aurora — present enough that the dark glass chrome picks up cool
-       * light, like the real window does over a blurred desktop */
+      /* a second, softer glow layer so the dark glass chrome picks up cool light,
+       * like the real window over a blurred desktop. STATIC on purpose: animating
+       * a viewport-sized 48px-blurred layer re-rasterizes every frame and tanked
+       * the renderer to ~12fps; the real vibrancy isn't animated either, and the
+       * landing page's own aurora already supplies motion around the window. */
       "body::after{content:'';position:fixed;inset:-20vh -10vw;z-index:-1;pointer-events:none;" +
         "background:radial-gradient(46vw 46vw at 28% 14%, hsl(225 96% 62% / .20), transparent 62%)," +
                    "radial-gradient(42vw 42vw at 80% 82%, hsl(265 92% 68% / .16), transparent 64%);" +
-        "filter:blur(48px);will-change:transform;animation:landingDrift 30s ease-in-out infinite alternate;}" +
-      "@keyframes landingDrift{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(3%,2%,0) scale(1.08)}}" +
-      "@media (prefers-reduced-motion:reduce){body::after{animation:none}}";
+        "filter:blur(48px);}";
     var s = document.createElement("style");
     s.id = "landing-vibrancy";
     s.textContent = css;
@@ -174,10 +195,10 @@
     "t-auth": topic("t-auth", "auth flow", "🔒", "#22d3ee"),
     "t-bugs": topic("t-bugs", "bug triage", "🐞", "#f5a524"),
   };
+  // Topics are secondary in this story — the Claude Code sessions are the value.
+  // Keep just one unread topic so the sidebar leads with projects + their agents.
   var UNREAD = {
-    "t-ship": { lastReadAt: ISO, unreadCount: 3 },
-    "t-landing": { lastReadAt: ISO, unreadCount: 1 },
-    "t-bugs": { lastReadAt: ISO, unreadCount: 2 },
+    "t-ship": { lastReadAt: ISO, unreadCount: 2 },
   };
   var SCRIPTS = [
     { processId: "p1", scriptName: "dev", command: "vite dev", projectPath: PROJECT, status: "running", pid: 4821, startedAt: ISO, ports: [5173], source: "script" },
@@ -195,6 +216,75 @@
     { id: "a1", name: "Lead", role: "lead", modelPreference: "opus", maxConcurrentTasks: 3, capabilities: [], avatarEmoji: "🧭", status: "available", createdAt: ISO, updatedAt: ISO },
     { id: "a2", name: "Builder", role: "worker", modelPreference: "sonnet", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "⚙️", status: "busy", createdAt: ISO, updatedAt: ISO },
   ];
+  /* Running terminal sessions. The headline value is the Claude Code agent
+   * sessions ("claude-code" → Claude icon in the sidebar, grouped under their
+   * project by cwd); they are what users pay for. acme-web is the open project;
+   * acme-api / acme-mobile are siblings with their own running agents. */
+  function ccSession(id, cwd, busy) {
+    return { id: id, name: "Claude Code", title: "Claude Code", cwd: cwd, command: "claude",
+      createdAt: ISO, clients: 1, busy: !!busy, type: "claude-code", kind: "claude-code" };
+  }
+  var SESSIONS = [
+    ccSession("cc1", PROJECT, true),
+    ccSession("cc2", PROJECT, true),
+    { id: "sh1", name: "zsh", title: "zsh", cwd: PROJECT, command: "/bin/zsh", createdAt: ISO, clients: 1, busy: false, type: "shell", kind: "shell" },
+    ccSession("cc3", P2, true),
+    ccSession("cc4", P3, false),
+    ccSession("cc5", P3, true),
+  ];
+
+  /* Claude Code TUI transcripts (ANSI). \x1b = ESC; xterm needs CRLF (added at
+   * emit time). Generic acme-web work — no real project/user data. */
+  var CLAUDE_CC1 = [
+    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-web · main\x1b[0m\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m Wire up release signing for v1.1 and run the smoke test\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m I'll add the signing step to the release script, then verify.\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mRead\x1b[0m(scripts/release.ts)\n",
+    "\x1b[2m  ⎿  read 84 lines\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mEdit\x1b[0m(scripts/release.ts)\n",
+    "\x1b[2m  ⎿  \x1b[0m\x1b[32m+12\x1b[0m \x1b[31m−2\x1b[0m \x1b[2m· codesign + notarize step\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(npm run build && npm run release:sign)\n",
+    "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m built in 2.3s \x1b[2m· signed acme-web-1.1.0.dmg\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m Signing works end-to-end. Running the release smoke test now…\n",
+    "\n",
+    "\x1b[2m──────────────────────────────────────────────\x1b[0m\n",
+    "\x1b[36m✻\x1b[0m \x1b[2mWorking…  (esc to interrupt · ⏵⏵ bypass permissions on)\x1b[0m\n",
+  ];
+  var CLAUDE_CC2 = [
+    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-web · main\x1b[0m\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m Add empty states to the dashboard lists\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m Scanning the dashboard route for lists missing an empty state.\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mGrep\x1b[0m(\"\\.map(\" in src/routes/dashboard.tsx)\n",
+    "\x1b[2m  ⎿  3 matches\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m Adding <EmptyState/> to the channels, sessions and errors lists.\n",
+    "\x1b[2m   esc to interrupt\x1b[0m\n",
+  ];
+  var SHELL_LINES = [
+    "\x1b[2m~/code/acme-web\x1b[0m \x1b[32m✔\x1b[0m\n",
+    "\x1b[1;36m❯\x1b[0m git status -sb\n",
+    "## \x1b[32mmain\x1b[0m\n",
+    " \x1b[31mM\x1b[0m src/components/Hero.tsx\n",
+    " \x1b[31mM\x1b[0m src/lib/analytics.ts\n",
+    "\x1b[1;36m❯\x1b[0m npm run dev\n",
+    "\x1b[2m> acme-web@1.1.0 dev\x1b[0m\n",
+    "\x1b[32m➜\x1b[0m Local:   http://localhost:5173/\n",
+    "\x1b[1;36m❯\x1b[0m █\n",
+  ];
+
   var SYSTEM_STATUS = {
     timestamp: ISO,
     gateway: { online: true, status: "online", latencyMs: 12, lastCheckedAt: ISO, url: "" },
@@ -202,7 +292,7 @@
     connections: { wsClients: 1, activeStreams: 0, streamKeys: [] },
     topics: { activeCount: 4, totalCount: 4 },
     cronJobs: { enabled: 0, disabled: 0, total: 0 },
-    sessions: { total: 0, byType: {} },
+    sessions: { total: 5, byType: { "claude-code": 5 } },
   };
   var GIT_DIFF =
     "diff --git a/src/components/Hero.tsx b/src/components/Hero.tsx\n" +
@@ -236,7 +326,7 @@
         if (/\/system\/status\b/.test(u)) return Promise.resolve(J(SYSTEM_STATUS));
         if (/\/topics\/master\/sessions/.test(u)) return Promise.resolve(J({ sessions: [] }));
         if (/\/topics\/[^/]+\/messages/.test(u)) return Promise.resolve(J({ messages: [], total: 0, topicName: "" }));
-        if (/\/topics\b/.test(u) && !/\/topics\//.test(u)) return Promise.resolve(J({ topics: TOPICS, workspaceProjects: [PROJECT] }));
+        if (/\/topics\b/.test(u) && !/\/topics\//.test(u)) return Promise.resolve(J({ topics: TOPICS, workspaceProjects: [PROJECT, P2, P3] }));
         if (/\/unread\b/.test(u)) return Promise.resolve(J(UNREAD));
         if (/\/git\/status\b/.test(u)) return Promise.resolve(J(gitStatus()));
         if (/\/git\/branches\b/.test(u)) return Promise.resolve(J([{ name: "main", current: true, isRemote: false }, { name: "feat/aurora", current: false, isRemote: false }]));
@@ -253,12 +343,16 @@
         if (/\/scripts\/[^/]+\/output\b/.test(u)) return Promise.resolve(J({ output: PROC_OUT, offset: PROC_OUT.length, done: true, status: "running" }));
         if (/\/scripts\b/.test(u)) return Promise.resolve(J({ scripts: SCRIPTS }));
         if (/\/processes\b/.test(u)) return Promise.resolve(J([]));
-        if (/\/terminal\/sessions\b/.test(u)) return Promise.resolve(J([{ id: "t1", name: "zsh", createdAt: ISO, cwd: PROJECT, command: "/bin/zsh", clients: 1, type: "shell" }]));
+        if (/\/terminal\/sessions\b/.test(u)) return Promise.resolve(J(SESSIONS));
         if (/\/agents\/profiles\b/.test(u)) return Promise.resolve(J({ profiles: AGENTS }));
         if (/\/agents\/sessions\b/.test(u)) return Promise.resolve(J({ sessions: [], total: 0, limit: 100, offset: 0 }));
         if (/\/providers\/snapshot\b/.test(u)) return Promise.resolve(J({ providers: [], defaultProvider: null, generatedAt: ISO }));
         if (/\/providers\b/.test(u)) return Promise.resolve(J({ providers: [], default: null }));
-        if (/\/projects\b/.test(u)) return Promise.resolve(J({ projects: [{ id: "p-acme", name: "acme-web", path: PROJECT, slug: "acme-web", color: "#5b8cff", icon: null }] }));
+        if (/\/projects\b/.test(u)) return Promise.resolve(J({ projects: [
+          { id: "p-acme",     name: "acme-web",    path: PROJECT, slug: "acme-web",    color: "#5b8cff", icon: null },
+          { id: "p-acme-api", name: "acme-api",    path: P2,      slug: "acme-api",    color: "#22d3ee", icon: null },
+          { id: "p-acme-mob", name: "acme-mobile", path: P3,      slug: "acme-mobile", color: "#7c6cff", icon: null },
+        ] }));
         if (/\/machines\b/.test(u)) return Promise.resolve(J({ machines: [] }));
         if (/\/worktrees\b/.test(u)) return Promise.resolve(J({ worktrees: [] }));
         if (/\/webhooks\b/.test(u)) return Promise.resolve(J({ webhooks: [] }));
@@ -317,17 +411,10 @@
     this._emit("open", {});
     var self = this, u = this.url;
     if (/\/ws\/terminal\//.test(u)) {
-      var lines = [
-        "[2m~/demo/acme-web[0m [32m✔[0m\n",
-        "[1;36m❯[0m git status -sb\n",
-        "## [32mmain[0m\n",
-        " [31mM[0m src/components/Hero.tsx\n",
-        " [31mM[0m src/lib/analytics.ts\n",
-        "[1;36m❯[0m npm run dev\n",
-        "[2m> acme-web@1.1.0 dev[0m\n",
-        "[32m➜[0m Local:   http://localhost:5173/\n",
-        "[1;36m❯[0m █\n",
-      ];
+      var idm = u.match(/\/ws\/terminal\/([^/?]+)/);
+      var sid = idm ? idm[1] : "";
+      // cc1/cc2 are Claude Code agent sessions; sh1 is a plain shell.
+      var lines = sid === "cc2" ? CLAUDE_CC2 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
       // Raw PTY semantics: a bare \n is line-feed only (cursor drops a row but
       // keeps its column → staircase). Emit CRLF so xterm returns to col 0.
       lines.forEach(function (l, i) { setTimeout(function () { self._msg(l.replace(/\n/g, "\r\n")); }, 120 + i * 90); });
@@ -338,7 +425,7 @@
       setTimeout(function () { self._msg(JSON.stringify({ type: "frame", data: FRAME_B64, metadata: { timestamp: 1748856600000, pageScaleFactor: 1 } })); }, 140);
     } else {
       setTimeout(function () { self._msg(JSON.stringify({ type: "unread:init", data: UNREAD })); }, 90);
-      setTimeout(function () { self._msg(JSON.stringify({ type: "terminal:sessions", sessions: [{ id: "t1", name: "zsh", title: "zsh", cwd: PROJECT, command: "/bin/zsh", createdAt: ISO, clients: 1, busy: false, type: "shell", kind: "shell" }] })); }, 110);
+      setTimeout(function () { self._msg(JSON.stringify({ type: "terminal:sessions", sessions: SESSIONS })); }, 110);
     }
   };
   try { window.WebSocket = StubWS; } catch (e) {}
