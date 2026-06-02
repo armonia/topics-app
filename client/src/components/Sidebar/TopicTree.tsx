@@ -9,6 +9,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
+import { MasterMonitorToggle } from './MasterMonitorToggle';
 import { topicsApi } from '@/lib/api';
 import { createPaneId, useProjectTabStatus, getAddableTypesForScope } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
@@ -569,17 +570,20 @@ export function TopicTree({
           )}
         </button>
         {onOpenMaster && (
-          <button
-            data-testid="sidebar-master-shortcut"
-            onClick={() => onOpenMaster()}
-            className="group/mst flex items-center gap-2 w-full h-11 md:h-8 text-left text-[14px] md:text-[13px] text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
-            style={{ paddingLeft: 12 }}
-            title="Open Master · Global (Shift+Cmd+M)"
-          >
-            <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
-            <span className="flex-1 truncate text-app-text">Master</span>
-            <span className="text-[11px] text-app-text-muted/70 tabular-nums pr-3">⇧⌘M</span>
-          </button>
+          <div className="flex items-center w-full hover:bg-app-hover transition-colors">
+            <button
+              data-testid="sidebar-master-shortcut"
+              onClick={() => onOpenMaster()}
+              className="group/mst flex items-center gap-2 flex-1 min-w-0 h-11 md:h-8 text-left text-[14px] md:text-[13px] text-app-text-secondary hover:text-app-text transition-colors"
+              style={{ paddingLeft: 12 }}
+              title="Open Master · Global (Shift+Cmd+M)"
+            >
+              <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
+              <span className="flex-1 truncate text-app-text">Master</span>
+              <span className="text-[11px] text-app-text-muted/70 tabular-nums">⇧⌘M</span>
+            </button>
+            <span className="px-1.5"><MasterMonitorToggle /></span>
+          </div>
         )}
         <div className="border-t border-app-border" />
       </div>
