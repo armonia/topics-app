@@ -1,222 +1,255 @@
 import { createRoot } from "react-dom/client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-type Tab = "browser" | "processes" | "git" | "kanban";
+type Pane = "browser" | "git" | "processes" | "kanban";
 
 interface Topic {
-  id: string; name: string; dot: string;
+  id: string; name: string; dot: "run" | "wait" | "idle"; count?: number;
   term: string[];
-  browser: { url: string; title: string };
-  procs: { name: string; meta: string; state: "run" | "idle" }[];
-  git: { branch: string; files: { name: string; s: "M" | "A" | "D"; add: number; del: number }[] };
-  kanban: { todo: string[]; doing: string[]; done: string[] };
+  branch: string;
+  staged: { f: string; s: "M" | "A" | "D" }[];
+  unstaged: { f: string; s: "M" | "A" | "D" | "?" }[];
 }
 
 const TOPICS: Topic[] = [
-  {
-    id: "ship", name: "ship-v1.1", dot: "blue",
+  { id: "app", name: "topics-app", dot: "run", count: 2, branch: "main",
     term: [
-      '<b>~/app</b> <w>claude</w> <d>"ship the v1.1 release"</d>',
-      '<v>✻ Claude Code</v> <d>· Opus 4.8 (1M context)</d>',
-      '<d>● Reading project context…</d>',
-      '<bl>✱ Plan</bl> <d>bump version · tag · build · publish</d>',
-      '<d>  → package.json  v1.1.0</d>',
-      '<o>✓ Release workflow triggered</o> <d>mac · win · linux</d>',
-      '<o>✓ Done</o> <d>3 files changed · pushed to main</d>',
+      '<p>~/topics-app</p> <c>claude</c> <m>"ship the v1.1 release"</m>',
+      '<v>✻ Claude Code</v> <m>v2.1 · Opus 4.8 (1M context)</m>',
+      '<m>● Reading project context…</m>',
+      '<b>✱ Plan</b> <m>bump version · tag · build · publish</m>',
+      '<m>  → package.json  v1.1.0</m>',
+      '<m>  → .github/workflows/release.yml</m>',
+      '<o>✓ Release workflow triggered</o> <m>mac · win · linux</m>',
+      '<o>✓ Done.</o> <m>3 files changed · pushed to main</m>',
     ],
-    browser: { url: "localhost:5173/changelog", title: "v1.1 — Changelog" },
-    procs: [
-      { name: "bun server.ts", meta: ":3333 · 41 MB", state: "run" },
-      { name: "vite dev", meta: ":5173 · HMR", state: "run" },
-      { name: "claude-code", meta: "pid 4821", state: "run" },
-    ],
-    git: { branch: "main", files: [
-      { name: "package.json", s: "M", add: 2, del: 2 },
-      { name: ".github/workflows/release.yml", s: "A", add: 64, del: 0 },
-      { name: "CHANGELOG.md", s: "M", add: 18, del: 0 },
-    ] },
-    kanban: { todo: ["Sign macOS build", "Write release notes"], doing: ["Tag v1.1.0"], done: ["Build matrix", "Auto-update"] },
-  },
-  {
-    id: "landing", name: "landing-site", dot: "violet",
+    staged: [{ f: "package.json", s: "M" }, { f: ".github/workflows/release.yml", s: "A" }],
+    unstaged: [{ f: "CHANGELOG.md", s: "M" }, { f: "src/version.ts", s: "M" }] },
+  { id: "landing", name: "landing", dot: "run", count: 3, branch: "feat/landing",
     term: [
-      '<b>~/app</b> <w>claude</w> <d>"add a hero with the product demo"</d>',
-      '<v>✻ Claude Code</v> <d>· editing landing/</d>',
-      '<d>● Drafting interactive demo…</d>',
-      '<bl>✱ Edit</bl> <d>landing/demo-src/main.tsx</d>',
-      '<o>✓ Preview ready</o> <d>open the browser pane →</d>',
+      '<p>~/topics-app</p> <c>claude</c> <m>"build the marketing site"</m>',
+      '<v>✻ Claude Code</v> <m>· editing landing/</m>',
+      '<m>● Drafting hero + interactive demo…</m>',
+      '<b>✱ Edit</b> <m>landing/demo-src/main.tsx</m>',
+      '<o>✓ Preview ready on :5173</o>',
     ],
-    browser: { url: "localhost:5173", title: "Topics — landing preview" },
-    procs: [
-      { name: "vite dev", meta: ":5173 · HMR", state: "run" },
-      { name: "tailwind", meta: "watch", state: "run" },
-      { name: "tsc --watch", meta: "idle", state: "idle" },
-    ],
-    git: { branch: "feat/landing", files: [
-      { name: "landing/index.html", s: "M", add: 31, del: 12 },
-      { name: "landing/styles.css", s: "M", add: 88, del: 5 },
-      { name: "landing/demo-src/main.tsx", s: "A", add: 210, del: 0 },
-    ] },
-    kanban: { todo: ["Mobile pass", "OG image"], doing: ["Interactive demo"], done: ["Hero", "Grain + aurora"] },
-  },
-  {
-    id: "auth", name: "auth-hardening", dot: "teal",
+    staged: [{ f: "landing/index.html", s: "M" }],
+    unstaged: [{ f: "landing/styles.css", s: "M" }, { f: "landing/demo/demo.js", s: "?" }] },
+  { id: "auth", name: "auth", dot: "wait", branch: "fix/auth",
     term: [
-      '<b>~/app</b> <w>claude</w> <d>"add per-agent token hashing"</d>',
-      '<v>✻ Claude Code</v> <d>· running tests</d>',
-      '<d>● 24 tests · 0 failing</d>',
-      '<o>✓ middleware/agent-auth.ts hardened</o>',
+      '<p>~/topics-app</p> <c>claude</c> <m>"add per-agent token hashing"</m>',
+      '<v>✻ Claude Code</v> <m>· running tests</m>',
+      '<o>✓ 24 tests · 0 failing</o>',
+      '<w>? Apply the migration now?</w> <m>(waiting for you)</m>',
     ],
-    browser: { url: "localhost:5173/settings/security", title: "Security settings" },
-    procs: [
-      { name: "bun test --watch", meta: "24 pass", state: "run" },
-      { name: "bun server.ts", meta: ":3333", state: "run" },
-    ],
-    git: { branch: "fix/auth", files: [
-      { name: "server/middleware/agent-auth.ts", s: "M", add: 22, del: 4 },
-      { name: "server/middleware/agent-auth.test.ts", s: "A", add: 96, del: 0 },
-    ] },
-    kanban: { todo: ["Rate-limit login"], doing: ["Token hashing"], done: ["CSRF check", "Audit log"] },
-  },
-  {
-    id: "docs", name: "docs-sweep", dot: "amber",
+    staged: [{ f: "server/middleware/auth.ts", s: "M" }],
+    unstaged: [{ f: "server/middleware/auth.test.ts", s: "A" }] },
+  { id: "docs", name: "docs", dot: "idle", branch: "docs",
     term: [
-      '<b>~/app</b> <w>codex</w> <d>"update the README and screenshots"</d>',
-      '<v>✻ agent</v> <d>· any CLI works here</d>',
-      '<o>✓ README, CONTRIBUTING refreshed</o>',
+      '<p>~/topics-app</p> <c>codex</c> <m>"refresh the README"</m>',
+      '<v>✻ agent</v> <m>· any CLI works here</m>',
+      '<o>✓ README, CONTRIBUTING updated</o>',
     ],
-    browser: { url: "localhost:5173/docs", title: "Docs preview" },
-    procs: [
-      { name: "vite dev", meta: ":5173", state: "run" },
-      { name: "markdownlint", meta: "clean", state: "idle" },
-    ],
-    git: { branch: "docs", files: [
-      { name: "README.md", s: "M", add: 40, del: 22 },
-      { name: "CONTRIBUTING.md", s: "M", add: 6, del: 1 },
-    ] },
-    kanban: { todo: ["API reference"], doing: ["README"], done: ["Quickstart"] },
-  },
+    staged: [],
+    unstaged: [{ f: "README.md", s: "M" }, { f: "CONTRIBUTING.md", s: "M" }] },
 ];
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "browser", label: "Browser" },
-  { id: "processes", label: "Processes" },
-  { id: "git", label: "Git" },
-  { id: "kanban", label: "Kanban" },
+const FILES = [
+  { d: "client", open: true, kids: [
+    { f: "index.html", z: "3.5k" }, { f: "App.tsx", z: "12k" }, { f: "main.tsx", z: "1.1k" },
+  ] },
+  { d: "server", open: true, kids: [
+    { f: "server.ts", z: "44k" }, { f: "db.ts", z: "10k" }, { f: "routes/", z: "" },
+  ] },
+  { d: "landing", open: false, kids: [{ f: "index.html", z: "9k" }] },
+  { d: "public", open: false, kids: [{ f: "assets/", z: "" }] },
+];
+const ROOT_FILES = [{ f: "README.md", z: "4.2k" }, { f: "package.json", z: "1.9k" }];
+
+const PROCS = [
+  { name: "bun server.ts", meta: ":3333 · 41 MB · 0.4% cpu", state: "run" },
+  { name: "vite dev", meta: ":5173 · HMR ready in 312ms", state: "run" },
+  { name: "claude-code", meta: "pid 4821 · streaming", state: "run" },
+  { name: "tsc --watch", meta: "no errors", state: "idle" },
+  { name: "playwright", meta: "exited 0", state: "done" },
+];
+const KANBAN: { col: string; tone: string; cards: string[] }[] = [
+  { col: "Backlog", tone: "muted", cards: ["Telemetry opt-in", "i18n pass"] },
+  { col: "Todo", tone: "blue", cards: ["Sign macOS build", "Empty states"] },
+  { col: "In Progress", tone: "amber", cards: ["Ship v1.1", "Landing site"] },
+  { col: "Review", tone: "violet", cards: ["Token hashing"] },
+  { col: "Done", tone: "green", cards: ["Split panes", "Auto-update", "Grain pass"] },
 ];
 
-function Terminal({ lines, topicId }: { lines: string[]; topicId: string }) {
-  const [shown, setShown] = useState(lines.length);
+function Term({ t }: { t: Topic }) {
+  const [n, setN] = useState(t.term.length);
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setShown(lines.length); return; }
-    setShown(0);
-    let i = 0; let timer: number;
-    const tick = () => { i++; setShown(i); if (i < lines.length) timer = window.setTimeout(tick, 320); };
-    timer = window.setTimeout(tick, 280);
-    return () => clearTimeout(timer);
-  }, [topicId]);
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setN(t.term.length); return; }
+    setN(0); let i = 0; let id: number;
+    const tick = () => { i++; setN(i); if (i < t.term.length) id = window.setTimeout(tick, 300); };
+    id = window.setTimeout(tick, 260);
+    return () => clearTimeout(id);
+  }, [t.id]);
   return (
-    <pre className="td-term">
-      {lines.slice(0, shown).map((l, i) => (
-        <div key={i} dangerouslySetInnerHTML={{ __html: l }} />
-      ))}
-      <span className="td-caret" />
-    </pre>
+    <div className="td-pane td-termpane">
+      <div className="td-phead"><span className="td-dot run" /> Claude Code · Opus 4.8</div>
+      <pre className="td-term">
+        {t.term.slice(0, n).map((l, i) => <div key={i} dangerouslySetInnerHTML={{ __html: l }} />)}
+        <span className="td-caret" />
+      </pre>
+      <div className="td-pfoot">Opus 4.8 (1M context) · {t.name}<span className="td-pfr">shift+tab to cycle</span></div>
+    </div>
   );
 }
 
-function RightPane({ t, tab }: { t: Topic; tab: Tab }) {
-  if (tab === "browser") return (
-    <div className="td-browser">
-      <div className="td-urlbar"><span className="td-dotrow"><i/><i/><i/></span><span className="td-url">{t.browser.url}</span></div>
-      <div className="td-page">
-        <div className="td-page-h">{t.browser.title}</div>
-        <div className="td-bars">{[62, 88, 47, 95, 73, 58].map((h, i) => <i key={i} style={{ ["--h" as any]: h + "%" }} />)}</div>
-        <div className="td-skel"><span/><span/><span style={{ width: "60%" }}/></div>
+function Browser() {
+  return (
+    <div className="td-pane">
+      <div className="td-bt">
+        <span className="td-bb">‹</span><span className="td-bb">›</span><span className="td-bb">⟳</span>
+        <span className="td-addr">localhost:5173</span>
+      </div>
+      <div className="td-web">
+        <div className="td-web-h">Dashboard</div>
+        <div className="td-web-cards">{[0, 1, 2].map(i => <div key={i} className="td-wc"><span/><b/></div>)}</div>
+        <div className="td-chart">{[58, 84, 47, 95, 71, 63, 88].map((h, i) => <i key={i} style={{ ["--h" as any]: h + "%" }} />)}</div>
       </div>
     </div>
   );
-  if (tab === "processes") return (
-    <div className="td-list">
-      {t.procs.map((p, i) => (
-        <div className="td-proc" key={i}>
-          <span className={"td-pdot " + (p.state === "run" ? "run" : "idle")} />
-          <span className="td-pname">{p.name}</span>
-          <span className="td-pmeta">{p.meta}</span>
-        </div>
-      ))}
-    </div>
-  );
-  if (tab === "git") return (
-    <div className="td-list">
-      <div className="td-gitbranch">⎇ {t.git.branch}</div>
-      {t.git.files.map((f, i) => (
-        <div className="td-gfile" key={i}>
-          <span className={"td-gs s-" + f.s}>{f.s}</span>
-          <span className="td-gname">{f.name}</span>
-          <span className="td-gstat"><span className="add">+{f.add}</span> <span className="del">−{f.del}</span></span>
-        </div>
-      ))}
-    </div>
+}
+
+function Git({ t }: { t: Topic }) {
+  const [staged, setStaged] = useState(true);
+  const [unstaged, setUnstaged] = useState(true);
+  const Row = ({ f, s }: { f: string; s: string }) => (
+    <div className="td-grow"><span className={"td-gs s-" + s}>{s}</span><span className="td-gf">{f}</span></div>
   );
   return (
-    <div className="td-kanban">
-      {([["Todo", t.kanban.todo], ["Doing", t.kanban.doing], ["Done", t.kanban.done]] as const).map(([col, items]) => (
-        <div className="td-kcol" key={col}>
-          <div className="td-khead">{col}</div>
-          {items.map((c, i) => <div className={"td-card" + (col === "Done" ? " done" : col === "Doing" ? " hot" : "")} key={i}>{c}</div>)}
-        </div>
-      ))}
+    <div className="td-pane">
+      <div className="td-bt"><span className="td-branch">⎇ {t.branch}</span><span className="td-bb">↓</span><span className="td-bb">↑</span></div>
+      <div className="td-gitbody">
+        <button className="td-acc" onClick={() => setStaged(s => !s)}><span className={"td-chev" + (staged ? " open" : "")}>▸</span>Staged ({t.staged.length})</button>
+        {staged && (t.staged.length ? t.staged.map((x, i) => <Row key={i} f={x.f} s={x.s} />) : <div className="td-empty">nothing staged</div>)}
+        <button className="td-acc" onClick={() => setUnstaged(s => !s)}><span className={"td-chev" + (unstaged ? " open" : "")}>▸</span>Changes ({t.unstaged.length})</button>
+        {unstaged && t.unstaged.map((x, i) => <Row key={i} f={x.f} s={x.s} />)}
+      </div>
+      <div className="td-commit"><div className="td-cinput">Commit message…</div><div className="td-cbtn">Commit</div></div>
     </div>
   );
 }
 
+function Procs() {
+  return (
+    <div className="td-pane">
+      <div className="td-phead2">Processes</div>
+      <div className="td-procs">
+        {PROCS.map((p, i) => (
+          <div className="td-proc" key={i}>
+            <span className={"td-dot " + p.state} /><span className="td-pn">{p.name}</span><span className="td-pm">{p.meta}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Kanban() {
+  return (
+    <div className="td-pane">
+      <div className="td-phead2">Board</div>
+      <div className="td-kan">
+        {KANBAN.map((c, i) => (
+          <div className="td-kcol" key={i}>
+            <div className={"td-kh tone-" + c.tone}>{c.col} <span>{c.cards.length}</span></div>
+            {c.cards.map((card, j) => <div className={"td-kc tone-" + c.tone} key={j}>{card}</div>)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FileTree() {
+  const [open, setOpen] = useState<Record<string, boolean>>(Object.fromEntries(FILES.map(d => [d.d, d.open])));
+  return (
+    <div className="td-files">
+      <div className="td-fhead">Tasks <span>▾</span></div>
+      <div className="td-task-empty">No tasks yet</div>
+      <div className="td-addtask">+ Add task</div>
+      <div className="td-fhead">Files <span>▾</span></div>
+      <div className="td-tree">
+        {FILES.map((d) => (
+          <div key={d.d}>
+            <button className="td-dir" onClick={() => setOpen(o => ({ ...o, [d.d]: !o[d.d] }))}>
+              <span className={"td-chev" + (open[d.d] ? " open" : "")}>▸</span>{d.d}
+            </button>
+            {open[d.d] && d.kids.map((k) => (
+              <div className="td-file sub" key={k.f}>{k.f}<span>{k.z}</span></div>
+            ))}
+          </div>
+        ))}
+        {ROOT_FILES.map((k) => <div className="td-file" key={k.f}>{k.f}<span>{k.z}</span></div>)}
+      </div>
+      <div className="td-git-row">⎇ Git <span>▸</span></div>
+    </div>
+  );
+}
+
+const PANES: { id: Pane; label: string }[] = [
+  { id: "browser", label: "Browser" }, { id: "git", label: "Git" },
+  { id: "processes", label: "Processes" }, { id: "kanban", label: "Board" },
+];
+
 function Demo() {
-  const [topic, setTopic] = useState(0);
-  const [tab, setTab] = useState<Tab>("browser");
-  const t = TOPICS[topic];
+  const [ti, setTi] = useState(0);
+  const [pane, setPane] = useState<Pane>("browser");
+  const t = TOPICS[ti];
   return (
     <div className="td">
-      <div className="td-bar">
-        <span className="td-traffic"><i/><i/><i/></span>
-        <div className="td-tabs-top">
+      <div className="td-tabbar">
+        <span className="td-logo">Topics <span className="td-chev open">▾</span></span>
+        <div className="td-ttabs">
           {TOPICS.map((x, i) => (
-            <button key={x.id} className={"td-ttab" + (i === topic ? " active" : "")} onClick={() => setTopic(i)}>
-              {i === topic && <span className="td-live" />}{x.name}
-            </button>
+            <button key={x.id} className={"td-ttab" + (i === ti ? " active" : "")} onClick={() => setTi(i)}>{x.name}</button>
           ))}
           <span className="td-ttab add">+</span>
         </div>
       </div>
       <div className="td-body">
         <aside className="td-side">
-          <div className="td-search">⌘K <span>Search…</span></div>
+          <div className="td-search"><span className="td-si">⌕</span>Search<span className="td-kbd">⌘K</span></div>
           <div className="td-srow">Board</div>
           <div className="td-srow">Master <span className="td-badge">2</span></div>
           <div className="td-shead">TOPICS</div>
           {TOPICS.map((x, i) => (
-            <button key={x.id} className={"td-topic" + (i === topic ? " active" : "")} onClick={() => setTopic(i)}>
-              <span className={"td-tdot d-" + x.dot} />{x.name}
+            <button key={x.id} className={"td-topic" + (i === ti ? " active" : "")} onClick={() => setTi(i)}>
+              <span className={"td-dot " + x.dot} />{x.name}{x.count ? <span className="td-tc">{x.count}</span> : null}
             </button>
           ))}
-          <div className="td-sfoot"><span className="td-live" />41 MB · 60 fps</div>
+          <div className="td-sfoot"><span className="td-dot run" />41 MB · 60 fps</div>
         </aside>
-        <section className="td-split-term">
-          <div className="td-ptab"><span className="td-live" /> Claude Code · Opus 4.8</div>
-          <Terminal lines={t.term} topicId={t.id} />
-        </section>
-        <section className="td-right">
-          <div className="td-rtabs">
-            {TABS.map((x) => (
-              <button key={x.id} className={"td-rtab" + (x.id === tab ? " active" : "")} onClick={() => setTab(x.id)}>{x.label}</button>
-            ))}
+        <FileTree />
+        <div className="td-split">
+          <Term t={t} />
+          <div className="td-divider" />
+          <div className="td-pane td-right">
+            <div className="td-ptabs">
+              {PANES.map((p) => (
+                <button key={p.id} className={"td-ptab" + (p.id === pane ? " active" : "")} onClick={() => setPane(p.id)}>{p.label}</button>
+              ))}
+            </div>
+            <div className="td-pbody">
+              {pane === "browser" && <Browser />}
+              {pane === "git" && <Git t={t} />}
+              {pane === "processes" && <Procs />}
+              {pane === "kanban" && <Kanban />}
+            </div>
           </div>
-          <div className="td-rpane"><RightPane t={t} tab={tab} /></div>
-        </section>
+        </div>
       </div>
-      <div className="td-foot">
-        <span>⎇ {t.git.branch}</span><span className="td-live" /><span>2 agents</span>
-        <span className="td-fright">click a topic or a tab to explore →</span>
+      <div className="td-statusbar">
+        <span className="td-dot run" /> Processes <span className="td-badge">1</span>
+        <span className="td-sb-r">click a topic, a folder, or a pane tab to explore →</span>
       </div>
     </div>
   );
