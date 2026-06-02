@@ -26,16 +26,18 @@
   var P3 = "/demo/acme-mobile";     // their own running Claude Code sessions
   var ISO = "2026-06-02T09:30:00.000Z";
 
-  // The "figata": TWO projects open at once — acme-web stacked ABOVE acme-api,
-  // each its own ProjectWindow with a live Claude Code session. App-level pane
-  // id == createPaneId('project', path).
+  // The "figata": THREE projects open at once. acme-web full-width on top;
+  // acme-api + acme-mobile side-by-side below. Each is its own ProjectWindow —
+  // the project sidebar (Tasks/Files/Git/Processes) IS the interesting context,
+  // so no redundant Git tab. App-level pane id == createPaneId('project', path).
   function projPaneId(p) { return "project:" + encodeURIComponent(p); }
-  var PROJ_A = projPaneId(PROJECT);   // top project
-  var PROJ_B = projPaneId(P2);        // bottom project
+  var PROJ_A = projPaneId(PROJECT);   // top, full width
+  var PROJ_B = projPaneId(P2);        // bottom-left
+  var PROJ_C = projPaneId(P3);        // bottom-right
   // Inner project panes (ids unique across the app). Each project's star is a
-  // Claude Code agent session (the paid core value).
-  var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3",
-      BROW = "browser:c1", GIT = "git:g1", GIT3 = "git:g3", BOARD = "board:b1";
+  // Claude Code agent session (the paid core value); no standalone git pane.
+  var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
+      BROW = "browser:c1", BOARD = "board:b1";
 
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
@@ -47,13 +49,14 @@
 
   function set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  /* ---- 1a. App-level pane store: TWO project panes ---------------------- */
+  /* ---- 1a. App-level pane store: THREE project panes -------------------- */
   var appPanes = {};
-  appPanes[PROJ_A] = { id: PROJ_A, type: "project", projectPath: PROJECT, title: "acme-web", stableKey: PROJ_A };
-  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2,      title: "acme-api", stableKey: PROJ_B };
+  appPanes[PROJ_A] = { id: PROJ_A, type: "project", projectPath: PROJECT, title: "acme-web",    stableKey: PROJ_A };
+  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2,      title: "acme-api",    stableKey: PROJ_B };
+  appPanes[PROJ_C] = { id: PROJ_C, type: "project", projectPath: P3,      title: "acme-mobile", stableKey: PROJ_C };
   set("pane-store-v2", JSON.stringify({
     panes: appPanes,
-    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B], splitRatio: 0.5, splitAxis: "vertical" } },
+    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C], splitRatio: 0.5, splitAxis: "vertical" } },
     groupOrder: ["group:default"],
     closedStack: [],
     lastSeq: 1000,
@@ -66,26 +69,27 @@
   }));
   set("pane-store-focused-id", PROJ_A);
 
-  // Device-local grid overlay: SOLO each project into its OWN ROW so the two
-  // open projects stack with a real horizontal divider between them — "progetto
-  // sopra, progetto sotto". The grid item key for a solo cell is `solo:<paneId>`
-  // (see soloCells.ts soloCellKey) — it MUST match or the sync effect re-merges
-  // both into one row.
+  // Device-local grid overlay: SOLO each project into its own grid cell so the
+  // three open projects lay out as — row 1: acme-web (full width); row 2:
+  // acme-api | acme-mobile (side by side). The grid item key for a solo cell is
+  // `solo:<paneId>` (soloCells.ts soloCellKey) — it MUST match or PanelGrid's
+  // additive-sync re-merges everything into row 0.
   set("topics-panel-grid-layout", JSON.stringify({
     gridRows: [
       { itemKeys: ["solo:" + PROJ_A], widths: [1] },
-      { itemKeys: ["solo:" + PROJ_B], widths: [1] },
+      { itemKeys: ["solo:" + PROJ_B, "solo:" + PROJ_C], widths: [0.5, 0.5] },
     ],
-    gridRowHeights: [0.56, 0.44],
-    soloCells: [[PROJ_A], [PROJ_B]],
-    soloTopicIds: [PROJ_A, PROJ_B],
+    gridRowHeights: [0.54, 0.46],
+    soloCells: [[PROJ_A], [PROJ_B], [PROJ_C]],
+    soloTopicIds: [PROJ_A, PROJ_B, PROJ_C],
   }));
 
   /* ---- 1b. Per-project inner layouts ----------------------------------- *
-   * Each open project shows a live Claude Code session next to a tool view —
-   * so you read a session sopra (top project) and a session sotto (bottom).
-   *   acme-web (top):   two Claude sessions (tabs) | browser/git/board
-   *   acme-api (bottom): a Claude session | git diff                         */
+   * Each open project shows a live Claude Code session; the project sidebar
+   * (Tasks/Files/Git/Processes) supplies the rest of the context.
+   *   acme-web (top):    two Claude sessions (tabs) | browser/board
+   *   acme-api (b-left):  a Claude session (working)
+   *   acme-mobile (b-right): a Claude session (a COMPLETED turn)              */
   function seedProject(path, panes, layout) {
     set("topics-project-panes-" + projectHash(path), JSON.stringify({ nonChatPanes: panes, openChatTopicIds: [], activeChatTopicId: undefined }));
     set("topics-project-layout-" + projectHash(path), JSON.stringify(layout));
@@ -94,31 +98,38 @@
     { id: CC1,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
     { id: CC2,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
     { id: BROW,  type: "browser",  title: "Preview",     projectPath: PROJECT },
-    { id: GIT,   type: "git",      title: "Git",         projectPath: PROJECT },
     { id: BOARD, type: "board",    title: "Board",       projectPath: PROJECT },
   ], {
     groups: [
-      { id: "pgA-l", paneIds: [CC1, CC2],         activePaneId: CC1,  type: "utility" },
-      { id: "pgA-r", paneIds: [BROW, GIT, BOARD], activePaneId: BROW, type: "utility" },
+      { id: "pgA-l", paneIds: [CC1, CC2],     activePaneId: CC1,  type: "utility" },
+      { id: "pgA-r", paneIds: [BROW, BOARD],  activePaneId: BROW, type: "utility" },
     ],
-    rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.55, 0.45] }],
+    rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.54, 0.46] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
   });
   seedProject(P2, [
-    { id: CC3,  type: "terminal", title: "Claude Code", projectPath: P2, terminalSessionId: "cc3", terminalType: "claude-code" },
-    { id: GIT3, type: "git",      title: "Git",         projectPath: P2 },
+    { id: CC3, type: "terminal", title: "Claude Code", projectPath: P2, terminalSessionId: "cc3", terminalType: "claude-code" },
   ], {
-    groups: [
-      { id: "pgB-l", paneIds: [CC3],  activePaneId: CC3,  type: "utility" },
-      { id: "pgB-r", paneIds: [GIT3], activePaneId: GIT3, type: "utility" },
-    ],
-    rows: [{ groupIds: ["pgB-l", "pgB-r"], widths: [0.55, 0.45] }],
-    rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgB-l",
+    groups: [{ id: "pgB", paneIds: [CC3], activePaneId: CC3, type: "utility" }],
+    rows: [{ groupIds: ["pgB"], widths: [1] }],
+    rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgB",
+  });
+  seedProject(P3, [
+    { id: CC4, type: "terminal", title: "Claude Code", projectPath: P3, terminalSessionId: "cc4", terminalType: "claude-code" },
+  ], {
+    groups: [{ id: "pgC", paneIds: [CC4], activePaneId: CC4, type: "utility" }],
+    rows: [{ groupIds: ["pgC"], widths: [1] }],
+    rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgC",
   });
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
   set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
+  // Collapse the project sidebar's Tasks board (kanban still 1 click away via the
+  // Board tab) so the tall task list stops pushing Files/Git/Processes off-screen
+  // → the running Processes become visible, which is the project context Attilio
+  // wants to see.
+  set("topics-taskboard-collapsed", "true");
   // Expand all three projects so their Claude Code sessions are visible at a
   // glance (sidebar item id == "project:<path>", unencoded — see buildSidebarItems).
   set("topics-sidebar-state", JSON.stringify({
@@ -173,6 +184,12 @@
     var gitCache = JSON.stringify({ status: gitStatus(), remotes: [] });
     sessionStorage.setItem("git-status-cache:" + PROJECT, gitCache);
     sessionStorage.setItem("git-status-cache:" + P2, gitCache);
+    sessionStorage.setItem("git-status-cache:" + P3, gitCache);
+    // ProjectSidebar sections (Files/Git/Processes) default to processes:false →
+    // the running processes don't show. Expand Processes so the project context
+    // (the interesting part) is visible; Git stays in the sidebar, no extra tab.
+    sessionStorage.setItem("sidebar-sections", JSON.stringify({ files: true, git: false, processes: true }));
+    sessionStorage.setItem("project-sidebar-bottom-heights", JSON.stringify({ git: 160, processes: 176 }));
   } catch (e) {}
 
   /* ---- mock data builders ----------------------------------------------- */
@@ -316,6 +333,26 @@
     "\x1b[38;5;215m⏺\x1b[0m Limiter live: 100 req/min per key. Verifying the 429 headers…\n",
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
+  // A COMPLETED turn — agent finished, prompt is idle again (no "Working…").
+  var CLAUDE_CC4 = [
+    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-mobile · main\x1b[0m\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m Fix the offline-sync race in the upload queue\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m Reproduced it — the flush wasn't awaiting the write lock.\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mEdit\x1b[0m(src/sync/queue.ts)\n",
+    "\x1b[2m  ⎿  \x1b[0m\x1b[32m+6\x1b[0m \x1b[31m−3\x1b[0m\n",
+    "\n",
+    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test sync)\n",
+    "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m 28 passed \x1b[2m(1.1s)\x1b[0m\n",
+    "\n",
+    "\x1b[32m⏺\x1b[0m \x1b[1mDone\x1b[0m — offline sync is race-free and the full suite is green.\n",
+    "\n",
+    "\x1b[1;36m❯\x1b[0m \x1b[7m \x1b[0m\n",
+  ];
   var SHELL_LINES = [
     "\x1b[2m~/code/acme-web\x1b[0m \x1b[32m✔\x1b[0m\n",
     "\x1b[1;36m❯\x1b[0m git status -sb\n",
@@ -402,6 +439,12 @@
         if (/\/dashboard\/kpis\b/.test(u)) return Promise.resolve(J({ throughputDay: 12, throughputWeek: 64, avgCycleTimeHours: 3.2, wipCount: 4, errorRate: 0.02, tokenSpendDay: 1.4, tokenSpendWeek: 9.1, agentUtilization: 0.62, approvalTurnaroundHours: 1.1, pendingApprovals: 0 }));
         if (/\/dashboard\/timeseries\b/.test(u)) return Promise.resolve(J({ points: [] }));
         if (/\/dashboard\/agent-stats\b/.test(u)) return Promise.resolve(J({ agents: [] }));
+        // MUST precede the generic /files rule: ScriptRunner does Object.entries
+        // on .scripts, so this must be an OBJECT map (an array → crash).
+        if (/\/files\/package-scripts\b/.test(u)) return Promise.resolve(J({
+          scripts: { dev: "vite dev", build: "vite build", server: "bun server.ts", test: "bun test", lint: "eslint ." },
+          engines: { node: ">=20" },
+        }));
         if (/\/files\b/.test(u)) return Promise.resolve(J([
           { name: "src", type: "dir", path: PROJECT + "/src", children: [] },
           { name: "public", type: "dir", path: PROJECT + "/public", children: [] },
@@ -457,7 +500,7 @@
       var idm = u.match(/\/ws\/terminal\/([^/?]+)/);
       var sid = idm ? idm[1] : "";
       // cc1/cc2 are Claude Code agent sessions; sh1 is a plain shell.
-      var lines = sid === "cc2" ? CLAUDE_CC2 : sid === "cc3" ? CLAUDE_CC3 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
+      var lines = sid === "cc2" ? CLAUDE_CC2 : sid === "cc3" ? CLAUDE_CC3 : sid === "cc4" ? CLAUDE_CC4 : (sid === "sh1" ? SHELL_LINES : CLAUDE_CC1);
       // Raw PTY semantics: a bare \n is line-feed only (cursor drops a row but
       // keeps its column → staircase). Emit CRLF so xterm returns to col 0.
       lines.forEach(function (l, i) { setTimeout(function () { self._msg(l.replace(/\n/g, "\r\n")); }, 120 + i * 90); });
@@ -525,7 +568,7 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-P16gGP7c.js"></script>
+    <script type="module" crossorigin src="./assets/index-CFLsxcQv.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/icons-D96WQ7l1.js">
     <link rel="modulepreload" crossorigin href="./assets/markdown-3wI88gVK.js">
     <link rel="modulepreload" crossorigin href="./assets/react-vendor-0yPNqixG.js">
