@@ -57,7 +57,7 @@
         <a href="#features">Features</a>
         <a href="#workspace">Workspace</a>
         <a href="#download">Download</a>
-        <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">GitHub</a>
+        <a href="https://github.com/armonia/topics-app" rel="noopener" target="_blank"><svg class="ic ic--fill"><use href="#ic-gh"/></svg>GitHub</a>
       </nav>
       <div class="nav__cta">
         <a class="btn btn--ghost btn--sm" href="https://github.com/armonia/topics-app" rel="noopener" target="_blank">
@@ -100,67 +100,13 @@
         <p class="hero__meta reveal" style="--d:4"><span class="dot-live"></span> Free and open source · MIT · no telemetry</p>
       </div>
 
-      <!-- product window: faithful recreation of the real Topics app (demo data) -->
+      <!-- product window: the real Topics app -->
       <div class="showcase reveal" style="--d:5" id="workspace">
         <div class="showcase__glow" aria-hidden="true"></div>
-        <div class="window" id="window">
-          <div class="window__bar">
-            <span class="traffic"><i></i><i></i><i></i></span>
-            <span class="tabs">
-              <span class="tab">ship-v1.1</span>
-              <span class="tab">layout-engine</span>
-              <span class="tab">docs</span>
-              <span class="tab tab--active"><span class="dot-live tab__live"></span>Claude Code</span>
-              <span class="tab tab--add">+</span>
-            </span>
-          </div>
-          <div class="window__body">
-            <!-- sidebar -->
-            <aside class="pane pane--sidebar">
-              <div class="side__search">⌘K <span>Search…</span></div>
-              <div class="side__row side__row--head">Board</div>
-              <div class="side__row"><svg class="ic ic--xs"><use href="#ic-agents"/></svg>Master <span class="side__count">2</span></div>
-              <div class="side__head">TOPICS</div>
-              <ul class="topics">
-                <li class="topic topic--active"><span class="topic__dot t-blue"></span>ship-v1.1<span class="topic__sub">claude</span></li>
-                <li class="topic"><span class="topic__dot t-teal"></span>layout-engine</li>
-                <li class="topic"><span class="topic__dot t-violet"></span>landing-site<span class="topic__badge">3</span></li>
-                <li class="topic"><span class="topic__dot t-amber"></span>auth-hardening</li>
-                <li class="topic"><span class="topic__dot t-blue"></span>docs-sweep</li>
-              </ul>
-              <div class="side__foot"><span class="dot-live"></span>103 MB · 60 fps</div>
-            </aside>
-
-            <!-- files / tasks column -->
-            <section class="pane pane--files">
-              <div class="files__head">FILES <span>▾</span></div>
-              <ul class="filetree">
-                <li class="dir">▾ client</li>
-                <li class="file sub">index.html<span>3.5k</span></li>
-                <li class="file sub">vite.config.ts<span>771</span></li>
-                <li class="dir">▾ server</li>
-                <li class="file sub">server.ts<span>44k</span></li>
-                <li class="file sub">db.ts<span>10k</span></li>
-                <li class="file sub">routes/<span></span></li>
-                <li class="dir">▸ electron-app</li>
-                <li class="file">README.md<span>4.2k</span></li>
-                <li class="file">.github/<span></span></li>
-              </ul>
-              <div class="files__git">⎇ main · 3 changed</div>
-            </section>
-
-            <!-- terminal -->
-            <section class="pane pane--term">
-              <div class="pane__tab"><span class="dot-live"></span> Claude Code · Opus 4.8 (1M context)</div>
-              <pre class="term" id="term" aria-hidden="true"></pre>
-              <div class="term__status"><span>Opus 4.8 (1M context)</span><span>topic: ship-v1.1</span><span class="term__hint">shift+tab to cycle</span></div>
-            </section>
-          </div>
-          <div class="window__foot">
-            <span>⎇ main</span><span class="dot-live"></span><span>2 agents running</span>
-            <span class="foot__right">Processes · Analytics · ⌘K</span>
-          </div>
-        </div>
+        <figure class="window-real">
+          <img src="./app.png" alt="The Topics desktop app: a topic sidebar, a file tree, and a live Claude Code session, all in one window" width="1440" height="900" loading="eager" />
+          <span class="window-real__gloss" aria-hidden="true"></span>
+        </figure>
       </div>
     </section>
 
