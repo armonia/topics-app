@@ -40,7 +40,6 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "icon.icns",
-      "//": "Unsigned first release: identity:null skips ad-hoc signing (which fails without certs). To enable mac auto-update, set identity to your Developer ID, re-add hardenedRuntime:true + entitlements:'entitlements.mac.plist' + entitlementsInherit, and provide APPLE_*/CSC_* CI secrets.",
       "identity": null,
       "target": [
         { "target": "dmg", "arch": ["arm64", "x64"] },
