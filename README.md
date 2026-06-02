@@ -1,6 +1,8 @@
 # Topics
 
-> A desktop companion for [OpenClaw](https://github.com/openclaw/openclaw) — organize your AI conversations into focused topics, each with its own project context, terminal, and browser.
+> A desktop workspace for [Claude Code](https://claude.com/claude-code) and other CLI coding agents — organize your sessions into focused topics, each with its own project context, terminal, browser, and task board.
+>
+> An open, **agent-first** alternative to Cursor, Windsurf & co.: instead of wrapping an editor around a model, Topics is a home for the terminal AI agents you already run.
 
 <!-- Optional: drop a screenshot or short GIF here once available -->
 <!-- ![Topics screenshot](docs/screenshot.png) -->
@@ -25,10 +27,11 @@ Topics checks GitHub Releases for new versions. Use **menu → Check for Updates
 
 ## What it does
 
-- **Topic-based organization** — group related conversations by project or context
-- **Project integration** — file explorer, Git changes, embedded terminal and browser per topic
-- **Context visualization** — see how much context each conversation uses
-- **Standalone or OpenClaw** — talk to OpenClaw, or run against the Anthropic API directly
+- **Topic-based organization** — group your Claude Code / agent sessions by project or context, in tabs
+- **Project integration** — file explorer, Git changes, an embedded terminal (run your agent here) and browser per topic
+- **Kanban & agent monitoring** — track tasks on a board and watch your agents work
+- **Context visualization** — see how much context each session is using
+- **Bring your own agent & keys** — works against the Anthropic API directly, or via an optional OpenClaw gateway
 
 ## Configuration
 
