@@ -84,6 +84,47 @@
   set("theme", JSON.stringify("dark"));
   set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
   document.documentElement.classList.add("dark");
+
+  /* ---- 1d. vibrancy emulation ------------------------------------------- *
+   * The real app is an Electron window with native macOS vibrancy: html/body/
+   * #root are TRANSPARENT and the chrome (sidebar, tab bars, pane gutters) is a
+   * single translucent frosted layer over the blurred desktop — that depth is a
+   * big part of why it reads as "the app". In a plain browser there's no native
+   * vibrancy, so the same components fall back to a flat opaque slate and look
+   * dead. We recreate the effect WITHOUT touching app code:
+   *   (a) add `.electron-mac` → reuses the exact real vibrancy CSS (index.css
+   *       §macOS native vibrancy): root goes transparent, chrome frosts to a
+   *       translucent dark glass, terminal panes ride the same layer.
+   *   (b) paint a deep, cool aurora backdrop BEHIND the now-transparent root
+   *       (body::before, fixed, z-index:-1) so the glass has something living
+   *       to frost over — the browser-side stand-in for the blurred desktop.
+   * Self-contained: looks right standalone, on the local server, and inside the
+   * landing hero iframe — no dependency on the parent page bleeding through. */
+  document.documentElement.classList.add("electron-mac");
+  (function injectVibrancyBackdrop() {
+    var css =
+      "html.electron-mac, html.electron-mac body { background: transparent !important; }" +
+      /* deep cool base + three soft, blurred glows ≈ a frosted dark desktop */
+      "body::before{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;" +
+        "background:" +
+          "radial-gradient(900px circle at 14% 4%, hsl(222 92% 58% / .30), transparent 56%)," +
+          "radial-gradient(820px circle at 90% 0%, hsl(258 88% 66% / .26), transparent 55%)," +
+          "radial-gradient(1100px circle at 62% 112%, hsl(187 86% 54% / .18), transparent 60%)," +
+          "linear-gradient(180deg, #0a0e1a 0%, #06090f 58%, #04060b 100%);}" +
+      /* a second, slowly drifting glow layer for the same 'alive' feel as the
+       * landing aurora — present enough that the dark glass chrome picks up cool
+       * light, like the real window does over a blurred desktop */
+      "body::after{content:'';position:fixed;inset:-20vh -10vw;z-index:-1;pointer-events:none;" +
+        "background:radial-gradient(46vw 46vw at 28% 14%, hsl(225 96% 62% / .20), transparent 62%)," +
+                   "radial-gradient(42vw 42vw at 80% 82%, hsl(265 92% 68% / .16), transparent 64%);" +
+        "filter:blur(48px);will-change:transform;animation:landingDrift 30s ease-in-out infinite alternate;}" +
+      "@keyframes landingDrift{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(3%,2%,0) scale(1.08)}}" +
+      "@media (prefers-reduced-motion:reduce){body::after{animation:none}}";
+    var s = document.createElement("style");
+    s.id = "landing-vibrancy";
+    s.textContent = css;
+    (document.head || document.documentElement).appendChild(s);
+  })();
   try {
     sessionStorage.setItem("git-status-cache:" + PROJECT, JSON.stringify({ status: gitStatus(), remotes: [] }));
   } catch (e) {}
