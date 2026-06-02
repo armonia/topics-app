@@ -690,6 +690,16 @@ export interface WSUnreadUpdatedMessage {
   unreadCount: number;
 }
 
+/** Periodic "what needs attention" digest from the (user-enabled) session
+ *  monitor. interactive-claude-primitive — free, model-less. */
+export interface WSMasterDigestMessage {
+  type: 'master:digest';
+  items: { topicId: string; name: string; reason: string }[];
+  count: number;
+  summary: string;
+  ts: number;
+}
+
 // --- Boards ------------------------------------------------------------------
 // `BoardTask` lives in lib/api.ts; we use a `import type` cycle to avoid a
 // runtime cycle. Consumers that narrow on `msg.type === 'task:created'`
@@ -998,6 +1008,7 @@ export type WSMessage =
   | WSTerminalActivityMessage
   | WSUnreadInitMessage
   | WSUnreadUpdatedMessage
+  | WSMasterDigestMessage
   | WSTaskUpsertMessage
   | WSTaskDeleteMessage
   | WSPaneFocusSuggestMessage
