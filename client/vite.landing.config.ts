@@ -38,7 +38,9 @@ function inlineBootShim(): Plugin {
 
 export default defineConfig({
   define: {
-    __BUILD_TIME__: JSON.stringify('landing-demo'),
+    // Must be a parseable date: the sidebar status bar runs formatBuildTime(new
+    // Date(__BUILD_TIME__)) and a non-date ('landing-demo') yields "NaNd".
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [inlineBootShim(), react(), tailwindcss()],
   base: './',
