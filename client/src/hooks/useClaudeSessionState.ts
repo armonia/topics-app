@@ -80,7 +80,7 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
 
   // Re-bootstrap on WS RECONNECT. `session:state` is transition-only, so a
   // phase that changed while the socket was down (or a session that ended)
-  // never reaches us — leaving stale attention badges / phase dots that the
+  // never reaches us — leaving stale attention badges that the
   // stream alone can't heal. Re-fetching the authoritative snapshot on every
   // reconnect resets the map to server truth. The first 'open' coincides with
   // the mount fetch above, so we skip it to avoid a duplicate request.

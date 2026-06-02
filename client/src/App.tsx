@@ -11,7 +11,6 @@ import { TabNotificationProvider } from './hooks/useTabNotifications';
 import { GlobalTabIndexProvider } from './contexts/GlobalTabIndexContext';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
-import { ClaudeSessionProvider } from './contexts/ClaudeSessionContext';
 import { TopicsProvider } from './contexts/TopicsContext';
 import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
@@ -279,9 +278,9 @@ function App() {
 
   const { themeMode, toggleTheme, setTheme } = useTheme(onWSMessage);
   // Claude Code session tracker — subscribes to /api/claude-hooks-driven
-  // `session:state` broadcasts. The map is provided downstream via
-  // ClaudeSessionProvider so PaneTabBar (and future consumers) can show the
-  // canonical phase per topic.
+  // `session:state` broadcasts. Feeds the unified signals store (useSignalsSync
+  // below), which derives the per-topic "needs you" attention the notification
+  // badge surfaces across the tab bar and the sidebar.
   const { sessions: claudeSessions } = useClaudeSessionState({ onWSMessage });
   const openclawAvailable = useOpenClawAvailable();
   const { activeSessions, idleSessions } = useAgents({ activeMinutes: 120, enabled: openclawAvailable });
@@ -514,7 +513,6 @@ function App() {
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
-    <ClaudeSessionProvider topics={topics} sessions={claudeSessions}>
     <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
@@ -1053,7 +1051,6 @@ function App() {
     </PendingActionProvider>
     </ToastProvider>
     </GlobalTabIndexProvider>
-    </ClaudeSessionProvider>
     </TabNotificationProvider>
     </TopicsProvider>
   );

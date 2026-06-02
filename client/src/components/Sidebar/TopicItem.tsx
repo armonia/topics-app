@@ -9,7 +9,6 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { TopicClaudePhaseIndicator } from '@/components/Layout/ClaudePhaseDot';
 import { useTopicLoading } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 
@@ -39,7 +38,10 @@ interface TopicItemProps {
   isPreview?: boolean;
   isArchived?: boolean;
   isProject?: boolean;
-  unreadCount?: number;
+  /** Unified attention count — server unread OR Claude "needs you". Rendered as
+   *  the same NotificationBadge the tab bar uses; the per-Claude phase dot is
+   *  gone, folded into this single count. */
+  notificationCount?: number;
   assignedAgentCount?: number;
   onToggle: () => void;
   onClick: (e: React.MouseEvent) => void;
@@ -61,7 +63,7 @@ export const TopicItem = memo(function TopicItem({
   isPreview,
   isArchived,
   isProject: _isProject,
-  unreadCount = 0,
+  notificationCount = 0,
   assignedAgentCount = 0,
   onToggle,
   onClick,
@@ -205,17 +207,10 @@ export const TopicItem = memo(function TopicItem({
       {/* Name */}
       <span className={cn(
         "flex-1 truncate leading-none",
-        unreadCount > 0 && !isFocused && "font-semibold text-app-text"
+        notificationCount > 0 && !isFocused && "font-semibold text-app-text"
       )}>
         {topic.name}
       </span>
-
-      {/* Claude lifecycle phase indicator — same component the chat tab
-          uses (PaneTabBar). Sits to the LEFT of the streaming spinner so
-          the two cues read as separate dimensions: phase = "what Claude is
-          doing across this session", streaming = "an SSE chunk is arriving
-          right now". */}
-      <TopicClaudePhaseIndicator topicId={topic.id} className="mr-1" />
 
       {/* Streaming spinner */}
       {isStreaming ? (
@@ -327,9 +322,9 @@ export const TopicItem = memo(function TopicItem({
         </span>
       )}
 
-      {/* Unread badge — hidden when focused so the user doesn't see a
+      {/* Notification badge — hidden when focused so the user doesn't see a
           count for the topic they're actively looking at. */}
-      {!isFocused && <NotificationBadge count={unreadCount} />}
+      {!isFocused && <NotificationBadge count={notificationCount} />}
     </div>
   );
 });

@@ -226,10 +226,10 @@ export function StandaloneChatGroup({
         return {
           id,
           type: 'project' as PaneType,
-          // Without projectPath on the pane, PaneTabBar gates out EVERY
-          // project-level tab indicator (streaming spinner, Claude phase dot,
-          // notification rollup) — they only rendered on the sidebar, which
-          // uses the raw path. Set it so the project TAB matches the row.
+          // Without projectPath on the pane, PaneTabBar gates out the
+          // project-level tab indicators (streaming spinner + notification
+          // rollup badge) — they'd only render on the sidebar, which uses the
+          // raw path. Set it so the project TAB matches the row.
           projectPath,
           title: getProjectName(projectPath),
           preview: false, // project panes are always pinned

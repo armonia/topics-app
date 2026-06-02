@@ -1,5 +1,6 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
 import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey } from '../state/pane/adapters';
+import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from '../state/signals';
 import { basename } from './path-utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -19,7 +20,11 @@ export interface SidebarItem {
   name: string;
   icon: string;              // emoji, icon name, or empty
   lastActivity: number;      // timestamp ms — used for sorting
-  unreadCount: number;
+  /** Unified attention count — chat unread OR Claude "needs you", terminal
+   *  finished-turn, project rollup. Same number the tab bar badge shows for
+   *  the matching pane (see signals.ts helpers). Drives the sidebar badge AND
+   *  the unread-first sort. */
+  notificationCount: number;
   archived: boolean;
   projectPath?: string;      // for project items: the path; for children: their parent project
   children?: SidebarItem[];  // only for project items (accordion content)
@@ -105,10 +110,16 @@ interface BuildSidebarItemsOpts {
   openPanels?: string[];  // currently open pane IDs — used to filter what shows in sidebar
   projectOpenPanes?: Record<string, string[]>;  // pane IDs open inside each project (from ProjectWindow)
   lastNotifiedAt?: Map<string, number>;  // topicId → timestamp for notification sort ordering
+  /** Attention signals (signals.ts) so the sidebar badge matches the tab bar:
+   *  a chat where Claude needs you, or a terminal that finished a turn, counts
+   *  even with zero server-unread. Default empty for callers that don't wire
+   *  them (sort/render then falls back to plain unread). */
+  claudeAttentionTopics?: Set<string>;
+  terminalFinishedIds?: Set<string>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -185,19 +196,21 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const children: SidebarItem[] = [];
 
     for (const t of visibleTopics) {
-      // A chat shows if its pane is open inside the project, OR has unread
+      // A chat shows if its pane is open inside the project, OR has a pending
+      // notification (server unread or Claude needs-you) so an awaiting-approval
+      // chat surfaces in the sidebar even with no open tab.
       const chatPaneId = `chat:${t.id}`;
       const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
       const hasTopLevelTab = openPanelSet.has(t.id);
-      const hasUnread = (unreadData[t.id]?.unreadCount || 0) > 0;
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && !hasUnread) continue;
+      const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0) continue;
       children.push({
         id: t.id,
         type: 'chat',
         name: t.name,
         icon: t.icon || '',
         lastActivity: topicTimestamp(t),
-        unreadCount: unreadData[t.id]?.unreadCount || 0,
+        notificationCount,
         archived: t.archived,
         projectPath: pp,
         topic: t,
@@ -213,7 +226,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         name: ts.name,
         icon: ts.type === 'claude-code' ? 'claude' : 'terminal',
         lastActivity: new Date(ts.createdAt).getTime(),
-        unreadCount: 0,
+        notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
         archived: false,
         projectPath: pp,
         terminal: ts,
@@ -228,7 +241,11 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const projectActivity = children.length > 0
       ? Math.max(...children.map(c => c.lastActivity))
       : 0;
-    const projectUnread = children.reduce((sum, c) => sum + c.unreadCount, 0);
+    // Central rollup — the SAME helper getProjectBadgeCount uses, so the
+    // sidebar project row and the project tab always show one summed count.
+    // Counts every child of the project (by topic.projectPath / terminal cwd),
+    // not just the rows we chose to render, matching the tab bar.
+    const projectNotifications = rollupProjectAttention(pp, topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds);
 
     items.push({
       id: `project:${pp}`,
@@ -236,7 +253,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: getProjectLabel(pp),
       icon: 'folder',
       lastActivity: projectActivity,
-      unreadCount: projectUnread,
+      notificationCount: projectNotifications,
       archived: false,
       projectPath: pp,
       children,
@@ -248,11 +265,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   for (const t of standaloneChats) {
     if (t.archived && !showArchived) continue;
-    // Archived items shown when showArchived is on; active items need open tab or unread
+    const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+    // Archived items shown when showArchived is on; active items need an open
+    // tab or a pending notification (unread / Claude needs-you).
     if (!t.archived) {
       const hasTab = openPanelSet.has(t.id);
-      const hasUnread = (unreadData[t.id]?.unreadCount || 0) > 0;
-      if (!hasTab && !hasUnread) continue;
+      if (!hasTab && notificationCount === 0) continue;
     }
     items.push({
       id: t.id,
@@ -260,7 +278,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: t.name,
       icon: t.icon || '',
       lastActivity: topicTimestamp(t),
-      unreadCount: unreadData[t.id]?.unreadCount || 0,
+      notificationCount,
       archived: t.archived,
       topic: t,
     });
@@ -278,7 +296,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: ts.name,
       icon: ts.type === 'claude-code' ? 'claude' : 'terminal',
       lastActivity: new Date(ts.createdAt).getTime(),
-      unreadCount: 0,
+      notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
       archived: false,
       terminal: ts,
     });
@@ -312,20 +330,20 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: bc?.title || hostname || 'Browser',
       icon: 'globe',
       lastActivity: bc?.lastActivity || 0,
-      unreadCount: 0,
+      notificationCount: 0,
       archived: false,
       browser: bc ?? { id: contextId, url: '', title: '', lastActivity: 0 },
     });
   }
 
-  // ── 6. Sort: unread first (boost), then by lastActivity desc ─────────────
+  // ── 6. Sort: notifications first (boost), then by lastActivity desc ───────
 
   items.sort((a, b) => {
-    // Unread items float up
-    const aHasUnread = a.unreadCount > 0 ? 1 : 0;
-    const bHasUnread = b.unreadCount > 0 ? 1 : 0;
+    // Items with a pending notification float up
+    const aHasUnread = a.notificationCount > 0 ? 1 : 0;
+    const bHasUnread = b.notificationCount > 0 ? 1 : 0;
     if (aHasUnread !== bHasUnread) return bHasUnread - aHasUnread;
-    // Among unread: most recently notified first
+    // Among notified: most recently notified first
     if (aHasUnread && bHasUnread && lastNotifiedAt) {
       const aNotif = lastNotifiedAt.get(a.id) || 0;
       const bNotif = lastNotifiedAt.get(b.id) || 0;

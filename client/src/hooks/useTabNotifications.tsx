@@ -1,6 +1,6 @@
 import { createContext, useContext, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
-import { useAttentionSignals, rollupProjectAttention } from '../state/signals';
+import { useAttentionSignals, rollupProjectAttention, topicAttentionCount, terminalAttentionCount } from '../state/signals';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 
@@ -183,12 +183,12 @@ export function TabNotificationProvider({
     if (isActive) return claudeAttention;
     // Chat panes: max of server unread and Claude attention (don't double count)
     if (topicId) {
-      return Math.max(unreadData[topicId]?.unreadCount || 0, claudeAttention);
+      return topicAttentionCount(topicId, unreadData, claudeAttentionTopics);
     }
     // claude-code terminal panes: a finished turn badges until the user opens it.
     if (paneId.startsWith('terminal:')) {
       const sid = getTerminalSessionFromPaneId(paneId);
-      if (sid && terminalFinishedIds.has(sid)) return 1;
+      if (sid) return terminalAttentionCount(sid, terminalFinishedIds);
     }
     // Other non-chat panes: use extraCounts
     return extraCounts.get(paneId) || 0;

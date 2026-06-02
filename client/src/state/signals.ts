@@ -431,9 +431,44 @@ export function useAttentionSignals() {
 }
 
 /**
+ * Attention count for a single chat topic: server unread OR a "Claude needs
+ * you" phase (awaiting-approval / awaiting-user / paused / error). `max`, never
+ * sum — a topic that is both unread AND awaiting you is still ONE thing to look
+ * at. This is the single
+ * source the tab bar (getBadgeCount) and the sidebar (buildSidebarItems) both
+ * call, so a chat's badge can never differ between the two surfaces.
+ */
+export function topicAttentionCount(
+  topicId: string,
+  unread: Record<string, { unreadCount: number } | undefined>,
+  claudeAttentionTopics: Set<string>,
+): number {
+  return Math.max(unread[topicId]?.unreadCount || 0, claudeAttentionTopics.has(topicId) ? 1 : 0);
+}
+
+/**
+ * Attention count for a terminal session: a claude-code turn that finished and
+ * hasn't been opened yet. Same source the tab bar and sidebar terminal rows
+ * read, so the finished signal is one badge, not a dot here and a badge there.
+ */
+export function terminalAttentionCount(sid: string, terminalFinishedIds: Set<string>): number {
+  return terminalFinishedIds.has(sid) ? 1 : 0;
+}
+
+/**
  * Project attention rollup: sum of child unread + Claude attention + finished
- * claude-code turns. Pure helper (not a hook) so getBadgeCount can call it with
- * the data it already holds.
+ * claude-code turns. Pure helper (not a hook) so both getProjectBadgeCount (tab
+ * bar) and buildSidebarItems (sidebar project row) call it — guaranteeing the
+ * project tab and the sidebar project row show the SAME summed count. Built on
+ * the per-subject helpers above so there's one definition of "attention".
+ *
+ * Lead (Master) topics are skipped: the sidebar hides them from the project
+ * tree (surfaced via the dedicated Master shortcut instead), so counting their
+ * attention here would make the project badge larger than the rows you can
+ * actually see under it — and would diverge between the tab bar (which holds the
+ * full topic map) and the sidebar (which pre-filters leads). Skipping inside the
+ * helper keeps the count input-independent: both surfaces agree no matter which
+ * topic map they pass.
  */
 export function rollupProjectAttention(
   projectPath: string,
@@ -446,13 +481,12 @@ export function rollupProjectAttention(
   let sum = 0;
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
-    const u = unread[t.id]?.unreadCount || 0;
-    const att = claudeAttentionTopics.has(t.id) ? 1 : 0;
-    sum += Math.max(u, att);
+    if (t.agentTeamRole === 'lead') continue;
+    sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
   }
   if (terminalFinishedIds.size) {
     for (const ts of terminalSessions) {
-      if (terminalFinishedIds.has(ts.id) && ts.cwd && terminalBelongsToProject(ts.cwd, projectPath)) sum += 1;
+      if (ts.cwd && terminalBelongsToProject(ts.cwd, projectPath)) sum += terminalAttentionCount(ts.id, terminalFinishedIds);
     }
   }
   return sum;
