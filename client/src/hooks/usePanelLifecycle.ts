@@ -221,7 +221,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
     promoteDraft: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
-    handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean) => Promise<void>;
+    handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<void>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
     handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => void;
@@ -1186,11 +1186,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     await sendMessage(topic.sessionKey, firstMessage, options);
   }, [draftMeta, createTopic, sendMessage]);
 
-  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
+  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, opts?: { role?: 'master'; name?: string }) => {
     try {
-      const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+      const name = opts?.name || (termType === 'claude-code' ? 'Claude Code' : 'Shell');
       const body: Record<string, unknown> = { type: termType, name };
       if (termType === 'claude-code') body.skipPermissions = skipPermissions;
+      // Master = an interactive claude PTY with the orchestrator system prompt
+      // (subscription, human-driven). Opens as a normal terminal TAB — not a
+      // chat pane — so it doesn't disrupt the layout. interactive-claude-primitive.
+      if (opts?.role) body.role = opts.role;
       const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
