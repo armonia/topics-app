@@ -25,8 +25,8 @@ Each package is © its respective authors and provided under its own license. Re
 
 Topics can connect to the following services **using credentials you supply**. Topics does not provide, proxy, or pay for access to any of them — you bring your own keys/accounts, and your use is governed by each provider's terms:
 
-- **OpenClaw** — the gateway Topics is a companion for.
-- **Anthropic API** (Claude) — used in standalone (`claude`) mode with your `ANTHROPIC_API_KEY`.
+- **Anthropic API** (Claude) — the primary backend, used in `claude` mode with your `ANTHROPIC_API_KEY`.
+- **OpenClaw** — an optional gateway backend, used in `openclaw` mode.
 - **ElevenLabs** — optional text-to-speech, with your `ELEVENLABS_API_KEY`.
 - **Moondream** — optional browser vision grounding, with your `MOONDREAM_API_KEY`.
 

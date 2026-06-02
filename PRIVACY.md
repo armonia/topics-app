@@ -15,7 +15,7 @@ Topics contains **no analytics and no telemetry**. We do not collect usage stati
 
 Topics only makes outbound network requests to the services **you configure**:
 
-- The OpenClaw gateway (`GATEWAY_URL`), and/or the Anthropic API in `claude` mode.
+- The Anthropic API (in `claude` mode), and/or an optional OpenClaw gateway (`GATEWAY_URL`).
 - Optional services you enable: ElevenLabs (TTS), Moondream (browser vision).
 - GitHub Releases, to check for and download application updates.
 
