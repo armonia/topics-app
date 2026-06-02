@@ -15,7 +15,6 @@
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="preconnect" href="https://api.github.com" />
   <link rel="stylesheet" href="./styles.css" />
-  <link rel="stylesheet" href="./demo/demo.css" />
 </head>
 <body>
   <!-- icon sprite -->
@@ -101,12 +100,10 @@
         <p class="hero__meta reveal" style="--d:4"><span class="dot-live"></span> Free and open source · MIT · no telemetry</p>
       </div>
 
-      <!-- interactive product demo (React island, generic data) -->
+      <!-- interactive product demo: the REAL Topics app, with generic sample data -->
       <div class="showcase reveal" style="--d:5" id="workspace">
         <div class="showcase__glow" aria-hidden="true"></div>
-        <div id="topics-demo" aria-label="Interactive Topics demo: switch topics and panes (browser, processes, git, kanban)">
-          <noscript><p style="padding:40px;text-align:center;color:var(--text-dim)">Enable JavaScript to explore the interactive Topics demo, or download the app below.</p></noscript>
-        </div>
+        <iframe class="window-real" src="./app/index.html" title="Interactive Topics demo — explore the real app (Git, Board, Processes) with sample data" loading="lazy"></iframe>
       </div>
     </section>
 
@@ -237,6 +234,5 @@
   </footer>
 
   <script src="./app.js" defer></script>
-  <script type="module" src="./demo/demo.js"></script>
 </body>
 </html>
