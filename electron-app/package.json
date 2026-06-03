@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Topics App - Electron",
   "author": "Armonia <security@armonia.io>",
   "homepage": "https://github.com/armonia/topics-app",
@@ -41,7 +41,8 @@
       "category": "public.app-category.productivity",
       "icon": "icon.icns",
       "identity": null,
-      "target": ["dmg", "zip"]
+      "target": ["dmg", "zip"],
+      "x64ArchFiles": "**/server/**"
     },
     "win": {
       "icon": "icon.png",
