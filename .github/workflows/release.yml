@@ -17,8 +17,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14,      builder_flag: '--mac --arm64' }   # Apple Silicon
-          - { os: macos-13,      builder_flag: '--mac --x64'   }   # Intel
+          # ONE Universal macOS build (x86_64 + arm64) on Apple Silicon. GitHub
+          # retired the macos-13 Intel runner, so x64 can't be built on its own
+          # box; instead stage-server-dist stages fat bun/node (lipo) and node-pty
+          # ships both darwin prebuilds. A single universal dmg also yields one
+          # correct latest-mac.yml (two arch jobs raced to clobber it).
+          - { os: macos-14,       builder_flag: '--mac --universal', universal: true }   # Apple Silicon + Intel
           - { os: windows-latest, builder_flag: '--win --x64'  }
           - { os: ubuntu-latest,  builder_flag: '--linux'      }
     runs-on: ${{ matrix.os }}
@@ -60,6 +64,10 @@ jobs:
       - name: Stage bundled server (runtime + source + node_modules + cert)
         run: bun run stage:server
         working-directory: electron-app
+        env:
+          # macOS universal job → stage fat (x86_64+arm64) bun & node. Empty
+          # elsewhere → native host-arch copy (unchanged).
+          STAGE_UNIVERSAL: ${{ matrix.universal && '1' || '' }}
 
       - name: Build & publish installers
         run: npx --yes electron-builder ${{ matrix.builder_flag }} --publish always

@@ -10,14 +10,21 @@
 //
 // All commands run via execFileSync (no shell) with a static argv.
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync, existsSync, chmodSync, copyFileSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, existsSync, chmodSync, copyFileSync, mkdtempSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url)); // scripts/
 const root = join(here, '..');                        // repo root
 const out = join(root, 'electron-app', 'server-dist');
 const isWin = process.platform === 'win32';
+// macOS Universal build: ship ONE app that runs natively on both Apple Silicon
+// and Intel. node_modules already carries both node-pty prebuilds (darwin-arm64
+// + darwin-x64), so only the bun + node runtimes need to be fat (lipo) binaries.
+// Set by the release workflow's `--mac --universal` job. (GitHub retired the
+// macos-13 Intel runner, so we can no longer build x64 natively on its own box.)
+const universalMac = process.env.STAGE_UNIVERSAL === '1' && process.platform === 'darwin';
 
 function which(cmd) {
   try {
@@ -31,17 +38,82 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'bin'), { recursive: true });
 
 // 1. Runtimes — bun (server) + node (node-pty bridge spawned by terminal.ts)
-const bunSrc = which('bun');
-if (!bunSrc) { console.error('[stage] bun not found on PATH'); process.exit(1); }
-const nodeSrc = process.execPath; // the node executing this script
-copyFileSync(bunSrc, join(out, 'bin', isWin ? 'bun.exe' : 'bun'));
-copyFileSync(nodeSrc, join(out, 'bin', isWin ? 'node.exe' : 'node'));
-if (!isWin) {
-  chmodSync(join(out, 'bin', 'bun'), 0o755);
-  chmodSync(join(out, 'bin', 'node'), 0o755);
+if (universalMac) {
+  stageUniversalRuntimes();
+} else {
+  const bunSrc = which('bun');
+  if (!bunSrc) { console.error('[stage] bun not found on PATH'); process.exit(1); }
+  const nodeSrc = process.execPath; // the node executing this script
+  copyFileSync(bunSrc, join(out, 'bin', isWin ? 'bun.exe' : 'bun'));
+  copyFileSync(nodeSrc, join(out, 'bin', isWin ? 'node.exe' : 'node'));
+  if (!isWin) {
+    chmodSync(join(out, 'bin', 'bun'), 0o755);
+    chmodSync(join(out, 'bin', 'node'), 0o755);
+  }
+  console.log('[stage] bun  <-', bunSrc);
+  console.log('[stage] node <-', nodeSrc);
 }
-console.log('[stage] bun  <-', bunSrc);
-console.log('[stage] node <-', nodeSrc);
+
+// Build fat (x86_64 + arm64) bun & node so a single Universal app runs natively
+// on every Mac. We download each arch's official binary and `lipo -create` them.
+// Pinned to the host's bun/node VERSIONS so behaviour matches the native jobs.
+function stageUniversalRuntimes() {
+  const tmp = mkdtempSync(join(tmpdir(), 'stage-univ-'));
+  const sh = (cmd, args) => execFileSync(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'] });
+  const dl = (url, dest) => { console.log('[stage] download', url); sh('curl', ['-fsSL', '--retry', '3', url, '-o', dest]); };
+
+  // ── bun: bun-darwin-{x64,aarch64}.zip → bun → lipo ──
+  const bunVer = execFileSync('bun', ['--version'], { encoding: 'utf8' }).trim();
+  const bunSlices = [];
+  for (const [arch, asset] of [['x64', 'bun-darwin-x64'], ['arm64', 'bun-darwin-aarch64']]) {
+    const zip = join(tmp, `${asset}.zip`);
+    dl(`https://github.com/oven-sh/bun/releases/download/bun-v${bunVer}/${asset}.zip`, zip);
+    sh('unzip', ['-q', '-o', zip, '-d', tmp]);
+    const bin = join(tmp, asset, 'bun');
+    if (!existsSync(bin)) { console.error('[stage] bun slice missing:', bin); process.exit(1); }
+    bunSlices.push(bin);
+  }
+  sh('lipo', ['-create', ...bunSlices, '-output', join(out, 'bin', 'bun')]);
+  chmodSync(join(out, 'bin', 'bun'), 0o755);
+  console.log('[stage] bun  <- universal (x86_64 + arm64), v' + bunVer);
+
+  // ── node: node-v<ver>-darwin-{x64,arm64}.tar.gz → bin/node → lipo ──
+  const nodeVer = process.versions.node;
+  const nodeSlices = [];
+  for (const arch of ['x64', 'arm64']) {
+    const base = `node-v${nodeVer}-darwin-${arch}`;
+    const tgz = join(tmp, `${base}.tar.gz`);
+    dl(`https://nodejs.org/dist/v${nodeVer}/${base}.tar.gz`, tgz);
+    sh('tar', ['-xzf', tgz, '-C', tmp]);
+    const bin = join(tmp, base, 'bin', 'node');
+    if (!existsSync(bin)) { console.error('[stage] node slice missing:', bin); process.exit(1); }
+    nodeSlices.push(bin);
+  }
+  sh('lipo', ['-create', ...nodeSlices, '-output', join(out, 'bin', 'node')]);
+  chmodSync(join(out, 'bin', 'node'), 0o755);
+  console.log('[stage] node <- universal (x86_64 + arm64), v' + nodeVer);
+
+  rmSync(tmp, { recursive: true, force: true });
+
+  // Fail loudly if either runtime isn't actually fat — a thin binary here would
+  // silently ship a Mac app that crashes on the other architecture.
+  for (const b of ['bun', 'node']) {
+    const archs = execFileSync('lipo', ['-archs', join(out, 'bin', b)], { encoding: 'utf8' }).trim();
+    if (!(archs.includes('x86_64') && archs.includes('arm64'))) {
+      console.error(`[stage] ${b} is not universal (got: ${archs})`); process.exit(1);
+    }
+    console.log(`[stage] verified ${b}: ${archs}`);
+  }
+  // node-pty must carry BOTH darwin prebuilds for the universal app to work.
+  const pre = join(out, 'node_modules', 'node-pty', 'prebuilds');
+  // (node_modules is copied in step 3 below; assert after that — see tail check.)
+  globalThis.__assertNodePtyUniversal = () => {
+    for (const d of ['darwin-x64', 'darwin-arm64']) {
+      if (!existsSync(join(pre, d))) { console.error('[stage] node-pty prebuild missing:', d); process.exit(1); }
+    }
+    console.log('[stage] verified node-pty prebuilds: darwin-x64 + darwin-arm64');
+  };
+}
 
 // 2. Server source + static assets (server.ts resolves these via import.meta.dir)
 for (const p of ['server.ts', 'server', 'public', 'package.json']) {
@@ -54,6 +126,8 @@ for (const p of ['server.ts', 'server', 'public', 'package.json']) {
 //    web-push, zod, playwright-core). Copied whole for transitive correctness.
 console.log('[stage] copying node_modules (this is the bulky step)…');
 cpSync(join(root, 'node_modules'), join(out, 'node_modules'), { recursive: true });
+// For the Universal build, confirm node-pty shipped both darwin prebuilds.
+if (universalMac && globalThis.__assertNodePtyUniversal) globalThis.__assertNodePtyUniversal();
 
 // 4. Self-signed loopback TLS cert. The committed certs/ are gitignored and the
 //    private key must NOT ship; generate a throwaway localhost cert per build.
