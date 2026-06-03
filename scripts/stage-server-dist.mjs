@@ -126,6 +126,19 @@ for (const p of ['server.ts', 'server', 'public', 'package.json']) {
 //    web-push, zod, playwright-core). Copied whole for transitive correctness.
 console.log('[stage] copying node_modules (this is the bulky step)…');
 cpSync(join(root, 'node_modules'), join(out, 'node_modules'), { recursive: true });
+// For the Universal mac merge, STRIP every symlink from the bundled node_modules.
+// @electron/universal aborts with "the number of mach-o files is not the same
+// between the arm64 and x64 builds" when symlinks are present: the only ones
+// here are node_modules/.bin/* CLI shims (playwright, anthropic-ai-sdk, web-push)
+// whose targets resolve to different paths in the two per-arch temp app trees.
+// The server resolves modules by directory, never via .bin, so dropping them is
+// safe. Native (non-universal) jobs keep them — they don't go through the merge.
+if (universalMac) {
+  execFileSync('find', [join(out, 'node_modules'), '-type', 'l', '-delete'], { stdio: 'inherit' });
+  const left = execFileSync('find', [join(out, 'node_modules'), '-type', 'l'], { encoding: 'utf8' }).trim();
+  if (left) { console.error('[stage] symlinks still present after strip:\n' + left); process.exit(1); }
+  console.log('[stage] stripped node_modules symlinks (.bin shims) for the universal merge');
+}
 // For the Universal build, confirm node-pty shipped both darwin prebuilds.
 if (universalMac && globalThis.__assertNodePtyUniversal) globalThis.__assertNodePtyUniversal();
 
