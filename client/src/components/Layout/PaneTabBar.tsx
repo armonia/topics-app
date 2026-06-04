@@ -16,6 +16,7 @@ import { useMobile, haptic } from '../../hooks/useMobile';
 import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '../../lib/selectionStyles';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -474,10 +475,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {panes.map((pane, paneIdx) => {
         const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
-        // Every split group always shows ITS active tab — there's exactly one
-        // active tab per group, so no double-highlight problem. The highlight is
-        // full when this group owns focus AND the app is focused, and otherwise
-        // dimmed-active, so the active tab stays visible in unfocused splits too.
+        // Selection reads in the SAME visual language as the sidebar (shared
+        // SELECTED_SURFACE): the focused tab is a clearly raised NEUTRAL card,
+        // every other split group still shows ITS active tab one step softer,
+        // and inactive tabs stay quiet. No blue/colour wash anywhere.
         const isSelected = activePaneId === pane.id;
         const isFullyActive = isSelected && groupIsFocused && isAppFocused;
         const isActiveDimmed = isSelected && !(groupIsFocused && isAppFocused);
@@ -507,9 +508,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // already truncates; this guarantees the rest can't escape either.
             className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
               isFullyActive
-                ? 'bg-white dark:bg-white/10 text-app-text ring-1 ring-black/[0.06] shadow-sm'
+                ? SELECTED_SURFACE
                 : isActiveDimmed
-                  ? 'bg-black/[0.05] dark:bg-white/[0.06] text-app-text-secondary ring-1 ring-black/[0.03]'
+                  ? SELECTED_SURFACE_SOFT
                   : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
