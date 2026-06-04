@@ -18,6 +18,7 @@ import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { useStreamingCount, useAttentionSignals, signalsActions } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
+import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -355,7 +356,7 @@ export function TopicTree({
         {/* Project header */}
         <div
           className={`group/proj flex items-center h-11 md:h-8 transition-colors relative select-none border-b border-app-border/40 md:border-b-0 ${
-            isProjectFocused ? 'bg-primary/8 dark:bg-primary/15' : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
+            isProjectFocused ? SELECTED_SURFACE : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
           }`}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -364,14 +365,13 @@ export function TopicTree({
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
-          {isProjectFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
           <button
             onClick={() => {
               toggleProject(item.id);
               if (onProjectClick) onProjectClick(pp);
             }}
             className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-              isProjectFocused ? 'text-primary dark:text-primary-dark' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+              isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
             }`}
             style={{ paddingLeft: 12 }}
             title={pp}
@@ -693,19 +693,18 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
 
   return (
     <div
-      // Same three-state model as chat (TopicItem) so "blue" means the SAME
-      // thing on every sidebar row: the item you're currently viewing — not
-      // merely "open somewhere".
+      // Same three-state model as chat (TopicItem) so selection means the SAME
+      // thing on every sidebar row: the focused item gets the shared neutral
+      // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
       className={[
         'group/terminal w-full flex items-center h-11 md:h-8 transition-colors border-b border-app-border/40 md:border-b-0 relative',
-        isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
+        isFocused && SELECTED_SURFACE,
         !isFocused && isOpen && 'bg-app-hover text-app-text',
         !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
       ].filter(Boolean).join(' ')}
       style={{ paddingLeft: 12 + depth * 16 }}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      {isFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-primary" />}
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
@@ -950,7 +949,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
     <div
       className={[
         'group flex items-center h-11 md:h-8 cursor-pointer transition-colors duration-100 relative text-[14px] md:text-[13px] border-b border-app-border/40 md:border-b-0',
-        isFocused && 'bg-primary/8 dark:bg-primary/15 text-[#10b981]',
+        isFocused && SELECTED_SURFACE,
         !isFocused && isOpen && 'bg-app-hover text-app-text',
         !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
       ].filter(Boolean).join(' ')}
@@ -958,7 +957,6 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
       onClick={() => onOpenBrowser?.(bc.id)}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      {isFocused && <div className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full" style={{ backgroundColor: '#10b981' }} />}
       <Globe size={14} className="flex-shrink-0 mr-2 opacity-60" />
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
