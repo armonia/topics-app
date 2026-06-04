@@ -185,8 +185,12 @@
     // ProjectSidebar sections (Files/Git/Processes) default to processes:false →
     // the running processes don't show. Expand Processes so the project context
     // (the interesting part) is visible; Git stays in the sidebar, no extra tab.
-    sessionStorage.setItem("sidebar-sections", JSON.stringify({ files: true, git: false, processes: true }));
-    sessionStorage.setItem("project-sidebar-bottom-heights", JSON.stringify({ git: 160, processes: 176 }));
+    // Files collapsed (its tree isn't the point here — Processes is the context
+    // we want shown) + smaller pinned heights so that EXPANDING Git on top of
+    // Processes still fits inside a stacked (≈half-height) project sidebar without
+    // the sections overlapping. Pairs with the ProjectSidebar shrink fix.
+    sessionStorage.setItem("sidebar-sections", JSON.stringify({ files: false, git: false, processes: true }));
+    sessionStorage.setItem("project-sidebar-bottom-heights", JSON.stringify({ git: 150, processes: 120 }));
   } catch (e) {}
 
   /* ---- mock data builders ----------------------------------------------- */
@@ -195,13 +199,11 @@
       branch: "main", ahead: 2, behind: 0,
       lastCommit: { hash: "a1b2c3d", message: "feat(ui): aurora pass", author: "you", ago: "3 min ago" },
       staged: [],
+      // Keep this short: when the Git section is expanded inside a stacked
+      // (constrained-height) project sidebar, a long change list overflows.
       files: [
         { path: "src/components/Hero.tsx", status: "M", staged: false },
         { path: "src/lib/analytics.ts", status: "M", staged: false },
-        { path: "src/routes/dashboard.tsx", status: "A", staged: true },
-        { path: "src/styles/tokens.css", status: "M", staged: false },
-        { path: "README.md", status: "M", staged: false },
-        { path: "scripts/seed.ts", status: "??", staged: false },
       ],
     };
   }
