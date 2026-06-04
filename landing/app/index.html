@@ -49,14 +49,17 @@
 
   function set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  /* ---- 1a. App-level pane store: THREE project panes -------------------- */
+  /* ---- 1a. App-level pane store: TWO open project panes ----------------- *
+   * acme-web + acme-api are OPEN (stacked split below). acme-mobile stays a
+   * CLOSED project — it still shows in the sidebar (via workspaceProjects + its
+   * running sessions), so the multi-project story survives without cramming a
+   * third full window into the small hero. */
   var appPanes = {};
-  appPanes[PROJ_A] = { id: PROJ_A, type: "project", projectPath: PROJECT, title: "acme-web",    stableKey: PROJ_A };
-  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2,      title: "acme-api",    stableKey: PROJ_B };
-  appPanes[PROJ_C] = { id: PROJ_C, type: "project", projectPath: P3,      title: "acme-mobile", stableKey: PROJ_C };
+  appPanes[PROJ_A] = { id: PROJ_A, type: "project", projectPath: PROJECT, title: "acme-web", stableKey: PROJ_A };
+  appPanes[PROJ_B] = { id: PROJ_B, type: "project", projectPath: P2,      title: "acme-api", stableKey: PROJ_B };
   set("pane-store-v2", JSON.stringify({
     panes: appPanes,
-    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B, PROJ_C], splitRatio: 0.5, splitAxis: "vertical" } },
+    groups: { "group:default": { id: "group:default", paneIds: [PROJ_A, PROJ_B], splitRatio: 0.5, splitAxis: "vertical" } },
     groupOrder: ["group:default"],
     closedStack: [],
     lastSeq: 1000,
@@ -69,27 +72,26 @@
   }));
   set("pane-store-focused-id", PROJ_A);
 
-  // Device-local grid overlay: SOLO each project into its own grid cell so the
-  // three open projects lay out as — row 1: acme-web (full width); row 2:
-  // acme-api | acme-mobile (side by side). The grid item key for a solo cell is
+  // Device-local grid overlay: the two open projects STACK — acme-web on top,
+  // acme-api below, each FULL WIDTH so they get real room at the small hero size
+  // (3 windows here was too cramped). The grid item key for a solo cell is
   // `solo:<paneId>` (soloCells.ts soloCellKey) — it MUST match or PanelGrid's
   // additive-sync re-merges everything into row 0.
   set("topics-panel-grid-layout", JSON.stringify({
     gridRows: [
       { itemKeys: ["solo:" + PROJ_A], widths: [1] },
-      { itemKeys: ["solo:" + PROJ_B, "solo:" + PROJ_C], widths: [0.5, 0.5] },
+      { itemKeys: ["solo:" + PROJ_B], widths: [1] },
     ],
-    gridRowHeights: [0.54, 0.46],
-    soloCells: [[PROJ_A], [PROJ_B], [PROJ_C]],
-    soloTopicIds: [PROJ_A, PROJ_B, PROJ_C],
+    gridRowHeights: [0.55, 0.45],
+    soloCells: [[PROJ_A], [PROJ_B]],
+    soloTopicIds: [PROJ_A, PROJ_B],
   }));
 
   /* ---- 1b. Per-project inner layouts ----------------------------------- *
    * Each open project shows a live Claude Code session; the project sidebar
    * (Tasks/Files/Git/Processes) supplies the rest of the context.
    *   acme-web (top):    two Claude sessions (tabs) | browser/board
-   *   acme-api (b-left):  a Claude session (working)
-   *   acme-mobile (b-right): a Claude session (a COMPLETED turn)              */
+   *   acme-api (bottom): a Claude session (working)                            */
   function seedProject(path, panes, layout) {
     set("topics-project-panes-" + projectHash(path), JSON.stringify({ nonChatPanes: panes, openChatTopicIds: [], activeChatTopicId: undefined }));
     set("topics-project-layout-" + projectHash(path), JSON.stringify(layout));
@@ -114,13 +116,8 @@
     rows: [{ groupIds: ["pgB"], widths: [1] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgB",
   });
-  seedProject(P3, [
-    { id: CC4, type: "terminal", title: "Claude Code", projectPath: P3, terminalSessionId: "cc4", terminalType: "claude-code" },
-  ], {
-    groups: [{ id: "pgC", paneIds: [CC4], activePaneId: CC4, type: "utility" }],
-    rows: [{ groupIds: ["pgC"], widths: [1] }],
-    rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgC",
-  });
+  // acme-mobile (P3) is intentionally NOT opened as a window — it shows in the
+  // sidebar as a closed project with its running Claude Code sessions (cc4/cc5).
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
@@ -570,11 +567,11 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-fvMxHAZK.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/icons-D96WQ7l1.js">
-    <link rel="modulepreload" crossorigin href="./assets/markdown-3wI88gVK.js">
-    <link rel="modulepreload" crossorigin href="./assets/react-vendor-0yPNqixG.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-Cpb6rSQf.css">
+    <script type="module" crossorigin src="./assets/index-XnBtzinA.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/icons-APvtev8z.js">
+    <link rel="modulepreload" crossorigin href="./assets/markdown-C-IUt7TL.js">
+    <link rel="modulepreload" crossorigin href="./assets/react-vendor-Cic6WvU7.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-CpBYnHy-.css">
   </head>
   <body>
     <div id="root"></div>
