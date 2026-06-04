@@ -199,7 +199,7 @@ export function ProjectSidebar({
                 <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
               )}
             </div>
-            <div className="flex flex-col flex-1 min-h-0">
+            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12px] font-medium text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0 cursor-pointer select-none group/files"
@@ -224,7 +224,7 @@ export function ProjectSidebar({
             </div>
             <div className="h-[1px] flex-shrink-0 bg-app-border" />
             <div
-              className={`flex flex-col flex-shrink-0 ${expandedSections.git ? 'min-h-0' : ''}`}
+              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.git ? { height: bottomHeights.git } : undefined}
             >
               <Suspense fallback={
@@ -241,7 +241,7 @@ export function ProjectSidebar({
             </div>
             <div className="h-[1px] flex-shrink-0 bg-app-border" />
             <div
-              className={`flex flex-col flex-shrink-0 ${expandedSections.processes ? 'min-h-0' : ''}`}
+              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
             >
               <button
@@ -327,7 +327,7 @@ export function ProjectSidebar({
 
         {/* Git Section — anchored at bottom, fixed pixel height */}
         <div
-          className={`flex flex-col flex-shrink-0 ${expandedSections.git ? 'min-h-0' : ''}`}
+          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
           style={expandedSections.git ? { height: bottomHeights.git } : undefined}
         >
           <Suspense fallback={
@@ -391,7 +391,7 @@ export function ProjectSidebar({
 
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
-          className={`flex flex-col flex-shrink-0 ${expandedSections.processes ? 'min-h-0' : ''}`}
+          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
           style={expandedSections.processes ? { height: bottomHeights.processes } : undefined}
         >
           <button
