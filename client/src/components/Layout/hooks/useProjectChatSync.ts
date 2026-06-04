@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Pane, PaneGroup, PaneType, Topic } from '../../../types';
 import { createPaneId } from '../../../state/pane/adapters';
+import { projectFocusActions } from '../../../state/projectFocus';
 import type {
   ChatReconciliation,
   PersistedSnapshot,
@@ -369,6 +370,18 @@ export function useProjectChatSync(
     () => (activeTopicId ? topics[activeTopicId] || null : null),
     [activeTopicId, topics],
   );
+
+  // Report the focused inner group's active pane id (ANY type — chat, terminal,
+  // browser) to the projectFocus store, so the sidebar can light the child row
+  // you're actually in, not just the project folder. activeTopicId above is
+  // chat-only; this covers terminals/browsers too.
+  const focusedInnerPaneId = useMemo(() => {
+    const g = groups.find(gr => gr.id === focusedGroupId);
+    return g?.activePaneId ?? null;
+  }, [groups, focusedGroupId]);
+  useEffect(() => {
+    projectFocusActions.setActivePane(projectPath, focusedInnerPaneId);
+  }, [projectPath, focusedInnerPaneId]);
 
   return {
     topicIds,
