@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check, Crown, Sparkles, RefreshCw } from 'lucide-react';
+import { Copy, Check, Crown, Sparkles, RefreshCw, Repeat } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished } from '../../state/signals';
@@ -17,6 +17,12 @@ const MASTER_STARTERS: { label: string; prompt: string }[] = [
   { label: "Cos'è in sospeso", prompt: 'Quali sessioni hanno qualcosa in sospeso che richiede una mia azione? Elencale nel blocco ## Next.' },
   { label: 'Chiudi concluse', prompt: 'Quali sessioni risultano concluse e si possono chiudere? Proponile con COMPLETA nel blocco ## Next.' },
 ];
+
+// Recurring auto-pilot via Claude Code's native /loop (interactive bucket →
+// stays on the Max subscription, unlike headless `-p`). Prefilled with an
+// interval; the user reviews and presses Enter to arm it.
+const MASTER_LOOP_PROMPT =
+  '/loop 10m Rivaluta le mie sessioni attive (list_sessions): chiudi (close_session) quelle palesemente concluse e inattive, e riassumimi nel blocco ## Next solo quelle che richiedono una mia azione. Se non c’è nulla di sicuro da fare, fermati e aspettami.';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -512,6 +518,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               {s.label}
             </button>
           ))}
+          <button
+            type="button"
+            data-testid="master-starter-loop"
+            onClick={() => insertStarter(MASTER_LOOP_PROMPT)}
+            title="Auto-pilota: pre-riempie /loop (Claude rivaluta ogni 10m e agisce sul sicuro). Premi Invio per armarlo. Gira sul tuo abbonamento Max (bucket interattivo)."
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded text-[11px] bg-amber-500/15 text-amber-200 hover:bg-amber-500/30 hover:text-amber-100 transition-colors"
+          >
+            <Repeat size={11} />
+            <span>Auto-pilota</span>
+          </button>
           <div className="flex-1 min-w-[8px]" />
           {ingestMsg && (
             <span className="flex-shrink-0 text-[11px] text-purple-200/80 tabular-nums">{ingestMsg}</span>
