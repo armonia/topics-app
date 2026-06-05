@@ -54,6 +54,7 @@ import { enqueuePendingAction, tickPendingAction } from '../../../contexts/Pendi
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
 import { splitColumnWidths, appendColumnWidths, keepColumnWidths } from '../gridWidths';
+import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
 import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
@@ -636,8 +637,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const widths = keepColumnWidths(r.widths, keepIdx);
       return { groupIds, widths };
     });
+    // Track which pre-filter row indices survive (== indices into rowHeights),
+    // so the surviving rows' manual heights can be preserved below instead of
+    // flattening to 1/n — the vertical twin of the width preservation above.
+    const keptRowIdx: number[] = [];
     const beforeLen = newRows.length;
-    newRows = newRows.filter(r => r.groupIds.length > 0);
+    newRows = newRows.filter((r, i) => {
+      const keep = r.groupIds.length > 0;
+      if (keep) keptRowIdx.push(i);
+      return keep;
+    });
     if (newRows.length !== beforeLen) anyRowChanged = true;
 
     const usedAfterClean = new Set(newRows.flatMap(r => r.groupIds));
@@ -665,7 +674,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       setRows(newRows);
       const curHeights = rowHeightsRef.current;
       if (newRows.length !== curHeights.length) {
-        setRowHeights(newRows.map(() => 1 / newRows.length));
+        // When rows were purely removed (every survivor maps back to a height
+        // via keptRowIdx) preserve their manual heights in proportion; only
+        // fall back to an equal split when brand-new rows were created.
+        setRowHeights(
+          keptRowIdx.length === newRows.length && newRows.length > 0
+            ? keepColumnWidths(curHeights, keptRowIdx)
+            : newRows.map(() => 1 / newRows.length),
+        );
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1613,6 +1629,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           }
           return;
         }
+      }
+
+      // Enforce the same grid limits the standalone PanelGrid applies — the
+      // project layout never imported them, so a project could grow past
+      // MAX_COLS_PER_ROW columns / MAX_ROWS rows into unusable slivers. Reject
+      // BEFORE any state mutation (setGroups below) so we never strand an
+      // orphan group that no row places.
+      const curRowsForLimit = rowsRef.current;
+      if (edge === 'left' || edge === 'right') {
+        const targetRow = curRowsForLimit.find(r => r.groupIds.includes(targetGroupId));
+        if (targetRow && targetRow.groupIds.length >= MAX_COLS_PER_ROW) return;
+      } else if (curRowsForLimit.length >= MAX_ROWS) {
+        return;
       }
 
       const newGroupId = createGroupId();

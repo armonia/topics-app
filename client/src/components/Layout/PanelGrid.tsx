@@ -409,6 +409,16 @@ export function PanelGrid({
     if (!isServerHydrated) return;
     setGridRowHeights(prev => {
       if (prev.length === gridRows.length && gridRows.length > 0) return prev;
+      if (gridRows.length === 0) return [];
+      // Rows ADDED (e.g. a split-down created a row): keep the existing rows'
+      // manual heights in proportion and give the new rows a fair share —
+      // instead of flattening every row back to 1/n (the vertical-axis twin of
+      // the "split resets my layout" bug gridWidths.ts fixed for columns).
+      if (gridRows.length > prev.length) {
+        return appendColumnWidths(prev, gridRows.length - prev.length);
+      }
+      // Rows removed: the dropped index isn't recoverable from this
+      // count-keyed effect, so fall back to an equal split.
       return gridRows.map(() => 1 / Math.max(1, gridRows.length));
     });
   }, [gridRows.length, isServerHydrated]);
