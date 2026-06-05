@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
+import { equalizeWidths } from '../components/Layout/gridWidths';
 
 interface ResizeCallbacks {
   onHorizontalResize: (rowIdx: number, divIdx: number, newWidths: number[]) => void;
@@ -81,6 +82,28 @@ export function useGridResize(
     [],
   );
 
+  // Double-click a divider → reset the whole row/column band to equal sizes
+  // (1/n each). Mirrors VS Code "Even Editor Widths" / Allotment's
+  // reset-on-double-click. We equalise the ENTIRE row (not just the two panes
+  // around the clicked divider) because that's what "make the split even" means
+  // to a user. Routed through the same resize callbacks so persistence and
+  // re-render behave identically to a drag.
+  const equalizeHorizontal = useCallback(
+    (rowIdx: number, count: number) => () => {
+      if (count <= 1) return;
+      callbacksRef.current.onHorizontalResize(rowIdx, 0, equalizeWidths(count));
+    },
+    [],
+  );
+
+  const equalizeVertical = useCallback(
+    (count: number) => () => {
+      if (count <= 1) return;
+      callbacksRef.current.onVerticalResize(0, equalizeWidths(count));
+    },
+    [],
+  );
+
   useEffect(() => {
     const MIN = 0.1;
     let rafId = 0;
@@ -147,7 +170,13 @@ export function useGridResize(
           newW[divIdx] = l;
           newW[divIdx + 1] = r;
         }
-        callbacksRef.current.onHorizontalResize(rowIdx, divIdx, newW);
+        // A bare click (no movement) leaves widths unchanged — don't emit a
+        // no-op resize that re-renders and re-persists. This also keeps a
+        // double-click (two clicks → equalize) from firing two phantom writes
+        // before the equalize lands.
+        if (e.clientX !== startX) {
+          callbacksRef.current.onHorizontalResize(rowIdx, divIdx, newW);
+        }
         hResizing.current = null;
       }
 
@@ -163,7 +192,9 @@ export function useGridResize(
           newH[divIdx] = t;
           newH[divIdx + 1] = b;
         }
-        callbacksRef.current.onVerticalResize(divIdx, newH);
+        if (e.clientY !== startY) {
+          callbacksRef.current.onVerticalResize(divIdx, newH);
+        }
         vResizing.current = null;
       }
 
@@ -180,5 +211,5 @@ export function useGridResize(
     };
   }, [containerRef]);
 
-  return { startHorizontalResize, startVerticalResize };
+  return { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical };
 }
