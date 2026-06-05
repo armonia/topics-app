@@ -577,25 +577,27 @@ export function TopicTree({
     const masterActive = !!masterPaneId && (focusedTopicId === masterPaneId || allOpenPaneIds.has(masterPaneId));
     return (
       <div className="flex-shrink-0">
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
-          className={`group/ab flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium ${sidebarRowCard({ focused: boardActive })}`}
-          title="View all project boards"
-        >
-          <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
-          <span className="flex-1 truncate text-app-text">Board</span>
-          {activeStreamingCount > 0 && (
-            <span className="flex items-center gap-1 pr-3">
-              <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[11px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
-            </span>
-          )}
-          {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
-            <span className="text-[11px] text-app-text-muted tabular-nums pr-3">
-              {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
-            </span>
-          )}
-        </button>
+        <div className={`flex items-center ${sidebarRowCard({ focused: boardActive })}`}>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
+            className="group/ab flex items-center gap-2 flex-1 min-w-0 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium"
+            title="View all project boards"
+          >
+            <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
+            <span className="flex-1 truncate text-app-text">Board</span>
+            {activeStreamingCount > 0 && (
+              <span className="flex items-center gap-1 pr-3">
+                <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-[11px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
+              </span>
+            )}
+            {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
+              <span className="text-[11px] text-app-text-muted tabular-nums pr-3">
+                {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
+              </span>
+            )}
+          </button>
+        </div>
         {onOpenMaster && (
           <div className={`flex items-center ${sidebarRowCard({ focused: masterActive })}`}>
             <button
