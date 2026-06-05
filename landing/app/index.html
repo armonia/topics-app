@@ -187,6 +187,33 @@
     s.textContent = css;
     (document.head || document.documentElement).appendChild(s);
   })();
+
+  /* ---- 1c-bis. Load the terminal's first-choice mono webfont ------------- *
+   * The xterm panes ask for 'JetBrains Mono' first, but the app bundles no
+   * webfont, so a browser without it installed falls back to Menlo — whose
+   * block glyphs (the Claude Code logo ▐▛███▜▌) don't fully tile against
+   * xterm's cell metrics, leaving thin "grid" lines through the logo. Pull
+   * JetBrains Mono from Google Fonts so the demo terminal renders the logo
+   * solid, then nudge a resize once it's ready so FitAddon re-measures the
+   * cell to the real font (otherwise xterm keeps the fallback metrics). */
+  (function loadTerminalFont() {
+    try {
+      var pre1 = document.createElement("link"); pre1.rel = "preconnect"; pre1.href = "https://fonts.googleapis.com";
+      var pre2 = document.createElement("link"); pre2.rel = "preconnect"; pre2.href = "https://fonts.gstatic.com"; pre2.crossOrigin = "anonymous";
+      var fl = document.createElement("link"); fl.rel = "stylesheet";
+      fl.href = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap";
+      (document.head || document.documentElement).append(pre1, pre2, fl);
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.load("14px 'JetBrains Mono'").then(function () {
+          return document.fonts.ready;
+        }).then(function () {
+          // re-fit every mounted terminal to the now-loaded font metrics
+          window.dispatchEvent(new Event("resize"));
+          setTimeout(function () { window.dispatchEvent(new Event("resize")); }, 300);
+        }).catch(function () {});
+      }
+    } catch (e) { /* font is a nicety — never block boot */ }
+  })();
   try {
     var gitCache = JSON.stringify({ status: gitStatus(), remotes: [] });
     sessionStorage.setItem("git-status-cache:" + PROJECT, gitCache);
@@ -577,11 +604,11 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-AI_q_0ZX.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/icons-APvtev8z.js">
-    <link rel="modulepreload" crossorigin href="./assets/markdown-C-IUt7TL.js">
-    <link rel="modulepreload" crossorigin href="./assets/react-vendor-Cic6WvU7.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-B-kMqfJ5.css">
+    <script type="module" crossorigin src="./assets/index-CeHzRUeI.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/icons-ChW6QElv.js">
+    <link rel="modulepreload" crossorigin href="./assets/markdown-CmFLT5EF.js">
+    <link rel="modulepreload" crossorigin href="./assets/react-vendor-JtCpSNks.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-Dxi6dQqG.css">
   </head>
   <body>
     <div id="root"></div>
