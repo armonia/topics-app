@@ -2,10 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Crown, Sparkles, RefreshCw } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished } from '../../state/signals';
+import { useTerminalSessions } from '../../contexts/TopicsContext';
+import { masterApi } from '../../lib/api';
+
+// Starter prompts for the Master pane. They are TYPED into the PTY (no
+// trailing newline) so the user reviews + presses Enter — stays on the
+// subscription (human-driven). interactive-claude-primitive.
+const MASTER_STARTERS: { label: string; prompt: string }[] = [
+  { label: 'Valuta sessioni', prompt: 'Elenca le mie sessioni attive (usa list_sessions) e per ognuna dimmi cosa conviene fare, chiudendo col blocco ## Next.' },
+  { label: "Cos'è in sospeso", prompt: 'Quali sessioni hanno qualcosa in sospeso che richiede una mia azione? Elencale nel blocco ## Next.' },
+  { label: 'Chiudi concluse', prompt: 'Quali sessioni risultano concluse e si possono chiudere? Proponile con COMPLETA nel blocco ## Next.' },
+];
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -108,6 +119,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   }, [isActive, finished, sessionId]);
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
+
+  // Master pane chrome — identity + starter prompts + proposal refresh.
+  // Detected by the session name ('Master', set at creation). Self-contained
+  // so no parent threading. interactive-claude-primitive.
+  const terminalSessions = useTerminalSessions();
+  const isMaster = terminalSessions.some((s) => s.id === sessionId && s.name === 'Master');
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestMsg, setIngestMsg] = useState<string | null>(null);
 
   // Track dark/light theme
   useEffect(() => {
@@ -448,8 +467,69 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
   };
 
+  // Type a starter prompt into the PTY without submitting — the user reviews
+  // and presses Enter (human-driven → subscription). Then focus the terminal.
+  const insertStarter = (prompt: string) => {
+    sendToTerminal(prompt);
+    termRef.current?.term.focus();
+  };
+
+  const refreshProposals = async () => {
+    if (ingesting) return;
+    setIngesting(true);
+    setIngestMsg(null);
+    try {
+      const r = await masterApi.ingestFromTerminal(sessionId);
+      setIngestMsg(r.proposals > 0 ? `${r.proposals} proposte → kanban` : 'Nessuna proposta trovata');
+    } catch {
+      setIngestMsg('Errore');
+    } finally {
+      setIngesting(false);
+      setTimeout(() => setIngestMsg(null), 4000);
+    }
+  };
+
   return (
     <div data-testid="single-terminal-pane" className="flex-1 min-h-0 flex flex-col">
+      {/* Master pane chrome — identity + starter prompts + proposal refresh.
+          interactive-claude-primitive. Only on the global Master terminal. */}
+      {isMaster && !stale && (
+        <div className="flex-shrink-0 flex items-center gap-2 px-2.5 py-1.5 border-b border-purple-500/30 bg-purple-500/10 overflow-x-auto select-none">
+          <span className="flex items-center gap-1.5 flex-shrink-0 text-purple-300 font-medium text-[12px]">
+            <Crown size={13} className="text-purple-400" />
+            Master · Orchestratore
+          </span>
+          <span className="w-px h-4 bg-purple-500/30 flex-shrink-0" />
+          {MASTER_STARTERS.map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              data-testid={`master-starter-${s.label}`}
+              onClick={() => insertStarter(s.prompt)}
+              title={s.prompt}
+              className="flex-shrink-0 px-2 py-[3px] rounded text-[11px] bg-purple-500/15 text-purple-200 hover:bg-purple-500/30 hover:text-purple-100 transition-colors"
+            >
+              {s.label}
+            </button>
+          ))}
+          <div className="flex-1 min-w-[8px]" />
+          {ingestMsg && (
+            <span className="flex-shrink-0 text-[11px] text-purple-200/80 tabular-nums">{ingestMsg}</span>
+          )}
+          <button
+            type="button"
+            data-testid="master-refresh-proposals"
+            onClick={refreshProposals}
+            disabled={ingesting}
+            title="Leggi l'ultimo blocco ## Next dal terminale e crea le card nel kanban"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded text-[11px] bg-purple-500/20 text-purple-100 hover:bg-purple-500/35 transition-colors disabled:opacity-50"
+          >
+            {ingesting ? <RefreshCw size={11} className="animate-spin" /> : <Sparkles size={11} />}
+            <span>Aggiorna proposte</span>
+          </button>
+        </div>
+      )}
+
       {/* Virtual key toolbar — touch devices only */}
       {isTouchDevice && !stale && (
         <div className="flex-shrink-0 flex items-center gap-1 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">

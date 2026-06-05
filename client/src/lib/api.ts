@@ -1614,6 +1614,15 @@ export const masterApi = {
       body: JSON.stringify(topicId ? { topicId } : {}),
     });
   },
+  /** interactive-claude-primitive (AD-2) — scrape the Master TERMINAL's buffer
+   *  for the latest `## Next` block and upsert proposals as kanban cards. Free:
+   *  reads on-screen text, no model call. Call from the Master pane button. */
+  async ingestFromTerminal(terminalId: string): Promise<{ proposals: number; upserted: unknown[] }> {
+    return request<{ proposals: number; upserted: unknown[] }>(`/topics/master/ingest`, {
+      method: 'POST',
+      body: JSON.stringify({ terminalId }),
+    });
+  },
   /** Read whether the periodic attention monitor is running. */
   async getMonitor(): Promise<{ enabled: boolean }> {
     return request<{ enabled: boolean }>(`/master/monitor`);
