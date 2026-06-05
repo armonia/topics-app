@@ -176,7 +176,7 @@ export function GroupLayout({
     },
   }), []);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, callbacks, resizeOptions);
+  const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, callbacks, resizeOptions);
 
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
   const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone } | null>(null);
@@ -617,7 +617,9 @@ export function GroupLayout({
                         data-divider-row={rowIdx}
                         data-divider-col={groupIdx}
                         className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+                        title="Double-click to equalize widths"
                         onMouseDown={startHorizontalResize(rowIdx, groupIdx, row.widths)}
+                        onDoubleClick={equalizeHorizontal(rowIdx, row.groupIds.length)}
                       >
                         <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
                       </div>
@@ -632,7 +634,9 @@ export function GroupLayout({
               <div
                 data-divider-row={rowIdx}
                 className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+                title="Double-click to equalize heights"
                 onMouseDown={startVerticalResize(rowIdx, rowHeights)}
+                onDoubleClick={equalizeVertical(rows.length)}
               >
                 <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
               </div>

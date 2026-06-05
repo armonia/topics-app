@@ -471,7 +471,7 @@ export function PanelGrid({
     },
   }), []);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
+  const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
 
   // ISSUE 19 FIX: Track ghost DOM elements so they can be cleaned up
   // if the component unmounts during a rAF callback.
@@ -1571,6 +1571,7 @@ export function PanelGrid({
                       widths={row.widths}
                       isDragActive={isAnyDragActive}
                       onResizeStart={startHorizontalResize(rowIdx, colIdx, row.widths)}
+                      onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length)}
                       onInsertBetween={handleInsertBetweenColumns}
                     />
                   )}
@@ -1585,6 +1586,7 @@ export function PanelGrid({
               rowIdx={rowIdx}
               isDragActive={isAnyDragActive}
               onResizeStart={startVerticalResize(rowIdx, gridRowHeights)}
+              onEqualize={equalizeVertical(gridRows.length)}
               onInsertBetween={handleInsertBetweenRows}
             />
           )}

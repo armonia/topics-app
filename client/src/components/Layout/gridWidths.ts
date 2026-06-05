@@ -55,6 +55,18 @@ export function appendColumnWidths(existing: readonly number[], newCount: number
 }
 
 /**
+ * Reset a row of `count` columns/rows to perfectly equal weights (`1/count`
+ * each). This is the "double-click a divider to even out the split" gesture —
+ * mirrors VS Code's "Even Editor Widths" and Allotment's reset-on-double-click.
+ * Shared by both grid surfaces (PanelGrid + GroupLayout) and the vertical
+ * sub-stack so an equalize means the same thing everywhere. `count <= 0 → []`.
+ */
+export function equalizeWidths(count: number): number[] {
+  if (count <= 0) return [];
+  return new Array(count).fill(1 / count);
+}
+
+/**
  * Renormalise a set of weights back to sum 1, preserving relative proportions.
  * All-zero / non-finite input falls back to an equal split. `[]` → `[]`.
  */

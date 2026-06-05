@@ -41,6 +41,8 @@ interface ColumnInsertDividerProps {
   widths: number[];
   isDragActive: boolean;
   onResizeStart: (e: React.MouseEvent) => void;
+  /** Double-click → equalize this row's column widths (1/n each). */
+  onEqualize?: () => void;
   /**
    * Called when a tab/grid-item is dropped on the divider. The handler
    * receives the (rowIdx, colIdx) of the LEFT cell — the insert point is
@@ -55,6 +57,7 @@ export function ColumnInsertDivider({
   widths: _widths,
   isDragActive,
   onResizeStart,
+  onEqualize,
   onInsertBetween,
 }: ColumnInsertDividerProps) {
   const [hoverDuringDrag, setHoverDuringDrag] = useState(false);
@@ -97,7 +100,9 @@ export function ColumnInsertDivider({
       className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-divider-row={rowIdx}
       data-panel-divider-col={colIdx}
+      title={onEqualize ? 'Double-click to equalize widths' : undefined}
       onMouseDown={onResizeStart}
+      onDoubleClick={onEqualize}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -130,6 +135,8 @@ interface RowInsertDividerProps {
   rowIdx: number;
   isDragActive: boolean;
   onResizeStart: (e: React.MouseEvent) => void;
+  /** Double-click → equalize the grid's row heights (1/n each). */
+  onEqualize?: () => void;
   /**
    * Called when a tab/grid-item is dropped on the divider. The handler
    * receives the rowIdx of the row ABOVE the divider — the insert point
@@ -142,6 +149,7 @@ export function RowInsertDivider({
   rowIdx,
   isDragActive,
   onResizeStart,
+  onEqualize,
   onInsertBetween,
 }: RowInsertDividerProps) {
   const [hoverDuringDrag, setHoverDuringDrag] = useState(false);
@@ -180,7 +188,9 @@ export function RowInsertDivider({
     <div
       className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
       data-panel-row-divider={rowIdx}
+      title={onEqualize ? 'Double-click to equalize heights' : undefined}
       onMouseDown={onResizeStart}
+      onDoubleClick={onEqualize}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
