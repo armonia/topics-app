@@ -38,6 +38,7 @@ import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { loadSettings } from './lib/settings';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -369,7 +370,9 @@ function App() {
   }, [handleQuickCreateTerminal]);
 
   useEffect(() => {
-    const handler = () => openMasterTerminal();
+    // No-op when Master is disabled in Settings. Read via loadSettings() to
+    // avoid a stale closure on this minimal-deps effect.
+    const handler = () => { if (loadSettings().showMaster) openMasterTerminal(); };
     window.addEventListener('open-master', handler);
     return () => window.removeEventListener('open-master', handler);
   }, [openMasterTerminal]);
@@ -541,6 +544,8 @@ function App() {
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
+    showBoard: appSettings.showBoard,
+    showMaster: appSettings.showMaster,
   });
 
   return (
@@ -760,6 +765,8 @@ function App() {
             stopSession={stopSession}
             onOpenProjectBoard={handleOpenProjectBoard}
             onOpenMaster={openMasterTerminal}
+            showBoard={appSettings.showBoard}
+            showMaster={appSettings.showMaster}
             boardTaskCounts={boardTaskCounts}
             onNewChat={() => handleQuickCreateTopic()}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}

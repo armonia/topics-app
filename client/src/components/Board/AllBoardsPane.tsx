@@ -14,6 +14,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { globalBoardApi, boardsApi, type BoardTask, type TaskStatus } from '../../lib/api';
+import { loadSettings } from '../../lib/settings';
 import type { WSMessage } from '../../types';
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
@@ -41,6 +42,8 @@ function getProjectLabel(projectId: string): string {
 }
 
 export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) {
+  // Settings opt-out: hide the "Apri Master" entry-point when Master is off.
+  const showMaster = loadSettings().showMaster;
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +200,7 @@ export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) 
         <div className="text-[11px] text-app-text-muted">
           Global board · all projects
         </div>
+        {showMaster && (
         <button
           type="button"
           data-testid="start-master-session"
@@ -207,6 +211,7 @@ export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) 
           <Crown size={11} />
           <span>Apri Master</span>
         </button>
+        )}
       </div>
 
       {/* Kanban columns */}

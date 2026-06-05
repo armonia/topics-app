@@ -76,6 +76,9 @@ export interface TopicTreeProps {
   /** Open (or create + open) the global Master Topic. Renders the
    *  "Master" sidebar shortcut next to Board when provided. */
   onOpenMaster?: () => void;
+  /** Settings opt-out: hide the Board / Master sidebar shortcuts entirely. Default true. */
+  showBoard?: boolean;
+  showMaster?: boolean;
   onNewChat?: () => void;
   onNewBrowser?: () => void;
   terminalSessions?: TerminalSessionInfo[];
@@ -121,6 +124,8 @@ export function TopicTree({
   boardTaskCounts,
   onOpenProjectBoard,
   onOpenMaster,
+  showBoard = true,
+  showMaster = true,
   onNewChat: _onNewChat,
   onNewBrowser: _onNewBrowser,
   terminalSessions = [],
@@ -568,6 +573,8 @@ export function TopicTree({
 
   const renderBoardShortcut = () => {
     if (searchQuery || !onOpenProjectBoard) return null;
+    // Settings opt-out: if both Board and Master are hidden, render nothing.
+    if (!showBoard && !showMaster) return null;
     // Board + Master are fixed sidebar tabs — show the same selected-surface
     // highlight as the other rows when their pane is focused/open.
     const boardPaneId = utilityPanelId('all-boards');
@@ -577,6 +584,7 @@ export function TopicTree({
     const masterActive = !!masterPaneId && (focusedTopicId === masterPaneId || allOpenPaneIds.has(masterPaneId));
     return (
       <div className="flex-shrink-0">
+        {showBoard && (
         <div className={`flex items-center ${sidebarRowCard({ focused: boardActive })}`}>
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
@@ -598,7 +606,8 @@ export function TopicTree({
             )}
           </button>
         </div>
-        {onOpenMaster && (
+        )}
+        {showMaster && onOpenMaster && (
           <div className={`flex items-center ${sidebarRowCard({ focused: masterActive })}`}>
             <button
               data-testid="sidebar-master-shortcut"
