@@ -108,13 +108,11 @@ export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
     });
   };
 
-  if (sessions.length === 0) return null;
-
   const grouped: Record<ColKey, MasterSession[]> = { attend: [], work: [], done: [] };
   for (const s of sessions) grouped[columnOf(s)].push(s);
 
   return (
-    <div className="flex-shrink-0 border-b border-app-border/60 bg-app-bg/30">
+    <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 px-3 py-1.5">
         <Bot size={13} className="text-app-text-muted flex-shrink-0" />
         <span className="text-[12px] font-medium text-app-text">Agenti</span>
@@ -138,7 +136,7 @@ export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
       </div>
 
       {/* Kanban columns by status */}
-      <div className="flex gap-2 px-2 pb-2 overflow-x-auto max-h-[30vh]">
+      <div className="flex-1 min-h-0 flex gap-2 px-2 pb-2 overflow-x-auto">
         {COLUMNS.map((col) => (
           <div key={col.key} className="flex-1 min-w-[150px] flex flex-col">
             <div className="flex items-center gap-1.5 px-1 pb-1 sticky top-0">
