@@ -1,16 +1,15 @@
 /**
- * AgentsBoardSection — status of all active sessions with a recommended action,
- * an expandable preview, and a (free, mechanical) Autopilot. Lives at the top of
- * the global board (AllBoardsPane). interactive-claude-primitive.
+ * AgentsBoardSection — kanban view of all active sessions, at the top of the
+ * global board (AllBoardsPane). interactive-claude-primitive.
  *
- * FREE by design: it reads session state (getSessions) and previews (terminal
- * buffer / last message) — no model call. Recommendations are heuristic
- * (agentBoard.ts). Autopilot only auto-runs SAFE closures (close concluded/idle
- * or empty sessions); it never invokes the model. Deep reasoning is delegated to
- * the on-demand Claude Code Master (the "Apri Master" button).
+ * Columns by status (Ti aspetta / In lavoro / Concluse); each session is a card
+ * with its state, a short preview, and the recommended action. FREE by design:
+ * reads session state (getSessions) — no model call. Autopilot only auto-runs
+ * SAFE closures (concluded/idle/empty); never the model, never the Master.
+ * Deep reasoning is delegated to the on-demand Claude Code Master.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, Loader2, Circle, MessageSquareDot, ExternalLink, X, Bot } from 'lucide-react';
+import { Loader2, Circle, MessageSquareDot, X, Bot } from 'lucide-react';
 import { masterApi, type MasterSession, type MasterSessionState } from '../../lib/api';
 import { recommendSessionAction, selectAutopilotClosures, type BoardSession } from '../../state/agentBoard';
 import type { WSMessage } from '../../types';
@@ -24,22 +23,31 @@ const REFRESH_EVENTS = new Set([
 function toBoard(s: MasterSession): BoardSession {
   return { topicId: s.topicId, name: s.name, sessionType: s.sessionType, state: s.state, unread: s.unread, lastAt: s.lastAt };
 }
-
 function isTerminal(s: MasterSession): boolean {
   return s.sessionType === 'claude-code-terminal' || s.topicId.startsWith('terminal:');
 }
-
 function closeUrl(s: MasterSession): string {
   return isTerminal(s)
     ? `/api/terminal/sessions/${s.topicId.replace(/^terminal:/, '')}`
     : `/api/topics/${s.topicId}`;
 }
-
 function StateDot({ state }: { state: MasterSessionState }) {
-  if (state === 'streaming') return <Loader2 size={13} className="text-yellow-300 animate-spin flex-shrink-0" />;
-  if (state === 'update') return <MessageSquareDot size={13} className="text-emerald-300 flex-shrink-0" />;
-  if (state === 'waiting') return <Circle size={9} className="text-blue-300 fill-blue-300 flex-shrink-0" />;
-  return <Circle size={9} className="text-app-text-muted/40 fill-app-text-muted/40 flex-shrink-0" />;
+  if (state === 'streaming') return <Loader2 size={12} className="text-yellow-300 animate-spin flex-shrink-0" />;
+  if (state === 'update') return <MessageSquareDot size={12} className="text-emerald-300 flex-shrink-0" />;
+  if (state === 'waiting') return <Circle size={8} className="text-blue-300 fill-blue-300 flex-shrink-0" />;
+  return <Circle size={8} className="text-app-text-muted/40 fill-app-text-muted/40 flex-shrink-0" />;
+}
+
+type ColKey = 'attend' | 'work' | 'done';
+const COLUMNS: { key: ColKey; label: string }[] = [
+  { key: 'attend', label: 'Ti aspetta' },
+  { key: 'work', label: 'In lavoro' },
+  { key: 'done', label: 'Concluse' },
+];
+
+function columnOf(s: MasterSession): ColKey {
+  if (s.state === 'streaming' || s.state === 'waiting') return 'work';
+  return recommendSessionAction(toBoard(s)).action === 'open' ? 'attend' : 'done';
 }
 
 interface Props {
@@ -49,8 +57,6 @@ interface Props {
 
 export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
   const [sessions, setSessions] = useState<MasterSession[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [preview, setPreview] = useState<Record<string, string>>({});
   const [autopilot, setAutopilot] = useState<boolean>(() => {
     try { return localStorage.getItem(AUTOPILOT_KEY) === '1'; } catch { return false; }
   });
@@ -69,12 +75,10 @@ export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
     try {
       const { sessions: next } = await masterApi.getSessions();
       setSessions(next);
-      // Autopilot: auto-close only safe closures, never the Master itself.
       if (autopilotRef.current) {
         const candidates = next.filter((s) => s.name !== 'Master');
-        const toClose = selectAutopilotClosures(candidates.map(toBoard));
         const byId = new Map(next.map((s) => [s.topicId, s]));
-        for (const c of toClose) {
+        for (const c of selectAutopilotClosures(candidates.map(toBoard))) {
           const full = byId.get(c.topicId);
           if (full) void closeSession(full);
         }
@@ -84,7 +88,6 @@ export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Refresh on relevant WS events (debounced) — free, read-only.
   useEffect(() => {
     if (!onMessage) return;
     let t: ReturnType<typeof setTimeout> | null = null;
@@ -105,23 +108,10 @@ export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
     });
   };
 
-  const toggleExpand = async (s: MasterSession) => {
-    const id = s.topicId;
-    if (expanded === id) { setExpanded(null); return; }
-    setExpanded(id);
-    if (isTerminal(s) && preview[id] === undefined) {
-      try {
-        const r = await fetch(`/api/terminal/sessions/${s.topicId.replace(/^terminal:/, '')}/buffer`);
-        const body = await r.json().catch(() => ({}));
-        const buf = typeof body?.buffer === 'string' ? body.buffer : '';
-        setPreview((p) => ({ ...p, [id]: buf.slice(-1200) || '(vuoto)' }));
-      } catch {
-        setPreview((p) => ({ ...p, [id]: '(non disponibile)' }));
-      }
-    }
-  };
-
   if (sessions.length === 0) return null;
+
+  const grouped: Record<ColKey, MasterSession[]> = { attend: [], work: [], done: [] };
+  for (const s of sessions) grouped[columnOf(s)].push(s);
 
   return (
     <div className="flex-shrink-0 border-b border-app-border/60 bg-app-bg/30">
@@ -147,40 +137,52 @@ export function AgentsBoardSection({ onMessage, onJumpToTopic }: Props) {
         </button>
       </div>
 
-      <div className="max-h-[28vh] overflow-y-auto pb-1">
-        {sessions.map((s) => {
-          const rec = recommendSessionAction(toBoard(s));
-          const isOpen = expanded === s.topicId;
-          return (
-            <div key={s.topicId} className="px-2">
-              <div className="group flex items-center gap-2 px-1.5 py-1 rounded hover:bg-app-hover">
-                <button type="button" onClick={() => void toggleExpand(s)} className="flex-shrink-0 text-app-text-muted/50 hover:text-app-text-muted" title="Anteprima">
-                  <ChevronRight size={12} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-                </button>
-                <StateDot state={s.state} />
-                <button type="button" onClick={() => onJumpToTopic?.(s.topicId)} className="flex-1 min-w-0 text-left text-[12px] text-app-text truncate hover:underline" title={s.name}>
-                  {s.name}
-                </button>
-                <span className="text-[11px] text-app-text-muted/70 flex-shrink-0">{rec.reason}</span>
-                {rec.action === 'open' && (
-                  <button type="button" onClick={() => onJumpToTopic?.(s.topicId)} className="flex-shrink-0 flex items-center gap-1 px-1.5 py-[2px] rounded text-[11px] bg-blue-500/15 text-blue-300 hover:bg-blue-500/30">
-                    <ExternalLink size={10} /> Apri
-                  </button>
-                )}
-                {rec.action === 'close' && (
-                  <button type="button" onClick={() => void closeSession(s)} className="flex-shrink-0 flex items-center gap-1 px-1.5 py-[2px] rounded text-[11px] bg-app-bg/60 text-app-text-muted hover:bg-red-500/20 hover:text-red-300">
-                    <X size={10} /> Chiudi
-                  </button>
-                )}
-              </div>
-              {isOpen && (
-                <pre className="ml-7 mb-1 mr-2 max-h-40 overflow-auto rounded bg-black/30 px-2 py-1 text-[10px] leading-snug text-app-text-muted whitespace-pre-wrap break-words">
-                  {isTerminal(s) ? (preview[s.topicId] ?? '…') : (s.lastPreview || '(nessun messaggio)')}
-                </pre>
+      {/* Kanban columns by status */}
+      <div className="flex gap-2 px-2 pb-2 overflow-x-auto max-h-[30vh]">
+        {COLUMNS.map((col) => (
+          <div key={col.key} className="flex-1 min-w-[150px] flex flex-col">
+            <div className="flex items-center gap-1.5 px-1 pb-1 sticky top-0">
+              <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wide">{col.label}</span>
+              <span className="text-[10px] text-app-text-muted/60 tabular-nums">{grouped[col.key].length}</span>
+            </div>
+            <div className="flex flex-col gap-1 overflow-y-auto">
+              {grouped[col.key].map((s) => {
+                return (
+                  <div
+                    key={s.topicId}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onJumpToTopic?.(s.topicId)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') onJumpToTopic?.(s.topicId); }}
+                    className="group relative rounded border border-app-border/50 bg-surface px-1.5 py-1 cursor-pointer hover:border-primary/30 transition-colors"
+                    title={s.lastPreview || s.name}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <StateDot state={s.state} />
+                      <span className="flex-1 min-w-0 truncate text-[12px] text-app-text">{s.name}</span>
+                      {col.key === 'done' && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void closeSession(s); }}
+                          title="Chiudi sessione"
+                          className="flex-shrink-0 text-app-text-muted/50 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </div>
+                    {s.lastPreview && (
+                      <div className="mt-0.5 pl-[18px] text-[10px] text-app-text-muted/70 truncate">{s.lastPreview}</div>
+                    )}
+                  </div>
+                );
+              })}
+              {grouped[col.key].length === 0 && (
+                <div className="px-1 py-1 text-[10px] text-app-text-muted/40">—</div>
               )}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
