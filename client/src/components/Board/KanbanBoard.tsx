@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useBoard } from '../../hooks/useBoard';
+import { loadSettings } from '../../lib/settings';
 import { KanbanColumn } from './KanbanColumn';
 import { TaskFilters } from './TaskFilters';
 import { TaskDetailPanel } from './TaskDetailPanel';
@@ -38,6 +39,8 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ projectId, topicId, onWSMessage, onJumpToTopic }: KanbanBoardProps) {
+  // Settings opt-out: hide the "Master" entry-point when Master is off.
+  const showMaster = loadSettings().showMaster;
   const {
     columns,
     tags,
@@ -231,6 +234,7 @@ export function KanbanBoard({ projectId, topicId, onWSMessage, onJumpToTopic }: 
           />
         </div>
         {/* MASTER-01 (Variant A) — start a global Master session from the board */}
+        {showMaster && (
         <button
           type="button"
           data-testid="start-master-session"
@@ -241,6 +245,7 @@ export function KanbanBoard({ projectId, topicId, onWSMessage, onJumpToTopic }: 
           <Crown size={11} />
           <span>Master</span>
         </button>
+        )}
         <button
           onClick={() => setShowSettings(true)}
           className="p-1.5 mr-1 text-app-text-muted hover:text-app-text transition-colors"
