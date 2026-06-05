@@ -153,14 +153,12 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // (Plain Cmd+M is reserved by macOS for "Minimize Window".)
       if (isMod && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
         if (isTextInputFocused(e.target)) return;
-        const master = Object.values(topicsRef.current).find(
-          (t) => !t.archived && t.agentTeamRole === 'lead',
-        );
-        if (master) {
-          e.preventDefault();
-          setFocusedPanelId(master.id);
-          return;
-        }
+        // Master is now an interactive `claude` PTY tab — App owns the open
+        // logic; emit the shared event (same path as sidebar + board buttons).
+        // interactive-claude-primitive (was: focus the chat-master lead topic).
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('open-master'));
+        return;
       }
 
       if (isElectron && isMod && e.key === 'n') {
