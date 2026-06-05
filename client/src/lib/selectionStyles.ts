@@ -10,13 +10,17 @@
  * Tabs are rounded pills and add their own `rounded-md`; sidebar rows apply
  * these classes full-width. The shared part is the fill + ring + shadow + text.
  */
+// A clean FILL only — no ring/shadow. On full-width sidebar rows a ring+shadow
+// bled onto neighbours (focused folder + its active child read as "overlapping"
+// rows), and made merely-open rows look selected. A single solid fill is
+// unambiguous and never collides with an adjacent row.
 export const SELECTED_SURFACE =
-  'bg-black/5 dark:bg-white/15 text-app-text ring-1 ring-black/10 dark:ring-white/15 shadow-sm';
+  'bg-black/[0.06] dark:bg-white/[0.14] text-app-text';
 
 /**
  * Softer sibling of SELECTED_SURFACE: a tab that is the active one in a SPLIT
- * group that doesn't currently own focus. Clearly visible, but a step below the
- * focused surface so there's never any doubt which single tab is current.
+ * group that doesn't currently own focus. Visible within its group, but clearly
+ * a step below the focused surface so only ONE thing reads as "current".
  */
 export const SELECTED_SURFACE_SOFT =
-  'bg-black/[0.03] dark:bg-white/[0.07] text-app-text-secondary ring-1 ring-black/[0.04] dark:ring-white/[0.08]';
+  'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
