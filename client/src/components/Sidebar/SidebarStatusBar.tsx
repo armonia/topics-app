@@ -55,24 +55,66 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
+// FPS indicator for the status bar. A naive `requestAnimationFrame` loop runs
+// forever at the display refresh rate (60/120Hz) just to count frames — that
+// alone pins the renderer/compositor awake and never lets it idle (it was a
+// meaningful chunk of this app's idle CPU). Instead we BURST-SAMPLE: measure
+// for ~1s, then sleep ~4s, so the renderer can go idle ~80% of the time while
+// the counter still refreshes every few seconds. Sampling also pauses while
+// the window is hidden.
 function useFps() {
   const [fps, setFps] = useState(0);
-  const framesRef = useRef(0);
-  const lastRef = useRef(performance.now());
-  const rafRef = useRef(0);
 
   useEffect(() => {
-    const tick = (now: number) => {
-      framesRef.current++;
-      if (now - lastRef.current >= 1000) {
-        setFps(framesRef.current);
-        framesRef.current = 0;
-        lastRef.current = now;
+    const MEASURE_MS = 1000;
+    const IDLE_MS = 4000;
+    let rafId = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let frames = 0;
+    let start = 0;
+    let stopped = false;
+
+    const measure = (now: number) => {
+      if (stopped) return;
+      if (start === 0) start = now;
+      frames++;
+      const elapsed = now - start;
+      if (elapsed >= MEASURE_MS) {
+        setFps(Math.round((frames * 1000) / elapsed));
+        frames = 0;
+        start = 0;
+        // Idle, then sample again — renderer is free to settle in between.
+        timeoutId = setTimeout(() => {
+          if (!stopped && !document.hidden) rafId = requestAnimationFrame(measure);
+        }, IDLE_MS);
+        return;
       }
-      rafRef.current = requestAnimationFrame(tick);
+      rafId = requestAnimationFrame(measure);
     };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
+
+    const beginSampling = () => {
+      if (!stopped && !document.hidden) rafId = requestAnimationFrame(measure);
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(rafId);
+        if (timeoutId) clearTimeout(timeoutId);
+      } else {
+        frames = 0;
+        start = 0;
+        beginSampling();
+      }
+    };
+
+    beginSampling();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(rafId);
+      if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   return fps;

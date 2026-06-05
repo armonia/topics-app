@@ -579,7 +579,7 @@ export function TopicTree({
       <div className="flex-shrink-0">
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
-          className={`group/ab flex items-center gap-2 h-11 md:h-8 px-2 text-left text-[14px] md:text-[13px] ${sidebarRowCard({ focused: boardActive })}`}
+          className={`group/ab flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium ${sidebarRowCard({ focused: boardActive })}`}
           title="View all project boards"
         >
           <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
@@ -601,17 +601,16 @@ export function TopicTree({
             <button
               data-testid="sidebar-master-shortcut"
               onClick={() => onOpenMaster()}
-              className="group/mst flex items-center gap-2 flex-1 min-w-0 h-11 md:h-8 px-2 text-left text-[14px] md:text-[13px]"
+              className="group/mst flex items-center gap-2 flex-1 min-w-0 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium"
               title="Open Master · Global (Shift+Cmd+M)"
             >
               <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
               <span className="flex-1 truncate text-app-text">Master</span>
               <span className="text-[11px] text-app-text-muted/70 tabular-nums">⇧⌘M</span>
             </button>
-            <span className="px-1.5"><MasterMonitorToggle /></span>
+            <span className="pr-1.5 flex-shrink-0"><MasterMonitorToggle /></span>
           </div>
         )}
-        <div className="border-t border-app-border" />
       </div>
     );
   };

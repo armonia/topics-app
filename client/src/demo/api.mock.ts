@@ -136,6 +136,12 @@ export const masterApi = mk({});
 export const projectsApi = mk({ list: async () => ({ projects: [{ path: "/demo/topics-app", name: "topics-app" }] }) });
 export const machinesApi = mk({ list: async () => ([]) });
 export const worktreesApi = mk({ list: async () => ([]) });
+// standalone (non-*Api) value exports the real api.ts provides
+export function getMediaUrl(path: string): string { return path || ""; }
+export function isProvidersSnapshot(v: unknown): boolean {
+  return !!v && typeof v === "object" && Array.isArray((v as any).providers);
+}
+
 export const terminalsApi = mk({ list: async () => ([]) });
 export const remoteAccessApi = mk({});
 export const browserApi = mk({});

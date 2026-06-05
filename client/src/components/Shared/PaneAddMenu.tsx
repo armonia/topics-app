@@ -45,6 +45,7 @@ import {
   BarChart3,
   LayoutGrid,
   FolderOpen,
+  FolderPlus,
   FolderTree,
   FileCode,
   Eye,
@@ -133,6 +134,15 @@ const OVERLAY_ICON_BY_LUCIDE: Record<string, OverlayIconName> = {
 const ROW_CLASS =
   'w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors';
 
+/** Fire the global "open / create a project (native folder picker)" intent.
+ *  Handled by a listener in App.tsx — kept event-based so EVERY PaneAddMenu
+ *  host (top tab bar, sidebar project header) and the Electron native overlay
+ *  path all trigger it identically, with no prop-threading. The native picker
+ *  lets you select an existing folder OR create a new one. Electron-only. */
+function openProjectPicker() {
+  window.dispatchEvent(new CustomEvent('topics:open-project-picker'));
+}
+
 export interface PaneAddMenuItemsProps {
   /** Spawn a new chat in the current scope. Hidden when omitted. */
   onNewChat?: () => void;
@@ -146,6 +156,10 @@ export interface PaneAddMenuItemsProps {
    *  the top tab bar (where Cmd+N targets the focused group); false in
    *  the sidebar (where Cmd+N would NOT target this specific project). */
   showShortcuts?: boolean;
+  /** Show the "Apri / Crea Progetto" actions (native folder picker). Passed
+   *  ONLY by the global / standalone add-menus — never by project-scoped ones
+   *  (you don't open/create a project from inside a project's "+"). */
+  showProjectActions?: boolean;
   /** Called after any item is invoked, so the parent can close the menu. */
   onClose: () => void;
 }
@@ -155,6 +169,7 @@ export function PaneAddMenuItems({
   onAddPane,
   availableTypes,
   showShortcuts,
+  showProjectActions,
   onClose,
 }: PaneAddMenuItemsProps) {
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
@@ -278,6 +293,31 @@ export function PaneAddMenuItems({
           </button>
         );
       })}
+      {/* Open / create a PROJECT (native folder picker). Only in global /
+          standalone add-menus (showProjectActions) — NOT inside a project's
+          "+". Electron-only (needs the OS dialog). Divider above since these
+          spin up a whole project window, not a pane. */}
+      {isElectron && showProjectActions && (
+        <>
+          <div className="my-1 border-t border-app-border" />
+          <button
+            onClick={choose(openProjectPicker)}
+            className={ROW_CLASS}
+            data-testid="pane-add-menu-open-project"
+          >
+            <FolderOpen size={iconSize} className="flex-shrink-0 text-app-text-muted" />
+            <span className="flex-1 text-left">Apri Progetto</span>
+          </button>
+          <button
+            onClick={choose(openProjectPicker)}
+            className={ROW_CLASS}
+            data-testid="pane-add-menu-create-project"
+          >
+            <FolderPlus size={iconSize} className="flex-shrink-0 text-app-text-muted" />
+            <span className="flex-1 text-left">Crea Progetto</span>
+          </button>
+        </>
+      )}
     </>
   );
 }
@@ -325,6 +365,7 @@ export function PaneAddMenu({
   onAddPane,
   availableTypes,
   showShortcuts,
+  showProjectActions,
   triggerTitle = 'Add pane',
   triggerVariant = 'pill',
   triggerClassName = '',
@@ -384,6 +425,7 @@ export function PaneAddMenu({
         onNewChat,
         onAddPane,
         availableTypes,
+        showProjectActions,
       });
       if (!selectedId) return;
       dispatchOverlaySelection(selectedId, onNewChat, onAddPane);
@@ -441,6 +483,7 @@ export function PaneAddMenu({
               onAddPane={onAddPane}
               availableTypes={availableTypes}
               showShortcuts={showShortcuts}
+              showProjectActions={showProjectActions}
               onClose={close}
             />
           </div>
@@ -479,11 +522,13 @@ async function openElectronOverlayMenu({
   onNewChat,
   onAddPane: _onAddPane,
   availableTypes,
+  showProjectActions,
 }: {
   anchor: DOMRect;
   onNewChat?: () => void;
   onAddPane?: (type: PaneType, subType?: string) => void;
   availableTypes?: readonly PaneType[];
+  showProjectActions?: boolean;
 }): Promise<string | null> {
   const overlayApi = window.electronAPI?.overlay;
   if (!overlayApi) return null;
@@ -539,6 +584,13 @@ async function openElectronOverlayMenu({
     }
   }
 
+  // Open / create a PROJECT — only in global/standalone menus, never inside a
+  // project's "+". Distinct icons: folder (open existing) vs plus-square (new).
+  if (showProjectActions) {
+    items.push({ id: 'open-project', label: 'Apri Progetto', iconName: 'folder', divider: items.length > 0 });
+    items.push({ id: 'create-project', label: 'Crea Progetto', iconName: 'plus-square' });
+  }
+
   const isDark = document.documentElement.classList.contains('dark');
   const cs = getComputedStyle(document.documentElement);
   const cssVar = (name: string, fallback: string) =>
@@ -570,5 +622,6 @@ function dispatchOverlaySelection(
   if (selectedId === 'new-chat') return onNewChat?.();
   if (selectedId === 'terminal-shell') return onAddPane?.('terminal', 'shell');
   if (selectedId === 'terminal-claude-code') return onAddPane?.('terminal', 'claude-code');
+  if (selectedId === 'open-project' || selectedId === 'create-project') return openProjectPicker();
   return onAddPane?.(selectedId as PaneType);
 }

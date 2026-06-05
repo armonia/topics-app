@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Wifi, Server, HardDrive, RefreshCw, Clock, RotateCcw } from 'lucide-react';
+import { Wifi, Server, HardDrive, RefreshCw, Clock, RotateCcw, MessageSquare } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
+import { usePaneStore } from '../../state/pane/store';
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -33,6 +34,12 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const [confirmingRestart, setConfirmingRestart] = useState(false);
 
   const gatewayOnline = status?.gateway.online ?? false;
+
+  // Topic chat tabs actually OPEN right now (mounted panes), straight from the
+  // client pane store. This is the real "active/open" number — distinct from
+  // the server's "non-archived topics" count (status.topics.activeCount),
+  // which counts every topic that simply isn't archived.
+  const openChatTabs = usePaneStore(s => Object.values(s.panes).filter(p => p.type === 'chat').length);
 
   return (
     <div className="pb-2 px-2">
@@ -98,13 +105,22 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
                 {status.connections.activeStreams}
               </span>
             </div>
-            <div className="flex-1 flex items-center gap-2" title="Topics — argomenti attualmente attivi">
-              <span className="text-[11px] text-app-text-muted">Topics</span>
-              <span className="text-[11px] font-medium text-app-text">
-                {status.topics.activeCount}
+            <div className="flex-1 flex items-center gap-2" title="Aperti — chat aperte come tab in questo momento">
+              <span className="text-[11px] text-app-text-muted">Aperti</span>
+              <span className={`text-[11px] font-medium ${openChatTabs > 0 ? 'text-primary' : 'text-app-text'}`}>
+                {openChatTabs}
               </span>
             </div>
           </div>
+
+          {/* 2-state model: Aperti (cella sopra = tab montate) vs Chiusi (archiviati). */}
+          <StatusRow
+            icon={<MessageSquare size={12} />}
+            label="Chiusi"
+            value={`${status.topics.totalCount - status.topics.activeCount}`}
+            detail={`${status.topics.totalCount} totali`}
+            color="green"
+          />
         </div>
       )}
 

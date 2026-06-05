@@ -866,6 +866,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
         pushClosedTab(record);
 
+        // 2-state model: closing a project chat sub-tab archives the topic
+        // (closed ⟺ archived). Emitted as a window event because archiveTopic
+        // isn't available here (TopicsContext deliberately omits actions);
+        // the App-level listener in usePanelLifecycle runs it. Mirrors the
+        // existing 'reopen-closed-tab' window-event pattern. Fires at commit
+        // (this fn runs after the 3s countdown / on immediate close), so a
+        // cancelled close never archives.
+        if (pane.type === 'chat' && pane.topicId) {
+          window.dispatchEvent(new CustomEvent('topic-archive-on-close', { detail: { topicId: pane.topicId } }));
+        }
+
         const capturedRecord = record;
         pushUndo({
           description: `Close ${pane.title || pane.type}`,
@@ -883,6 +894,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
               );
             });
             removeClosedTab(capturedRecord.id);
+            // Undo of a chat close also restores open == non-archived.
+            if (capturedRecord.pane.type === 'chat' && capturedRecord.pane.topicId) {
+              window.dispatchEvent(new CustomEvent('topic-unarchive-on-open', { detail: { topicId: capturedRecord.pane.topicId } }));
+            }
           },
           redo: () => {
             handleClosePane(capturedRecord.groupId, capturedRecord.pane.id);
@@ -986,6 +1001,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     try {
       const pane = await reopenClosedTab(record);
       setPanes(prev => [...prev, pane]);
+      // Reopening a project chat restores open == non-archived.
+      if (pane.type === 'chat' && pane.topicId) {
+        window.dispatchEvent(new CustomEvent('topic-unarchive-on-open', { detail: { topicId: pane.topicId } }));
+      }
       setGroups(prev => {
         const targetGroup = prev.find(g => g.id === record.groupId) || prev[0];
         if (!targetGroup) return prev;
