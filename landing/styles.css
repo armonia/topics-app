@@ -101,9 +101,11 @@ a{color:inherit;text-decoration:none}
 .showcase__glow{position:absolute;inset:-6% 4% 16%;z-index:-1;border-radius:50%;background:var(--grad);filter:blur(96px);opacity:.45}
 .window{aspect-ratio:16/10;display:flex;flex-direction:column;border-radius:15px;overflow:hidden;border:1px solid var(--border-2);background:hsl(222 45% 7% / .82);-webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%);box-shadow:var(--shadow-lg),0 0 0 1px hsl(0 0% 100% / .04) inset;transform:perspective(1900px) rotateX(6deg) scale(.99);transform-origin:50% 100%;transition:transform .6s var(--ease)}
 .showcase:hover .window{transform:perspective(2600px) rotateX(1.5deg) scale(1)}
-/* real screenshot framing */
-.window-real{position:relative;margin:0;border-radius:14px;overflow:hidden;border:1px solid var(--border-2);background:hsl(222 45% 7% / .9);box-shadow:var(--shadow-lg),0 0 0 1px hsl(0 0% 100% / .05) inset;transform:perspective(2000px) rotateX(6deg) scale(.99);transform-origin:50% 100%;transition:transform .6s var(--ease)}
-.showcase:hover .window-real{transform:perspective(2800px) rotateX(1.5deg) scale(1)}
+/* real screenshot framing — NB: .window-real is now the IFRAME. It must NOT
+   carry its own transform or a :hover transform: those overrode the iframe's
+   scale(.70) on hover (specificity 0,3,0 > iframe.window-real 0,1,1) → the demo
+   zoomed + cropped on mouseover. The visible box/tilt lives on .showcase__frame. */
+.window-real{position:relative;margin:0;border-radius:14px;overflow:hidden}
 .window-real img{display:block;width:100%;height:auto}
 /* Bigger-screen feel: the frame is the visible box (clips + tilts); the iframe
    inside renders at a LARGER logical viewport (1/scale) and is scaled back down,
