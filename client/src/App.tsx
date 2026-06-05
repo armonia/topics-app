@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Archive, LayoutGrid, List } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -26,7 +26,6 @@ import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
-import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
@@ -186,7 +185,6 @@ function App() {
   // Re-apply the user's saved Claude Code model preference once the providers
   // snapshot is available; resets each session unless localStorage has been set.
   useClaudeCodeModelSync();
-  const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
@@ -207,12 +205,13 @@ function App() {
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
   }, [showTopicsMenu]);
 
-  // Close remote access dropdown on outside click or Escape
+  // Close remote access dropdown on outside click or Escape. The trigger now
+  // lives inside the Topics ▾ menu, so guard against the Topics menu wrapper.
   useEffect(() => {
     if (expandedTool !== 'remote') return;
     const h = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (remoteAccessBtnRef.current?.contains(t) || remoteAccessDropdownRef.current?.contains(t)) return;
+      if (topicsMenuRef.current?.contains(t) || remoteAccessDropdownRef.current?.contains(t)) return;
       setExpandedTool(null);
     };
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setExpandedTool(null); e.stopPropagation(); } };
@@ -664,43 +663,8 @@ function App() {
             )}
           </div>
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
-            {openclawAvailable && (
-              <button
-                onClick={() => handleOpenAsPage('activity')}
-                className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer`}
-                style={{ pointerEvents: 'auto' }}
-                title="Activity"
-                aria-label="Activity"
-              >
-                <Activity size={isMobile ? 18 : 14} />
-              </button>
-            )}
-            {openclawAvailable && (
-              <button
-                onClick={() => handleOpenAsPage('agents')}
-                className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative`}
-                style={{ pointerEvents: 'auto' }}
-                title="Agents"
-                aria-label="Agents"
-              >
-                <Cpu size={isMobile ? 18 : 14} />
-                {agentLiveCount > 0 && (
-                  <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
-                    {agentLiveCount}
-                  </span>
-                )}
-              </button>
-            )}
-            <button
-              onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
-              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
-              style={{ pointerEvents: 'auto' }}
-              title="Remote Access"
-              aria-label="Remote Access"
-              ref={remoteAccessBtnRef}
-            >
-              <Radio size={isMobile ? 18 : 14} />
-            </button>
+            {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
+                the header right side is now just the canonical "+" add menu. */}
             {/* Single canonical <PaneAddMenu> — same trigger button,
                 same opened menu, same brand-tinted icons (Claude
                 orange, Shell purple, Browser green, Git red, Files
@@ -728,14 +692,9 @@ function App() {
           </div>
         </div>
 
-        {/* Search + view controls */}
-        <SidebarControls
-          onOpenCommandPalette={() => setShowSearch(true)}
-          viewMode={sidebar.viewMode}
-          onToggleViewMode={sidebar.toggleViewMode}
-          showArchived={sidebar.showArchived}
-          onToggleArchived={sidebar.toggleShowArchived}
-        />
+        {/* SidebarControls removed: search is now the inline header input,
+            view-mode + archived toggles live in the Topics ▾ menu, and ⌘K
+            (CommandPalette) remains via setShowSearch / the keyboard shortcut. */}
         {topicsError && <div className="px-2 text-red-500 text-[11px]">{topicsError}</div>}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
@@ -903,13 +862,60 @@ function App() {
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
           style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
         >
+          {/* Sidebar controls relocated from the old <SidebarControls> row. */}
+          <button
+            onClick={() => { sidebar.toggleShowArchived(); }}
+            className={`w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] hover:bg-app-hover transition-colors mt-1 ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
+          >
+            <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
+            <span className="flex-1 text-left">Mostra archiviati</span>
+          </button>
+          <button
+            onClick={() => { sidebar.toggleViewMode(); }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            {sidebar.viewMode === 'timeline'
+              ? <LayoutGrid size={isMobile ? 18 : 14} />
+              : <List size={isMobile ? 18 : 14} />}
+            <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista a gruppi' : 'Vista timeline'}</span>
+          </button>
+          <button
+            onClick={() => { setShowTopicsMenu(false); setExpandedTool('remote'); }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            <Radio size={isMobile ? 18 : 14} />
+            <span className="flex-1 text-left">Remote Access</span>
+          </button>
+          {openclawAvailable && (
+            <button
+              onClick={() => { handleOpenAsPage('activity'); setShowTopicsMenu(false); setExpandedTool(null); }}
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Activity size={isMobile ? 18 : 14} />
+              <span className="flex-1 text-left">Activity</span>
+            </button>
+          )}
+          {openclawAvailable && (
+            <button
+              onClick={() => { handleOpenAsPage('agents'); setShowTopicsMenu(false); setExpandedTool(null); }}
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Cpu size={isMobile ? 18 : 14} />
+              <span className="flex-1 text-left">Agents</span>
+              {agentLiveCount > 0 && (
+                <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-primary text-white text-[9px] font-bold rounded-full leading-none px-1">
+                  {agentLiveCount}
+                </span>
+              )}
+            </button>
+          )}
           {TOPICS_MENU_PAGES
             .filter(({ id }) => id !== 'cron' || openclawAvailable)
             .map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
                 onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <Icon size={isMobile ? 18 : 14} />
                 <span className="flex-1 text-left">{label}</span>
@@ -933,14 +939,16 @@ function App() {
           AND the dropdown are the canonical components — no third menu
           implementation. */}
 
-      {expandedTool === 'remote' && !showTopicsMenu && remoteAccessBtnRef.current && createPortal(
+      {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
           ref={remoteAccessDropdownRef}
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
           style={{
             position: 'fixed',
-            top: remoteAccessBtnRef.current.getBoundingClientRect().bottom + 4,
-            right: window.innerWidth - remoteAccessBtnRef.current.getBoundingClientRect().right,
+            // Anchored to the Topics ▾ menu (its trigger is now the menu item),
+            // opening at the same spot as the Topics dropdown.
+            top: topicsMenuPos.top,
+            left: topicsMenuPos.left,
             zIndex: 9999,
           }}
         >
