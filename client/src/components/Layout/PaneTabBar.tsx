@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Crown } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -17,6 +17,10 @@ import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '../../lib/selectionStyles';
+import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
+import { TopicIcon } from '../../lib/topicIcons';
+import { useTopics } from '../../contexts/TopicsContext';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -96,12 +100,28 @@ interface PaneTabBarProps {
    * Defaults to `groupIsFocused`'s value for legacy callers.
    */
   groupIsAppFocused?: boolean;
+  /** Show "Apri / Crea Progetto" in the add-pane "+" menu. Passed only by the
+   *  STANDALONE tab bar — project tab bars (GroupLayout) omit it, since you
+   *  don't open/create a project from inside a project. */
+  showProjectActions?: boolean;
+  /**
+   * Schematic of the surrounding split layout, with THIS group's cell flagged
+   * as active. Rendered as a tiny grid of squares at the trailing edge of the
+   * bar so the user can see where this tab lives in a multi-pane split. Omit
+   * (single-cell layouts, standalone, sidebar) to render nothing.
+   */
+  splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, showProjectActions, splitMap: _splitMap }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
+  // Resolve per-topic icon + colour for chat tabs so the tab bar reads in the
+  // SAME visual language as the sidebar (which already shows the topic's own
+  // icon). Without this, every chat tab fell back to a generic MessageSquare
+  // while the sidebar row showed the real icon — a jarring inconsistency.
+  const topics = useTopics();
   // Add-pane menu (button + portal + items + Electron overlay path) is
   // entirely owned by <PaneAddMenu>. PaneTabBar used to inline the
   // button + click handler + portal + outside-click effect — all of that
@@ -540,39 +560,32 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             <PaneTabPendingOverlay paneId={pane.id} />
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
+            ) : pane.type === 'terminal' && pane.title === 'Master' ? (
+              <Crown size={14} className="flex-shrink-0 text-purple-400" />
             ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
               <ClaudeIcon size={14} className="flex-shrink-0 text-[#D97757]" />
+            ) : pane.type === 'chat' && pane.topicId && topics[pane.topicId] ? (
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                <TopicIcon name={topics[pane.topicId].icon} color={topics[pane.topicId].color || undefined} size={14} />
+              </span>
+            ) : pane.type === 'project' && pane.projectPath ? (
+              // Same real project favicon the sidebar shows (GET /api/projects/icon),
+              // with the SAME "no fake folder glyph" convention: projects WITHOUT a
+              // shipped favicon/manifest icon render nothing (fallback=null), exactly
+              // like the sidebar row. Only real icons appear.
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                <ProjectFavicon path={pane.projectPath} size={14} fallback={null} />
+              </span>
             ) : Icon ? (
               <Icon size={14} className="flex-shrink-0" />
             ) : null}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
-            {pane.type === 'project' && projectStatus?.[pane.id] && (() => {
-              const ps = projectStatus[pane.id];
-              // The project tab shows the project NAME (the label above) — never
-              // the git branch. The branch added noise and pushed the name into
-              // truncation; the useful at-a-glance status (dirty file count,
-              // ahead/behind, running processes) stays. Branch lives in the
-              // git/terminal panes where it's actually actionable.
-              return (
-                <span className="flex items-center gap-1 min-w-0 overflow-hidden text-[11px] font-medium">
-                  {ps.gitFileCount > 0 && (
-                    <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>
-                  )}
-                  {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
-                    <span className="text-blue-500 dark:text-blue-400 leading-none whitespace-nowrap">
-                      {ps.gitAhead > 0 && <>{ps.gitAhead}↑</>}
-                      {ps.gitBehind > 0 && <>{ps.gitAhead > 0 ? ' ' : ''}{ps.gitBehind}↓</>}
-                    </span>
-                  )}
-                  {ps.runningProcessCount > 0 && (
-                    <span className="flex items-center gap-0.5 text-green-500 dark:text-green-400 leading-none">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                      {ps.runningProcessCount}
-                    </span>
-                  )}
-                </span>
-              );
-            })()}
+            {/* Project tabs intentionally do NOT show git status numbers (changed
+                files / ahead-behind / running processes) — the sidebar project row
+                dropped them (cryptic numbers) and the two surfaces must read the
+                same: icon + name + notification badge + loading spinner. Git /
+                process status lives in the git & terminal panes where it's
+                actionable. */}
             {/* Loading spinner — one canonical widget per pane kind.
                 All three read from StreamingContext; rendering only when
                 the corresponding signal is on. Chat is interruptible
@@ -596,6 +609,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
             {pane.type === 'agents' && <AgentStreamingSpinner />}
+            {/* The split position mini-map lives on the SIDEBAR cards, not on
+                the tab bar (user preference) — see TopicItem / SplitMiniMap. */}
             <NotificationBadge count={badgeCount} className="ml-0.5" />
             <PaneCloseButton
               paneId={pane.id}
@@ -640,6 +655,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             onNewChat={onNewChat}
             onAddPane={onAddPane}
             availableTypes={availableTypes}
+            showProjectActions={showProjectActions}
             // Cmd/Ctrl+N targets the focused group's New Chat — true here.
             showShortcuts
             noElectronDrag

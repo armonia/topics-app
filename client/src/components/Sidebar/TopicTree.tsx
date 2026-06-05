@@ -10,15 +10,18 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { MasterMonitorToggle } from './MasterMonitorToggle';
+import { utilityPanelId } from '@/components/Layout/UtilityPanel';
 import { topicsApi } from '@/lib/api';
-import { createPaneId, useProjectTabStatus, getAddableTypesForScope } from '@/state/pane/adapters';
+import { createPaneId, getAddableTypesForScope } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
+import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { useStreamingCount, useAttentionSignals, signalsActions } from '@/state/signals';
+import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { SELECTED_SURFACE } from '@/lib/selectionStyles';
+import { sidebarRowCard } from '@/lib/selectionStyles';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -152,17 +155,6 @@ export function TopicTree({
     });
   }, [onToggleProject]);
 
-  // Project tab status for sidebar indicators
-  const sidebarProjectPaths = useMemo(() => {
-    const paths = new Set<string>();
-    for (const t of Object.values(topics)) {
-      if (t.projectPath) paths.add(t.projectPath);
-    }
-    for (const p of workspaceProjects) paths.add(p);
-    return [...paths];
-  }, [topics, workspaceProjects]);
-  const projectTabStatus = useProjectTabStatus(sidebarProjectPaths);
-
   // Close project context menu on outside click
   useEffect(() => {
     if (!projectContextMenu) return;
@@ -183,6 +175,16 @@ export function TopicTree({
   // the same thing the tab bar does (Claude needs-you, finished terminal turns),
   // not just raw server unread.
   const { claudeAttentionTopics, terminalFinishedIds } = useAttentionSignals();
+  // Active inner pane per open project (reported by each ProjectWindow). Lets a
+  // project's child row (chat/terminal) light up when that project is the
+  // focused pane — focusedPanelId stays the project pane, so without this only
+  // the folder would highlight. See state/projectFocus.ts.
+  const activePaneByProject = useProjectFocusStore(s => s.activePaneByProject);
+  const isActiveInnerChild = useCallback((projectPath: string | undefined, innerPaneId: string) => {
+    if (!projectPath) return false;
+    if (focusedTopicId !== createPaneId('project', projectPath)) return false;
+    return activePaneByProject[projectPath] === innerPaneId;
+  }, [focusedTopicId, activePaneByProject]);
   // Master Topics are surfaced exclusively by the dedicated "Master"
   // sidebar shortcut at the top of the tree — hide them from the
   // generic topic list so the user has a single, unambiguous entry
@@ -259,7 +261,9 @@ export function TopicTree({
   const renderChatItem = (item: SidebarItem, depth = 0) => {
     const topic = item.topic!;
     const isOpen = openPanels.includes(topic.id);
-    const isFocused = focusedTopicId === topic.id;
+    // Focused directly, OR the active inner chat of the focused project.
+    const isFocused = focusedTopicId === topic.id
+      || isActiveInnerChild(topic.projectPath, createPaneId('chat', topic.id));
 
     return (
       <TopicItem
@@ -295,11 +299,12 @@ export function TopicTree({
   const renderTerminalItem = (item: SidebarItem, depth = 0) => {
     const ts = item.terminal!;
     const paneId = `terminal:${ts.id}`;
-    // Same selection semantics as chat rows: blue highlight ONLY for the
-    // focused (current) terminal; a merely-open-elsewhere terminal gets the
-    // subtle "open" styling, not the accent. (Open is computed across top-level
-    // AND project-internal panes so the row still reflects that a tab exists.)
-    const isFocused = focusedTopicId === paneId;
+    // Highlight ONLY the focused (current) terminal: either it's the App-focused
+    // pane, OR it's the active inner pane of the focused project (terminals open
+    // INSIDE a project, so focusedPanelId stays the project pane — without this
+    // only the folder would light). A merely-open-elsewhere terminal gets the
+    // subtle "open" styling.
+    const isFocused = focusedTopicId === paneId || isActiveInnerChild(item.projectPath, paneId);
     const isOpen = allOpenPaneIds.has(paneId);
 
     return (
@@ -350,13 +355,18 @@ export function TopicTree({
     const allArchived = item.archived;
     const children = item.children || [];
     const allChats = children.filter(c => c.type === 'chat').map(c => c.topic!);
+    // The folder is selected whenever its project is the focused pane — exactly
+    // like the project's tab in the tab bar. Its active inner child also lights
+    // (below): now that selection is a flat fill (no ring/shadow), folder + child
+    // read as one clean nested-selection block, not overlapping rows.
+    const folderFilled = isProjectFocused;
 
     return (
       <div key={item.id}>
         {/* Project header */}
         <div
-          className={`group/proj flex items-center h-11 md:h-8 transition-colors relative select-none border-b border-app-border/40 md:border-b-0 ${
-            isProjectFocused ? SELECTED_SURFACE : isProjectOpen ? 'bg-app-hover' : 'hover:bg-app-hover'
+          className={`group/proj flex items-center h-11 md:h-8 px-2 select-none ${
+            sidebarRowCard({ focused: folderFilled })
           }`}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -365,59 +375,61 @@ export function TopicTree({
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
+          {/* Chevron is its own control — toggles the accordion ONLY (expand /
+              collapse), never moves focus. Separating it from the name button
+              means clicking the row to focus a project can't accidentally
+              collapse it. */}
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleProject(item.id); }}
+            className="flex items-center justify-center w-5 h-full flex-shrink-0 text-app-text-secondary hover:text-app-text transition-colors"
+            aria-label={isExpanded ? `Collapse ${item.name}` : `Expand ${item.name}`}
+            aria-expanded={isExpanded}
+          >
+            <ChevronRight size={12} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+          </button>
+          {/* Name button:
+              - not selected → FOCUS the project + EXPAND it (show children).
+              - already selected → a repeat click TOGGLES the accordion, so
+                clicking the current project again closes it (and re-opens it).
+              The chevron always toggles regardless of selection. */}
           <button
             onClick={() => {
-              toggleProject(item.id);
-              if (onProjectClick) onProjectClick(pp);
+              if (isProjectFocused) {
+                // Already the focused project — repeat click collapses/expands.
+                toggleProject(item.id);
+              } else {
+                if (onProjectClick) onProjectClick(pp);
+                if (!isExpanded) toggleProject(item.id);
+              }
             }}
             className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
               isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
             }`}
-            style={{ paddingLeft: 12 }}
             title={pp}
             aria-label={`${item.name} project`}
             data-testid={`project-toggle-${item.name}`}
           >
-            <ChevronRight size={12} className={`transition-transform duration-150 flex-shrink-0 text-app-text-secondary ${isExpanded ? 'rotate-90' : ''}`} />
-            {/* No hardcoded folder icon — show a project icon only when one comes
-                from a real manifest (none today, so the row is just caret + name). */}
+            {/* Real project icon when the folder ships a favicon / web-manifest
+                / index.html <link rel=icon> (resolved by /api/projects/icon).
+                Folders without one render nothing — no fake folder glyph. */}
+            <ProjectFavicon path={pp} size={14} className="mr-0.5" />
             <span className="truncate flex-1">{item.name}</span>
           </button>
-          <div className="flex items-center pr-1 flex-shrink-0">
+          <div className="flex items-center flex-shrink-0">
             {/* Project loading indicator — same component the project tab uses
                 (PaneTabBar): a spinner while any child is producing output.
                 "Needs you" (Claude awaiting, finished turns) is NOT a separate
                 dot anymore — it rolls up into the notification badge below, so
                 the sidebar row and the project tab show one consistent count. */}
             <ProjectStreamingSpinner projectPath={pp} className="mr-1.5" />
-            {/* Git/process status indicators */}
-            {(() => {
-              const ps = projectTabStatus[pp];
-              const showBranch = ps?.gitBranch && ps.gitBranch !== 'main' && ps.gitBranch !== 'master';
-              const hasStatus = ps && (showBranch || ps.gitFileCount > 0 || ps.gitAhead > 0 || ps.gitBehind > 0 || ps.runningProcessCount > 0);
-              return hasStatus ? (
-                <span className={`flex items-center gap-1 text-[11px] font-medium mr-1.5 min-w-0 ${isTouch ? '' : 'group-hover/proj:hidden'}`}>
-                  {showBranch && <span className="truncate max-w-[60px] text-app-text-tertiary" title={ps.gitBranch}>{ps.gitBranch}</span>}
-                  {ps.gitFileCount > 0 && <span className="px-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 leading-none py-px">{ps.gitFileCount}</span>}
-                  {(ps.gitAhead > 0 || ps.gitBehind > 0) && (
-                    <span className="text-blue-500 dark:text-blue-400 leading-none whitespace-nowrap">
-                      {ps.gitAhead > 0 && <>{ps.gitAhead}↑</>}{ps.gitBehind > 0 && <>{ps.gitAhead > 0 ? ' ' : ''}{ps.gitBehind}↓</>}
-                    </span>
-                  )}
-                  {ps.runningProcessCount > 0 && (
-                    <span className="flex items-center gap-0.5 text-green-500 dark:text-green-400 leading-none">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />{ps.runningProcessCount}
-                    </span>
-                  )}
-                </span>
-              ) : null;
-            })()}
-            {/* Rolled-up notification count (children's unread + Claude
-                needs-you + finished turns) — same number as the project tab. */}
-            {item.notificationCount > 0 ? (
+            {/* Numeric status indicators (git changed-files / ahead-behind /
+                running processes / open-chat count) were removed from the
+                sidebar project header — they read as cryptic numbers. Only the
+                notification badge (unread / "needs you" attention) stays. Git
+                and process status live where they're actionable (git/terminal
+                panes + the project tab). */}
+            {item.notificationCount > 0 && (
               <NotificationBadge count={item.notificationCount} className={isTouch ? '' : 'group-hover/proj:hidden'} />
-            ) : (
-              <span className={`text-[11px] text-app-placeholder ${isTouch ? '' : 'group-hover/proj:hidden'}`}>{children.length}</span>
             )}
             {/* Action buttons on hover */}
             {!isTouch && (
@@ -556,12 +568,18 @@ export function TopicTree({
 
   const renderBoardShortcut = () => {
     if (searchQuery || !onOpenProjectBoard) return null;
+    // Board + Master are fixed sidebar tabs — show the same selected-surface
+    // highlight as the other rows when their pane is focused/open.
+    const boardPaneId = utilityPanelId('all-boards');
+    const boardActive = focusedTopicId === boardPaneId || allOpenPaneIds.has(boardPaneId);
+    const masterSession = terminalSessions.find((s) => s.name === 'Master');
+    const masterPaneId = masterSession ? createPaneId('terminal', masterSession.id) : null;
+    const masterActive = !!masterPaneId && (focusedTopicId === masterPaneId || allOpenPaneIds.has(masterPaneId));
     return (
       <div className="flex-shrink-0">
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
-          className="group/ab flex items-center gap-2 w-full h-11 md:h-8 text-left text-[14px] md:text-[13px] text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
-          style={{ paddingLeft: 12 }}
+          className={`group/ab flex items-center gap-2 h-11 md:h-8 px-2 text-left text-[14px] md:text-[13px] ${sidebarRowCard({ focused: boardActive })}`}
           title="View all project boards"
         >
           <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
@@ -579,12 +597,11 @@ export function TopicTree({
           )}
         </button>
         {onOpenMaster && (
-          <div className="flex items-center w-full hover:bg-app-hover transition-colors">
+          <div className={`flex items-center ${sidebarRowCard({ focused: masterActive })}`}>
             <button
               data-testid="sidebar-master-shortcut"
               onClick={() => onOpenMaster()}
-              className="group/mst flex items-center gap-2 flex-1 min-w-0 h-11 md:h-8 text-left text-[14px] md:text-[13px] text-app-text-secondary hover:text-app-text transition-colors"
-              style={{ paddingLeft: 12 }}
+              className="group/mst flex items-center gap-2 flex-1 min-w-0 h-11 md:h-8 px-2 text-left text-[14px] md:text-[13px]"
               title="Open Master · Global (Shift+Cmd+M)"
             >
               <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
@@ -605,7 +622,9 @@ export function TopicTree({
     <div role="tree" aria-label="Sidebar" className="flex flex-col h-full min-h-0">
       {renderBoardShortcut()}
 
-      <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
+      {/* py-[7px] + each card's my-px (1px) = 8px above the first row and below
+          the last, matching the cards' 8px lateral inset (mx-2). */}
+      <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll py-[7px]">
         {viewMode === 'timeline' ? (
           // Timeline: flat list sorted by activity
           filteredItems.map(item => renderItem(item))
@@ -697,12 +716,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
       className={[
-        'group/terminal w-full flex items-center h-11 md:h-8 transition-colors border-b border-app-border/40 md:border-b-0 relative',
-        isFocused && SELECTED_SURFACE,
-        !isFocused && isOpen && 'bg-app-hover text-app-text',
-        !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
+        'group/terminal flex items-center h-11 md:h-8 px-2',
+        sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
-      style={{ paddingLeft: 12 + depth * 16 }}
+      style={{ marginLeft: 8 + depth * 16 }}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <button
@@ -948,12 +965,10 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
   return (
     <div
       className={[
-        'group flex items-center h-11 md:h-8 cursor-pointer transition-colors duration-100 relative text-[14px] md:text-[13px] border-b border-app-border/40 md:border-b-0',
-        isFocused && SELECTED_SURFACE,
-        !isFocused && isOpen && 'bg-app-hover text-app-text',
-        !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
+        'group flex items-center h-11 md:h-8 cursor-pointer text-[14px] md:text-[13px] px-2',
+        sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
-      style={{ paddingLeft: 12 + depth * 16 }}
+      style={{ marginLeft: 8 + depth * 16 }}
       onClick={() => onOpenBrowser?.(bc.id)}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
