@@ -468,7 +468,10 @@ export function GroupLayout({
                     key={groupId}
                     data-group-cell={`${rowIdx}-${groupIdx}`}
                     className="flex min-h-0 min-w-0 overflow-hidden"
-                    style={{ width: `${row.widths[groupIdx] * 100}%` }}
+                    // Fallback mirrors the row-height style above: a widths array
+                    // shorter than groupIds would otherwise yield `width: NaN%`
+                    // and collapse the cell.
+                    style={{ width: `${(row.widths[groupIdx] ?? 1 / row.groupIds.length) * 100}%` }}
                   >
                     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
                       {/* Per-group tab bar — h-10 to match the project sidebar header
