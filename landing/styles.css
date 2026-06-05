@@ -97,7 +97,7 @@ a{color:inherit;text-decoration:none}
 @keyframes pulse{0%{box-shadow:0 0 0 0 hsl(150 80% 55% / .5)}70%,100%{box-shadow:0 0 0 7px hsl(150 80% 55% / 0)}}
 
 /* ───────── product window (real-app recreation, 16:10) ───────── */
-.showcase{position:relative;max-width:1060px;margin:62px auto 0;padding:0 4px}
+.showcase{position:relative;max-width:1200px;margin:62px auto 0;padding:0 4px}
 .showcase__glow{position:absolute;inset:-6% 4% 16%;z-index:-1;border-radius:50%;background:var(--grad);filter:blur(96px);opacity:.45}
 .window{aspect-ratio:16/10;display:flex;flex-direction:column;border-radius:15px;overflow:hidden;border:1px solid var(--border-2);background:hsl(222 45% 7% / .82);-webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%);box-shadow:var(--shadow-lg),0 0 0 1px hsl(0 0% 100% / .04) inset;transform:perspective(1900px) rotateX(6deg) scale(.99);transform-origin:50% 100%;transition:transform .6s var(--ease)}
 .showcase:hover .window{transform:perspective(2600px) rotateX(1.5deg) scale(1)}
@@ -105,7 +105,13 @@ a{color:inherit;text-decoration:none}
 .window-real{position:relative;margin:0;border-radius:14px;overflow:hidden;border:1px solid var(--border-2);background:hsl(222 45% 7% / .9);box-shadow:var(--shadow-lg),0 0 0 1px hsl(0 0% 100% / .05) inset;transform:perspective(2000px) rotateX(6deg) scale(.99);transform-origin:50% 100%;transition:transform .6s var(--ease)}
 .showcase:hover .window-real{transform:perspective(2800px) rotateX(1.5deg) scale(1)}
 .window-real img{display:block;width:100%;height:auto}
-iframe.window-real{width:100%;aspect-ratio:16/10;display:block;background:#06080f;color-scheme:dark}
+/* Bigger-screen feel: the frame is the visible box (clips + tilts); the iframe
+   inside renders at a LARGER logical viewport (1/scale) and is scaled back down,
+   so the app looks like it's on a roomier monitor without shrinking the hero.
+   --demo-scale .70 → the app renders at ~1.43× the frame's CSS px. */
+.showcase__frame{--demo-scale:.70;position:relative;aspect-ratio:16/10;overflow:hidden;border-radius:14px;border:1px solid var(--border-2);background:hsl(222 45% 7% / .9);box-shadow:var(--shadow-lg),0 0 0 1px hsl(0 0% 100% / .05) inset;transform:perspective(2000px) rotateX(6deg) scale(.99);transform-origin:50% 100%;transition:transform .6s var(--ease)}
+.showcase:hover .showcase__frame{transform:perspective(2800px) rotateX(1.5deg) scale(1)}
+iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-scale));height:calc(100% / var(--demo-scale));transform:scale(var(--demo-scale));transform-origin:top left;border:0;display:block;background:#06080f;color-scheme:dark}
 .window-real__gloss{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,hsl(0 0% 100% / .06),transparent 12%),radial-gradient(120% 60% at 50% -10%,hsl(225 100% 80% / .1),transparent 60%)}
 .window__bar{display:flex;align-items:center;gap:12px;padding:9px 13px;background:hsl(222 40% 9.5% / .85);border-bottom:1px solid var(--border);flex:none}
 .traffic{display:flex;gap:7px;flex:none}.traffic i{width:11px;height:11px;border-radius:50%}
