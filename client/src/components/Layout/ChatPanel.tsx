@@ -1,17 +1,16 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { LazyPane } from './LazyPane';
 import { Settings, Pin, X, ExternalLink, Layers, Globe } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
-import { topicsApi, commandApi, masterApi } from '../../lib/api';
+import { topicsApi, commandApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
-import { MasterBoardStrip } from '../Board/MasterBoardStrip';
 import { useContextInspector } from '../../hooks/useContextInspector';
 
 const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
@@ -138,18 +137,6 @@ export function ChatPanel({
   const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
 
-  // refactor-master-into-kanban (AD-3) — when the Master (lead) finishes a
-  // reply, ingest its `## Next` proposals into the kanban as cards. Fire on the
-  // streaming true→false edge so we ingest exactly once per completed reply.
-  const masterStreaming = topic.agentTeamRole === 'lead' && isSessionStreaming(topic.sessionKey);
-  const masterStreamingRef = useRef(false);
-  useEffect(() => {
-    if (topic.agentTeamRole === 'lead' && masterStreamingRef.current && !masterStreaming) {
-      masterApi.ingest(topic.id).catch(() => {});
-    }
-    masterStreamingRef.current = masterStreaming;
-  }, [masterStreaming, topic.agentTeamRole, topic.id]);
-
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
   return (
@@ -264,30 +251,6 @@ export function ChatPanel({
                 onOpenSessionViewer={onOpenSessionViewer}
                 masterPaneId={masterPaneId}
                 onFocusPanel={onFocusPanel}
-                aboveInputSlot={topic.agentTeamRole === 'lead' ? (
-                  /* MASTER-01 (Variant A) — Master Topics get the board
-                     strip pinned just above the input so orchestration
-                     context stays visible while typing. */
-                  <MasterBoardStrip
-                    onMessage={onWSMessage}
-                    onJumpToTopic={(id) => {
-                      // Open / focus locally — handleFocusPanel knows how to
-                      // route project-scoped topics correctly. Falls back to
-                      // sendFocusTopic for presence if not wired in.
-                      if (onFocusPanel) onFocusPanel(id);
-                      else sendFocusTopic(sendWS, id);
-                    }}
-                    onAskMaster={(prompt) => { sendMessage(topic.sessionKey, prompt); }}
-                    lastAssistantMessage={(() => {
-                      const msgs = getSessionMessages(topic.sessionKey);
-                      for (let i = msgs.length - 1; i >= 0; i--) {
-                        if (msgs[i].role === 'assistant') return msgs[i].content;
-                      }
-                      return undefined;
-                    })()}
-                    isMasterStreaming={isSessionStreaming(topic.sessionKey)}
-                  />
-                ) : undefined}
               />
             </div>
           </div>
