@@ -15,6 +15,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import { globalBoardApi, boardsApi, type BoardTask, type TaskStatus } from '../../lib/api';
 import type { WSMessage } from '../../types';
+import { AgentsBoardSection } from './AgentsBoardSection';
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
   { id: 'backlog', label: 'Backlog', color: 'text-app-text-muted' },
@@ -208,6 +209,9 @@ export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) 
           <span>Apri Master</span>
         </button>
       </div>
+
+      {/* Agents status board — status + preview + recommended action + Autopilot */}
+      <AgentsBoardSection onMessage={onMessage} onJumpToTopic={onJumpToTopic} />
 
       {/* Kanban columns */}
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
