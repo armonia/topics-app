@@ -234,25 +234,9 @@ export function KanbanBoard({ projectId, topicId, onWSMessage, onJumpToTopic }: 
         <button
           type="button"
           data-testid="start-master-session"
-          onClick={async () => {
-            try {
-              const resp = await fetch("/api/topics/master", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({}),
-              });
-              if (!resp.ok) {
-                console.warn("[Master] create failed", resp.status);
-                return;
-              }
-              const body = (await resp.json()) as { id: string };
-              onJumpToTopic?.(body.id);
-            } catch (err) {
-              console.warn("[Master] create error", err);
-            }
-          }}
+          onClick={() => window.dispatchEvent(new CustomEvent('open-master'))}
           className="flex items-center gap-1 px-2 py-1 mr-1 rounded text-[11px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
-          title="Start a Master session (Agent Teams). The lead can spawn teammates on any project."
+          title="Apri il Master (sessione Claude Code interattiva, sul tuo abbonamento)"
         >
           <Crown size={11} />
           <span>Master</span>

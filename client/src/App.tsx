@@ -25,6 +25,7 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
+import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { SidebarControls } from './components/Sidebar/SidebarControls';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -305,7 +306,7 @@ function App() {
   // for the full effect-declaration-order contract.
   const panelLifecycle = usePanelLifecycle({
     isDetached, detachedTopicId, isMobile,
-    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject,
+    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
     workspaceProjects,
     terminalSessions,
     pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
@@ -340,6 +341,38 @@ function App() {
     setNextPanelMode, setExpandedProjects, setContextMenu,
     setPendingProjectFocus, setPendingProjectPane, setPanelInitialTab,
   } = panelLifecycle.handlers;
+
+  // Open / create a project via the native folder picker (select an existing
+  // folder OR create a new one in the OS dialog). Shared by CommandPalette
+  // (onNewProject) and PaneAddMenu's "Apri/Crea Progetto" items, the latter
+  // firing a window event so the action needs no prop-threading through every
+  // menu host. No-op outside Electron (selectDirectory is undefined).
+  const handleOpenProjectPicker = useCallback(async () => {
+    const api = (window as unknown as { electronAPI?: { selectDirectory?: () => Promise<string | null> } }).electronAPI;
+    const path = await api?.selectDirectory?.();
+    if (path) handleProjectClick(path);
+  }, [handleProjectClick]);
+
+  useEffect(() => {
+    const handler = () => { void handleOpenProjectPicker(); };
+    window.addEventListener('topics:open-project-picker', handler);
+    return () => window.removeEventListener('topics:open-project-picker', handler);
+  }, [handleOpenProjectPicker]);
+
+  // Open the Master as an interactive `claude` PTY tab (subscription, human-
+  // driven) — NOT a chat topic. Single entry point reused by the sidebar
+  // shortcut, the ⇧⌘M shortcut, and the board buttons via the 'open-master'
+  // event, so no path can fall back to the old layout-breaking chat-master.
+  // interactive-claude-primitive.
+  const openMasterTerminal = useCallback(() => {
+    void handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
+  }, [handleQuickCreateTerminal]);
+
+  useEffect(() => {
+    const handler = () => openMasterTerminal();
+    window.addEventListener('open-master', handler);
+    return () => window.removeEventListener('open-master', handler);
+  }, [openMasterTerminal]);
 
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -514,6 +547,7 @@ function App() {
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
+    <SplitPositionProvider>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
         errors on any topic. Reads settings live so the master toggle in
@@ -682,6 +716,7 @@ function App() {
                 }
               }}
               availableTypes={['terminal', 'browser']}
+              showProjectActions
               showShortcuts
               triggerTitle="New (⌘N)"
             />
@@ -724,14 +759,7 @@ function App() {
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
             onOpenProjectBoard={handleOpenProjectBoard}
-            onOpenMaster={async () => {
-              // Master is now an interactive `claude` PTY with the orchestrator
-              // system prompt (subscription, human-driven) — NOT a chat topic.
-              // Open it as a normal terminal TAB so it doesn't disrupt the
-              // layout. interactive-claude-primitive (was: POST /api/topics/master
-              // → chat pane, which broke the layout).
-              await handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
-            }}
+            onOpenMaster={openMasterTerminal}
             boardTaskCounts={boardTaskCounts}
             onNewChat={() => handleQuickCreateTopic()}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
@@ -978,10 +1006,7 @@ function App() {
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
-            onNewProject={isElectron ? async () => {
-              const path = await (window as any).electronAPI?.selectDirectory?.();
-              if (path) handleProjectClick(path);
-            } : undefined}
+            onNewProject={isElectron ? handleOpenProjectPicker : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
             onToggleTheme={toggleTheme}
@@ -1050,6 +1075,7 @@ function App() {
     </div>
     </PendingActionProvider>
     </ToastProvider>
+    </SplitPositionProvider>
     </GlobalTabIndexProvider>
     </TabNotificationProvider>
     </TopicsProvider>
