@@ -1205,6 +1205,9 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   notificationsSound: boolean;
   notifyEvenWhenFocused: boolean;
+  // Sidebar Board/Master shortcuts — default on, opt-out from Settings → Aspetto.
+  showBoard: boolean;
+  showMaster: boolean;
 }
 
 export interface ProcessInfo {

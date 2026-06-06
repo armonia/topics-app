@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'rea
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
+import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
+import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
@@ -407,6 +409,16 @@ export function PanelGrid({
     if (!isServerHydrated) return;
     setGridRowHeights(prev => {
       if (prev.length === gridRows.length && gridRows.length > 0) return prev;
+      if (gridRows.length === 0) return [];
+      // Rows ADDED (e.g. a split-down created a row): keep the existing rows'
+      // manual heights in proportion and give the new rows a fair share —
+      // instead of flattening every row back to 1/n (the vertical-axis twin of
+      // the "split resets my layout" bug gridWidths.ts fixed for columns).
+      if (gridRows.length > prev.length) {
+        return appendColumnWidths(prev, gridRows.length - prev.length);
+      }
+      // Rows removed: the dropped index isn't recoverable from this
+      // count-keyed effect, so fall back to an equal split.
       return gridRows.map(() => 1 / Math.max(1, gridRows.length));
     });
   }, [gridRows.length, isServerHydrated]);
@@ -469,7 +481,7 @@ export function PanelGrid({
     },
   }), []);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
+  const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, resizeCallbacks, resizeOptions);
 
   // ISSUE 19 FIX: Track ghost DOM elements so they can be cleaned up
   // if the component unmounts during a rAF callback.
@@ -1286,9 +1298,48 @@ export function PanelGrid({
    *
    * Also pre-empty-state — see `handleCellStackResize` rationale above.
    */
+  // Split mini-map descriptor — real column widths per row + row heights, so
+  // the schematic mirrors the actual split proportions. Top-level cells only
+  // (vertical sub-stacks aren't represented); enough to orient "which pane in
+  // the grid is this". Omitted for single-cell grids. Memoized so
+  // `renderGroupForKey` keeps a stable identity across renders.
+  const splitRowWidths = useMemo(() => gridRows.map((r) => r.widths), [gridRows]);
+  const hasGridSplit = useMemo(() => splitRowWidths.reduce((a, r) => a + r.length, 0) > 1, [splitRowWidths]);
+
+  // Publish each open topic's grid position so the SIDEBAR cards can render the
+  // same proportional mini-map with that topic's cell lit (not just the tab
+  // bar). Every topic in a cell — including those stacked in a vertical
+  // sub-stack under that cell — maps to the cell's [row, col]. Empty (→ no
+  // sidebar maps) when the grid isn't split.
+  const publishSplitPositions = usePublishSplitPositions();
+  const topicPositions = useMemo<Map<string, SplitMapDescriptor>>(() => {
+    const out = new Map<string, SplitMapDescriptor>();
+    if (!hasGridSplit) return out;
+    const assign = (key: string, rowIdx: number, colIdx: number) => {
+      const item = itemMap.get(key);
+      if (!item) return;
+      for (const topicId of item.panelIds) {
+        out.set(topicId, { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] });
+      }
+    };
+    gridRows.forEach((row, rowIdx) => {
+      row.itemKeys.forEach((key, colIdx) => {
+        assign(key, rowIdx, colIdx);
+        // Vertical sub-stack items share the host cell's coordinates.
+        const stack = row.cellStacks?.[key];
+        if (stack) for (const stackedKey of stack.items) assign(stackedKey, rowIdx, colIdx);
+      });
+    });
+    return out;
+  }, [hasGridSplit, gridRows, itemMap, splitRowWidths, gridRowHeights]);
+  useEffect(() => {
+    publishSplitPositions(topicPositions);
+  }, [topicPositions, publishSplitPositions]);
+
   const renderGroupForKey = useCallback(
     (item: GridItem, key: string, rowIdx: number, colIdx: number) => (
       <StandaloneChatGroup
+        splitMap={hasGridSplit ? { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] } : undefined}
         topicIds={item.panelIds}
         focusedPanelId={focusedPanelId}
         masterPaneId={masterPaneId}
@@ -1347,6 +1398,7 @@ export function PanelGrid({
       onCreateTerminal, handleStandaloneUtilityChange, pendingBrowserPane,
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
       draftMeta, handleSplitPane, handleUnsoloTopic,
+      hasGridSplit, splitRowWidths, gridRowHeights,
     ],
   );
 
@@ -1529,6 +1581,7 @@ export function PanelGrid({
                       widths={row.widths}
                       isDragActive={isAnyDragActive}
                       onResizeStart={startHorizontalResize(rowIdx, colIdx, row.widths)}
+                      onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length)}
                       onInsertBetween={handleInsertBetweenColumns}
                     />
                   )}
@@ -1543,6 +1596,7 @@ export function PanelGrid({
               rowIdx={rowIdx}
               isDragActive={isAnyDragActive}
               onResizeStart={startVerticalResize(rowIdx, gridRowHeights)}
+              onEqualize={equalizeVertical(gridRows.length)}
               onInsertBetween={handleInsertBetweenRows}
             />
           )}

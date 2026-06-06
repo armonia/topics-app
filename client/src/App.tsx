@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -25,7 +25,7 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
-import { SidebarControls } from './components/Sidebar/SidebarControls';
+import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
@@ -37,6 +37,7 @@ import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
+import { loadSettings } from './lib/settings';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -168,6 +169,8 @@ function App() {
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
+  // Inline live search that drives the existing sidebar tree filter (searchQuery).
+  const [topicSearch, setTopicSearch] = useState('');
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -184,7 +187,6 @@ function App() {
   // Re-apply the user's saved Claude Code model preference once the providers
   // snapshot is available; resets each session unless localStorage has been set.
   useClaudeCodeModelSync();
-  const remoteAccessBtnRef = useRef<HTMLButtonElement>(null);
   const remoteAccessDropdownRef = useRef<HTMLDivElement>(null);
   const [expandedTool, setExpandedTool] = useState<SidebarTab | null>(null);
   const topicsMenuRef = useRef<HTMLDivElement>(null);
@@ -205,12 +207,13 @@ function App() {
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
   }, [showTopicsMenu]);
 
-  // Close remote access dropdown on outside click or Escape
+  // Close remote access dropdown on outside click or Escape. The trigger now
+  // lives inside the Topics ▾ menu, so guard against the Topics menu wrapper.
   useEffect(() => {
     if (expandedTool !== 'remote') return;
     const h = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (remoteAccessBtnRef.current?.contains(t) || remoteAccessDropdownRef.current?.contains(t)) return;
+      if (topicsMenuRef.current?.contains(t) || remoteAccessDropdownRef.current?.contains(t)) return;
       setExpandedTool(null);
     };
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setExpandedTool(null); e.stopPropagation(); } };
@@ -305,7 +308,7 @@ function App() {
   // for the full effect-declaration-order contract.
   const panelLifecycle = usePanelLifecycle({
     isDetached, detachedTopicId, isMobile,
-    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject,
+    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
     workspaceProjects,
     terminalSessions,
     pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
@@ -340,6 +343,40 @@ function App() {
     setNextPanelMode, setExpandedProjects, setContextMenu,
     setPendingProjectFocus, setPendingProjectPane, setPanelInitialTab,
   } = panelLifecycle.handlers;
+
+  // Open / create a project via the native folder picker (select an existing
+  // folder OR create a new one in the OS dialog). Shared by CommandPalette
+  // (onNewProject) and PaneAddMenu's "Apri/Crea Progetto" items, the latter
+  // firing a window event so the action needs no prop-threading through every
+  // menu host. No-op outside Electron (selectDirectory is undefined).
+  const handleOpenProjectPicker = useCallback(async () => {
+    const api = (window as unknown as { electronAPI?: { selectDirectory?: () => Promise<string | null> } }).electronAPI;
+    const path = await api?.selectDirectory?.();
+    if (path) handleProjectClick(path);
+  }, [handleProjectClick]);
+
+  useEffect(() => {
+    const handler = () => { void handleOpenProjectPicker(); };
+    window.addEventListener('topics:open-project-picker', handler);
+    return () => window.removeEventListener('topics:open-project-picker', handler);
+  }, [handleOpenProjectPicker]);
+
+  // Open the Master as an interactive `claude` PTY tab (subscription, human-
+  // driven) — NOT a chat topic. Single entry point reused by the sidebar
+  // shortcut, the ⇧⌘M shortcut, and the board buttons via the 'open-master'
+  // event, so no path can fall back to the old layout-breaking chat-master.
+  // interactive-claude-primitive.
+  const openMasterTerminal = useCallback(() => {
+    void handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
+  }, [handleQuickCreateTerminal]);
+
+  useEffect(() => {
+    // No-op when Master is disabled in Settings. Read via loadSettings() to
+    // avoid a stale closure on this minimal-deps effect.
+    const handler = () => { if (loadSettings().showMaster) openMasterTerminal(); };
+    window.addEventListener('open-master', handler);
+    return () => window.removeEventListener('open-master', handler);
+  }, [openMasterTerminal]);
 
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -508,12 +545,15 @@ function App() {
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
+    showBoard: appSettings.showBoard,
+    showMaster: appSettings.showMaster,
   });
 
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
+    <SplitPositionProvider>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
         errors on any topic. Reads settings live so the master toggle in
@@ -573,7 +613,7 @@ function App() {
         style={{
           width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
-          paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined,
+          paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined,
         }}
       >
 
@@ -614,6 +654,33 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
+            {/* Inline live search — drives the existing sidebar filter via searchQuery. */}
+            <div className="relative flex-1 min-w-0 app-no-drag" style={{ pointerEvents: 'auto' }}>
+              <Search
+                size={14}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-tertiary pointer-events-none"
+                aria-hidden="true"
+              />
+              <input
+                value={topicSearch}
+                onChange={(e) => setTopicSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setTopicSearch(''); } }}
+                placeholder="Cerca…"
+                aria-label="Cerca nei topic"
+                className={`w-full pl-7 ${topicSearch ? 'pr-7' : 'pr-2'} ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-text placeholder:text-app-placeholder focus:outline-none focus:border-primary/50 transition-colors app-no-drag`}
+                style={{ pointerEvents: 'auto' }}
+              />
+              {topicSearch && (
+                <button
+                  onClick={() => setTopicSearch('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-app-text-tertiary hover:text-app-text rounded app-no-drag"
+                  aria-label="Cancella ricerca"
+                  style={{ pointerEvents: 'auto' }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
             {wsStatus !== 'connected' && (
               <span className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 animate-pulse">
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
@@ -625,43 +692,8 @@ function App() {
             )}
           </div>
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
-            {openclawAvailable && (
-              <button
-                onClick={() => handleOpenAsPage('activity')}
-                className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer`}
-                style={{ pointerEvents: 'auto' }}
-                title="Activity"
-                aria-label="Activity"
-              >
-                <Activity size={isMobile ? 18 : 14} />
-              </button>
-            )}
-            {openclawAvailable && (
-              <button
-                onClick={() => handleOpenAsPage('agents')}
-                className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer relative`}
-                style={{ pointerEvents: 'auto' }}
-                title="Agents"
-                aria-label="Agents"
-              >
-                <Cpu size={isMobile ? 18 : 14} />
-                {agentLiveCount > 0 && (
-                  <span className="absolute -top-0.5 -right-1.5 md:-top-1 md:-right-2.5 min-w-[14px] h-[14px] flex items-center justify-center bg-primary text-white text-[8px] font-bold rounded-full leading-none px-1">
-                    {agentLiveCount}
-                  </span>
-                )}
-              </button>
-            )}
-            <button
-              onClick={() => setExpandedTool(expandedTool === 'remote' ? null : 'remote')}
-              className={`${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover rounded-md transition-colors cursor-pointer ${expandedTool === 'remote' ? 'bg-app-hover text-app-text' : ''}`}
-              style={{ pointerEvents: 'auto' }}
-              title="Remote Access"
-              aria-label="Remote Access"
-              ref={remoteAccessBtnRef}
-            >
-              <Radio size={isMobile ? 18 : 14} />
-            </button>
+            {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
+                the header right side is now just the canonical "+" add menu. */}
             {/* Single canonical <PaneAddMenu> — same trigger button,
                 same opened menu, same brand-tinted icons (Claude
                 orange, Shell purple, Browser green, Git red, Files
@@ -682,20 +714,16 @@ function App() {
                 }
               }}
               availableTypes={['terminal', 'browser']}
+              showProjectActions
               showShortcuts
               triggerTitle="New (⌘N)"
             />
           </div>
         </div>
 
-        {/* Search + view controls */}
-        <SidebarControls
-          onOpenCommandPalette={() => setShowSearch(true)}
-          viewMode={sidebar.viewMode}
-          onToggleViewMode={sidebar.toggleViewMode}
-          showArchived={sidebar.showArchived}
-          onToggleArchived={sidebar.toggleShowArchived}
-        />
+        {/* SidebarControls removed: search is now the inline header input,
+            view-mode + archived toggles live in the Topics ▾ menu, and ⌘K
+            (CommandPalette) remains via setShowSearch / the keyboard shortcut. */}
         {topicsError && <div className="px-2 text-red-500 text-[11px]">{topicsError}</div>}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
@@ -706,7 +734,7 @@ function App() {
           <TopicTree
             topics={topics}
             workspaceProjects={workspaceProjects}
-            searchQuery=""
+            searchQuery={topicSearch}
             expandedNodes={sidebar.expandedNodes}
             onToggleNode={sidebar.toggleNode}
             focusedTopicId={focusedPanelId}
@@ -724,14 +752,9 @@ function App() {
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
             onOpenProjectBoard={handleOpenProjectBoard}
-            onOpenMaster={async () => {
-              // Master is now an interactive `claude` PTY with the orchestrator
-              // system prompt (subscription, human-driven) — NOT a chat topic.
-              // Open it as a normal terminal TAB so it doesn't disrupt the
-              // layout. interactive-claude-primitive (was: POST /api/topics/master
-              // → chat pane, which broke the layout).
-              await handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
-            }}
+            onOpenMaster={openMasterTerminal}
+            showBoard={appSettings.showBoard}
+            showMaster={appSettings.showMaster}
             boardTaskCounts={boardTaskCounts}
             onNewChat={() => handleQuickCreateTopic()}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
@@ -805,7 +828,7 @@ function App() {
 
       {/* Main Content */}
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ contain: 'layout style', paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined }}
+        style={{ contain: 'layout style', paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
@@ -868,13 +891,60 @@ function App() {
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
           style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
         >
+          {/* Sidebar controls relocated from the old <SidebarControls> row. */}
+          <button
+            onClick={() => { sidebar.toggleShowArchived(); }}
+            className={`w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] hover:bg-app-hover transition-colors mt-1 ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
+          >
+            <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
+            <span className="flex-1 text-left">Mostra archiviati</span>
+          </button>
+          <button
+            onClick={() => { sidebar.toggleViewMode(); }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            {sidebar.viewMode === 'timeline'
+              ? <LayoutGrid size={isMobile ? 18 : 14} />
+              : <List size={isMobile ? 18 : 14} />}
+            <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista a gruppi' : 'Vista timeline'}</span>
+          </button>
+          <button
+            onClick={() => { setShowTopicsMenu(false); setExpandedTool('remote'); }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+          >
+            <Radio size={isMobile ? 18 : 14} />
+            <span className="flex-1 text-left">Remote Access</span>
+          </button>
+          {openclawAvailable && (
+            <button
+              onClick={() => { handleOpenAsPage('activity'); setShowTopicsMenu(false); setExpandedTool(null); }}
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Activity size={isMobile ? 18 : 14} />
+              <span className="flex-1 text-left">Activity</span>
+            </button>
+          )}
+          {openclawAvailable && (
+            <button
+              onClick={() => { handleOpenAsPage('agents'); setShowTopicsMenu(false); setExpandedTool(null); }}
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              <Cpu size={isMobile ? 18 : 14} />
+              <span className="flex-1 text-left">Agents</span>
+              {agentLiveCount > 0 && (
+                <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-primary text-white text-[9px] font-bold rounded-full leading-none px-1">
+                  {agentLiveCount}
+                </span>
+              )}
+            </button>
+          )}
           {TOPICS_MENU_PAGES
             .filter(({ id }) => id !== 'cron' || openclawAvailable)
             .map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
                 onClick={() => { handleOpenAsPage(id); setShowTopicsMenu(false); setExpandedTool(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors mt-1"
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
               >
                 <Icon size={isMobile ? 18 : 14} />
                 <span className="flex-1 text-left">{label}</span>
@@ -898,14 +968,16 @@ function App() {
           AND the dropdown are the canonical components — no third menu
           implementation. */}
 
-      {expandedTool === 'remote' && !showTopicsMenu && remoteAccessBtnRef.current && createPortal(
+      {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
           ref={remoteAccessDropdownRef}
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
           style={{
             position: 'fixed',
-            top: remoteAccessBtnRef.current.getBoundingClientRect().bottom + 4,
-            right: window.innerWidth - remoteAccessBtnRef.current.getBoundingClientRect().right,
+            // Anchored to the Topics ▾ menu (its trigger is now the menu item),
+            // opening at the same spot as the Topics dropdown.
+            top: topicsMenuPos.top,
+            left: topicsMenuPos.left,
             zIndex: 9999,
           }}
         >
@@ -978,10 +1050,7 @@ function App() {
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
-            onNewProject={isElectron ? async () => {
-              const path = await (window as any).electronAPI?.selectDirectory?.();
-              if (path) handleProjectClick(path);
-            } : undefined}
+            onNewProject={isElectron ? handleOpenProjectPicker : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
             onToggleTheme={toggleTheme}
@@ -1050,6 +1119,7 @@ function App() {
     </div>
     </PendingActionProvider>
     </ToastProvider>
+    </SplitPositionProvider>
     </GlobalTabIndexProvider>
     </TabNotificationProvider>
     </TopicsProvider>

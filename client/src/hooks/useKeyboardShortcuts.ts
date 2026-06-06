@@ -52,6 +52,10 @@ export interface UseKeyboardShortcutsArgs {
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
   setShowFileSearch: Dispatch<SetStateAction<false | { projectPath: string }>>;
+  // Settings opt-out flags — mirrored into refs so the ⇧⌘M handler and the
+  // 'open-all-boards' listener no-op when Board/Master are hidden.
+  showBoard: boolean;
+  showMaster: boolean;
 }
 
 /**
@@ -96,6 +100,8 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const topicsRef = useRef(args.topics);
   const focusedProjectPathRef = useRef(args.focusedProjectPath);
   const closedTabsRef = useRef(args.closedTabs);
+  const showBoardRef = useRef(args.showBoard);
+  const showMasterRef = useRef(args.showMaster);
   const modalsRef = useRef({
     showSearch: args.showSearch,
     showNewTopic: args.showNewTopic,
@@ -108,6 +114,8 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   useEffect(() => { topicsRef.current = args.topics; });
   useEffect(() => { focusedProjectPathRef.current = args.focusedProjectPath; });
   useEffect(() => { closedTabsRef.current = args.closedTabs; });
+  useEffect(() => { showBoardRef.current = args.showBoard; });
+  useEffect(() => { showMasterRef.current = args.showMaster; });
   useEffect(() => {
     modalsRef.current = {
       showSearch: args.showSearch,
@@ -153,14 +161,13 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       // (Plain Cmd+M is reserved by macOS for "Minimize Window".)
       if (isMod && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
         if (isTextInputFocused(e.target)) return;
-        const master = Object.values(topicsRef.current).find(
-          (t) => !t.archived && t.agentTeamRole === 'lead',
-        );
-        if (master) {
-          e.preventDefault();
-          setFocusedPanelId(master.id);
-          return;
-        }
+        if (!showMasterRef.current) return;
+        // Master is now an interactive `claude` PTY tab — App owns the open
+        // logic; emit the shared event (same path as sidebar + board buttons).
+        // interactive-claude-primitive (was: focus the chat-master lead topic).
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('open-master'));
+        return;
       }
 
       if (isElectron && isMod && e.key === 'n') {
@@ -293,7 +300,10 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
 
   // ---- open-all-boards custom event ----
   useEffect(() => {
-    const handler = () => handleOpenAsPage('all-boards');
+    const handler = () => {
+      if (!showBoardRef.current) return;
+      handleOpenAsPage('all-boards');
+    };
     window.addEventListener('open-all-boards', handler);
     return () => window.removeEventListener('open-all-boards', handler);
   }, [handleOpenAsPage]);

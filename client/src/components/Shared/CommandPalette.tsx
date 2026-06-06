@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Search, Plus, Settings, Moon, Sun, File, FolderPlus,
-  Loader2, TerminalSquare, RotateCcw, ChevronDown, ChevronRight,
+  Search, Plus, Settings, Moon, Sun, File, FolderPlus, FolderOpen,
+  Loader2, TerminalSquare, RotateCcw,
 } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
+import { ProjectFavicon } from './ProjectFavicon';
 import { basename } from '../../lib/path-utils';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import type { Topic, SearchResult } from '../../types';
@@ -87,28 +88,6 @@ export function CommandPalette({
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Persisted accordion state so the user's collapse preference survives reloads.
-  const [projectsCollapsed, setProjectsCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('cmdk-projects-collapsed') === '1'; } catch { return false; }
-  });
-  const [recentiCollapsed, setRecentiCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('cmdk-recent-tabs-collapsed') === '1'; } catch { return false; }
-  });
-  const toggleProjects = useCallback(() => {
-    setProjectsCollapsed(v => {
-      const next = !v;
-      try { localStorage.setItem('cmdk-projects-collapsed', next ? '1' : '0'); } catch { /* storage unavailable */ }
-      return next;
-    });
-  }, []);
-  const toggleRecenti = useCallback(() => {
-    setRecentiCollapsed(v => {
-      const next = !v;
-      try { localStorage.setItem('cmdk-recent-tabs-collapsed', next ? '1' : '0'); } catch { /* storage unavailable */ }
-      return next;
-    });
-  }, []);
-
   // Debounced message search
   useEffect(() => {
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
@@ -177,10 +156,11 @@ export function CommandPalette({
       id: `project-${pp}`,
       label: getProjectLabel(pp),
       description: pp,
-      // No icon — convention used across the app (see TopicTree.tsx): a
-      // project icon is only shown when one comes from a real manifest.
-      // Until that exists, a generic folder glyph would be a "fake" affordance.
-      icon: null,
+      // Real project icon when the folder ships a favicon / web-manifest /
+      // index.html <link rel=icon> (resolved by /api/projects/icon); folders
+      // without one render nothing (no fake folder glyph — same convention as
+      // TopicTree).
+      icon: <ProjectFavicon path={pp} size={14} />,
       category: 'project' as const,
       action: () => { onOpenProject?.(pp); onClose(); },
     }));
@@ -229,10 +209,14 @@ export function CommandPalette({
     });
   }, [closedTabs, onReopenClosedTab, onClose]);
 
-  // ── Topics (right column main list, sorted by recency) ──────────────────
+  // ── Topics for SEARCH (rendered only when there's a query, sorted by recency) ──
+  // Includes ARCHIVED (= closed) topics on purpose: in the 2-state model a
+  // closed topic is reopened by finding it here and selecting it (which
+  // unarchives + opens via handleTopicClick/openPanel). Archived ones are
+  // marked "chiuso" so the state is clear. NOT shown in the empty state
+  // (the empty body renders only the Projects + Recently-closed columns).
   const topicItems = useMemo((): CommandAction[] => {
     return Object.values(topics)
-      .filter(t => !t.archived)
       .map(topic => {
         // Guard against NaN — topics without updatedAt/createdAt (e.g. the
         // Master/system topics, or chats created before timestamps were
@@ -240,10 +224,14 @@ export function CommandPalette({
         // and pins them silently at the top of the list.
         const raw = new Date(topic.updatedAt || topic.createdAt).getTime();
         const ts = Number.isFinite(raw) ? raw : 0;
+        const projLabel = topic.projectPath ? getProjectLabel(topic.projectPath) : undefined;
+        const description = topic.archived
+          ? (projLabel ? `chiuso · ${projLabel}` : 'chiuso')
+          : projLabel;
         return {
           id: `topic-${topic.id}`,
           label: topic.name,
-          description: topic.projectPath ? getProjectLabel(topic.projectPath) : undefined,
+          description,
           icon: <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />,
           category: 'topic' as const,
           _ts: ts,
@@ -293,19 +281,13 @@ export function CommandPalette({
   const filteredRecenti = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
   const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
 
-  // Flat order for keyboard nav: visible projects → visible recenti → main → files → messages.
-  // Collapsed accordions don't contribute to nav targets (their items aren't rendered).
+  // Flat order for keyboard nav, matching the render order in each mode:
+  //  · empty (no query): Projects column → Recently-closed column
+  //  · query:            Projects → Topics → Recently-closed → Files → Messages
   const allItems = useMemo(() => {
-    const arr: CommandAction[] = [];
-    if (!projectsCollapsed) arr.push(...filteredProjects);
-    if (!recentiCollapsed) arr.push(...filteredRecenti);
-    arr.push(...filteredMain, ...searchFileItems, ...searchResults);
-    return arr;
-  }, [
-    projectsCollapsed, recentiCollapsed,
-    filteredProjects, filteredRecenti, filteredMain,
-    searchFileItems, searchResults,
-  ]);
+    if (!query.trim()) return [...filteredProjects, ...filteredRecenti];
+    return [...filteredProjects, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
+  }, [query, filteredProjects, filteredRecenti, filteredMain, searchFileItems, searchResults]);
 
   // Reset selection on filter change
   useEffect(() => {
@@ -354,6 +336,20 @@ export function CommandPalette({
   // the indices in the same order `allItems` enumerates them so arrow keys
   // and rendered selection stay in sync.
   const indexOf = (id: string) => allItems.findIndex(it => it.id === id);
+  const renderRow = (item: CommandAction, opts?: { compact?: boolean; highlight?: boolean }) => {
+    const idx = indexOf(item.id);
+    return (
+      <PaletteRow
+        key={item.id}
+        item={item}
+        idx={idx}
+        selected={idx === selectedIndex}
+        onHover={setSelectedIndex}
+        compact={opts?.compact}
+        highlightTerm={opts?.highlight ? query : undefined}
+      />
+    );
+  };
 
   return (
     <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
@@ -378,155 +374,82 @@ export function CommandPalette({
           <kbd className="kbd">ESC</kbd>
         </div>
 
-        {/* Body: 3-column split. Left = Projects (always-visible accordion).
-            Center = Topics + File/Messaggi su query. Right = Tab recenti
-            (always-visible accordion). */}
-        <div className="flex-1 min-h-0 flex">
-          {/* Left column — Projects only */}
-          <aside className="w-[200px] flex-shrink-0 border-r border-app-border flex flex-col bg-app-bg/40">
-            <div className="overflow-y-auto py-1 flex-1 min-h-0">
-              <AccordionHeader
-                label="Progetti"
-                count={filteredProjects.length}
-                collapsed={projectsCollapsed}
-                onToggle={toggleProjects}
-              />
-              {!projectsCollapsed && (
-                filteredProjects.length > 0 ? (
-                  <div className="pb-1">
-                    {filteredProjects.map(item => {
-                      const idx = indexOf(item.id);
-                      return (
-                        <PaletteRow
-                          key={item.id}
-                          item={item}
-                          idx={idx}
-                          selected={idx === selectedIndex}
-                          onHover={setSelectedIndex}
-                          compact
-                        />
-                      );
-                    })}
-                  </div>
+        {/* Body. Empty (no query) = two side-by-side columns:
+            Ultimi progetti | Chiuse di recente. With a query = one full-width
+            results list with plain section labels (no collapsible accordions). */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          {!query.trim() ? (
+            <div ref={listRef} className="flex-1 min-h-0 flex">
+              {/* Ultimi progetti */}
+              <section className="flex-1 min-w-0 overflow-y-auto py-1 border-r border-app-border">
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                  Ultimi progetti
+                  {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
+                </div>
+                {filteredProjects.length > 0 ? (
+                  filteredProjects.map(item => renderRow(item, { compact: true }))
                 ) : (
                   <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessun progetto</div>
-                )
-              )}
-            </div>
-          </aside>
-
-          {/* Center column — main results */}
-          <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
-            {allItems.length === 0 && !searchLoading ? (
-              <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">
-                Nessun risultato
-              </div>
-            ) : (
-              <>
-                {/* Topics & Recently Closed (merged + sorted by recency) */}
-                {filteredMain.length > 0 && (
-                  <>
-                    <SectionHeader label="Topic" />
-                    {filteredMain.map(item => {
-                      const idx = indexOf(item.id);
-                      return (
-                        <PaletteRow
-                          key={item.id}
-                          item={item}
-                          idx={idx}
-                          selected={idx === selectedIndex}
-                          onHover={setSelectedIndex}
-                          highlightTerm={query}
-                        />
-                      );
-                    })}
-                  </>
                 )}
-
-                {/* File search results */}
-                {searchFileItems.length > 0 && (
-                  <>
-                    <SectionHeader label="File" />
-                    {searchFileItems.map(item => {
-                      const idx = indexOf(item.id);
-                      return (
-                        <PaletteRow
-                          key={item.id}
-                          item={item}
-                          idx={idx}
-                          selected={idx === selectedIndex}
-                          onHover={setSelectedIndex}
-                          highlightTerm={query}
-                        />
-                      );
-                    })}
-                  </>
-                )}
-
-                {/* Messages */}
-                {(searchResults.length > 0 || searchLoading) && (
-                  <SectionHeader
-                    label="Messaggi"
-                    rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null}
-                  />
-                )}
-                {searchResults.map(item => {
-                  const idx = indexOf(item.id);
-                  return (
-                    <PaletteRow
-                      key={item.id}
-                      item={item}
-                      idx={idx}
-                      selected={idx === selectedIndex}
-                      onHover={setSelectedIndex}
-                      highlightTerm={query}
-                    />
-                  );
-                })}
-              </>
-            )}
-          </div>
-
-          {/* Right column — Tab recenti (recently closed) */}
-          <aside className="w-[240px] flex-shrink-0 border-l border-app-border flex flex-col bg-app-bg/40">
-            <div className="overflow-y-auto py-1 flex-1 min-h-0">
-              <AccordionHeader
-                label="Tab recenti"
-                count={filteredRecenti.length}
-                collapsed={recentiCollapsed}
-                onToggle={toggleRecenti}
-              />
-              {!recentiCollapsed && (
-                filteredRecenti.length > 0 ? (
-                  <div className="pb-1">
-                    {filteredRecenti.map(item => {
-                      const idx = indexOf(item.id);
-                      return (
-                        <PaletteRow
-                          key={item.id}
-                          item={item}
-                          idx={idx}
-                          selected={idx === selectedIndex}
-                          onHover={setSelectedIndex}
-                          compact
-                        />
-                      );
-                    })}
-                  </div>
+              </section>
+              {/* Chiuse di recente */}
+              <section className="flex-1 min-w-0 overflow-y-auto py-1">
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                  Chiuse di recente
+                  {filteredRecenti.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredRecenti.length}</span>}
+                </div>
+                {filteredRecenti.length > 0 ? (
+                  filteredRecenti.map(item => renderRow(item, { compact: true }))
                 ) : (
-                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">
-                    Nessuna tab chiusa
-                  </div>
-                )
+                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessuna tab chiusa</div>
+                )}
+              </section>
+            </div>
+          ) : (
+            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
+              {allItems.length === 0 && !searchLoading ? (
+                <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">Nessun risultato</div>
+              ) : (
+                <>
+                  {filteredProjects.length > 0 && (
+                    <>
+                      <SectionHeader label="Progetti" />
+                      {filteredProjects.map(item => renderRow(item, { highlight: true }))}
+                    </>
+                  )}
+                  {filteredMain.length > 0 && (
+                    <>
+                      <SectionHeader label="Topic" />
+                      {filteredMain.map(item => renderRow(item, { highlight: true }))}
+                    </>
+                  )}
+                  {filteredRecenti.length > 0 && (
+                    <>
+                      <SectionHeader label="Tab chiuse" />
+                      {filteredRecenti.map(item => renderRow(item, { highlight: true }))}
+                    </>
+                  )}
+                  {searchFileItems.length > 0 && (
+                    <>
+                      <SectionHeader label="File" />
+                      {searchFileItems.map(item => renderRow(item, { highlight: true }))}
+                    </>
+                  )}
+                  {(searchResults.length > 0 || searchLoading) && (
+                    <SectionHeader label="Messaggi" rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
+                  )}
+                  {searchResults.map(item => renderRow(item, { highlight: true }))}
+                </>
               )}
             </div>
-          </aside>
+          )}
         </div>
 
-        {/* Actions bar — single row, scrolls horizontally if needed.
-            Lives at the bottom and is always visible. Action items are NOT
-            duplicated into the result list (the bar is the canonical surface). */}
-        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-nowrap overflow-x-auto flex-shrink-0 scrollbar-thin">
+        {/* Actions bar — wraps to multiple rows so EVERY action stays visible
+            (no horizontal scroll that could hide e.g. Apri/Crea Progetto).
+            Always at the bottom. Action items are NOT duplicated into the
+            result list (the bar is the canonical surface). */}
+        <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap flex-shrink-0">
           <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isElectron ? '⌘N' : undefined} />
           {onNewClaude && (
             <ActionPill icon={<ClaudeIcon size={12} />} label="Claude" onClick={() => { onNewClaude(); onClose(); }} />
@@ -534,8 +457,14 @@ export function CommandPalette({
           {onNewTerminal && (
             <ActionPill icon={<TerminalSquare size={12} />} label="Terminal" onClick={() => { onNewTerminal(); onClose(); }} />
           )}
+          {/* Both open the native folder picker (which can select an existing
+              folder OR create a new one via the dialog's "New Folder"). Two
+              entry points because the user asked for both intents. */}
           {onNewProject && (
-            <ActionPill icon={<FolderPlus size={12} />} label="Project" onClick={() => { onNewProject(); onClose(); }} />
+            <ActionPill icon={<FolderOpen size={12} />} label="Apri Progetto" onClick={() => { onNewProject(); onClose(); }} />
+          )}
+          {onNewProject && (
+            <ActionPill icon={<FolderPlus size={12} />} label="Crea Progetto" onClick={() => { onNewProject(); onClose(); }} />
           )}
           <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
@@ -557,25 +486,6 @@ export function CommandPalette({
 }
 
 // ─── Subcomponents ──────────────────────────────────────────────────────────
-
-function AccordionHeader({ label, count, collapsed, onToggle }: {
-  label: string;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="w-full px-3 py-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-app-text-muted uppercase tracking-wider hover:text-app-text transition-colors"
-    >
-      {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-      <span className="flex-1 text-left">{label}</span>
-      <span className="text-[10px] tabular-nums opacity-70">{count}</span>
-    </button>
-  );
-}
 
 function SectionHeader({ label, rightSlot }: { label: string; rightSlot?: React.ReactNode }) {
   return (

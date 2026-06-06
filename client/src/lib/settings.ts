@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   notificationsSound: true,
   notifyEvenWhenFocused: false,
+  showBoard: true,
+  showMaster: true,
 };
 
 export function loadSettings(): AppSettings {

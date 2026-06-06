@@ -76,6 +76,9 @@ export interface TopicTreeProps {
   /** Open (or create + open) the global Master Topic. Renders the
    *  "Master" sidebar shortcut next to Board when provided. */
   onOpenMaster?: () => void;
+  /** Settings opt-out: hide the Board / Master sidebar shortcuts entirely. Default true. */
+  showBoard?: boolean;
+  showMaster?: boolean;
   onNewChat?: () => void;
   onNewBrowser?: () => void;
   terminalSessions?: TerminalSessionInfo[];
@@ -121,6 +124,8 @@ export function TopicTree({
   boardTaskCounts,
   onOpenProjectBoard,
   onOpenMaster,
+  showBoard = true,
+  showMaster = true,
   onNewChat: _onNewChat,
   onNewBrowser: _onNewBrowser,
   terminalSessions = [],
@@ -568,6 +573,8 @@ export function TopicTree({
 
   const renderBoardShortcut = () => {
     if (searchQuery || !onOpenProjectBoard) return null;
+    // Settings opt-out: if both Board and Master are hidden, render nothing.
+    if (!showBoard && !showMaster) return null;
     // Board + Master are fixed sidebar tabs — show the same selected-surface
     // highlight as the other rows when their pane is focused/open.
     const boardPaneId = utilityPanelId('all-boards');
@@ -577,41 +584,44 @@ export function TopicTree({
     const masterActive = !!masterPaneId && (focusedTopicId === masterPaneId || allOpenPaneIds.has(masterPaneId));
     return (
       <div className="flex-shrink-0">
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
-          className={`group/ab flex items-center gap-2 h-11 md:h-8 px-2 text-left text-[14px] md:text-[13px] ${sidebarRowCard({ focused: boardActive })}`}
-          title="View all project boards"
-        >
-          <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
-          <span className="flex-1 truncate text-app-text">Board</span>
-          {activeStreamingCount > 0 && (
-            <span className="flex items-center gap-1 pr-3">
-              <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[11px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
-            </span>
-          )}
-          {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
-            <span className="text-[11px] text-app-text-muted tabular-nums pr-3">
-              {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
-            </span>
-          )}
-        </button>
-        {onOpenMaster && (
+        {showBoard && (
+        <div className={`flex items-center ${sidebarRowCard({ focused: boardActive })}`}>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
+            className="group/ab flex items-center gap-2 flex-1 min-w-0 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium"
+            title="View all project boards"
+          >
+            <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
+            <span className="flex-1 truncate text-app-text">Board</span>
+            {activeStreamingCount > 0 && (
+              <span className="flex items-center gap-1 pr-3">
+                <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-[11px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
+              </span>
+            )}
+            {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
+              <span className="text-[11px] text-app-text-muted tabular-nums pr-3">
+                {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
+              </span>
+            )}
+          </button>
+        </div>
+        )}
+        {showMaster && onOpenMaster && (
           <div className={`flex items-center ${sidebarRowCard({ focused: masterActive })}`}>
             <button
               data-testid="sidebar-master-shortcut"
               onClick={() => onOpenMaster()}
-              className="group/mst flex items-center gap-2 flex-1 min-w-0 h-11 md:h-8 px-2 text-left text-[14px] md:text-[13px]"
+              className="group/mst flex items-center gap-2 flex-1 min-w-0 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium"
               title="Open Master · Global (Shift+Cmd+M)"
             >
               <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
               <span className="flex-1 truncate text-app-text">Master</span>
               <span className="text-[11px] text-app-text-muted/70 tabular-nums">⇧⌘M</span>
             </button>
-            <span className="px-1.5"><MasterMonitorToggle /></span>
+            <span className="pr-1.5 flex-shrink-0"><MasterMonitorToggle /></span>
           </div>
         )}
-        <div className="border-t border-app-border" />
       </div>
     );
   };

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAgents } from '../../hooks/useAgents';
 import { AgentRoster } from './AgentRoster';
 import { SessionHistory } from './SessionHistory';
+import { AgentsBoardSection } from '../Board/AgentsBoardSection';
+import type { WSMessage } from '../../types';
 
 interface AgentsPaneProps {
   onNavigateToTopic?: (topicId: string) => void;
@@ -10,6 +12,7 @@ interface AgentsPaneProps {
 }
 
 const TABS = [
+  { id: 'kanban' as const, label: 'Kanban' },
   { id: 'sessions' as const, label: 'Sessions' },
   { id: 'roster' as const, label: 'Roster' },
 ] as const;
@@ -17,7 +20,7 @@ const TABS = [
 type TabId = typeof TABS[number]['id'];
 
 export function AgentsPane({ onNavigateToTopic, onOpenSessionViewer, onMessage }: AgentsPaneProps) {
-  const [tab, setTab] = useState<TabId>('sessions');
+  const [tab, setTab] = useState<TabId>('kanban');
 
   const { sessions: liveSessions, setVisible } = useAgents({
     enabled: true,
@@ -49,6 +52,14 @@ export function AgentsPane({ onNavigateToTopic, onOpenSessionViewer, onMessage }
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden">
+        {tab === 'kanban' && (
+          <div className="h-full overflow-y-auto">
+            <AgentsBoardSection
+              onMessage={onMessage as ((handler: (msg: WSMessage) => void) => () => void) | undefined}
+              onJumpToTopic={onNavigateToTopic}
+            />
+          </div>
+        )}
         {tab === 'sessions' && (
           <SessionHistory
             liveSessions={liveSessions}

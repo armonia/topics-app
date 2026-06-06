@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
+import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -117,6 +118,10 @@ interface StandaloneChatGroupProps {
   // Merge a dropped tab INTO this split cell (multi-tab column). `targetPrimary`
   // is this cell's primary topic id. Enables "drop a tab into a populated cell".
   onMergeIntoCell?: (topicId: string, targetPrimary: string) => void;
+  // Schematic of the surrounding grid (one square per top-level cell), with
+  // this cell lit — forwarded straight to the tab bar. Omitted for single-cell
+  // grids where there's nothing to orient against.
+  splitMap?: SplitMapDescriptor;
 }
 
 export function StandaloneChatGroup({
@@ -139,6 +144,7 @@ export function StandaloneChatGroup({
   persistOrder = true,
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell,
+  splitMap,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
 
@@ -509,6 +515,7 @@ export function StandaloneChatGroup({
       onCloseImmediate={onClosePanelImmediate}
       onAddPane={handleAddPane}
       availableTypes={availableTypes}
+      showProjectActions
       groupId={gridItemKey}
       // Every top-level group (the main standalone group and any solo split
       // cells) shares the standalone scope, so tabs reorder/merge freely among
@@ -516,6 +523,7 @@ export function StandaloneChatGroup({
       dndScope={STANDALONE_SCOPE}
       onNewChat={onNewChat}
       onReorderPanes={handleReorderPanes}
+      splitMap={splitMap}
       onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}

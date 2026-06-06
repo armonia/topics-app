@@ -11,6 +11,9 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTopicLoading } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
+import { sidebarRowCard } from '@/lib/selectionStyles';
+import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
+import { useSplitPosition } from '@/contexts/SplitPositionContext';
 
 const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || navigator.maxTouchPoints > 0
@@ -74,10 +77,17 @@ export const TopicItem = memo(function TopicItem({
   sortable,
   hideIcon,
 }: TopicItemProps) {
-  const paddingLeft = 12 + depth * 16;
+  // Depth indent lives on the LEFT MARGIN, not padding — so a sub-tab's CARD
+  // shifts right (leaving an empty gutter) instead of just indenting its text
+  // inside a full-width card. 8px base = the card's own mx-2 inset.
+  const marginLeft = 8 + depth * 16;
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
   const isStreaming = useTopicLoading(topic.id);
+  // Where this topic's pane sits in the standalone split grid (undefined unless
+  // it's open AND the grid is split). Rendered as the same proportional
+  // mini-map the tab shows, so the sidebar card mirrors the tab's position cue.
+  const splitPosition = useSplitPosition(topic.id);
 
   const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: topic.id,
@@ -91,7 +101,7 @@ export const TopicItem = memo(function TopicItem({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    paddingLeft,
+    marginLeft,
   };
 
   const overflowRef = useRef<HTMLButtonElement>(null);
@@ -148,13 +158,15 @@ export const TopicItem = memo(function TopicItem({
         }
       }}
       className={cn(
-        'group flex items-center gap-2 min-h-[44px] h-11 md:min-h-[32px] md:h-8 pr-1 cursor-pointer text-[14px] md:text-[13px] font-medium transition-colors duration-100 select-none relative border-b border-app-border/40 md:border-b-0',
-        // Focused (panel open and focused): accent bg + left border
-        isFocused && 'bg-primary/8 dark:bg-primary/15 text-primary dark:text-primary-dark',
-        // Open but not focused
-        !isFocused && isOpen && 'bg-app-hover text-app-text',
-        // Default (not open)
-        !isFocused && !isOpen && 'text-app-text-secondary hover:bg-app-hover hover:text-app-text',
+        // Card rows — same visual language as the tab-bar tabs: a rounded,
+        // self-contained surface with its own faint fill, not a full-bleed
+        // list row with hairline dividers. `overflow-hidden` clips the
+        // soft-archive progress fill to the rounded corners.
+        // Shared card styling (see sidebarRowCard) — same look for every
+        // sidebar row type. No border (hairlines read as dividing lines); a
+        // filled inset rounded surface makes each row a tab-like card.
+        'group flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 cursor-pointer text-[14px] md:text-[13px] font-medium select-none',
+        sidebarRowCard({ focused: isFocused, open: isOpen }),
         // Preview panels show italic name
         isPreview && 'italic',
         isArchived && 'opacity-60',
@@ -170,14 +182,6 @@ export const TopicItem = memo(function TopicItem({
           index) so the sidebar accent border + content render on top. */}
       {pendingArchiveStatus && (
         <PendingActionProgressOverlay status={pendingArchiveStatus} />
-      )}
-
-      {/* Left accent border for focused */}
-      {isFocused && (
-        <div
-          className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full"
-          style={{ backgroundColor: topic.color || 'var(--primary)' }}
-        />
       )}
 
       {/* Toggle button — only show if has children */}
@@ -259,13 +263,15 @@ export const TopicItem = memo(function TopicItem({
             )}
           </>
         ) : (
-          /* Desktop: timestamp at rest, "mark as done" / archive control on hover.
-             For NOT-archived topics the hover control is the Things3-style
-             checkbox (idle = empty circle; pending = filled circle + check)
-             so the action reads as "complete" rather than "destroy", and
-             plays nicely with the L→R progress overlay above. For archived
-             topics the action is restorative and uses the original Archive
-             icon (no countdown). */
+          /* Desktop: timestamp at rest, ARCHIVE control on hover.
+             For NOT-archived topics the hover control is an explicit Archive
+             icon (NOT a checkbox/empty-circle): the empty ring read as "close
+             this tab / mark done", but it actually archives the topic — a
+             confusing conflation of two orthogonal states (open/closed tab vs
+             archived). Closing a tab is done from the tab bar (X / Cmd+W) and
+             never archives. Clicking this still triggers the 3s soft-archive
+             countdown (the PendingActionRing in the `pendingArchiveStatus`
+             branch above). For archived topics the action is restorative. */
           <span className="flex-shrink-0 flex items-center justify-center w-7 h-7 relative z-10">
             {pendingArchiveStatus ? (
               <PendingActionRing
@@ -285,15 +291,14 @@ export const TopicItem = memo(function TopicItem({
                   </span>
                 )}
                 {onArchive && !topic.archived && (
-                  <span className="hidden group-hover:flex items-center justify-center w-full h-full">
-                    <PendingActionRing
-                      status={null}
-                      size={14}
-                      onIdleClick={() => onArchive(topic.id, true)}
-                      idleTitle="Archivia"
-                      idleAriaLabel={`Archivia ${topic.name}`}
-                    />
-                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(topic.id, true); }}
+                    className="hidden group-hover:flex items-center justify-center w-full h-full rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
+                    title="Archivia (non chiude la tab)"
+                    aria-label={`Archivia ${topic.name}`}
+                  >
+                    <Archive size={12} className="text-app-text-tertiary" />
+                  </button>
                 )}
                 {onArchive && topic.archived && (
                   <button
@@ -309,6 +314,18 @@ export const TopicItem = memo(function TopicItem({
             )}
           </span>
         )
+      )}
+
+      {/* Split position — the same proportional mini-map the tab bar shows,
+          this topic's cell lit. Only present when the topic is open in a split
+          grid. */}
+      {splitPosition && (
+        <SplitMiniMap
+          rows={splitPosition.rows}
+          rowHeights={splitPosition.rowHeights}
+          active={splitPosition.active}
+          className="flex-shrink-0 text-app-text-tertiary"
+        />
       )}
 
       {/* Assigned agents badge */}
