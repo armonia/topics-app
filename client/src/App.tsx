@@ -613,7 +613,7 @@ function App() {
         style={{
           width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
-          paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined,
+          paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined,
         }}
       >
 
@@ -828,7 +828,7 @@ function App() {
 
       {/* Main Content */}
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ contain: 'layout style', paddingTop: isPWA ? 'env(safe-area-inset-top, 0px)' : undefined }}
+        style={{ contain: 'layout style', paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
