@@ -100,11 +100,10 @@
     { id: CC1,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
     { id: CC2,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
     { id: BROW,  type: "browser",  title: "Preview",     projectPath: PROJECT },
-    { id: BOARD, type: "board",    title: "Board",       projectPath: PROJECT },
   ], {
     groups: [
       { id: "pgA-l", paneIds: [CC1, CC2],     activePaneId: CC1,  type: "utility" },
-      { id: "pgA-r", paneIds: [BROW, BOARD],  activePaneId: BROW, type: "utility" },
+      { id: "pgA-r", paneIds: [BROW],         activePaneId: BROW, type: "utility" },
     ],
     rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.54, 0.46] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
@@ -128,7 +127,9 @@
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
-  set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
+  // Board + Master are opt-out in the latest UI — the demo reflects the cleaner
+  // surface (no Board/Master in the sidebar, no Board tab in the project window).
+  set("app-settings", JSON.stringify({ sidebarCollapsed: false, showBoard: false, showMaster: false }));
   // Collapse the project sidebar's Tasks board (kanban still 1 click away via the
   // Board tab) so the tall task list stops pushing Files/Git/Processes off-screen
   // → the running Processes become visible, which is the project context Attilio
@@ -284,75 +285,75 @@
   /* Claude Code TUI transcripts (ANSI). \x1b = ESC; xterm needs CRLF (added at
    * emit time). Generic acme-web work — no real project/user data. */
   var CLAUDE_CC1 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-web · main\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-web · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Wire up release signing for v1.1 and run the smoke test\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m I'll add the signing step to the release script, then verify.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m I'll add the signing step to the release script, then verify.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mRead\x1b[0m(scripts/release.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mRead\x1b[0m(scripts/release.ts)\n",
     "\x1b[2m  ⎿  read 84 lines\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mEdit\x1b[0m(scripts/release.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mEdit\x1b[0m(scripts/release.ts)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m+12\x1b[0m \x1b[31m−2\x1b[0m \x1b[2m· codesign + notarize step\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(npm run build && npm run release:sign)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mBash\x1b[0m(npm run build && npm run release:sign)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m built in 2.3s \x1b[2m· signed acme-web-1.1.0.dmg\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Signing works end-to-end. Running the release smoke test now…\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Signing works end-to-end. Running the release smoke test now…\n",
     "\n",
     "\x1b[2m──────────────────────────────────────────────\x1b[0m\n",
     "\x1b[36m✻\x1b[0m \x1b[2mWorking…  (esc to interrupt · ⏵⏵ bypass permissions on)\x1b[0m\n",
   ];
   var CLAUDE_CC2 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-web · main\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-web · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Add empty states to the dashboard lists\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Scanning the dashboard route for lists missing an empty state.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Scanning the dashboard route for lists missing an empty state.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mGrep\x1b[0m(\"\\.map(\" in src/routes/dashboard.tsx)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mGrep\x1b[0m(\"\\.map(\" in src/routes/dashboard.tsx)\n",
     "\x1b[2m  ⎿  3 matches\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Adding <EmptyState/> to the channels, sessions and errors lists.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Adding <EmptyState/> to the channels, sessions and errors lists.\n",
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
   var CLAUDE_CC3 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-api · main\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-api · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Add a token-bucket rate limiter to the public API\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Adding middleware and wiring it into the router.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Adding middleware and wiring it into the router.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mWrite\x1b[0m(src/middleware/rateLimit.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mWrite\x1b[0m(src/middleware/rateLimit.ts)\n",
     "\x1b[2m  ⎿  38 lines\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test rate-limit)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test rate-limit)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m 12 passed \x1b[2m(248ms)\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Limiter live: 100 req/min per key. Verifying the 429 headers…\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Limiter live: 100 req/min per key. Verifying the 429 headers…\n",
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
   // A COMPLETED turn — agent finished, prompt is idle again (no "Working…").
   var CLAUDE_CC4 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-mobile · main\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
+    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-mobile · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Fix the offline-sync race in the upload queue\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Reproduced it — the flush wasn't awaiting the write lock.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Reproduced it — the flush wasn't awaiting the write lock.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mEdit\x1b[0m(src/sync/queue.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mEdit\x1b[0m(src/sync/queue.ts)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m+6\x1b[0m \x1b[31m−3\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test sync)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test sync)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m 28 passed \x1b[2m(1.1s)\x1b[0m\n",
     "\n",
     "\x1b[32m⏺\x1b[0m \x1b[1mDone\x1b[0m — offline sync is race-free and the full suite is green.\n",
