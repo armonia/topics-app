@@ -50,6 +50,13 @@ export function useGridResize(
     cleanupDOM: (() => void) | null;
   } | null>(null);
 
+  // Full-viewport overlay shown ONLY once a real drag is underway (created on
+  // first mousemove, never on a bare click — otherwise mouseup would land on
+  // the overlay and break the divider's click/double-click → equalize). It sits
+  // above DOM iframes (RemoteBrowser, PDF/media preview) so the pointer can't
+  // enter them and swallow window mousemove, freezing the drag.
+  const dragChrome = useRef<HTMLDivElement | null>(null);
+
   const startHorizontalResize = useCallback(
     (rowIdx: number, divIdx: number, currentWidths: number[]) => (e: React.MouseEvent) => {
       e.preventDefault();
@@ -116,6 +123,20 @@ export function useGridResize(
     let rafId = 0;
 
     const onMove = (e: MouseEvent) => {
+      // First real movement of a drag: raise the chrome. The overlay keeps the
+      // pointer out of DOM iframes; the 'pane-resize-start' event lets native
+      // Electron WebContentsView panes hide themselves for the duration (an
+      // OS-level view sits above the DOM, so neither the overlay nor window
+      // mousemove can reach past it otherwise — the drag would stick over it).
+      if ((hResizing.current || vResizing.current) && !dragChrome.current) {
+        const ov = document.createElement('div');
+        const cursor = hResizing.current ? 'col-resize' : 'row-resize';
+        ov.style.cssText = `position:fixed;inset:0;z-index:2147483647;cursor:${cursor}`;
+        document.body.appendChild(ov);
+        dragChrome.current = ov;
+        window.dispatchEvent(new Event('topics:pane-resize-start'));
+      }
+
       if (hResizing.current) {
         const h = hResizing.current;
         const delta = (e.clientX - h.startX) / h.containerW;
@@ -217,6 +238,13 @@ export function useGridResize(
 
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+
+      // Tear down the drag chrome and let native browser panes reappear.
+      if (dragChrome.current) {
+        dragChrome.current.remove();
+        dragChrome.current = null;
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
+      }
     };
 
     window.addEventListener('mousemove', onMove);
@@ -225,6 +253,11 @@ export function useGridResize(
       cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      // Defensive: if the component unmounts mid-drag, drop the overlay too.
+      if (dragChrome.current) {
+        dragChrome.current.remove();
+        dragChrome.current = null;
+      }
     };
   }, [containerRef]);
 
