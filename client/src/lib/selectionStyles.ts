@@ -24,3 +24,28 @@ export const SELECTED_SURFACE =
  */
 export const SELECTED_SURFACE_SOFT =
   'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
+
+/**
+ * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
+ * project folders) so the sidebar reads as a column of tab-like cards — the
+ * same visual language as the tab bar — instead of a flat list separated by
+ * hairline dividers. Deliberately NO border: between stacked rows a border's
+ * top+bottom hairlines read as dividing LINES, the exact thing we're removing.
+ * A filled, inset, rounded surface is what makes each row a self-contained card.
+ *
+ * Pass the row's selection state; returns the full set of state classes. Each
+ * caller keeps its own height / padding-left (depth indent) / content.
+ */
+export function sidebarRowCard({ focused, open }: { focused?: boolean; open?: boolean }): string {
+  // Card SHAPE (rounded, inset, spaced) is always on; the FILL follows the old
+  // color system — background only when selected (SELECTED_SURFACE) or on hover.
+  // At rest the card is transparent, so the sidebar stays calm and only the
+  // current/hovered row reads as a filled tab.
+  // Horizontal inset (mx-2 = 8px) keeps the card off the sidebar edges; the
+  // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
+  // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
+  const base = 'mx-2 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
+  if (focused) return `${base} ${SELECTED_SURFACE}`;
+  if (open) return `${base} text-app-text hover:bg-app-hover`;
+  return `${base} text-app-text-secondary hover:bg-app-hover hover:text-app-text`;
+}

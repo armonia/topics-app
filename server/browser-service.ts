@@ -377,7 +377,16 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // period as the debounce delay would re-arm the timer on every
         // tick and never fire.
         const saver = debouncedSaver(id, async () => context.storageState(), 30_000);
+        // Dirty-check: only serialize+write storageState when the context has
+        // seen activity since the last save. A parked/idle context (no nav, no
+        // clicks) skips the 30s storageState() serialize + disk write entirely.
+        // touchActivity() bumps lastActivity on every op, so this is safe; the
+        // worst case (a JS-only storage write with no op) is bounded by the
+        // explicit save on destroyContext.
+        let lastSavedActivity = entry.lastActivity;
         const intervalHandle = setInterval(() => {
+          if (entry.lastActivity === lastSavedActivity) return;
+          lastSavedActivity = entry.lastActivity;
           saver.flush().catch(err => console.warn(`[BrowserService] autosave flush failed for ${id}:`, err.message));
         }, 30_000);
         // On context close: stop timers only. Do NOT call saver.flush() —

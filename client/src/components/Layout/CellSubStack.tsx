@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useState } from 'react';
 import type { PanelGridCellStack } from '../../types';
+import { equalizeWidths } from './gridWidths';
+import { MIN_PANE_FRACTION } from './constants';
 
 /**
  * Vertical stack of items inside a single grid cell. The PRIMARY item is
@@ -109,7 +111,7 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
       const startTop = heights[slotIdx];
       const startBottom = heights[slotIdx + 1];
       const combined = startTop + startBottom;
-      const minSlot = 0.05; // floor — prevents collapsing a slot to zero
+      const minSlot = MIN_PANE_FRACTION; // shared floor — prevents collapsing a slot to zero
 
       const onMove = (ev: MouseEvent) => {
         const deltaPx = ev.clientY - startY;
@@ -139,12 +141,20 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
     [heights, slotIdx, onResize],
   );
 
+  // Double-click any in-stack divider → reset every slot to an equal height.
+  const handleDoubleClick = useCallback(() => {
+    if (!onResize || heights.length <= 1) return;
+    onResize(equalizeWidths(heights.length));
+  }, [onResize, heights.length]);
+
   return (
     <div
       className={`h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10 ${
         active ? 'bg-primary' : ''
       }`}
+      title="Double-click to equalize heights"
       onMouseDown={handleMouseDown}
+      onDoubleClick={handleDoubleClick}
     >
       <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
     </div>

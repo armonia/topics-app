@@ -19,3 +19,11 @@ export const MAX_STACK_DEPTH = 4;
  * split intent; the rest of the cell is the 'center' (tab reorder / merge).
  */
 export const EDGE_DROP_PX = 30;
+
+/**
+ * Smallest fraction of a row/column a single pane may shrink to while dragging
+ * a divider (and the floor for sub-stack slots). Single source of truth so the
+ * resize hook and the vertical sub-stack share one minimum instead of drifting
+ * (they previously used 0.10 and 0.05 independently).
+ */
+export const MIN_PANE_FRACTION = 0.1;

@@ -155,6 +155,10 @@ export interface UsePanelLifecycleArgs {
   createTopic: (req: CreateTopicRequest) => Promise<Topic | null>;
   applyTopicFromWS: (topic: Topic) => void;
   archiveProject: (projectPath: string, archive: boolean) => Promise<boolean>;
+  // 2-state model (open ⟺ non-archived): opening a chat unarchives it, the
+  // explicit user-close of a chat tab archives it. Threaded in so both the
+  // open and close funnels can keep tab-state and archived in lockstep.
+  archiveTopic: (topicId: string, archive: boolean) => Promise<boolean>;
   workspaceProjects: string[];
   // Terminal lifecycle (no setters cross seam)
   terminalSessions: TerminalSessionInfo[];
@@ -244,7 +248,7 @@ export interface UsePanelLifecycleReturn {
 export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycleReturn {
   const {
     isDetached, detachedTopicId, isMobile,
-    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject,
+    topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
     workspaceProjects,
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
     onWSMessage, sendWS, wsStatus, windowId,
@@ -843,6 +847,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       return;
     }
+    // 2-state model: opening a topic as a tab makes it "open", and open ⟺
+    // non-archived — so opening an archived (= closed) topic restores it.
+    // Optimistic archived:false lands this render, so the validPanels effect
+    // (which evicts archived ids) keeps the freshly-opened tab.
+    if (topics[topicId]?.archived) void archiveTopic(topicId, false);
     // App-level open: always land in the standalone group, never inside a
     // focused project's inner group (otherwise the new tab would appear as a
     // child of whatever project happens to have focus).
@@ -862,7 +871,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (autoFocus) setFocusedPanelId(topicId);
     setPreviewPanelId(mode === 'preview' ? topicId : null);
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
-  }, [openPanels, previewPanelId, isMobile, topics]);
+  }, [openPanels, previewPanelId, isMobile, topics, archiveTopic]);
 
   // ---- 19. Electron navigate-to-topic + report focused ----
   useEffect(() => {
@@ -878,6 +887,29 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     api.reportFocusedTopic(focusedPanelId || null);
   }, [focusedPanelId]);
 
+  // ---- 2-state model: project-window chat close/reopen events ----
+  // useProjectLayout can't reach archiveTopic (TopicsContext omits actions),
+  // so it emits window events; translate them into the same archive/unarchive
+  // the standalone path does inline. Close → archive (lead exempt, like
+  // handleClosePanel); reopen/undo → unarchive.
+  useEffect(() => {
+    const onArchive = (e: Event) => {
+      const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
+      const t = id ? topicsRef.current[id] : undefined;
+      if (id && t && t.agentTeamRole !== 'lead') void archiveTopic(id, true);
+    };
+    const onUnarchive = (e: Event) => {
+      const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
+      if (id) void archiveTopic(id, false);
+    };
+    window.addEventListener('topic-archive-on-close', onArchive);
+    window.addEventListener('topic-unarchive-on-open', onUnarchive);
+    return () => {
+      window.removeEventListener('topic-archive-on-close', onArchive);
+      window.removeEventListener('topic-unarchive-on-open', onUnarchive);
+    };
+  }, [archiveTopic]);
+
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
     // If this isn't the Master itself, treat it as a deliberate move-away
@@ -887,6 +919,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       masterFocusUntil.value = 0;
     }
     if (topic?.projectPath) {
+      // 2-state model: opening an (archived = closed) project chat restores it.
+      if (topic.archived) void archiveTopic(topicId, false);
       const projectPaneId = createPaneId('project', topic.projectPath);
       ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
       if (isMobile) {
@@ -909,7 +943,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       openPanel(topicId, 'preview');
     }
     if (isMobile) setSidebarCollapsed(true);
-  }, [openPanel, isMobile, topics, openPanels, setSidebarCollapsed]);
+  }, [openPanel, isMobile, topics, openPanels, setSidebarCollapsed, archiveTopic]);
 
   const handleTopicDoubleClick = useCallback((topicId: string, _e?: React.MouseEvent) => {
     openPanel(topicId, 'permanent');
@@ -922,6 +956,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // drop the stickiness flag so Effect 7b stops re-adding it.
     const closingTopic = topicsRef.current[topicId];
     if (closingTopic?.agentTeamRole === 'lead') setMasterOpenIntent(false);
+    // 2-state model: a USER-closed chat tab archives the topic (closed ⟺
+    // archived). Guard to REAL chat topics only — never drafts, never the
+    // prefixed terminal/browser/project pane ids (topicsRef holds only chats),
+    // and never the Master/lead (closing it just drops stickiness above).
+    // This sits in the single user-close funnel (X / right-click Close-now /
+    // Cmd+W / deferred-commit all reach here); incidental closes go through the
+    // reducer / setOpenPanels and never call this, so they won't archive.
+    const archivesOnClose = !!closingTopic && !isDraftPaneId(topicId) && closingTopic.agentTeamRole !== 'lead';
     let panelIndex = 0;
     {
       const s = usePaneStore.getState();
@@ -951,6 +993,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     pushUndo({
       description: `Close panel`,
       undo: () => {
+        // Unarchive FIRST (optimistic archived:false this render) so the
+        // re-added pane isn't immediately evicted by the validPanels effect.
+        if (archivesOnClose) void archiveTopic(topicId, false);
         setOpenPanels(prev => {
           const next = [...prev];
           const idx = Math.min(panelIndex, next.length);
@@ -963,6 +1008,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         handleClosePanelRef.current(topicId);
       },
     });
+    if (archivesOnClose) void archiveTopic(topicId, true);
   };
   const handleClosePanel = useCallback(
     (topicId: string) => handleClosePanelRef.current(topicId),
@@ -1030,6 +1076,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
             if (t.projectPath) knownProjectPaths.add(t.projectPath);
           }
           for (const p of workspaceProjectsRef.current) knownProjectPaths.add(p);
+          // Open project panes count as known projects too (see handleTerminalClick).
+          for (const id of openPanelsRef.current) {
+            const pp = getProjectPathFromPaneId(id);
+            if (pp) knownProjectPaths.add(pp);
+          }
           const cwd = session.cwd;
           const isBroad = [...knownProjectPaths].some(p => p !== cwd && p.startsWith(cwd + '/'));
           if (knownProjectPaths.has(cwd) && !isBroad) {
@@ -1272,6 +1323,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (t.projectPath) knownProjectPaths.add(t.projectPath);
       }
       for (const p of workspaceProjects) knownProjectPaths.add(p);
+      // Also treat any CURRENTLY-OPEN project pane as a known project. A
+      // project window can be open while having no chat topics and not being
+      // in `workspaceProjects` (e.g. opened purely to host Claude Code
+      // terminals). Without this, clicking such a project's terminal sub-tab
+      // in the sidebar fell through to the standalone branch below and never
+      // selected the tab inside the project — the sidebar groups the terminal
+      // under the project (by cwd) but this routing didn't, so the two
+      // disagreed. Including open project panes keeps them consistent.
+      for (const id of openPanels) {
+        const pp = getProjectPathFromPaneId(id);
+        if (pp) knownProjectPaths.add(pp);
+      }
       // A path that is an ANCESTOR of another known project (e.g. the home
       // dir, parent of all your projects) is too broad to be a project: its
       // window would adopt every terminal/chat underneath it. Treat such a
@@ -1355,6 +1418,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const handleReopenClosedTab = useCallback(async (record: ClosedTabRecord) => {
     try {
       const pane = await reopenClosedTab(record);
+      // 2-state model: reopening a closed chat tab restores it -> unarchive.
+      if (pane.type === 'chat' && pane.topicId) void archiveTopic(pane.topicId, false);
       if (record.level === 'project') {
         window.dispatchEvent(new CustomEvent('reopen-closed-tab', { detail: record }));
       } else {
@@ -1376,7 +1441,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     } catch (err) {
       console.warn('Failed to reopen closed tab:', err);
     }
-  }, [removeClosedTab]);
+  }, [removeClosedTab, archiveTopic]);
 
   // ---- 20. Detached auto-close ----
   useEffect(() => {

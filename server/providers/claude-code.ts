@@ -9,7 +9,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
-import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
+import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
   AIProvider,
@@ -158,28 +158,105 @@ export function mcpConfigPathForSession(sessionKey: string): string {
   return join(MCP_CONFIG_DIR, `${safe}.json`);
 }
 
-export function writeMcpConfigForSession(sessionKey: string): string {
+// ---- Global MCP inheritance policy --------------------------------------
+//
+// A Claude session spawned inside Topics inherits the user's GLOBAL MCP
+// servers (~/.claude.json) because the CLI auto-loads them (default config +
+// `--setting-sources user`). Left unscoped, EVERY session re-spawns the entire
+// fleet — including chrome-devtools-mcp, which launches a real ~1.2GB Chrome.
+// To keep this controllable we write the FULL desired server set into the
+// per-session config and pass `--strict-mcp-config`, so the CLI uses ONLY that
+// set and ignores all other MCP configurations.
+//
+// Everything is override-able via env (no code change, no rebuild):
+//   TOPICS_SESSION_MCP_INHERIT_ALL=1 -> legacy: inherit everything, no strict
+//   TOPICS_SESSION_MCP_ALLOW="a,b"   -> strict allowlist (topics + these only)
+//   TOPICS_SESSION_MCP_DENY="x,y"    -> inherit all global EXCEPT these
+//   (none)                           -> inherit all global EXCEPT DEFAULT_DENY
+//
+// Default-deny: chrome-devtools — a per-session real Chrome, redundant with
+// jarvis-browser / claude-in-chrome, and the single heaviest idle offender.
+const DEFAULT_DENY_MCP = new Set(["chrome-devtools"]);
+
+function parseCsvEnv(name: string): string[] {
+  return (process.env[name] || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Resolve which GLOBAL (~/.claude.json) MCP servers a Topics session should
+ * inherit. Returns null when we cannot / should not scope (caller then keeps
+ * the legacy additive merge with NO --strict-mcp-config, so the user loses
+ * nothing). Server definitions are copied verbatim so they spawn identically.
+ */
+function resolveInheritedMcpServers(): Record<string, unknown> | null {
+  if (process.env.TOPICS_SESSION_MCP_INHERIT_ALL === "1") return null;
+  const home = process.env.HOME;
+  if (!home) return null;
+  let global: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(readFileSync(join(home, ".claude.json"), "utf-8"));
+    global = (parsed && typeof parsed === "object" && (parsed as any).mcpServers) || {};
+  } catch {
+    return null; // can't read global config -> don't risk stripping tools
+  }
+  const allow = parseCsvEnv("TOPICS_SESSION_MCP_ALLOW");
+  const deny = new Set([...parseCsvEnv("TOPICS_SESSION_MCP_DENY"), ...DEFAULT_DENY_MCP]);
+  const out: Record<string, unknown> = {};
+  for (const [name, def] of Object.entries(global)) {
+    if (name === "topics") continue; // our bridge is added explicitly below
+    if (allow.length > 0) {
+      if (allow.includes(name)) out[name] = def;
+    } else if (!deny.has(name)) {
+      out[name] = def;
+    }
+  }
+  return out;
+}
+
+/**
+ * Write the per-session MCP config and report whether the CLI should run with
+ * `--strict-mcp-config` (i.e. we successfully scoped the global fleet). The
+ * returned config always includes the `topics` bridge; when scoping succeeds
+ * it also includes the curated set of inherited global servers.
+ */
+export function writeMcpConfigForSession(sessionKey: string): { path: string; strict: boolean } {
   try {
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
   } catch { /* race-tolerant */ }
   const cliCommand = process.execPath; // bun
+  const topicsBridge = {
+    command: cliCommand,
+    args: [
+      "run",
+      MCP_SERVER_SCRIPT,
+      `--base-url=${topicsAppBaseUrl()}`,
+      `--session-key=${sessionKey}`,
+      ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
+    ],
+  };
+  const inherited = resolveInheritedMcpServers();
+  // strict ONLY when we scoped: the config then holds the full set the session
+  // should see, so the CLI can safely ignore everything else. When scoping is
+  // disabled/unavailable (inherited === null) we stay additive so the user
+  // keeps every tool they already had.
+  const strict = inherited !== null;
   const config = {
     mcpServers: {
-      topics: {
-        command: cliCommand,
-        args: [
-          "run",
-          MCP_SERVER_SCRIPT,
-          `--base-url=${topicsAppBaseUrl()}`,
-          `--session-key=${sessionKey}`,
-          ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
-        ],
-      },
+      topics: topicsBridge,
+      ...(inherited ?? {}),
     },
   };
   const path = mcpConfigPathForSession(sessionKey);
-  writeFileSync(path, JSON.stringify(config, null, 2), "utf-8");
-  return path;
+  // 0600: this file now carries inherited server `env` blocks (API tokens) and
+  // the topics bridge's --gateway-token — must not be world-readable in /tmp.
+  // `mode` only applies on CREATE, and re-spawns overwrite the same path, so
+  // chmod afterwards to force 0600 even if the file pre-existed at 0644.
+  writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
+  try { chmodSync(path, 0o600); } catch { /* best-effort */ }
+  return { path, strict };
 }
 
 export function cleanupMcpConfigForSession(sessionKey: string): void {
@@ -686,12 +763,28 @@ export class ClaudeCodeProvider implements AIProvider {
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
+    // One-shot completions (auto-naming, daily digest, SSE fallback) need NO
+    // MCP tools — but `claude` otherwise auto-loads the user's entire global
+    // ~/.claude.json fleet (incl chrome-devtools' ~1.2GB Chrome) for a single
+    // text completion. Pin an EMPTY strict MCP config so this hot path spawns
+    // zero servers. Falls back to legacy (no scoping) only if the temp write
+    // fails; the file is removed when the process exits (cleanup below).
+    const oneshotKey = `oneshot-${crypto.randomUUID()}`;
+    let oneshotMcpArgs: string[] = [];
+    try {
+      mkdirSync(MCP_CONFIG_DIR, { recursive: true });
+      const p = mcpConfigPathForSession(oneshotKey);
+      writeFileSync(p, JSON.stringify({ mcpServers: {} }, null, 2), { encoding: "utf-8", mode: 0o600 });
+      oneshotMcpArgs = ["--mcp-config", p, "--strict-mcp-config"];
+    } catch { /* fall back to no scoping */ }
+
     const args = [
       "--print",
       "--permission-mode", permissionMode,
       "--verbose",
       "--model", model,
       "--setting-sources", "user,project,local",
+      ...oneshotMcpArgs,
       "--output-format", "json",
     ];
 
@@ -717,6 +810,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
       proc.on("close", (code) => {
         clearTimeout(timer);
+        cleanupMcpConfigForSession(oneshotKey);
         if (code !== 0) {
           console.warn(`[claude-code] complete() exited with code ${code}: ${stderr.slice(0, 200)}`);
           resolve({ content: `Error: CLI exited with code ${code}` });
@@ -740,6 +834,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
       proc.on("error", (err) => {
         clearTimeout(timer);
+        cleanupMcpConfigForSession(oneshotKey);
         reject(err);
       });
 
@@ -878,7 +973,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // and surface `mcp__topics__open_browser_pane` as a callable tool. The
     // file path goes into argv as `--mcp-config`; the file lifetime is
     // bounded by `killProcess` below.
-    const mcpConfigPath = writeMcpConfigForSession(sessionKey);
+    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey);
 
     const args = [
       "--print",
@@ -887,6 +982,9 @@ export class ClaudeCodeProvider implements AIProvider {
       "--model", model,
       "--setting-sources", "user,project,local",
       "--mcp-config", mcpConfigPath,
+      // When we scoped the global fleet into the config above, tell the CLI to
+      // use ONLY that set (drops the per-session chrome-devtools Chrome etc.).
+      ...(mcpStrict ? ["--strict-mcp-config"] : []),
       // Nudge the agent to launch dev servers via mcp__topics__run_script so they
       // appear in the Processes panel instead of leaking into the bare shell.
       "--append-system-prompt", TOPICS_AGENT_SYSTEM_PROMPT,

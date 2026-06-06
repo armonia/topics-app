@@ -26,6 +26,7 @@ import {
   projectPanesLocalKey,
   projectLayoutLocalKey,
 } from '../../../state/pane/adapters';
+import { normalizeWidths } from '../gridWidths';
 
 // --- Storage keys ---
 
@@ -104,6 +105,42 @@ export function subscribeToProjectLayout(
   );
 }
 
+/**
+ * Repair a persisted project layout before it seeds React state. The standalone
+ * grid sanitises every row on load (sanitizeRow in usePanelGridPersistence); the
+ * project path used to trust localStorage VERBATIM, so a corrupt payload —
+ * NaN/0/Infinity widths, widths shorter/longer than groupIds, rowHeights of a
+ * different length than rows — flowed straight into state (and GroupLayout then
+ * rendered `width: NaN%`, collapsing a cell). Here we coerce/renormalise widths
+ * to match each row's groupIds, drop empty rows, and align rowHeights to the
+ * survivors. Untouched when `rows` is absent (nothing persisted yet).
+ */
+function sanitizeLayout(layout: PersistedLayoutState | null): PersistedLayoutState | null {
+  if (!layout || typeof layout !== 'object' || !Array.isArray(layout.rows)) return layout;
+  const rows = layout.rows
+    .filter((r): r is GroupLayoutRow => !!r && Array.isArray((r as GroupLayoutRow).groupIds))
+    .map(r => {
+      const groupIds = r.groupIds.filter((id): id is string => typeof id === 'string');
+      const rawW = Array.isArray(r.widths) ? r.widths : [];
+      const widths = normalizeWidths(
+        groupIds.map((_, i) => {
+          const w = rawW[i];
+          return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 1 / Math.max(1, groupIds.length);
+        }),
+      );
+      return { ...r, groupIds, widths };
+    })
+    .filter(r => r.groupIds.length > 0);
+  const rawH = Array.isArray(layout.rowHeights) ? layout.rowHeights : [];
+  const rowHeights = normalizeWidths(
+    rows.map((_, i) => {
+      const h = rawH[i];
+      return typeof h === 'number' && Number.isFinite(h) && h > 0 ? h : 1;
+    }),
+  );
+  return { ...layout, rows, rowHeights };
+}
+
 export function loadPersistedState(
   projectPath: string,
   onUpdate?: (fresh: PersistedTabState) => void,
@@ -124,7 +161,7 @@ export function loadPersistedState(
   let layout: PersistedLayoutState | null = null;
   try {
     const lraw = localStorage.getItem(layoutStorageKey(projectPath));
-    if (lraw) layout = JSON.parse(lraw);
+    if (lraw) layout = sanitizeLayout(JSON.parse(lraw));
   } catch {}
   if (!tabState) return layout ? { nonChatPanes: [], ...layout } : null;
   return { ...tabState, ...layout };

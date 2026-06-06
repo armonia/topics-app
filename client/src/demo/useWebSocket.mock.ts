@@ -1,15 +1,21 @@
 import { useRef } from "react";
 
-/** Stub of the real useWebSocket hook for the landing demo: always "connected",
-    no real socket, no-op send, no-op subscriptions. */
+const EMPTY_UNREAD: Record<string, any> = {};
+const noopSend = (_m: any) => {};
+const noopSub = (_h: (m: any) => void) => () => {};
+const noopReconnect = () => {};
+
+/** Stub of useWebSocket for the landing demo: always "connected", no real
+    socket. Returns STABLE references (one object per hook instance) so the
+    app's effects that depend on sendWS/onMessage/unreadData don't loop. */
 export function useWebSocket() {
-  const subs = useRef<Set<(m: any) => void>>(new Set());
-  return {
+  const ref = useRef({
     status: "connected" as const,
-    unreadData: {} as Record<string, any>,
-    sendWS: (_m: any) => {},
-    onMessage: (h: (m: any) => void) => { subs.current.add(h); return () => { subs.current.delete(h); }; },
-    reconnect: () => {},
-  };
+    unreadData: EMPTY_UNREAD,
+    sendWS: noopSend,
+    onMessage: noopSub,
+    reconnect: noopReconnect,
+  });
+  return ref.current;
 }
 export default useWebSocket;

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths } from './gridWidths';
+import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths } from './gridWidths';
 
 const approx = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length);
@@ -77,6 +77,18 @@ describe('normalizeWidths', () => {
   });
   test('all-zero → equal', () => {
     approx(normalizeWidths([0, 0, 0]), [1 / 3, 1 / 3, 1 / 3]);
+  });
+});
+
+describe('equalizeWidths — even split for double-click reset', () => {
+  test('n columns → 1/n each, sums to 1', () => {
+    approx(equalizeWidths(3), [1 / 3, 1 / 3, 1 / 3]);
+    expect(equalizeWidths(4).reduce((s, w) => s + w, 0)).toBeCloseTo(1, 6);
+  });
+  test('single column → [1]', () => approx(equalizeWidths(1), [1]));
+  test('count <= 0 → []', () => {
+    expect(equalizeWidths(0)).toEqual([]);
+    expect(equalizeWidths(-2)).toEqual([]);
   });
 });
 

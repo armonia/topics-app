@@ -80,6 +80,14 @@ export function GroupLayout({
     return m;
   }, [groups]);
 
+  // Split mini-map descriptor: real column widths per row + row heights, so the
+  // schematic mirrors the actual split proportions. Passed to each group's tab
+  // bar; it lights its own cell. Only meaningful with more than one cell — a
+  // single group has nothing to orient against.
+  const splitRowWidths = useMemo(() => rows.map((r) => r.widths), [rows]);
+  const totalCells = useMemo(() => splitRowWidths.reduce((a, r) => a + r.length, 0), [splitRowWidths]);
+  const hasSplit = totalCells > 1;
+
   // Keep-alive: track which panes have ever been activated. Once a pane is
   // visited we keep its React subtree mounted (just hidden via display:none
   // when not active) so the user doesn't see chat history re-fetches, scroll
@@ -168,7 +176,7 @@ export function GroupLayout({
     },
   }), []);
 
-  const { startHorizontalResize, startVerticalResize } = useGridResize(containerRef, callbacks, resizeOptions);
+  const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, callbacks, resizeOptions);
 
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
   const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone } | null>(null);
@@ -460,7 +468,10 @@ export function GroupLayout({
                     key={groupId}
                     data-group-cell={`${rowIdx}-${groupIdx}`}
                     className="flex min-h-0 min-w-0 overflow-hidden"
-                    style={{ width: `${row.widths[groupIdx] * 100}%` }}
+                    // Fallback mirrors the row-height style above: a widths array
+                    // shorter than groupIds would otherwise yield `width: NaN%`
+                    // and collapse the cell.
+                    style={{ width: `${(row.widths[groupIdx] ?? 1 / row.groupIds.length) * 100}%` }}
                   >
                     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
                       {/* Per-group tab bar — h-10 to match the project sidebar header
@@ -519,6 +530,7 @@ export function GroupLayout({
                           onPopOut={onPopOut}
                           onPinPane={onPinPane ? (paneId) => onPinPane(groupId, paneId) : undefined}
                           tabNotifications={groupNotifications}
+                          splitMap={hasSplit ? { rows: splitRowWidths, rowHeights, active: [rowIdx, groupIdx] } : undefined}
                         />
                         </div>
                       </div>
@@ -608,7 +620,9 @@ export function GroupLayout({
                         data-divider-row={rowIdx}
                         data-divider-col={groupIdx}
                         className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+                        title="Double-click to equalize widths"
                         onMouseDown={startHorizontalResize(rowIdx, groupIdx, row.widths)}
+                        onDoubleClick={equalizeHorizontal(rowIdx, row.groupIds.length)}
                       >
                         <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
                       </div>
@@ -623,7 +637,9 @@ export function GroupLayout({
               <div
                 data-divider-row={rowIdx}
                 className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
+                title="Double-click to equalize heights"
                 onMouseDown={startVerticalResize(rowIdx, rowHeights)}
+                onDoubleClick={equalizeVertical(rows.length)}
               >
                 <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
               </div>

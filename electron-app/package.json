@@ -42,7 +42,10 @@
       "icon": "icon.icns",
       "identity": null,
       "target": ["dmg", "zip"],
-      "x64ArchFiles": "**/server/**"
+      "x64ArchFiles": "**/server/**",
+      "extendInfo": {
+        "NSPrefersDisplaySafeAreaCompatibilityMode": false
+      }
     },
     "win": {
       "icon": "icon.png",

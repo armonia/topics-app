@@ -60,10 +60,18 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     window.addEventListener('dragstart', onStart, true);
     window.addEventListener('dragend', onEnd, true);
     window.addEventListener('drop', onEnd, true);
+    // A divider RESIZE is a raw mousedown-drag, not an HTML5 drag, so it never
+    // fires dragstart. Without this the OS-level WebContentsView stays on top
+    // during a resize and swallows the pointer, freezing the drag the moment it
+    // crosses a browser pane. useGridResize dispatches these on real drag only.
+    window.addEventListener('topics:pane-resize-start', onStart, true);
+    window.addEventListener('topics:pane-resize-end', onEnd, true);
     return () => {
       window.removeEventListener('dragstart', onStart, true);
       window.removeEventListener('dragend', onEnd, true);
       window.removeEventListener('drop', onEnd, true);
+      window.removeEventListener('topics:pane-resize-start', onStart, true);
+      window.removeEventListener('topics:pane-resize-end', onEnd, true);
     };
   }, []);
 

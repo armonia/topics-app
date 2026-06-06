@@ -14,6 +14,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { globalBoardApi, boardsApi, type BoardTask, type TaskStatus } from '../../lib/api';
+import { loadSettings } from '../../lib/settings';
 import type { WSMessage } from '../../types';
 
 const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
@@ -41,6 +42,8 @@ function getProjectLabel(projectId: string): string {
 }
 
 export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) {
+  // Settings opt-out: hide the "Apri Master" entry-point when Master is off.
+  const showMaster = loadSettings().showMaster;
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -197,32 +200,18 @@ export function AllBoardsPane({ onMessage, onJumpToTopic }: AllBoardsPaneProps) 
         <div className="text-[11px] text-app-text-muted">
           Global board · all projects
         </div>
+        {showMaster && (
         <button
           type="button"
           data-testid="start-master-session"
-          onClick={async () => {
-            try {
-              const resp = await fetch("/api/topics/master", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({}),
-              });
-              if (!resp.ok) {
-                console.warn("[Master] create failed", resp.status);
-                return;
-              }
-              const body = (await resp.json()) as { id: string };
-              onJumpToTopic?.(body.id);
-            } catch (err) {
-              console.warn("[Master] create error", err);
-            }
-          }}
+          onClick={() => window.dispatchEvent(new CustomEvent('open-master'))}
           className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors"
-          title="Start a Master session (Agent Teams). The lead can spawn teammates on any project."
+          title="Apri il Master (sessione Claude Code interattiva, sul tuo abbonamento)"
         >
           <Crown size={11} />
-          <span>Start Master Session</span>
+          <span>Apri Master</span>
         </button>
+        )}
       </div>
 
       {/* Kanban columns */}
