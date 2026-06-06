@@ -1,0 +1,1 @@
+import{j as t}from"./markdown-CBYfpDv2.js";import{ActivityFeedPanel as r}from"./ActivityFeedPanel-SeRoCj5k.js";import"./icons-BhbPdBE-.js";import"./index-KFtLdyEj.js";import"./react-vendor-Bl47rLad.js";function p(){return t.jsx(r,{enabled:!0})}export{p as ActivityPane};
