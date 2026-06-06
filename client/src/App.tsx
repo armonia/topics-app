@@ -169,8 +169,6 @@ function App() {
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
-  // Inline live search that drives the existing sidebar tree filter (searchQuery).
-  const [topicSearch, setTopicSearch] = useState('');
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -620,9 +618,9 @@ function App() {
         
         {/* Header - draggable for window move */}
         <div
-          className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
+          className={`flex items-center justify-between gap-2 px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Close button on mobile */}
             {isMobile && (
               <button
@@ -654,33 +652,19 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* Inline live search — drives the existing sidebar filter via searchQuery. */}
-            <div className="relative flex-1 min-w-0 app-no-drag" style={{ pointerEvents: 'auto' }}>
-              <Search
-                size={14}
-                className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-tertiary pointer-events-none"
-                aria-hidden="true"
-              />
-              <input
-                value={topicSearch}
-                onChange={(e) => setTopicSearch(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setTopicSearch(''); } }}
-                placeholder="Cerca…"
-                aria-label="Cerca nei topic"
-                className={`w-full pl-7 ${topicSearch ? 'pr-7' : 'pr-2'} ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-text placeholder:text-app-placeholder focus:outline-none focus:border-primary/50 transition-colors app-no-drag`}
-                style={{ pointerEvents: 'auto' }}
-              />
-              {topicSearch && (
-                <button
-                  onClick={() => setTopicSearch('')}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-app-text-tertiary hover:text-app-text rounded app-no-drag"
-                  aria-label="Cancella ricerca"
-                  style={{ pointerEvents: 'auto' }}
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
+            {/* Search launcher — opens the ⌘K command palette (no inline tree
+                filtering; ⌘K is the canonical search). */}
+            <button
+              onClick={() => setShowSearch(true)}
+              className={`flex-1 min-w-0 flex items-center gap-2 pl-2.5 pr-2 ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-placeholder hover:border-primary/50 hover:text-app-text-muted transition-colors cursor-pointer app-no-drag`}
+              style={{ pointerEvents: 'auto' }}
+              title="Cerca (⌘K)"
+              aria-label="Cerca — apri command palette"
+            >
+              <Search size={14} className="text-app-text-tertiary flex-shrink-0" aria-hidden="true" />
+              <span className="flex-1 text-left truncate">Cerca…</span>
+              <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
+            </button>
             {wsStatus !== 'connected' && (
               <span className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 animate-pulse">
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
@@ -734,7 +718,7 @@ function App() {
           <TopicTree
             topics={topics}
             workspaceProjects={workspaceProjects}
-            searchQuery={topicSearch}
+            searchQuery=""
             expandedNodes={sidebar.expandedNodes}
             onToggleNode={sidebar.toggleNode}
             focusedTopicId={focusedPanelId}
