@@ -126,6 +126,10 @@ function serverRequest(urlPath: string, options: http.RequestOptions = {}) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+// Tracks the main window's full-screen state. In full-screen the traffic
+// lights are the only way out, so we keep them visible (and make the
+// hide-on-leave-menu IPC a no-op) until the user leaves full-screen.
+let mainWindowFullScreen = false;
 let tray: Tray | null = null;
 let updateLayout: (() => void) | null = null;
 let alwaysOnTop = false;
@@ -491,6 +495,19 @@ function createWindow(): void {
     mainWindow.webContents.on('did-finish-load', repin);
     mainWindow.webContents.on('did-navigate-in-page', repin);
     mainWindow.webContents.on('dom-ready', repin);
+
+    // Full-screen: the title bar is hidden and the traffic lights are
+    // normally only shown on demand (Topics menu). In full-screen that
+    // leaves no visible way to exit, so force the buttons visible while
+    // full-screen and restore the on-demand behaviour on leave.
+    mainWindow.on('enter-full-screen', () => {
+      mainWindowFullScreen = true;
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setWindowButtonVisibility(true);
+    });
+    mainWindow.on('leave-full-screen', () => {
+      mainWindowFullScreen = false;
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setWindowButtonVisibility(false);
+    });
   }
 
   // Intercept navigation: allow localhost, open external URLs in system browser
@@ -2364,7 +2381,9 @@ ipcMain.handle('window:showTrafficLights', (event) => {
 
 ipcMain.handle('window:hideTrafficLights', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  if (win && !win.isDestroyed()) {
+  // Never hide the buttons while the main window is full-screen — they're
+  // the only exit affordance there.
+  if (win && !win.isDestroyed() && !(win === mainWindow && mainWindowFullScreen)) {
     win.setWindowButtonVisibility(false);
   }
 });
