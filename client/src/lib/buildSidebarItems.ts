@@ -159,10 +159,6 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const standaloneTerminals: TerminalSessionInfo[] = [];
 
   for (const ts of terminalSessions) {
-    // The Master terminal is already represented by the dedicated "Master"
-    // sidebar shortcut — don't also list it as a regular terminal session.
-    // interactive-claude-primitive.
-    if (ts.name === 'Master') continue;
     // Match terminal cwd to the most specific project path
     let matched = false;
     for (const pp of sortedProjectPaths) {

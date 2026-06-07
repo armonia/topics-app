@@ -27,7 +27,6 @@ const TabNotificationContext = createContext<TabNotificationContextValue | null>
  *  Both are valid in `openPanels` depending on which surface created the
  *  pane, so every badge rule needs to cover both spellings. */
 const AGENTS_PREFIXES = ['__agents__', 'agents:', 'agents', 'session-viewer:'] as const;
-const BOARD_PREFIXES = ['__all-boards__', '__board__', 'board:', 'all-boards'] as const;
 
 export function TabNotificationProvider({
   children,
@@ -135,11 +134,6 @@ export function TabNotificationProvider({
           badgePrefixes(AGENTS_PREFIXES);
         }
       }
-      // Approval request → badge on agents + board panes (board surfaces
-      // approval-needing tasks too)
-      if (msg.type === 'approval:created') {
-        badgePrefixes([...AGENTS_PREFIXES, ...BOARD_PREFIXES]);
-      }
       // Stream ended (Claude finished responding) → badge on agents + session-viewer
       if (msg.type === 'stream:end' && msg.sessionKey) {
         badgePrefixes(AGENTS_PREFIXES);
@@ -147,17 +141,9 @@ export function TabNotificationProvider({
           touchTopic(msg.topicId);
         }
       }
-      // Agent explicitly asking for human help → badge agents + board panes
+      // Agent explicitly asking for human help → badge agents panes
       if (msg.type === 'agent:escalation' || msg.type === 'agent:nudge') {
-        badgePrefixes([...AGENTS_PREFIXES, ...BOARD_PREFIXES]);
-      }
-      // Board activity from autonomous workers → badge board tabs
-      if (msg.type === 'task:created' || msg.type === 'task:moved' || msg.type === 'task:unarchived') {
-        badgePrefixes(BOARD_PREFIXES);
-      }
-      // Board memory updates → badge board-memory tabs
-      if (msg.type === 'board-memory:created' || msg.type === 'board:memory_added') {
-        badgePrefixes([...BOARD_PREFIXES, 'board-memory:']);
+        badgePrefixes(AGENTS_PREFIXES);
       }
       // New terminal session spawned externally → badge terminal panes
       // (edge-triggered: server broadcasts on session create/exit, not poll)

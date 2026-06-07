@@ -41,7 +41,7 @@ export interface UseKeyboardShortcutsArgs {
   handleClosePanel: (topicId: string) => void;
   handleQuickCreateTopic: (projectPath?: string) => Promise<unknown>;
   toggleSidebar: () => void;
-  handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => void;
+  handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
   setFocusedPanelId: (id: string) => void;
   /** Reopen a previously-closed tab (stable identity). */
   handleReopenClosedTab: (record: ClosedTabRecord) => void;
@@ -52,10 +52,6 @@ export interface UseKeyboardShortcutsArgs {
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
   setShowFileSearch: Dispatch<SetStateAction<false | { projectPath: string }>>;
-  // Settings opt-out flags — mirrored into refs so the ⇧⌘M handler and the
-  // 'open-all-boards' listener no-op when Board/Master are hidden.
-  showBoard: boolean;
-  showMaster: boolean;
 }
 
 /**
@@ -100,8 +96,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const topicsRef = useRef(args.topics);
   const focusedProjectPathRef = useRef(args.focusedProjectPath);
   const closedTabsRef = useRef(args.closedTabs);
-  const showBoardRef = useRef(args.showBoard);
-  const showMasterRef = useRef(args.showMaster);
   const modalsRef = useRef({
     showSearch: args.showSearch,
     showNewTopic: args.showNewTopic,
@@ -114,8 +108,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   useEffect(() => { topicsRef.current = args.topics; });
   useEffect(() => { focusedProjectPathRef.current = args.focusedProjectPath; });
   useEffect(() => { closedTabsRef.current = args.closedTabs; });
-  useEffect(() => { showBoardRef.current = args.showBoard; });
-  useEffect(() => { showMasterRef.current = args.showMaster; });
   useEffect(() => {
     modalsRef.current = {
       showSearch: args.showSearch,
@@ -128,7 +120,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   // ---- Keyboard listener — registered ONCE on mount (modulo stable callback identity) ----
   const {
     isElectron,
-    handleClosePanel, handleQuickCreateTopic, toggleSidebar, handleOpenAsPage,
+    handleClosePanel, handleQuickCreateTopic, toggleSidebar,
     setFocusedPanelId, handleReopenClosedTab,
     setShowSearch, setShowNewTopic, setShowShortcuts, setShowFileSearch,
   } = args;
@@ -153,20 +145,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       if (isMod && e.key === 'k') {
         e.preventDefault();
         setShowSearch(prev => !prev);
-        return;
-      }
-
-      // Cmd+Shift+M — jump to the open Master pane (if any). Quick
-      // back-out from a session the user reached via the Master strip.
-      // (Plain Cmd+M is reserved by macOS for "Minimize Window".)
-      if (isMod && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
-        if (isTextInputFocused(e.target)) return;
-        if (!showMasterRef.current) return;
-        // Master is now an interactive `claude` PTY tab — App owns the open
-        // logic; emit the shared event (same path as sidebar + board buttons).
-        // interactive-claude-primitive (was: focus the chat-master lead topic).
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('open-master'));
         return;
       }
 
@@ -298,13 +276,4 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     setFocusedPanelId,
   ]);
 
-  // ---- open-all-boards custom event ----
-  useEffect(() => {
-    const handler = () => {
-      if (!showBoardRef.current) return;
-      handleOpenAsPage('all-boards');
-    };
-    window.addEventListener('open-all-boards', handler);
-    return () => window.removeEventListener('open-all-boards', handler);
-  }, [handleOpenAsPage]);
 }

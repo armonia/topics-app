@@ -461,14 +461,6 @@ export function terminalAttentionCount(sid: string, terminalFinishedIds: Set<str
  * bar) and buildSidebarItems (sidebar project row) call it — guaranteeing the
  * project tab and the sidebar project row show the SAME summed count. Built on
  * the per-subject helpers above so there's one definition of "attention".
- *
- * Lead (Master) topics are skipped: the sidebar hides them from the project
- * tree (surfaced via the dedicated Master shortcut instead), so counting their
- * attention here would make the project badge larger than the rows you can
- * actually see under it — and would diverge between the tab bar (which holds the
- * full topic map) and the sidebar (which pre-filters leads). Skipping inside the
- * helper keeps the count input-independent: both surfaces agree no matter which
- * topic map they pass.
  */
 export function rollupProjectAttention(
   projectPath: string,
@@ -481,7 +473,6 @@ export function rollupProjectAttention(
   let sum = 0;
   for (const t of Object.values(topics)) {
     if (t.projectPath !== projectPath) continue;
-    if (t.agentTeamRole === 'lead') continue;
     sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
   }
   if (terminalFinishedIds.size) {

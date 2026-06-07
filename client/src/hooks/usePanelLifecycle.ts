@@ -55,24 +55,8 @@ import {
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 
-// Module-scoped sticky flag for "user opened the Master tab and wants it to
-// stay open". Hoisted out of the hook so it survives React StrictMode's
-// double-mount in dev and HMR file replacements. Also persisted to
-// localStorage so a page reload after user opened Master keeps Master
-// visible (rather than letting the server hydrate evict it on every load).
-const MASTER_INTENT_KEY = 'topics:master-open-intent';
-const masterOpenIntent: { value: boolean } = {
-  value: (() => { try { return localStorage.getItem(MASTER_INTENT_KEY) === '1'; } catch { return false; } })(),
-};
-function setMasterOpenIntent(v: boolean): void {
-  masterOpenIntent.value = v;
-  try { v ? localStorage.setItem(MASTER_INTENT_KEY, '1') : localStorage.removeItem(MASTER_INTENT_KEY); } catch {}
-}
-// Timestamp until which focus should be pinned to Master.
-const masterFocusUntil: { value: number } = { value: 0 };
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
-import { globalBoardApi } from '../lib/api';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
 
@@ -195,7 +179,6 @@ export interface UsePanelLifecycleReturn {
     externalDragSourceWindow: string | null;
     pendingBrowserPane: string | null;
     pendingSoloPanelId: string | null;
-    boardTaskCounts: Record<string, number>;
   };
   refs: {
     focusedPanelIdRef: React.MutableRefObject<string | null>;
@@ -212,14 +195,10 @@ export interface UsePanelLifecycleReturn {
     handleProjectClick: (projectPath: string) => void;
     handleCloseProject: (projectPath: string) => void;
     handleFocusPanel: (topicId: string) => void;
-    /** Open the Master Topic — sets the open-intent flag so Effect 7b
-     *  re-adds the pane if the post-add server hydrate strips it. */
-    openMasterPane: (topicId: string) => void;
     handleReorderPanels: (panels: string[]) => void;
     handleOpenPanelAt: (topicId: string, index: number) => void;
     handleOpenAsProject: (path: string) => void;
     handleAddProjectPane: (projectPath: string, type: PaneType, subType?: string) => void;
-    handleOpenProjectBoard: (projectPath: string) => void;
     handleArchiveProject: (projectPath: string, archive: boolean) => Promise<boolean>;
     handleTopicContextMenu: (e: React.MouseEvent, topic: Topic) => void;
     handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | null>;
@@ -228,7 +207,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<void>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
-    handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => void;
+    handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
     handleExternalDrop: () => void;
     handleReopenClosedTab: (record: ClosedTabRecord) => Promise<void>;
     handleProjectActiveTopicChange: (projectPath: string, topicId: string | null) => void;
@@ -424,11 +403,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         const topic = topics[id];
         if (!topic) return isUUIDLike(id);
         if (topic.archived) return false;
-        // Master Topic (agent_team_role='lead') always stays as a
-        // standalone pane — the strip + Master UX depend on it being
-        // its own tab, never collapsed into a project pane even when
-        // projectPath happens to be set (project-scoped Master variant).
-        if (topic.agentTeamRole === 'lead') return true;
         if (topic.projectPath) {
           const paneId = createPaneId('project', topic.projectPath);
           if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
@@ -471,49 +445,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
   }, [topics, topicsLoading, isDetached, openPanels, focusedPanelId]);
 
-  // ---- 7b. Master pane stickiness ----
-  // The Master Topic (agentTeamRole='lead') keeps getting evicted by server
-  // ui-state:updated round-trips: the user clicks the sidebar shortcut, we add
-  // master locally, dispatch outbound PUT — but BEFORE that PUT lands the
-  // server emits an `ui-state:updated` (from a prior PUT, or another tab) with
-  // a fresher server_seq that doesn't include master, and our hydrate strips
-  // it. This effect notices "topic exists but isn't in openPanels" and
-  // re-adds it whenever the user has expressed intent to have it open. The
-  // intent is captured by the module-scoped `masterOpenIntent` flag, set by
-  // openMasterPane and cleared when the user closes the Master tab.
-  useEffect(() => {
-    if (!masterOpenIntent.value) return;
-    const leadTopic = Object.values(topics).find((t) => !t.archived && t.agentTeamRole === 'lead');
-    if (!leadTopic) return;
-    const inOpenPanels = openPanels.includes(leadTopic.id);
-    if (!inOpenPanels) {
-      const s = usePaneStore.getState();
-      if (!s.panes[leadTopic.id]) {
-        s.dispatch({
-          type: 'OPEN_PANE',
-          payload: { id: leadTopic.id, type: 'chat', topicId: leadTopic.id, title: leadTopic.name, preview: false, groupId: 'group:default' },
-        });
-      }
-      setOpenPanels((prev) => prev.includes(leadTopic.id) ? prev : [...prev, leadTopic.id]);
-    }
-    // Focus stickiness: for ~5 s after the user clicked the sidebar shortcut,
-    // ensure focus stays on Master. The server-hydrate round-trip routinely
-    // grabs focus back to whatever pane was previously focused (or the
-    // first pane in storeOrder if no prior focus). Pinning focus here lets
-    // the user actually LAND on the pane they asked for; once the window
-    // expires the user can navigate away normally.
-    if (Date.now() < masterFocusUntil.value && focusedPanelId !== leadTopic.id) {
-      setFocusedPanelId(leadTopic.id);
-      usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: leadTopic.id } });
-    } else if (focusedPanelId === leadTopic.id && masterFocusUntil.value > 0) {
-      // Master has the focus we wanted; close the pinning window so that
-      // legitimate user gestures (clicking another sidebar tab, switching
-      // to a project pane) actually move focus instead of being overridden
-      // by the next 7b run inside the original 15 s window.
-      masterFocusUntil.value = 0;
-    }
-  }, [topics, openPanels, focusedPanelId]);
-
   // ---- 8. Terminal cleanup effect (CRITIQUE C5: pure helper) ----
   useEffect(() => {
     setOpenPanels(prev => {
@@ -528,18 +459,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isProjectPaneId(focusedPanelId)) return getProjectPathFromPaneId(focusedPanelId) || undefined;
     return topics[focusedPanelId]?.projectPath || undefined;
   }, [focusedPanelId, topics]);
-
-  // ---- Board task counts ----
-  const [boardTaskCounts, setBoardTaskCounts] = useState<Record<string, number>>({});
-  useEffect(() => {
-    globalBoardApi.listTasks().then(data => {
-      const counts: Record<string, number> = {};
-      for (const t of data.tasks) {
-        if (t.status !== 'done') counts[t.projectId] = (counts[t.projectId] || 0) + 1;
-      }
-      setBoardTaskCounts(counts);
-    }).catch(() => {});
-  }, []);
 
   // ---- Browser pane management ----
   const [pendingBrowserPane, setPendingBrowserPane] = useState<string | null>(null);
@@ -577,7 +496,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
 
   // ---- handleOpenAsPage ----
-  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'cron') => {
+  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'cron') => {
     const id = utilityPanelId(type);
     // Register in the pane store BEFORE pushing into openPanels —
     // otherwise Effect A reconciles openPanels back to the store-known
@@ -768,21 +687,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
   }, [onWSMessage, windowId]);
 
-  // WS Cluster 6: board task counts
-  useEffect(() => {
-    return onWSMessage((msg) => {
-      if (msg.type === 'task:created' || msg.type === 'task:moved' || msg.type === 'task:updated' || msg.type === 'task:deleted') {
-        globalBoardApi.listTasks().then(data => {
-          const counts: Record<string, number> = {};
-          for (const t of data.tasks) {
-            if (t.status !== 'done') counts[t.projectId] = (counts[t.projectId] || 0) + 1;
-          }
-          setBoardTaskCounts(counts);
-        }).catch(() => {});
-      }
-    });
-  }, [onWSMessage]);
-
   // ---- 17. Drain queue + reload histories on WS reconnect ----
   // `prevWsStatus !== 'connected' && current === 'connected'` was ALSO true
   // for the very first 'connecting' → 'connected' transition on page load,
@@ -896,7 +800,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const onArchive = (e: Event) => {
       const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
       const t = id ? topicsRef.current[id] : undefined;
-      if (id && t && t.agentTeamRole !== 'lead') void archiveTopic(id, true);
+      if (id && t) void archiveTopic(id, true);
     };
     const onUnarchive = (e: Event) => {
       const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
@@ -912,12 +816,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
-    // If this isn't the Master itself, treat it as a deliberate move-away
-    // signal: drop the focus-pinning window so the click takes effect on
-    // the first try (see comment in handleProjectClick for the 2-click bug).
-    if (topic?.agentTeamRole !== 'lead') {
-      masterFocusUntil.value = 0;
-    }
     if (topic?.projectPath) {
       // 2-state model: opening an (archived = closed) project chat restores it.
       if (topic.archived) void archiveTopic(topicId, false);
@@ -952,18 +850,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // handleClosePanel (stable identity via ref-backed impl)
   const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
   handleClosePanelRef.current = (topicId: string) => {
-    // Closing the Master tab is the explicit "I'm done with it" signal —
-    // drop the stickiness flag so Effect 7b stops re-adding it.
     const closingTopic = topicsRef.current[topicId];
-    if (closingTopic?.agentTeamRole === 'lead') setMasterOpenIntent(false);
     // 2-state model: a USER-closed chat tab archives the topic (closed ⟺
     // archived). Guard to REAL chat topics only — never drafts, never the
-    // prefixed terminal/browser/project pane ids (topicsRef holds only chats),
-    // and never the Master/lead (closing it just drops stickiness above).
+    // prefixed terminal/browser/project pane ids (topicsRef holds only chats).
     // This sits in the single user-close funnel (X / right-click Close-now /
     // Cmd+W / deferred-commit all reach here); incidental closes go through the
     // reducer / setOpenPanels and never call this, so they won't archive.
-    const archivesOnClose = !!closingTopic && !isDraftPaneId(topicId) && closingTopic.agentTeamRole !== 'lead';
+    const archivesOnClose = !!closingTopic && !isDraftPaneId(topicId);
     let panelIndex = 0;
     {
       const s = usePaneStore.getState();
@@ -1016,12 +910,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   );
 
   const handleProjectClick = useCallback((projectPath: string) => {
-    // Deliberate focus action — drop the Master focus-pinning window so
-    // Effect 7b doesn't yank focus back during the 15 s after open. Otherwise
-    // the user has to click twice: the first click is overridden by the
-    // pin, the second succeeds once the window expires or Master re-grabs
-    // focus and the else-branch closes it.
-    masterFocusUntil.value = 0;
     const paneId = createPaneId('project', projectPath);
     ensurePaneRegistered({ id: paneId, type: 'project', projectPath });
     if (isMobile) {
@@ -1130,17 +1018,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
   }, [openPanel]);
 
-  const openMasterPane = useCallback((topicId: string) => {
-    setMasterOpenIntent(true);
-    // Pinning window for Effect 7b. 5 s was too tight: the server-hydrate
-    // round-trip + topic:created broadcast routinely take 2-4 s, leaving only
-    // a sliver during which 7b could win the focus race. Bumping to 15 s
-    // lets the local intent dominate any incoming hydrate snapshot until the
-    // pane has actually rendered and the user has had a chance to look at it.
-    masterFocusUntil.value = Date.now() + 15000;
-    handleFocusPanel(topicId);
-  }, [handleFocusPanel]);
-
   const handleReorderPanels = useCallback((panels: string[]) => {
     setOpenPanels(panels);
   }, []);
@@ -1237,15 +1114,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     await sendMessage(topic.sessionKey, firstMessage, options);
   }, [draftMeta, createTopic, sendMessage]);
 
-  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true, opts?: { role?: 'master'; name?: string }) => {
+  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
     try {
-      const name = opts?.name || (termType === 'claude-code' ? 'Claude Code' : 'Shell');
+      const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
       const body: Record<string, unknown> = { type: termType, name };
       if (termType === 'claude-code') body.skipPermissions = skipPermissions;
-      // Master = an interactive claude PTY with the orchestrator system prompt
-      // (subscription, human-driven). Opens as a normal terminal TAB — not a
-      // chat pane — so it doesn't disrupt the layout. interactive-claude-primitive.
-      if (opts?.role) body.role = opts.role;
       const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1381,9 +1254,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
   }, [openPanels, isMobile, setSidebarCollapsed]);
 
-  const handleOpenProjectBoard = useCallback((projectPath: string) => {
-    handleAddProjectPane(projectPath, 'board');
-  }, [handleAddProjectPane]);
 
   const handleArchiveProject = useCallback(async (projectPath: string, archive: boolean) => {
     const success = await archiveProject(projectPath, archive);
@@ -1471,7 +1341,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       externalDragSourceWindow,
       pendingBrowserPane,
       pendingSoloPanelId,
-      boardTaskCounts,
     },
     refs: { focusedPanelIdRef, openPanelsRef },
     derived: { focusedProjectPath },
@@ -1483,12 +1352,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       handleProjectClick,
       handleCloseProject,
       handleFocusPanel,
-      openMasterPane,
       handleReorderPanels,
       handleOpenPanelAt,
       handleOpenAsProject,
       handleAddProjectPane,
-      handleOpenProjectBoard,
       handleArchiveProject,
       handleTopicContextMenu,
       handleQuickCreateTopic,

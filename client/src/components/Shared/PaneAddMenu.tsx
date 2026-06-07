@@ -197,7 +197,7 @@ export function PaneAddMenuItems({
   // (any future PaneType not in this list) appear at the end in their
   // declared order so adding a new addableScopes entry still surfaces
   // it without a code change here.
-  const SORTED_AVAILABLE: PaneType[] = ['terminal', 'browser', 'git', 'files', 'board-memory'];
+  const SORTED_AVAILABLE: PaneType[] = ['terminal', 'browser', 'git', 'files'];
   const orderedTypes = availableTypes
     ? [
         ...SORTED_AVAILABLE.filter((t) => availableTypes.includes(t)),

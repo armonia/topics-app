@@ -1577,66 +1577,6 @@ export const globalBoardApi = {
   },
 };
 
-// Master orchestrator API — per-session state for the Master Topic UI.
-// Mirrors the snapshot the lead receives, so the strip and the AI see the
-// same picture.
-export type MasterSessionState = 'empty' | 'streaming' | 'update' | 'waiting' | 'idle';
-export interface MasterSession {
-  topicId: string;
-  /** Discriminator: 'topic' is a regular chat topic; 'claude-code-terminal'
-   *  is a Claude Code CLI terminal session (lives in terminal_sessions,
-   *  pane id prefixed `terminal:`). Optional for backwards-compat with
-   *  older server builds. */
-  sessionType?: 'topic' | 'claude-code-terminal';
-  name: string;
-  role: 'lead' | 'teammate' | null;
-  projectPath: string | null;
-  color: string;
-  icon: string;
-  state: MasterSessionState;
-  lastRole: 'user' | 'assistant' | null;
-  lastAt: string | null;
-  lastPreview: string;
-  unread: number;
-  msgCount: number;
-  updatedAt: string;
-}
-export const masterApi = {
-  async getSessions(): Promise<{ sessions: MasterSession[] }> {
-    return request<{ sessions: MasterSession[] }>(`/topics/master/sessions`);
-  },
-  /** refactor-master-into-kanban (AD-3) — parse the lead's latest `## Next`
-   *  block and upsert its proposals as kanban cards. Idempotent. Call when the
-   *  Master reply finishes. `topicId` defaults to the single global lead. */
-  async ingest(topicId?: string): Promise<{ proposals: number; upserted: unknown[] }> {
-    return request<{ proposals: number; upserted: unknown[] }>(`/topics/master/ingest`, {
-      method: 'POST',
-      body: JSON.stringify(topicId ? { topicId } : {}),
-    });
-  },
-  /** interactive-claude-primitive (AD-2) — scrape the Master TERMINAL's buffer
-   *  for the latest `## Next` block and upsert proposals as kanban cards. Free:
-   *  reads on-screen text, no model call. Call from the Master pane button. */
-  async ingestFromTerminal(terminalId: string): Promise<{ proposals: number; upserted: unknown[] }> {
-    return request<{ proposals: number; upserted: unknown[] }>(`/topics/master/ingest`, {
-      method: 'POST',
-      body: JSON.stringify({ terminalId }),
-    });
-  },
-  /** Read whether the periodic attention monitor is running. */
-  async getMonitor(): Promise<{ enabled: boolean }> {
-    return request<{ enabled: boolean }>(`/master/monitor`);
-  },
-  /** Turn the periodic attention monitor on/off. OFF by default, never
-   *  auto-starts — the user controls it. interactive-claude-primitive. */
-  async setMonitor(enabled: boolean): Promise<{ enabled: boolean }> {
-    return request<{ enabled: boolean }>(`/master/monitor`, {
-      method: 'POST',
-      body: JSON.stringify({ enabled }),
-    });
-  },
-};
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase A — Project + Worktree domain (migrations 016-018)
 // ─────────────────────────────────────────────────────────────────────────────

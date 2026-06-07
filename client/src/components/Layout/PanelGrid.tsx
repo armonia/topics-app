@@ -86,10 +86,6 @@ interface GridItem {
 interface PanelGridProps {
   openPanels: string[];
   focusedPanelId: string | null;
-  /** Topic id of the active Master · Global / Master · Project pane, if
-   *  any. Threaded down so non-Master panes can render a quick "←
-   *  Master" affordance to jump back. */
-  masterPaneId?: string | null;
   onFocusPanel: (topicId: string) => void;
   /** Default close — typically deferred via the PendingAction countdown. */
   onClosePanel: (topicId: string) => void;
@@ -160,7 +156,6 @@ interface PanelGridProps {
 export function PanelGrid({
   openPanels,
   focusedPanelId,
-  masterPaneId,
   onFocusPanel,
   onClosePanel,
   onClosePanelImmediate,
@@ -1342,7 +1337,6 @@ export function PanelGrid({
         splitMap={hasGridSplit ? { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] } : undefined}
         topicIds={item.panelIds}
         focusedPanelId={focusedPanelId}
-        masterPaneId={masterPaneId}
         onFocusPanel={onFocusPanel}
         onClosePanel={onClosePanel}
         onClosePanelImmediate={onClosePanelImmediate}

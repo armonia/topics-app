@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PenLine, Smile, Palette, Bot, Kanban, Trash2, type LucideIcon } from 'lucide-react';
+import { PenLine, Smile, Palette, Bot, Trash2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
 
@@ -11,7 +11,6 @@ interface ContextMenuProps {
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onDelete: (id: string) => Promise<boolean>;
   onAssignAgents?: (topicId: string, topicName: string) => void;
-  onOpenBoard?: (projectPath: string) => void;
 }
 
 const COLOR_OPTIONS = [
@@ -22,7 +21,7 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'icon' | 'color' | 'confirm-delete';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, onOpenBoard }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -91,9 +90,6 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
               <div className="border-t border-app-border my-1" />
               <MenuItem icon={Bot} label="Assign Agents" onClick={() => { onAssignAgents(topic.id, topic.name); onClose(); }} />
             </>
-          )}
-          {onOpenBoard && topic.projectPath && (
-            <MenuItem icon={Kanban} label="Open Board" onClick={() => { onOpenBoard(topic.projectPath!); onClose(); }} />
           )}
           <div className="border-t border-app-border my-1" />
           <MenuItem icon={Trash2} label="Archive / Delete" onClick={() => setSubMenu('confirm-delete')} danger />

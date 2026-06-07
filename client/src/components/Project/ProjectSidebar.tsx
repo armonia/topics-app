@@ -3,7 +3,6 @@ import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, Pan
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
-import { TaskBoard } from './TaskBoard';
 import { useScripts } from '../../hooks/useScripts';
 import type { WSMessage } from '../../types';
 
@@ -12,12 +11,10 @@ const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.Git
 
 interface ProjectSidebarProps {
   projectPath: string;
-  topicId: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onOpenFile?: (path: string) => void;
   onWSMessage?: (handler: (msg: WSMessage) => void) => () => void;
-  onOpenBoard?: () => void;
   onOpenProcessLog?: (processId: string, scriptName: string) => void;
 }
 
@@ -25,12 +22,10 @@ type SectionId = 'files' | 'git' | 'processes';
 
 export function ProjectSidebar({
   projectPath,
-  topicId,
   collapsed,
   onToggleCollapse,
   onOpenFile,
   onWSMessage,
-  onOpenBoard,
   onOpenProcessLog,
 }: ProjectSidebarProps) {
   // Project name = last segment of the project path (the folder name).
@@ -59,9 +54,6 @@ export function ProjectSidebar({
   }, [expandedSections]);
 
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
-
-  // Use same projectId as KanbanBoard (encodeURIComponent of projectPath)
-  const projectId = projectPath ? encodeURIComponent(projectPath) : null;
 
   // Running process count for the Processes header badge (shared hook — no duplicate polling)
   const { runningCount } = useScripts({ projectPath, onMessage: onWSMessage });
@@ -194,11 +186,6 @@ export function ProjectSidebar({
           </div>
           {/* Sections — Files fills top, Git/Processes anchored at bottom */}
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-shrink-0">
-              {projectId && onWSMessage && (
-                <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
-              )}
-            </div>
             <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <div
                 onClick={() => toggleSection('files')}
@@ -279,12 +266,6 @@ export function ProjectSidebar({
 
       {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Fixed content at top */}
-        <div className="flex-shrink-0">
-          {projectId && onWSMessage && (
-            <TaskBoard topicId={topicId} projectId={projectId} onWSMessage={onWSMessage} onOpenBoard={onOpenBoard} />
-          )}
-        </div>
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
         <div className="flex flex-col flex-1 min-h-0">

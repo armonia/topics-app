@@ -37,7 +37,6 @@ import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
-import { loadSettings } from './lib/settings';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -324,14 +323,13 @@ function App() {
     pendingProjectFocus, projectActiveTopics, projectOpenPanes,
     pendingProjectPane, panelInitialTab, contextMenu, expandedProjects,
     externalDragTopicId, pendingBrowserPane, pendingSoloPanelId,
-    boardTaskCounts,
   } = panelLifecycle.state;
   const { focusedProjectPath } = panelLifecycle.derived;
   const {
     handleTopicClick, handleTopicDoubleClick, handleClosePanel,
     handleProjectClick, handleFocusPanel, handleReorderPanels,
     handleOpenPanelAt, handleOpenAsProject, handleAddProjectPane,
-    handleOpenProjectBoard, handleArchiveProject, handleTopicContextMenu,
+    handleArchiveProject, handleTopicContextMenu,
     handleQuickCreateTopic, handleCreateTopic, promoteDraft,
     handleQuickCreateTerminal, handleCloseTerminal, handleTerminalClick,
     handleOpenAsPage, handleExternalDrop, handleReopenClosedTab,
@@ -358,23 +356,6 @@ function App() {
     window.addEventListener('topics:open-project-picker', handler);
     return () => window.removeEventListener('topics:open-project-picker', handler);
   }, [handleOpenProjectPicker]);
-
-  // Open the Master as an interactive `claude` PTY tab (subscription, human-
-  // driven) — NOT a chat topic. Single entry point reused by the sidebar
-  // shortcut, the ⇧⌘M shortcut, and the board buttons via the 'open-master'
-  // event, so no path can fall back to the old layout-breaking chat-master.
-  // interactive-claude-primitive.
-  const openMasterTerminal = useCallback(() => {
-    void handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
-  }, [handleQuickCreateTerminal]);
-
-  useEffect(() => {
-    // No-op when Master is disabled in Settings. Read via loadSettings() to
-    // avoid a stale closure on this minimal-deps effect.
-    const handler = () => { if (loadSettings().showMaster) openMasterTerminal(); };
-    window.addEventListener('open-master', handler);
-    return () => window.removeEventListener('open-master', handler);
-  }, [openMasterTerminal]);
 
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -543,8 +524,6 @@ function App() {
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
-    showBoard: appSettings.showBoard,
-    showMaster: appSettings.showMaster,
   });
 
   return (
@@ -665,12 +644,8 @@ function App() {
               <span className="flex-1 text-left truncate">Cerca…</span>
               <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
             </button>
-            {wsStatus !== 'connected' && (
-              <span className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 animate-pulse">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-                {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
-              </span>
-            )}
+            {/* WS connection status (Connecting/Reconnecting/Offline) moved to
+                the bottom SidebarStatusBar — keeps the header uncluttered. */}
             {wsStatus === 'connected' && topicsLoading && (
               <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
             )}
@@ -708,7 +683,8 @@ function App() {
         {/* SidebarControls removed: search is now the inline header input,
             view-mode + archived toggles live in the Topics ▾ menu, and ⌘K
             (CommandPalette) remains via setShowSearch / the keyboard shortcut. */}
-        {topicsError && <div className="px-2 text-red-500 text-[11px]">{topicsError}</div>}
+        {/* topicsError ("Using cached data — server unreachable") moved to the
+            bottom SidebarStatusBar — see <SidebarStatusBar dataNotice={…} />. */}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
           <ErrorBoundary fallbackMessage="Sidebar error">
@@ -735,11 +711,6 @@ function App() {
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
-            onOpenProjectBoard={handleOpenProjectBoard}
-            onOpenMaster={openMasterTerminal}
-            showBoard={appSettings.showBoard}
-            showMaster={appSettings.showMaster}
-            boardTaskCounts={boardTaskCounts}
             onNewChat={() => handleQuickCreateTopic()}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
             terminalSessions={terminalSessions}
@@ -765,7 +736,7 @@ function App() {
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar />
+        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
         </ErrorBoundary>
       </div>
 
@@ -820,7 +791,6 @@ function App() {
         <PanelGrid
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
-          masterPaneId={Object.values(topics).find((t) => !t.archived && t.agentTeamRole === 'lead')?.id ?? null}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
           onClosePanelImmediate={handleClosePanel}
@@ -982,7 +952,6 @@ function App() {
           onUpdate={updateTopic}
           onDelete={archiveTopic}
           onAssignAgents={(topicId, topicName) => setAssignAgentsTarget({ topicId, topicName })}
-          onOpenBoard={handleOpenProjectBoard}
         />
       )}
 

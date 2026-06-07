@@ -51,10 +51,6 @@ interface ChatPanelProps {
    *  project-scoped topics too, unlike a bare sendFocusTopic which is
    *  presence-only). */
   onFocusPanel?: (topicId: string) => void;
-  /** Id of the open Master pane (if any). Used to render a "← Master"
-   *  back affordance in non-Master panes so the user can return with
-   *  one click after jumping out from the Master strip. */
-  masterPaneId?: string | null;
   /** Skip the header entirely — used when StandaloneChatGroup renders a
    *  single shared header above a keep-alive ladder of pane bodies. The
    *  body still renders banners, ChatPane, and the context inspector
@@ -73,7 +69,6 @@ export function ChatPanel({
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
   onOpenSessionViewer,
   onFocusPanel,
-  masterPaneId,
   bodyOnly = false,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -249,8 +244,6 @@ export function ChatPanel({
                 onWSMessage={onWSMessage}
                 onUpdateTopic={onUpdateTopic}
                 onOpenSessionViewer={onOpenSessionViewer}
-                masterPaneId={masterPaneId}
-                onFocusPanel={onFocusPanel}
               />
             </div>
           </div>
