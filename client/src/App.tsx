@@ -603,11 +603,8 @@ function App() {
               <span className="flex-1 text-left truncate">Cerca…</span>
               <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
             </button>
-            {/* WS connection status (Connecting/Reconnecting/Offline) moved to
-                the bottom SidebarStatusBar — keeps the header uncluttered. */}
-            {wsStatus === 'connected' && topicsLoading && (
-              <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
-            )}
+            {/* Connection + loading status live in the bottom SidebarStatusBar
+                and the tree skeleton — no stray spinner next to the search. */}
           </div>
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
             {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
