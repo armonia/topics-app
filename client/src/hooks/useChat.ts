@@ -767,14 +767,13 @@ export function useChat() {
       const decoder = new TextDecoder();
       let buffer = '';
       let assistantMessageCreated = true;
-      let currentThinking = '';
       let currentContent = '';
       let isInThinking = false;
 
       try {
         while (true) {
           const { done, value } = await reader.read();
-          
+
           if (done) break;
           
           buffer += decoder.decode(value, { stream: true });
@@ -820,7 +819,6 @@ export function useChat() {
                 // Create assistant message on first content chunk
                 if (!assistantMessageCreated) {
                   if (isInThinking) {
-                    currentThinking = chunk;
                     addMessage(sessionKey, {
                       role: 'assistant',
                       content: '',
@@ -841,7 +839,6 @@ export function useChat() {
                 } else {
                   // Accumulate into batch — single state update after the loop
                   if (isInThinking) {
-                    currentThinking += chunk;
                     thinkingBatch += chunk;
                   } else if (chunk) {
                     currentContent += chunk;
@@ -1257,8 +1254,6 @@ export function useChat() {
       }
       const decoder = new TextDecoder();
       let buffer = '';
-      let currentContent = '';
-      let currentThinking = '';
       let isInThinking = false;
 
       // Add a placeholder partial assistant message
@@ -1295,8 +1290,8 @@ export function useChat() {
                 if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
                 if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
                 if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
-                if (isInThinking) { currentThinking += chunk; thinkingBatch += chunk; }
-                else if (chunk) { currentContent += chunk; contentBatch += chunk; }
+                if (isInThinking) { thinkingBatch += chunk; }
+                else if (chunk) { contentBatch += chunk; }
               }
             } catch {}
           }

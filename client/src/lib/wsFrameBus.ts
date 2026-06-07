@@ -113,11 +113,6 @@ export function dispatchFrame(frame: unknown): void {
   }
 }
 
-/** Test/diagnostic helper — returns current subscriber count. */
-export function __getHandlerCount(): number {
-  return entries.size;
-}
-
 // ─── Lifecycle events (connect/disconnect) ────────────────────────────────
 //
 // Subscribers that need to reset per-connection state (e.g. syncWS's

@@ -40,19 +40,3 @@ export function saveSettings(settings: AppSettings) {
     }).catch(() => {});
   }, 1000);
 }
-
-/** Load settings from server (call once at app init, merges with localStorage) */
-export async function loadSettingsFromServer(): Promise<AppSettings | null> {
-  try {
-    // PANE-01-ALLOWED: non-pane ui-state key (app settings). Read-only GET for initial hydration.
-    const res = await fetch('/api/ui-state/settings'); // PANE-01-ALLOWED
-    if (!res.ok) return null;
-    const serverSettings = await res.json();
-    if (!serverSettings) return null;
-    const merged = { ...DEFAULT_SETTINGS, ...serverSettings };
-    localStorage.setItem('app-settings', JSON.stringify(merged));
-    return merged;
-  } catch {
-    return null;
-  }
-}

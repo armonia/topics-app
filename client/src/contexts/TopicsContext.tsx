@@ -60,7 +60,3 @@ export function useTopics(): Record<string, Topic> {
 export function useTerminalSessions(): TerminalSessionInfo[] {
   return useContext(Ctx).terminalSessions;
 }
-
-export function useWorkspaceProjects(): string[] | undefined {
-  return useContext(Ctx).workspaceProjects;
-}

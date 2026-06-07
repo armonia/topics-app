@@ -101,11 +101,6 @@ export function createPaneId(type: PaneType, key?: string): string {
   return `${type}:${generateUUID()}`;
 }
 
-export function parsePaneId(id: string): { type: PaneType; key: string } {
-  const [type, ...rest] = id.split(':');
-  return { type: type as PaneType, key: rest.join(':') };
-}
-
 export function isProjectPaneId(id: string): boolean {
   return id.startsWith('project:');
 }

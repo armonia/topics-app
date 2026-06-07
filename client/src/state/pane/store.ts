@@ -119,9 +119,6 @@ export const usePaneStore = create<PaneStore>()(
   ),
 );
 
-// Convenience helper to access state outside React (e.g., module-level subscribers):
-export const getPaneState = () => usePaneStore.getState();
-
 /**
  * Find which group currently hosts a given pane id. Returns null if no
  * group references the id. Useful for callers that need to dispatch a

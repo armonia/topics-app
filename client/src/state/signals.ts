@@ -408,16 +408,6 @@ export function useAnyAgentActive(): boolean {
   return useSignalsStore((s) => s.agentActiveTopics.size > 0);
 }
 
-/** Count of topics with a live/hydrated/agent stream — sidebar counter. */
-export function useStreamingCount(): number {
-  return useSignalsStore(
-    useShallow((s) => {
-      const all = new Set<string>([...s.liveStreamTopics, ...s.hydratedStreamTopics, ...s.agentActiveTopics]);
-      return all.size;
-    }),
-  );
-}
-
 // ---- Attention facade (read by the notification layer) ---------------------
 
 /** Reactive attention sets for getBadgeCount. */

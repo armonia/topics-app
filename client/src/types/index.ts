@@ -966,9 +966,6 @@ export type WSMessage =
 // usable by their own consumers via discriminant checks; existing
 // consumers are unaffected.
 
-/** @deprecated alias retained while consumers migrate. Use `WSMessage`. */
-export type TypedWSMessage = WSMessage;
-
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
 export type ThemeMode = 'light' | 'dark' | 'system';

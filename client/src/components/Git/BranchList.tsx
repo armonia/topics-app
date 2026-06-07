@@ -92,7 +92,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       setDeleting(name);
       await gitApi.deleteBranch(projectPath, name);
       await loadBranches();
-    } catch (err: any) {
+    } catch {
       // If normal delete fails, try force
       try {
         await gitApi.deleteBranch(projectPath, name, true);

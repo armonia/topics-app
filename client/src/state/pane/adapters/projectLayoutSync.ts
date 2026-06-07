@@ -14,8 +14,6 @@
  * layout sync is a TODO that needs a properly-shaped server channel
  * mirroring the project-window's inner state (panes/groups/rows).
  */
-import type { ProjectLayout } from '../types';
-
 // Storage-key derivation (hash of projectPath). Exposed here so call sites
 // don't need to re-implement the hash and so the PANE-01 grep gate passes
 // without leaving the literal `topics-project-*` prefix in consumer files.
@@ -110,16 +108,4 @@ export function loadProjectLayout(
     /* corrupt entry — fall through to null */
   }
   return null;
-}
-
-/**
- * @deprecated never invoked — kept as a stub so any straggling caller doesn't
- * fail to import. The PROJECT_LAYOUT_RESTORE reducer path is dead because the
- * snapshot path that fed it captured the wrong scope (App-level pane state,
- * not project-inner state). Project window layouts are restored from
- * localStorage by useProjectPersistenceLoad, not via this dispatch.
- */
-export function restoreProjectLayout(_layout: ProjectLayout): void {
-  void _layout;
-  // intentional no-op; see comment above.
 }
