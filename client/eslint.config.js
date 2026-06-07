@@ -32,6 +32,9 @@ export default defineConfig([
         destructuredArrayIgnorePattern: '^_',
         ignoreRestSiblings: true,
       }],
+      // Empty catch blocks are an intentional, pervasive pattern here
+      // (best-effort cleanup paths that deliberately swallow errors).
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
 ])
