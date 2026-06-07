@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Paperclip } from 'lucide-react';
-import type { Topic, ChatMessage } from '../../types';
+import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { loadSettings } from '../../lib/settings';
@@ -32,7 +32,7 @@ interface MessageListProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
   /**

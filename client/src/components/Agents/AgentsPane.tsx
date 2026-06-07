@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { useAgents } from '../../hooks/useAgents';
 import { AgentRoster } from './AgentRoster';
 import { SessionHistory } from './SessionHistory';
+import type { WSMessage } from '../../types';
 
 interface AgentsPaneProps {
   onNavigateToTopic?: (topicId: string) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 const TABS = [

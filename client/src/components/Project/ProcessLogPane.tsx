@@ -66,9 +66,9 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
           setCompletedAt(new Date().toISOString());
         }
         setError(null);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!active) return;
-        setError(err.message || 'Failed to fetch output');
+        setError((err instanceof Error && err.message) || 'Failed to fetch output');
       }
     };
 

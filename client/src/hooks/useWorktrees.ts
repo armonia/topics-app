@@ -54,8 +54,8 @@ export function useWorktrees(options: UseWorktreesOptions = {}): UseWorktreesRes
       setError(null);
       const result = await worktreesApi.list(projectId ? { projectId } : undefined);
       if (mountedRef.current) setWorktrees(result.worktrees);
-    } catch (err: any) {
-      if (mountedRef.current) setError(err?.message ?? 'Failed to load worktrees');
+    } catch (err: unknown) {
+      if (mountedRef.current) setError(err instanceof Error ? err.message : 'Failed to load worktrees');
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -73,7 +73,9 @@ export function useWorktrees(options: UseWorktreesOptions = {}): UseWorktreesRes
     if (!onMessage) return;
     const unsub = onMessage((msg: WSMessage) => {
       if (msg.type === 'worktree:new' || msg.type === 'worktree:updated') {
-        const wt = (msg as any).worktree as Worktree | undefined;
+        // Full row on new/updated (the union types it as Partial for the
+        // shared deleted shape; at runtime new/updated carry the whole row).
+        const wt = msg.worktree as Worktree | undefined;
         if (!wt) return;
         // When project-scoped, ignore broadcasts for other projects.
         if (projectId && wt.projectId !== projectId) return;
@@ -87,7 +89,11 @@ export function useWorktrees(options: UseWorktreesOptions = {}): UseWorktreesRes
           return [wt, ...prev];
         });
       } else if (msg.type === 'worktree:deleted') {
-        const id = (msg as any).worktree?.id ?? (msg as any).id;
+        // The server emits `worktree:deleted` with a top-level `{ id }`
+        // (server/routes/worktrees.ts), while the WS type declares the id
+        // nested under `worktree`. Accept both shapes at runtime.
+        const topLevelId = (msg as { id?: string }).id;
+        const id = msg.worktree?.id ?? topLevelId;
         if (!id) return;
         setWorktrees((prev) => prev.filter((w) => w.id !== id));
       }

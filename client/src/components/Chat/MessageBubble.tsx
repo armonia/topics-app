@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useRef } from 'react';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
-import type { Topic, ChatMessage } from '../../types';
+import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageContent } from '../MessageContent';
 
 // Detect touch-only devices (no fine pointer / no hover capability)
@@ -77,7 +77,7 @@ interface MessageBubbleProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
 }
 

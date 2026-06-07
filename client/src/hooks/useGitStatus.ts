@@ -57,7 +57,7 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
       setError(null);
       const status = await gitApi.status(projectPath);
       // Server returns { notGit: true } for non-git directories (200 OK, no error)
-      if ((status as any).notGit) {
+      if ((status as { notGit?: boolean }).notGit) {
         notGitRef.current = true;
         setNotGit(true);
         if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -69,13 +69,14 @@ export function useGitStatus({ projectPath, onMessage }: UseGitStatusOptions) {
       const prev = gitCache.get(projectPath);
       gitCache.set(projectPath, { status, remotes: prev?.remotes ?? [] });
       window.dispatchEvent(new CustomEvent('git-cache-updated'));
-    } catch (err: any) {
-      if (err?.notGit) {
+    } catch (err: unknown) {
+      const e = err as { notGit?: boolean; message?: string } | null | undefined;
+      if (e?.notGit) {
         notGitRef.current = true;
         setNotGit(true);
         setError(null); // Not a real error — just not a git repo
       } else {
-        setError(err.message || 'Git error');
+        setError(e?.message || 'Git error');
       }
       // Stop polling on persistent errors (notGit, missing dir, etc.)
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }

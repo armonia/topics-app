@@ -10,6 +10,10 @@ import { useToast } from '../Shared/Toast';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
 
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 interface FileExplorerProps {
   projectPath: string;
   compact?: boolean;
@@ -399,8 +403,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         initialLoadDone.current = true;
       }
       // Subsequent loads: keep expandedDirs as-is
-    } catch (err: any) {
-      setError(err.message || 'Failed to load files');
+    } catch (err: unknown) {
+      setError(errMessage(err) || 'Failed to load files');
     } finally {
       setLoading(false);
     }
@@ -550,7 +554,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await loadFiles();
       setSelectedPaths(new Set([fullPath]));
       scrollToPath(fullPath);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to create item:', err);
     }
     setNewItemParent(null);
@@ -576,7 +580,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await loadFiles();
       setSelectedPaths(new Set([newPath]));
       scrollToPath(newPath);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to rename:', err);
     }
     setRenamingPath(null);
@@ -601,7 +605,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await Promise.all(pathsToDelete.map(p => filesApi.remove(p)));
       setSelectedPaths(new Set());
       await loadFiles();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to delete:', err);
     }
     closeContextMenu();
@@ -641,7 +645,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     try {
       await Promise.all(pathsToDuplicate.map(p => filesApi.duplicate(p)));
       await loadFiles();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to duplicate:', err);
     }
     closeContextMenu();
@@ -831,9 +835,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await filesApi.uploadFiles(targetDir, allFiles, allRelPaths, emptyDirs);
       await loadFiles();
       toast.success(`Uploaded ${label}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('External file drop failed:', err);
-      toast.error(`Upload failed: ${err.message || 'Unknown error'}`);
+      toast.error(`Upload failed: ${errMessage(err) || 'Unknown error'}`);
     }
   }, [readDirectoryEntries, loadFiles, toast]);
 
@@ -865,7 +869,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       }));
       setSelectedPaths(new Set());
       await loadFiles();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to move:', err);
     }
   }, [isChildOf, loadFiles, uploadExternalFiles]);
@@ -919,7 +923,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         setCutPaths(new Set());
       }
       await loadFiles();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to paste:', err);
     }
   }, [getTargetDir, loadFiles]);

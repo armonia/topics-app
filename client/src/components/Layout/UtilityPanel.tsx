@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { X, Activity, Cpu, BarChart3, BookOpen, Timer } from 'lucide-react';
+import type { WSMessage } from '../../types';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
@@ -39,7 +40,7 @@ interface UtilityPanelProps {
   onFocus: () => void;
   onClose: () => void;
   onNavigateToTopic?: (topicId: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTopic, onMessage }: UtilityPanelProps) {

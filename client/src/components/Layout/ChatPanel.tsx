@@ -13,9 +13,13 @@ import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
 import { useContextInspector } from '../../hooks/useContextInspector';
 
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
+const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
 
 const CONTEXT_INSPECTOR_KEY = 'topics-context-inspector-open';
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 interface ChatPanelProps {
   topic: Topic; isFocused: boolean; onFocus: () => void; onClose: () => void;
@@ -126,10 +130,10 @@ export function ChatPanel({
   useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, isDraft, topic.id, sendWS]);
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
-  const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
-  const handleCommandClear = useCallback(async () => { if (!window.confirm('Clear conversation? A backup will be saved.')) return; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, loadHistory]);
-  const handleCommandModel = useCallback(async (model: string) => { setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, model); addSystemMessage(`Model set to: ${model}`); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
-  const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
+  const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
+  const handleCommandClear = useCallback(async () => { if (!window.confirm('Clear conversation? A backup will be saved.')) return; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, loadHistory]);
+  const handleCommandModel = useCallback(async (model: string) => { setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, model); addSystemMessage(`Model set to: ${model}`); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
+  const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));

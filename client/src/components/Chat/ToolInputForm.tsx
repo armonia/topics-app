@@ -2,6 +2,17 @@ import { useMemo, useState } from 'react';
 import { HelpCircle, Send, Loader2 } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 
+/** Extract a human-readable message from a rejected submit. `onSubmit`
+ *  rejects with `{ status, message }` on HTTP errors, but a thrown Error or
+ *  anything else is possible — pull a `message` string when present. */
+function errorMessage(err: unknown): string | undefined {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === 'string') return m;
+  }
+  return undefined;
+}
+
 interface Props {
   /** The structured request the provider made. Shape is one of three
    *  flavours; the form renders accordingly. */
@@ -46,8 +57,8 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
           setSubmitting(true);
           try {
             await onSubmit(response);
-          } catch (err: any) {
-            setError(err?.message || 'Submission failed');
+          } catch (err: unknown) {
+            setError(errorMessage(err) || 'Submission failed');
             setSubmitting(false);
           }
         }}
@@ -72,8 +83,8 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
           setSubmitting(true);
           try {
             await onSubmit({ kind: 'elicitation', value, submittedAt: '' });
-          } catch (err: any) {
-            setError(err?.message || 'Submission failed');
+          } catch (err: unknown) {
+            setError(errorMessage(err) || 'Submission failed');
             setSubmitting(false);
           }
         }}
@@ -91,8 +102,8 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
         setSubmitting(true);
         try {
           await onSubmit({ kind: 'raw', text, submittedAt: '' });
-        } catch (err: any) {
-          setError(err?.message || 'Submission failed');
+        } catch (err: unknown) {
+          setError(errorMessage(err) || 'Submission failed');
           setSubmitting(false);
         }
       }}

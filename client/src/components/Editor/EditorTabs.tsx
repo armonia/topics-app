@@ -105,9 +105,10 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       filesApi.content(path).then(content => {
         if (controller.signal.aborted) return; // Discard if overtaken by newer open
         setTabs(t => t.map(tab => tab.path === path ? { ...tab, content, originalContent: content, loading: false } : tab));
-      }).catch((err: any) => {
+      }).catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: `Error: ${err.message}`, originalContent: '', loading: false } : tab));
+        const message = err instanceof Error ? err.message : String(err);
+        setTabs(t => t.map(tab => tab.path === path ? { ...tab, content: `Error: ${message}`, originalContent: '', loading: false } : tab));
       });
     }
   }, [projectPath]);
@@ -176,8 +177,9 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
         .then(content => {
           setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content, originalContent: content, loading: false } : t));
         })
-        .catch((err: any) => {
-          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content: `Error: ${err.message}`, originalContent: '', loading: false } : t));
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content: `Error: ${message}`, originalContent: '', loading: false } : t));
         });
     }
   }, [tabs, activeIndex, htmlPreviewTabs]);

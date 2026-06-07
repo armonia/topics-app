@@ -60,7 +60,7 @@ function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
 
 
 // Check if running in native macOS app (has webkit message handlers)
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
+const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
 
 /**
  * Compute the drop zone under the cursor at the exact moment of drop.

@@ -54,7 +54,7 @@ export function useServerState<T>(
       .then(r => r.ok ? r.json() : null)
       .then(envelope => {
         // PANE-01-ALLOWED: unwrap v2 envelope { value, payload_version, server_seq }
-        const serverValue = envelope && typeof envelope === 'object' && 'value' in envelope ? (envelope as any).value : envelope;
+        const serverValue = envelope && typeof envelope === 'object' && 'value' in envelope ? (envelope as { value: unknown }).value : envelope;
         if (!mountedRef.current || serverValue === null || serverValue === undefined) return;
         isFromServerRef.current = true;
         setValueRaw(serverValue as T);

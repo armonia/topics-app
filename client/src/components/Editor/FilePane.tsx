@@ -13,6 +13,10 @@ import { createPaneId } from '../../state/pane/adapters';
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
 
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 interface FilePaneProps {
   filePath: string;
   projectPath: string;
@@ -92,9 +96,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
           setOriginalContent(text);
           setLoading(false);
         })
-        .catch((err: any) => {
+        .catch((err: unknown) => {
           if (cancelled) return;
-          setError(err.message || 'Failed to load file');
+          setError(errorMessage(err) || 'Failed to load file');
           setLoading(false);
         });
       return () => { cancelled = true; };
@@ -111,9 +115,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
         setContent(modified);
         setOriginalContent(modified);
         setLoading(false);
-      }).catch((err: any) => {
+      }).catch((err: unknown) => {
         if (cancelled) return;
-        setError(err.message || 'Failed to load diff');
+        setError(errorMessage(err) || 'Failed to load diff');
         setLoading(false);
       });
     } else {
@@ -122,9 +126,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
         setContent(text);
         setOriginalContent(text);
         setLoading(false);
-      }).catch((err: any) => {
+      }).catch((err: unknown) => {
         if (cancelled) return;
-        setError(err.message || 'Failed to load file');
+        setError(errorMessage(err) || 'Failed to load file');
         setLoading(false);
       });
     }
@@ -166,7 +170,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
       <div className="flex flex-col items-center justify-center h-full gap-2 text-[13px]">
         <p className="text-red-500">{error}</p>
         <button
-          onClick={() => { setLoading(true); setError(null); filesApi.content(filePath).then(t => { setContent(t); setOriginalContent(t); setLoading(false); }).catch((e: any) => { setError(e.message); setLoading(false); }); }}
+          onClick={() => { setLoading(true); setError(null); filesApi.content(filePath).then(t => { setContent(t); setOriginalContent(t); setLoading(false); }).catch((e: unknown) => { setError(errorMessage(e)); setLoading(false); }); }}
           className="text-primary hover:underline"
         >
           Retry

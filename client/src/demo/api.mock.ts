@@ -2,24 +2,32 @@
    exact names; we return generic placeholder data and a safe Proxy fallback so
    any un-mocked method resolves to {} instead of crashing. NO network. */
 
+import type { Topic } from '../types';
+import type { BoardTask, TaskStatus } from '../lib/api';
+
 const now = () => new Date().toISOString();
 // any property not explicitly mocked becomes an async () => ({}) — keeps the
 // real components from crashing when they call something we didn't anticipate.
 function mk<T extends object>(impl: T): T {
-  return new Proxy(impl as any, {
-    get(t, p) { return p in t ? (t as any)[p] : (async () => ({})); },
+  return new Proxy(impl, {
+    get(t, p) {
+      return p in t
+        ? (t as Record<string | symbol, unknown>)[p]
+        : (async () => ({}));
+    },
   });
 }
 
-const MOCK_TOPICS: Record<string, any> = {
+const MOCK_TOPICS: Record<string, Topic> = {
   "t-ship": { id: "t-ship", name: "ship-v1.1", slug: "ship-v1-1", parentId: null, links: [], sessionKey: "s-ship", color: "#4d7cff", icon: "🚀", createdAt: now(), updatedAt: now(), archived: false, projectPath: "/demo/topics-app" },
   "t-landing": { id: "t-landing", name: "landing", slug: "landing", parentId: null, links: [], sessionKey: "s-landing", color: "#8b6cff", icon: "🎨", createdAt: now(), updatedAt: now(), archived: false, projectPath: "/demo/topics-app" },
   "t-auth": { id: "t-auth", name: "auth", slug: "auth", parentId: null, links: [], sessionKey: "s-auth", color: "#22d3ee", icon: "🔒", createdAt: now(), updatedAt: now(), archived: false, projectPath: "/demo/topics-app" },
   "t-docs": { id: "t-docs", name: "docs", slug: "docs", parentId: null, links: [], sessionKey: "s-docs", color: "#f5a524", icon: "📝", createdAt: now(), updatedAt: now(), archived: false, projectPath: "/demo/topics-app" },
 };
 
-const TASK = (id: string, text: string, status: string, order: number, priority = 2, extra: any = {}) => ({
+const TASK = (id: string, text: string, status: TaskStatus, order: number, priority = 2, extra: Partial<BoardTask> = {}): BoardTask => ({
   id, text, status, kanbanOrder: order, createdAt: now(), completedAt: status === "done" ? now() : null,
+  chatId: null,
   projectId: "/demo/topics-app", description: null, priority, assignedTo: null, assignedAgentId: null,
   assignedTopicId: null, claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: null,
   updatedAt: now(), archived: false, blocks: [], blockedBy: [], tags: [], ...extra,
@@ -63,8 +71,8 @@ const SCRIPT_OUTPUT: Record<string, string> = {
 
 export const topicsApi = mk({
   getAll: async () => ({ topics: MOCK_TOPICS, workspaceProjects: ["/demo/topics-app"] }),
-  create: async (d: any) => ({ ...MOCK_TOPICS["t-ship"], ...d, id: "t-new" }),
-  update: async (id: string, d: any) => ({ ...MOCK_TOPICS[id], ...d }),
+  create: async (d: Partial<Topic>) => ({ ...MOCK_TOPICS["t-ship"], ...d, id: "t-new" }),
+  update: async (id: string, d: Partial<Topic>) => ({ ...MOCK_TOPICS[id], ...d }),
   markRead: async () => ({ ok: true }),
   reorder: async () => ({ ok: true }),
 });
@@ -94,8 +102,8 @@ export const openclawControlApi = mk({});
 export const tasksApi = mk({ list: async () => ({ tasks: MOCK_TASKS }) });
 export const boardsApi = mk({
   listTasks: async () => ({ tasks: MOCK_TASKS }),
-  createTask: async (_p: string, d: any) => TASK("k-new", d?.text || "New task", d?.status || "todo", 99),
-  updateTask: async (_p: string, id: string, u: any) => ({ ...MOCK_TASKS.find(t => t.id === id), ...u }),
+  createTask: async (_p: string, d: Partial<BoardTask>) => TASK("k-new", d?.text || "New task", d?.status || "todo", 99),
+  updateTask: async (_p: string, id: string, u: Partial<BoardTask>) => ({ ...MOCK_TASKS.find(t => t.id === id), ...u }),
   moveTask: async (_p: string, id: string, status: string) => ({ ...MOCK_TASKS.find(t => t.id === id), status }),
   deleteTask: async () => ({ ok: true }), archiveTask: async () => ({ ok: true }),
   settings: async () => ({ projectId: "/demo/topics-app", requireApprovalForDone: false, requireReviewBeforeDone: false, blockStatusWithPending: false, onlyLeadCanChangeStatus: false, maxAgents: 4, autoExpireHours: 0 }),
@@ -139,7 +147,7 @@ export const worktreesApi = mk({ list: async () => ([]) });
 // standalone (non-*Api) value exports the real api.ts provides
 export function getMediaUrl(path: string): string { return path || ""; }
 export function isProvidersSnapshot(v: unknown): boolean {
-  return !!v && typeof v === "object" && Array.isArray((v as any).providers);
+  return !!v && typeof v === "object" && Array.isArray((v as Record<string, unknown>).providers);
 }
 
 export const terminalsApi = mk({ list: async () => ([]) });

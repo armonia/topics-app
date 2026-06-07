@@ -8,8 +8,13 @@ import Demo from "./Demo";
    Return empty JSON / a dead socket so the real app boots with mock data only. */
 const realFetch = window.fetch.bind(window);
 const J = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
-window.fetch = async (input: any, init?: any) => {
-  const u = typeof input === "string" ? input : (input?.url ?? "");
+window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const u =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : (input?.url ?? "");
   if (/(^|\/)(api|preview)(\/|$)/.test(u)) {
     // most raw endpoints the app hits without the api module are LIST endpoints
     // (terminal/sessions, etc.) and expect an array; a few expect an object.
@@ -24,9 +29,11 @@ class DeadWS {
   readyState = 3;
   constructor(_u?: string) {}
   close() {} send() {} addEventListener() {} removeEventListener() {}
-  set onopen(_: any) {} set onmessage(_: any) {} set onclose(_: any) {} set onerror(_: any) {}
+  set onopen(_: ((ev: Event) => void) | null) {} set onmessage(_: ((ev: MessageEvent) => void) | null) {} set onclose(_: ((ev: CloseEvent) => void) | null) {} set onerror(_: ((ev: Event) => void) | null) {}
 }
-(window as any).WebSocket = DeadWS;
+// Intentionally-incomplete stand-in for the real WebSocket; bridge through
+// `unknown` since DeadWS only implements the members the app touches.
+window.WebSocket = DeadWS as unknown as typeof WebSocket;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

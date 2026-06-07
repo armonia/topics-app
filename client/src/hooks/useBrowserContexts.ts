@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { BrowserContextInfo } from '@/lib/buildSidebarItems';
+import type { WSMessage } from '../types';
 
 const POLL_INTERVAL_FALLBACK = 30_000; // 30s fallback
 
 export function useBrowserContexts(
   enabled: boolean,
-  onMessage?: (handler: (msg: any) => void) => () => void
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void
 ): {
   contexts: BrowserContextInfo[];
   closeContext: (id: string) => Promise<void>;
@@ -37,7 +38,7 @@ export function useBrowserContexts(
   // WS subscription
   useEffect(() => {
     if (!enabled || !onMessage) return;
-    return onMessage((msg: any) => {
+    return onMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate') {
         lastUpdateRef.current = Date.now();
         loadContexts();

@@ -48,7 +48,11 @@ export function useSpeechToText() {
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
 
   useEffect(() => {
-    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const win = window as Window & {
+      SpeechRecognition?: { new (): SpeechRecognitionType };
+      webkitSpeechRecognition?: { new (): SpeechRecognitionType };
+    };
+    const SpeechRecognitionClass = win.SpeechRecognition || win.webkitSpeechRecognition;
     setIsSupported(!!SpeechRecognitionClass);
     
     if (SpeechRecognitionClass) {

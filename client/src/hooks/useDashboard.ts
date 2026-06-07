@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { dashboardApi, type DashboardKPIs, type TimeSeriesPoint, type AgentStat } from '../lib/api';
+import type { WSMessage } from '../types';
 
 const REFRESH_INTERVAL_MS = 60_000;
 
-export function useDashboard(onMessage?: (handler: (msg: any) => void) => () => void) {
+export function useDashboard(onMessage?: (handler: (msg: WSMessage) => void) => () => void) {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
   const [agentStats, setAgentStats] = useState<AgentStat[]>([]);
@@ -26,10 +27,10 @@ export function useDashboard(onMessage?: (handler: (msg: any) => void) => () => 
       setTimeSeries(tsData);
       setAgentStats(agentData);
       setError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!mountedRef.current) return;
       console.error('[Dashboard] Fetch error:', err);
-      setError(err.message || 'Failed to load dashboard data');
+      setError((err instanceof Error ? err.message : null) || 'Failed to load dashboard data');
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -53,7 +54,7 @@ export function useDashboard(onMessage?: (handler: (msg: any) => void) => () => 
   useEffect(() => {
     if (!onMessage) return;
     let debounceTimer: ReturnType<typeof setTimeout>;
-    const unsub = onMessage((msg: any) => {
+    const unsub = onMessage((msg: WSMessage) => {
       if (msg.type === 'dashboard:updated' || msg.type === 'cron:updated') {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(fetchAll, 500);

@@ -4,6 +4,7 @@ import { TimeSeriesChart } from './TimeSeriesChart';
 import { RangeSelector } from './RangeSelector';
 import { AgentLeaderboard } from './AgentLeaderboard';
 import { Loader2, RefreshCw, BarChart3 } from 'lucide-react';
+import type { WSMessage } from '../../types';
 
 const METRIC_OPTIONS = [
   { value: 'throughput', label: 'Throughput' },
@@ -13,7 +14,7 @@ const METRIC_OPTIONS = [
 ];
 
 interface DashboardPaneProps {
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export function DashboardPane({ onMessage }: DashboardPaneProps) {

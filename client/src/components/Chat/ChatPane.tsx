@@ -26,6 +26,16 @@ const SLASH_COMMANDS_HELP = [
   '/help — Show available commands',
 ];
 
+/** Extract a human-readable message from an unknown thrown value. */
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return String(err);
+}
+
 export interface ChatPaneProps {
   topic: Topic;
   isFocused: boolean;
@@ -328,11 +338,11 @@ export function ChatPane({
 
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
-    if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
-    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
+    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 
     // /project — info / create <name> / open <path-or-name>
     if (cmd === '/project' || cmd.startsWith('/project ')) {
@@ -347,8 +357,8 @@ export function ChatPane({
       try {
         const r = await commandApi.project(topic.sessionKey, sub, value || undefined);
         setCommandResult({ type: 'success', message: r.output || 'Done' });
-      } catch (e: any) {
-        setCommandResult({ type: 'error', message: e.message });
+      } catch (e) {
+        setCommandResult({ type: 'error', message: errMessage(e) });
       } finally { setCommandLoading(false); }
       return true;
     }
