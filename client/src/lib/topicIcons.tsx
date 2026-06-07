@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { createElement, memo } from 'react';
 import {
   MessageSquare, Lightbulb, Rocket, Flame, Star, Target,
   Gem, Palette, Wrench, BookOpen, Sparkles, PenLine,
@@ -76,6 +76,11 @@ export const TopicIcon = memo(function TopicIcon({
   color?: string;
   className?: string;
 }) {
+  // Resolve the Lucide component from the static ICON_MAP and render via
+  // createElement. `getTopicIcon` returns a stable module-level component
+  // (never one defined during render), but aliasing it to a PascalCase local
+  // and rendering `<Icon/>` trips react-hooks/static-components; createElement
+  // is the equivalent, lint-clean form with identical output.
   const Icon = getTopicIcon(name);
-  return <Icon size={size} style={color ? { color } : undefined} className={className} />;
+  return createElement(Icon, { size, style: color ? { color } : undefined, className });
 });

@@ -262,6 +262,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // guard — without these it would close over the first render's values.
   const workspaceProjectsRef = useRefMirror(workspaceProjects);
   const terminalSessionsRef = useRefMirror(terminalSessions);
+  // openPanel is declared far below (it depends on many of the above), but the
+  // stable WS effects need to call it. Declare the mirror ref here (before
+  // those effects) and sync it after openPanel's declaration — referencing the
+  // openPanel const directly in the effects reads it before declaration.
+  const openPanelRef = useRef<(topicId: string, mode: 'preview' | 'permanent' | 'below', autoFocus?: boolean) => void>(() => {});
 
 
   // ---- 4-6. Pane-store <-> React three-effect bridge (CRITIQUE C3) ----
@@ -654,7 +659,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           setFocusedPanelId(projectPaneId);
           setPendingProjectFocus({ projectPath: topic.projectPath, topicId: msg.topicId });
         } else if (!openPanelsRef.current.includes(msg.topicId)) {
-          openPanel(msg.topicId, 'permanent');
+          openPanelRef.current(msg.topicId, 'permanent');
         } else {
           setFocusedPanelId(msg.topicId);
         }
@@ -776,6 +781,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setPreviewPanelId(mode === 'preview' ? topicId : null);
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
   }, [openPanels, previewPanelId, isMobile, topics, archiveTopic]);
+
+  // Keep the openPanelRef (declared up top, before the WS effects) pointed at
+  // the latest openPanel so the stable [onWSMessage] handlers invoke the
+  // current closure without referencing openPanel before its declaration.
+  useEffect(() => { openPanelRef.current = openPanel; }, [openPanel]);
 
   // ---- 19. Electron navigate-to-topic + report focused ----
   useEffect(() => {
