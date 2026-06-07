@@ -145,6 +145,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
 
   useEffect(() => {
     if (isRenaming) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- seed the rename edit buffer from node.name when entering rename mode (one-shot init)
       setRenameValue(node.name);
       setTimeout(() => {
         if (renameInputRef.current) {

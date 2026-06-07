@@ -54,6 +54,7 @@ export function BrowserToolbar({
   const [faviconError, setFaviconError] = useState(false);
 
   // Reset favicon error state when URL changes (new favicon may load).
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local error flag to the faviconUrl prop; resets to a constant so it converges immediately and can't loop (faviconUrl is not derived from this state)
   useEffect(() => { setFaviconError(false); }, [faviconUrl]);
 
   // Phase 30.1 polish — register focus-bar callback so Cmd+L can focus

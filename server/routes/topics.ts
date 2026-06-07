@@ -16,6 +16,7 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { getTerminalSessionById } from "./terminal";
+import { resolveTailscaleBin } from "../lib/tailscale-bin";
 import { buildProviderHistory } from "../utils/build-provider-history";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
@@ -3709,16 +3710,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
     // --- Remote Access ---
     if (method === "GET" && pathname === "/api/remote/status") {
+      const tsBin = resolveTailscaleBin();
       const runCmd = (cmd: string[]) => {
         const result = Bun.spawnSync(cmd, { stderr: "pipe" });
         return result.exitCode === 0 ? result.stdout.toString().trim() : "";
       };
       try {
         try {
-          const serveStatus = runCmd(["tailscale", "serve", "status", "--json"]);
+          const serveStatus = runCmd([tsBin, "serve", "status", "--json"]);
           const serve = JSON.parse(serveStatus || '{}');
           const isActive = serve?.TCP?.["3333"] || serve?.Web?.["https://"]?.Handlers?.["/"];
-          const tsJson = runCmd(["tailscale", "status", "--json"]);
+          const tsJson = runCmd([tsBin, "status", "--json"]);
           const tsStatus = JSON.parse(tsJson || '{}');
           const hostname = (tsStatus?.Self?.DNSName || "").replace(/\.$/, "");
           if (isActive && hostname) return json({ active: true, url: `https://${hostname}`, type: 'tailscale' });
@@ -3746,19 +3748,20 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       try {
         const body = await readJSON(req);
         const action = body?.action;
+        const tsBin = resolveTailscaleBin();
         if (action === "start") {
           try {
-            Bun.spawnSync(["tailscale", "serve", "--bg", "--https=443", "http://localhost:3333"], { stderr: "pipe" });
-            Bun.spawnSync(["tailscale", "funnel", "--bg", "443"], { stderr: "pipe" });
-            const tsJson = Bun.spawnSync(["tailscale", "status", "--json"], { stderr: "pipe" });
+            Bun.spawnSync([tsBin, "serve", "--bg", "--https=443", "http://localhost:3333"], { stderr: "pipe" });
+            Bun.spawnSync([tsBin, "funnel", "--bg", "443"], { stderr: "pipe" });
+            const tsJson = Bun.spawnSync([tsBin, "status", "--json"], { stderr: "pipe" });
             const tsStatus = JSON.parse(tsJson.stdout.toString() || '{}');
             const hostname = (tsStatus?.Self?.DNSName || "").replace(/\.$/, "");
             return json({ success: true, url: hostname ? `https://${hostname}` : null, message: 'Tailscale Funnel activated' });
           } catch (err: any) { return json({ success: false, error: err.message }, 500); }
         } else if (action === "stop") {
           try {
-            Bun.spawnSync(["tailscale", "funnel", "off"], { stderr: "pipe" });
-            Bun.spawnSync(["tailscale", "serve", "off"], { stderr: "pipe" });
+            Bun.spawnSync([tsBin, "funnel", "off"], { stderr: "pipe" });
+            Bun.spawnSync([tsBin, "serve", "off"], { stderr: "pipe" });
             return json({ success: true, message: 'Tunnel deactivated' });
           } catch (err: any) { return json({ success: false, error: err.message }, 500); }
         }

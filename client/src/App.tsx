@@ -471,6 +471,7 @@ function App() {
     showNewTopic,
     showShortcuts,
     showFileSearch,
+    enableNewChat: appSettings.enableNewChat,
     handleClosePanel,
     handleQuickCreateTopic,
     toggleSidebar,
@@ -619,7 +620,7 @@ function App() {
                 (6×6 with `bg-surface` plate) so all three "+" buttons
                 across the app look identical. */}
             <PaneAddMenu
-              onNewChat={() => handleQuickCreateTopic()}
+              onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
               onAddPane={(type, subType) => {
                 if (type === 'terminal') {
                   handleQuickCreateTerminal(
@@ -665,11 +666,11 @@ function App() {
             unreadData={unreadData}
             onArchiveTopic={handleArchiveTopicDeferred}
             onArchiveProject={handleArchiveProjectDeferred}
-            onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
+            onNewTopicInProject={appSettings.enableNewChat ? (projectPath) => handleQuickCreateTopic(projectPath) : undefined}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
-            onNewChat={() => handleQuickCreateTopic()}
+            onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
             terminalSessions={terminalSessions}
             browserContexts={browserCtx.contexts}
@@ -724,7 +725,9 @@ function App() {
         <button
           onClick={() => {
             // Use native bridge if available (macOS app), fallback to window.close()
-            const webkit = (window as any).webkit;
+            const webkit = (window as Window & {
+              webkit?: { messageHandlers?: { closeWindow?: { postMessage: (msg: unknown) => void } } };
+            }).webkit;
             if (webkit?.messageHandlers?.closeWindow) {
               webkit.messageHandlers.closeWindow.postMessage(null);
             } else {
@@ -779,8 +782,8 @@ function App() {
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
           onPendingProjectPaneConsumed={() => setPendingProjectPane(null)}
-          onNewChatInProject={(projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId)}
-          onNewChat={() => handleQuickCreateTopic()}
+          onNewChatInProject={appSettings.enableNewChat ? (projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId) : undefined}
+          onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
           onProjectActiveTopicChange={handleProjectActiveTopicChange}
@@ -961,6 +964,7 @@ function App() {
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
+            enableNewChat={appSettings.enableNewChat}
             onNewProject={isElectron ? handleOpenProjectPicker : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}

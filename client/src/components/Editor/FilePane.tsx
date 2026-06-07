@@ -78,6 +78,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
   // Load file content (skip for media files and HTML preview — both render via iframe)
   useEffect(() => {
     if (isMedia || (isHtml && htmlPreview)) {
+      // No fetch for iframe-rendered content: converge loading→false once.
+      // Deps exclude `loading`, so this cannot cascade/loop.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot convergence for the no-fetch (media/html-preview) path; safe, no loop
       setLoading(false);
       return;
     }

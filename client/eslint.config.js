@@ -36,27 +36,25 @@ export default defineConfig([
       // (best-effort cleanup paths that deliberately swallow errors).
       'no-empty': ['error', { allowEmptyCatch: true }],
 
-      // eslint-plugin-react-hooks v6's `recommended` turns on the React
-      // Compiler readiness rules as ERRORS. This project does NOT use the
-      // React Compiler (no babel-plugin-react-compiler in vite.config), so
-      // these flag working, intentional code. Keep the genuine correctness
-      // rules strict; demote the compiler-readiness rules to warn (visible
-      // tech-debt, non-blocking) and turn off the ones that are meaningless
-      // without the compiler. Real issues these surface are fixed in code.
+      // react-hooks v6 `recommended` enables the React Compiler readiness
+      // rules. This project does NOT use the React Compiler (no
+      // babel-plugin-react-compiler in vite.config). The rules are kept
+      // ENFORCED (error); every site has been reviewed and either fixed or
+      // resolved with a per-line eslint-disable carrying a reason. The single
+      // exception is preserve-manual-memoization: "the compiler can't preserve
+      // this memo" is not actionable without the compiler, so it's off.
       'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
-      'react-hooks/refs': 'warn',
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/static-components': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/purity': 'warn',
-      // No compiler ⇒ "compiler can't preserve this memo" is not actionable.
+      'react-hooks/exhaustive-deps': 'warn', // recommended default
+      'react-hooks/refs': 'error',
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/static-components': 'error',
+      'react-hooks/immutability': 'error',
+      'react-hooks/purity': 'error',
       'react-hooks/preserve-manual-memoization': 'off',
 
       // Fast-refresh hygiene (dev-only, zero production impact). Allow the
-      // common "component + constant" colocation; keep the rest as a warning
-      // rather than a hard error.
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // common "component + constant" colocation.
+      'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
     },
   },
 ])

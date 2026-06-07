@@ -46,6 +46,7 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
   // Initial fetch
   useEffect(() => {
     if (!enabled) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot fetch syncing external API state into local store; setState runs in an async callback after the response, not a synchronous cascading render
     loadContexts();
   }, [enabled, loadContexts]);
 

@@ -15,13 +15,13 @@ const isTouchDevice = typeof window !== 'undefined' && (
 // as a single grapheme. The lint flag is a false positive for this usage.
 // eslint-disable-next-line no-misleading-character-class
 const EMOJI_REGEX = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\ufe0f\u2713\u2714\u2715\u2716\u2718\u2022\s]{1,10}$/u;
-export const isEmojiOnly = (content: string): boolean => {
+const isEmojiOnly = (content: string): boolean => {
   const trimmed = content.trim();
   if (trimmed.length === 0 || trimmed.length > 20) return false;
   return EMOJI_REGEX.test(trimmed) && !/[a-zA-Z0-9]/.test(trimmed);
 };
 
-export const formatTimestamp = (ts: string): string => {
+const formatTimestamp = (ts: string): string => {
   try {
     const date = new Date(ts);
     const now = new Date();
@@ -37,7 +37,7 @@ export const formatTimestamp = (ts: string): string => {
   }
 };
 
-export const getDateSeparator = (ts: string, prevTs?: string): string | null => {
+const getDateSeparator = (ts: string, prevTs?: string): string | null => {
   try {
     const date = new Date(ts);
     const now = new Date();

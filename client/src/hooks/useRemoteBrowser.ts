@@ -227,6 +227,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
       ws = new WebSocket(wsUrl);
     } catch {
       // Browser blocked WS — go straight to fallback.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot fallback in a rare synchronous-throw path (WS constructor blocked); not a cascading update, the effect returns immediately after
       updateConnectionState('fallback-http');
       return () => {
         mountedRef.current = false;

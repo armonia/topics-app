@@ -32,6 +32,7 @@ export function useBrowserContexts(
   // Initial fetch
   useEffect(() => {
     if (!enabled) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loadContexts is async: setContexts only runs after the awaited /api/browser/status fetch resolves (a microtask, not synchronous), and is a one-shot fetch-on-enable, not derived render state.
     loadContexts();
   }, [enabled, loadContexts]);
 

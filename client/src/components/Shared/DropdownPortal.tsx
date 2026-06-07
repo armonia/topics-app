@@ -30,8 +30,10 @@ export function DropdownPortal({ open, anchorRef, onClose, children, align = 'ri
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); document.removeEventListener('keydown', k); };
   }, [open, stableClose, anchorRef]);
 
+  // eslint-disable-next-line react-hooks/refs -- positioning a fixed portal requires the anchor's live geometry read at render time; the portal re-renders with its parent so the rect stays fresh
   if (!open || !anchorRef.current) return null;
 
+  // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect must run against the current DOM node to place the dropdown next to it
   const rect = anchorRef.current.getBoundingClientRect();
 
   return createPortal(

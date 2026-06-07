@@ -19,6 +19,7 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
 
   useEffect(() => {
     const effective = getEffectiveTheme(themeMode);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- converging sync: resolves themeMode (incl. 'system' via matchMedia, which can't run in render) alongside the DOM/Electron side effects below; only re-runs when themeMode changes, never loops
     setEffectiveTheme(effective);
     document.documentElement.classList.toggle('dark', effective === 'dark');
     // Phase F · 3rd no-flash layer: sync the resolved theme into the

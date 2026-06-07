@@ -50,6 +50,7 @@ export function PendingActionProgressOverlay({
   useEffect(() => {
     let raf1 = 0;
     let raf2 = 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional two-step paint reset: snap the fill back to 0 on a new/re-ticked entry, then ramp to 1 on the next frame so the CSS width transition has a concrete start value
     setProgress(0);
     raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => setProgress(1));

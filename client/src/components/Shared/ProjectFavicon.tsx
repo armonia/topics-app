@@ -24,6 +24,7 @@ export function ProjectFavicon({
   const [failed, setFailed] = useState(false);
   // A row can be recycled for a different project (virtualised lists, memo
   // reuse) — reset the error state when the path changes.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot reset of the error flag when a recycled row points at a new project path; converges immediately and does not loop (deps = [path])
   useEffect(() => { setFailed(false); }, [path]);
 
   if (failed || !path) return <>{fallback}</>;

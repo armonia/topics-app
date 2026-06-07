@@ -20,8 +20,13 @@ interface ContextInspectorProps {
 }
 
 export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile }: ContextInspectorProps) {
+  // Keep the latest topic in a ref so stable callbacks (handleToggleSource) read
+  // current values without listing `topic` in their deps. Synced in an effect to
+  // avoid mutating a ref during render.
   const topicRef = useRef(topic);
-  topicRef.current = topic;
+  useEffect(() => {
+    topicRef.current = topic;
+  }, [topic]);
 
   const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id, onMessage);
   const { data: openclawData } = useOpenClawContext();

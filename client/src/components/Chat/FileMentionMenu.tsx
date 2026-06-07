@@ -69,7 +69,8 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
     
     // Only load once per projectPath
     if (allFiles.length > 0) return;
-    
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot loading flag for the async filesApi fetch (external-system sync); the guard above makes this run at most once
     setLoading(true);
     filesApi.list(projectPath, 4)
       .then(nodes => {
@@ -78,7 +79,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
       })
       .catch(err => console.error('Failed to load files for @mention:', err))
       .finally(() => setLoading(false));
-  }, [projectPath, visible]);
+  }, [projectPath, visible, allFiles.length]);
 
   // Filter and sort files
   const filtered = useMemo(() => {

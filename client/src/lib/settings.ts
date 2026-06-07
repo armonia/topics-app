@@ -11,6 +11,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   notificationsSound: true,
   notifyEvenWhenFocused: false,
+  // Paid feature — OFF by default. New chats hit a paid provider turn, so the
+  // "New Chat" affordances stay hidden until the user opts in from Settings.
+  enableNewChat: false,
 };
 
 export function loadSettings(): AppSettings {

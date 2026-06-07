@@ -269,13 +269,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
         </span>
       </div>
 
+      {/* eslint-disable-next-line react-hooks/refs -- portal is positioned against the status button's live geometry; the rect must be read at render time and re-renders alongside this component so the placement stays in sync */}
       {showStatusDropdown && statusBtnRef.current && createPortal(
         <div
           ref={statusDropdownRef}
           className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[320px]"
           style={{
             position: 'fixed',
+            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect against the live button node positions the fixed dropdown above it
             bottom: window.innerHeight - statusBtnRef.current.getBoundingClientRect().top + 4,
+            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read for horizontal placement
             left: statusBtnRef.current.getBoundingClientRect().left,
             zIndex: 9999,
           }}

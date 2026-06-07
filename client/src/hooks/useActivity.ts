@@ -61,6 +61,7 @@ export function useActivity(enabled = true) {
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded one-shot: only runs when `enabled` flips off and a live EventSource exists; tears down the external connection and syncs the `connected` flag. Converges (no further state feeds back into this branch).
         setConnected(false);
       }
       return;

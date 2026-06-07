@@ -123,7 +123,7 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
       if (s.claudeSessionId === id) return s;
     }
     return undefined;
-  }, []);
+  }, [sessionsRef]);
 
   return useMemo(() => ({ sessions, getByClaudeSessionId, hydrated }), [sessions, getByClaudeSessionId, hydrated]);
 }

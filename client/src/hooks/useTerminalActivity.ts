@@ -33,6 +33,10 @@ export function useTerminalActivity(idleMs: number = DEFAULT_IDLE_MS): Set<strin
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
+    // Capture the (stable) timer-map reference so the cleanup operates on the
+    // same Map the effect populated, satisfying react-hooks/exhaustive-deps.
+    // The ref object is never reassigned, only mutated, so this is the live map.
+    const timers = timersRef.current;
     const handler = (ev: Event) => {
       const detail = (ev as CustomEvent<TerminalActivityEventDetail>).detail;
       const id = detail?.sessionId;
@@ -48,10 +52,10 @@ export function useTerminalActivity(idleMs: number = DEFAULT_IDLE_MS): Set<strin
       });
 
       // Re-arm the per-id idle timer.
-      const existingTimer = timersRef.current.get(id);
+      const existingTimer = timers.get(id);
       if (existingTimer) clearTimeout(existingTimer);
       const timer = setTimeout(() => {
-        timersRef.current.delete(id);
+        timers.delete(id);
         setActive((prev) => {
           if (!prev.has(id)) return prev;
           const next = new Set(prev);
@@ -59,7 +63,7 @@ export function useTerminalActivity(idleMs: number = DEFAULT_IDLE_MS): Set<strin
           return next;
         });
       }, idleMs);
-      timersRef.current.set(id, timer);
+      timers.set(id, timer);
     };
 
     window.addEventListener('terminal:activity', handler as EventListener);
@@ -67,8 +71,8 @@ export function useTerminalActivity(idleMs: number = DEFAULT_IDLE_MS): Set<strin
       window.removeEventListener('terminal:activity', handler as EventListener);
       // Clear pending decay timers on unmount so we don't fire setState
       // on an unmounted hook holder.
-      for (const t of timersRef.current.values()) clearTimeout(t);
-      timersRef.current.clear();
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
     };
   }, [idleMs]);
 

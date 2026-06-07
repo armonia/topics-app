@@ -54,6 +54,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` is used only in the catch path; the ToastProvider's context value isn't memoized, so including it would give loadBranches a new identity on every toast and re-trigger the load effect (re-fetching branches whenever any toast appears)
   }, [projectPath]);
 
   useEffect(() => {

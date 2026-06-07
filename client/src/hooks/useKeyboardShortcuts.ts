@@ -37,6 +37,8 @@ export interface UseKeyboardShortcutsArgs {
   showNewTopic: false | { projectPath?: string };
   showShortcuts: boolean;
   showFileSearch: false | { projectPath: string };
+  /** Paid New Chat gate — when false, ⌘N / ⌘⇧N are inert (mirrored into a ref). */
+  enableNewChat: boolean;
   // Stable callbacks (must not change identity each render).
   handleClosePanel: (topicId: string) => void;
   handleQuickCreateTopic: (projectPath?: string) => Promise<unknown>;
@@ -95,6 +97,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   const projectOpenPanesRef = useRef(args.projectOpenPanes);
   const topicsRef = useRef(args.topics);
   const focusedProjectPathRef = useRef(args.focusedProjectPath);
+  const enableNewChatRef = useRef(args.enableNewChat);
   const closedTabsRef = useRef(args.closedTabs);
   const modalsRef = useRef({
     showSearch: args.showSearch,
@@ -107,6 +110,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   useEffect(() => { projectOpenPanesRef.current = args.projectOpenPanes; });
   useEffect(() => { topicsRef.current = args.topics; });
   useEffect(() => { focusedProjectPathRef.current = args.focusedProjectPath; });
+  useEffect(() => { enableNewChatRef.current = args.enableNewChat; });
   useEffect(() => { closedTabsRef.current = args.closedTabs; });
   useEffect(() => {
     modalsRef.current = {
@@ -149,7 +153,11 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       }
 
       if (isElectron && isMod && e.key === 'n') {
+        // New Chat is a paid, opt-in feature. When disabled, ⌘N / ⌘⇧N are
+        // inert — we still preventDefault so the browser/Electron doesn't
+        // open a new window, but create nothing.
         e.preventDefault();
+        if (!enableNewChatRef.current) return;
         if (e.shiftKey) {
           setShowNewTopic({});
         } else {

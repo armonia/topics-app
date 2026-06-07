@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useToast } from '../components/Shared/Toast';
 import type { AppSettings, ClaudeSessionPhase, Topic, WSMessage } from '../types';
 import { useWSSubscription } from './useWSSubscription';
+import { useRefMirror } from './useRefMirror';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -89,6 +90,7 @@ function topicIdFromPanel(panelId: string | null): string | null {
  * complementary: the toast covers the in-window case, the desktop notif
  * covers the "app in the background" case.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- hook colocated with its renderless bridge component (CompletionNotifierBridge); idiomatic and the bridge is the sole consumer
 export function useCompletionNotifier({
   onWSMessage,
   settings,
@@ -105,13 +107,10 @@ export function useCompletionNotifier({
 
   // Refs let us read the latest values inside the WS handler without
   // re-subscribing on every settings change (which would drop in-flight
-  // status diffs).
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
-  const topicsRef = useRef(topics);
-  topicsRef.current = topics;
-  const focusedRef = useRef(focusedPanelId);
-  focusedRef.current = focusedPanelId;
+  // status diffs). useRefMirror is the canonical state→ref bridge.
+  const settingsRef = useRefMirror(settings);
+  const topicsRef = useRefMirror(topics);
+  const focusedRef = useRefMirror(focusedPanelId);
 
   // Per-topic cooldown (10s) so two completions in quick succession on
   // the same topic don't double-toast. Mirrors the cooldown in

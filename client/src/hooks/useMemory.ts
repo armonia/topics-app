@@ -32,10 +32,14 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
     load();
   }, [load]);
 
-  // Subscribe to WS memory:updated events to refresh data
+  // Subscribe to WS memory:updated events to refresh data. Destructure
+  // onMessage so the effect depends on the precise function identity rather
+  // than the whole `options` object (which callers often pass as an inline
+  // literal, churning the subscription on every render).
+  const onMessage = options?.onMessage;
   useEffect(() => {
-    if (!options?.onMessage || !topicId) return;
-    const unsub = options.onMessage((msg: WSMessage) => {
+    if (!onMessage || !topicId) return;
+    const unsub = onMessage((msg: WSMessage) => {
       if (msg.type === 'memory:updated') {
         if (msg.scope === 'global' || (msg.scope === 'topic' && msg.topicId === topicId)) {
           load();
@@ -43,7 +47,7 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
       }
     });
     return unsub;
-  }, [options?.onMessage, topicId, load]);
+  }, [onMessage, topicId, load]);
 
   const saveTopicMemory = useCallback(async (content: string) => {
     if (!topicId) return;
