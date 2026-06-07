@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, UserPlus, UserMinus } from 'lucide-react';
+import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 
 interface AgentAssignPanelProps {
@@ -33,7 +34,7 @@ export function AgentAssignPanel({ topicId, topicName, onClose }: AgentAssignPan
       const updated = await agentProfilesApi.list();
       setProfiles(updated);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to assign:', err);
       setError('Failed to assign agent');
       setTimeout(() => setError(null), 3000);
@@ -46,7 +47,7 @@ export function AgentAssignPanel({ topicId, topicName, onClose }: AgentAssignPan
       const updated = await agentProfilesApi.list();
       setProfiles(updated);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to unassign:', err);
       setError('Failed to unassign agent');
       setTimeout(() => setError(null), 3000);
@@ -54,8 +55,8 @@ export function AgentAssignPanel({ topicId, topicName, onClose }: AgentAssignPan
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-surface border border-app-border rounded-lg shadow-xl w-[360px] max-h-[70vh] flex flex-col">
+    <div className={MODAL_OVERLAY}>
+      <div className={`w-[360px] max-h-[70vh] flex flex-col ${MODAL_PANEL}`}>
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
           <UserPlus size={14} className="text-primary" />

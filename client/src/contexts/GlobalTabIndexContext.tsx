@@ -53,6 +53,7 @@ export function GlobalTabIndexProvider({ openPanels, projectOpenPanes, children 
 }
 
 /** Returns the 0-based global tab index for a pane, or -1 if unmapped. */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useGlobalTabIndex(paneId: string): number {
   const map = useContext(GlobalTabIndexContext);
   return map[paneId] ?? -1;

@@ -12,6 +12,7 @@ import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { TopicIcon } from '@/lib/topicIcons';
 import { searchApi } from '../../lib/api';
 import { PANE_CONFIG } from '../../state/pane/adapters';
+import { MODAL_BACKDROP } from '../../lib/modalStyles';
 
 export interface CommandAction {
   id: string;
@@ -46,6 +47,8 @@ interface CommandPaletteProps {
   onOpenTopic: (id: string) => void;
   onOpenProject?: (projectPath: string) => void;
   onNewTopic: () => void;
+  /** Paid New Chat gate — hides the "New Chat" pill when false. */
+  enableNewChat?: boolean;
   onNewProject?: () => void;
   onNewClaude?: () => void;
   onNewTerminal?: () => void;
@@ -67,6 +70,7 @@ export function CommandPalette({
   onOpenTopic,
   onOpenProject,
   onNewTopic,
+  enableNewChat = false,
   onNewProject,
   onNewClaude,
   onNewTerminal,
@@ -353,7 +357,7 @@ export function CommandPalette({
 
   return (
     <div data-testid="command-palette" className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh]" onClick={onClose} role="dialog" aria-modal="true" aria-label="Command palette">
-      <div className="fixed inset-0 bg-black/30 dark:bg-black/50" />
+      <div className={MODAL_BACKDROP} />
       <div
         className="relative w-full max-w-4xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter flex flex-col"
         onClick={e => e.stopPropagation()}
@@ -450,7 +454,9 @@ export function CommandPalette({
             Always at the bottom. Action items are NOT duplicated into the
             result list (the bar is the canonical surface). */}
         <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap flex-shrink-0">
-          <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isElectron ? '⌘N' : undefined} />
+          {enableNewChat && (
+            <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isElectron ? '⌘N' : undefined} />
+          )}
           {onNewClaude && (
             <ActionPill icon={<ClaudeIcon size={12} />} label="Claude" onClick={() => { onNewClaude(); onClose(); }} />
           )}

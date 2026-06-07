@@ -5,7 +5,8 @@ import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
-import { ContextPills, useContextFileTokens } from './ContextPills';
+import { ContextPills } from './ContextPills';
+import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
@@ -169,6 +170,7 @@ function MessageQueueBadge({
   // Close the popover when the queue empties (last message dispatched while
   // open). Without this the panel lingers as an empty box until clicked away.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded converging close: only runs when the queue is empty AND the popover is open, sets open=false once and then the guard prevents re-firing
     if (count === 0 && open) setOpen(false);
   }, [count, open]);
 
@@ -477,12 +479,15 @@ export function ChatInput({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording]);
 
-  // Sync transcript to message input
+  // Sync transcript to message input. `message`/`setMessage` are intentionally
+  // read as a snapshot only when a new `transcript` arrives — the guard plus
+  // the immediate clearTranscript() make message-change re-runs a safe no-op.
   useEffect(() => {
     if (transcript) {
       setMessage(message + ' ' + transcript);
       clearTranscript();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when a new transcript arrives; including `message` would re-fire on every keystroke (no-op due to the transcript guard, but pointless), and `setMessage` is a stable parent setter
   }, [transcript, clearTranscript]);
 
   // Auto-TTS for new assistant messages
@@ -530,7 +535,7 @@ export function ChatInput({
     setMentionFilter('');
     setMentionStartPos(-1);
     textareaRef.current?.focus();
-  }, [mentionStartPos, message, mentionedFiles, setMessage, textareaRef]);
+  }, [mentionStartPos, message, mentionedFiles, setMessage, setMentionedFiles, textareaRef]);
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;

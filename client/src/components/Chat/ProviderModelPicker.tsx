@@ -43,7 +43,9 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // Single subscription point — replaces the per-component fetches the picker
   // used to do. The hook handles initial fetch, WS push updates, and reconnect.
   const { snapshot, error, retry, refresh } = useProvidersSnapshot();
-  const entries: ProviderSnapshotEntry[] = snapshot?.providers ?? [];
+  // Memoize so the `?? []` fallback doesn't mint a fresh array each render,
+  // which would invalidate the useMemo hooks below on every render.
+  const entries: ProviderSnapshotEntry[] = useMemo(() => snapshot?.providers ?? [], [snapshot]);
 
   // Outside click + Escape — outside-click uses pointerdown so the Settings
   // sheet's mousedown→focus cycle can't swallow it; the data-popover boundary

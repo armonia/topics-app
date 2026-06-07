@@ -475,6 +475,7 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
   // Initial load
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot reset to loading state on session-key change before the async fetch resolves; deps don't depend on this state so no cascade/loop
     setLoading(true);
     setError(null);
 

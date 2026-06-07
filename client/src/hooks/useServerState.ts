@@ -36,6 +36,7 @@ export function useServerState<T>(
   });
 
   const valueRef = useRef(value);
+  // eslint-disable-next-line react-hooks/refs -- intentional state→ref mirror so async/WS callbacks read the latest committed value without re-subscribing
   valueRef.current = value;
 
   // Track whether the change is from server (skip PUT)

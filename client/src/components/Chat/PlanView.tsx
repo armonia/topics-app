@@ -48,14 +48,6 @@ function parsePlanSteps(content: string): PlanStep[] {
   return steps;
 }
 
-export function isPlanResponse(content: string): boolean {
-  if (!content) return false;
-  // Check for plan header (multiple variations) + numbered steps
-  const hasPlanHeader = /^##?\s+(?:(?:Implementation|Action|Execution|Development|Migration|Refactoring|Deployment)\s+)?Plan\b/mi.test(content);
-  const hasNumberedSteps = (content.match(/^\d+\.\s+/gm) || []).length >= 2;
-  return hasPlanHeader && hasNumberedSteps;
-}
-
 interface PlanViewProps {
   content: string;
   onApprove: () => void;

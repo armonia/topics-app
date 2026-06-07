@@ -46,6 +46,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
 };
 
 /** All available icon names for the picker (excludes Search which is template-only) */
+// eslint-disable-next-line react-refresh/only-export-components -- icon name list is colocated with TopicIcon (shares the lucide ICON_MAP); used by 6+ importers, splitting it out would fragment a cohesive module for a dev-only HMR hint
 export const TOPIC_ICONS = [
   'MessageSquare', 'Lightbulb', 'Rocket', 'Flame', 'Star', 'Target',
   'Gem', 'Palette', 'Wrench', 'BookOpen', 'Sparkles', 'PenLine',
@@ -55,11 +56,13 @@ export const TOPIC_ICONS = [
 ];
 
 /** Get a Lucide component by icon name. Falls back to MessageSquare for unknown names (including legacy emoji). */
+// eslint-disable-next-line react-refresh/only-export-components -- resolver colocated with TopicIcon over the shared ICON_MAP; idiomatic to keep with the component, dev-only HMR hint
 export function getTopicIcon(name: string): LucideIcon {
   return ICON_MAP[name] || ICON_MAP[DEFAULT_TOPIC_ICON];
 }
 
 /** Get a random icon name for new topics. */
+// eslint-disable-next-line react-refresh/only-export-components -- helper colocated with TopicIcon's icon set (reads TOPIC_ICONS); dev-only HMR hint, keeping it with the icon module is idiomatic
 export function getRandomTopicIcon(): string {
   return TOPIC_ICONS[Math.floor(Math.random() * TOPIC_ICONS.length)];
 }

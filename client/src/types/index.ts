@@ -1126,6 +1126,13 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   notificationsSound: boolean;
   notifyEvenWhenFocused: boolean;
+  // Gates creation of NEW standalone/project chats (the "New Chat" affordance,
+  // ⌘N, and the command-palette pill). A new chat drives a paid provider turn
+  // (subscription only works through an interactive PTY — see the billing
+  // constraint), so this is OPT-IN and defaults to OFF: when false the New Chat
+  // entry points are hidden and ⌘N is inert. Surfaced in Settings → Features,
+  // flagged as a paid feature.
+  enableNewChat: boolean;
 }
 
 export interface ProcessInfo {

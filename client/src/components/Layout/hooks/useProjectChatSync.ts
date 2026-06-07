@@ -342,7 +342,7 @@ export function useProjectChatSync(
         markChatSyncDone();
       }
     },
-    [applyChatReconciliation, gateRefs, markChatSyncDone, topics],
+    [applyChatReconciliation, gateRefs, markChatSyncDone, topics, projectPath],
   );
 
   // --- reopenTopic: delegates to layout's atomic placement helper ---

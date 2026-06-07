@@ -4,7 +4,8 @@ import { uploadApi } from '../../lib/api';
 export function useVoiceRecording(
   sendMessage: (sessionKey: string, content: string) => Promise<boolean>,
   sessionKey: string,
-  currentStreaming: boolean,
+  // Reserved for callers that gate recording on stream state; not used internally.
+  _currentStreaming: boolean,
 ) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -70,7 +71,7 @@ export function useVoiceRecording(
       };
       recorder.stop();
     });
-  }, [currentStreaming, sendMessage, sessionKey]);
+  }, [sendMessage, sessionKey]);
 
   useEffect(() => {
     return () => {

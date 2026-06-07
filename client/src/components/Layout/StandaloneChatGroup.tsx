@@ -27,7 +27,7 @@ import {
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
-import { getProjectName, hashToColor } from './ProjectHeader';
+import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
@@ -316,6 +316,7 @@ export function StandaloneChatGroup({
     return initial;
   });
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep-alive set syncs against the live pane list (external-ish derived state); the updater returns `prev` unchanged when nothing changed, so it converges and never cascades
     setVisitedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;

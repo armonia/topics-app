@@ -494,7 +494,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-  }, [isMobile, setSidebarCollapsed]);
+  }, [isMobile, setSidebarCollapsed, openPanelsRef]);
 
   // ---- Panel layout mode ----
   const [nextPanelMode, setNextPanelMode] = useState<'side' | 'below'>('side');
@@ -596,7 +596,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         }
       }
     });
-  }, [onWSMessage, isOwnStream, getSessionMessages, addMessageFromWS, appendMediaToLastAssistant, clearSession]);
+  }, [onWSMessage, isOwnStream, getSessionMessages, addMessageFromWS, appendMediaToLastAssistant, clearSession, focusedPanelIdRef, topicsRef]);
 
   // WS Cluster 3: topic switch + topic switch complete (CRITIQUE C13)
   // ownTopicSwitchesRef writer + reader co-located here.
@@ -628,7 +628,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         setFocusedPanelId(msg.toTopicId);
       }
     });
-  }, [onWSMessage, isOwnStream, clearSession, loadHistory, addMessageFromWS]);
+  }, [onWSMessage, isOwnStream, clearSession, loadHistory, addMessageFromWS, openPanelsRef]);
 
   // WS Cluster 4: open-project broadcast
   useEffect(() => {
@@ -665,7 +665,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         }
       }
     });
-  }, [onWSMessage]);
+  }, [onWSMessage, openPanelsRef, topicsRef]);
 
   // WS Cluster 5: cross-window drag
   useEffect(() => {
@@ -690,7 +690,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         }
       }
     });
-  }, [onWSMessage, windowId]);
+  }, [onWSMessage, windowId, focusedPanelIdRef]);
 
   // ---- 17. Drain queue + reload histories on WS reconnect ----
   // `prevWsStatus !== 'connected' && current === 'connected'` was ALSO true
@@ -822,7 +822,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       window.removeEventListener('topic-archive-on-close', onArchive);
       window.removeEventListener('topic-unarchive-on-open', onUnarchive);
     };
-  }, [archiveTopic]);
+  }, [archiveTopic, topicsRef]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
@@ -859,6 +859,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   // handleClosePanel (stable identity via ref-backed impl)
   const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
+  // eslint-disable-next-line react-hooks/refs -- intentional ref-backed stable-callback pattern: handleClosePanel (below, deps []) stays stable while .current always holds the latest closure; only invoked from event handlers / undo, never read during render
   handleClosePanelRef.current = (topicId: string) => {
     const closingTopic = topicsRef.current[topicId];
     // 2-state model: a USER-closed chat tab archives the topic (closed ⟺
@@ -949,7 +950,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       return next;
     });
-  }, []);
+  }, [focusedPanelIdRef]);
 
   const handleFocusPanel = useCallback((topicId: string) => {
     // Direct terminal pane ids (e.g. `terminal:<sessionId>`) — produced by
@@ -1026,7 +1027,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
     setFocusedPanelId(topicId);
     usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
-  }, [openPanel]);
+  }, [openPanel, openPanelsRef, terminalSessionsRef, topicsRef, workspaceProjectsRef]);
 
   const handleReorderPanels = useCallback((panels: string[]) => {
     setOpenPanels(panels);
@@ -1122,7 +1123,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       return next;
     });
     await sendMessage(topic.sessionKey, firstMessage, options);
-  }, [draftMeta, createTopic, sendMessage]);
+  }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
   const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
     try {

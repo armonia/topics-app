@@ -57,8 +57,17 @@ export function useProjectPersistenceLoad(
   // unnecessary).
   const snapshotRef = useRef<PersistedSnapshot | null>(null);
   const loadedForPathRef = useRef<string | null>(null);
+  // Lazy load-on-path-change: reseed the snapshot synchronously during render
+  // when projectPath changes (and on first render). This is the documented
+  // "derive from props during render" pattern — consumers read `initial` only
+  // in mount-only useState seeders or via a per-render ref mirror, and
+  // `bumpInitial` deliberately mutates this ref in place WITHOUT a re-render
+  // (see the `initial` JSDoc), so a ref is the correct store here, not state.
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time reseed keyed on projectPath; ref store is required to avoid re-render on in-place bumpInitial mutations
   if (loadedForPathRef.current !== args.projectPath) {
+    // eslint-disable-next-line react-hooks/refs -- write paired with the guarded read above; reseeds snapshot for the new projectPath
     snapshotRef.current = loadPersistedState(args.projectPath);
+    // eslint-disable-next-line react-hooks/refs -- marks the path this snapshot was loaded for, so subsequent same-path renders skip the reload
     loadedForPathRef.current = args.projectPath;
   }
 
@@ -82,7 +91,9 @@ export function useProjectPersistenceLoad(
     });
   }, [args.projectPath]);
 
+  // eslint-disable-next-line react-hooks/refs -- the returned object exposes/mutates the snapshot reseeded during render above. `initial` is read only in mount-only useState seeders or a per-render ref mirror; `bumpInitial` runs later (server-hydrate) and merges in place by design so readers see fresher data WITHOUT a re-render (see the `initial` JSDoc). A ref is the correct store here, not state.
   return {
+    // eslint-disable-next-line react-hooks/refs -- see the disable above: this snapshot read during render is intentional; `initial` is consumed only by mount-only seeders / a per-render ref mirror
     initial: snapshotRef.current,
     gateRefs: { userEditedRef, mountedRef, initialChatsSyncedRef },
     markChatSyncDone: () => markChatSyncComplete(args.projectPath),

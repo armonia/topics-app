@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack } from '../../types';
-import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { useTopics } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
@@ -204,7 +204,6 @@ export function PanelGrid({
   // drilled here as props. Single read at the top so the rest of the
   // function reads them by name as before.
   const topics = useTopics();
-  const terminalSessions = useTerminalSessions();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Mobile detection for single-column layout
@@ -331,7 +330,7 @@ export function PanelGrid({
         ...prev.slice(1),
       ];
     });
-  }, [naturalGridItems, isServerHydrated]);
+  }, [naturalGridItems, isServerHydrated, naturalGridItemsRef, setGridRows]);
 
   // Deferred pruning: run after a tick so any pending setGridRows updaters
   // (from user handlers like handleSplitPane) have fully committed and
@@ -395,7 +394,7 @@ export function PanelGrid({
       });
     }, 0);
     return () => clearTimeout(handle);
-  }, [naturalGridItems, isServerHydrated]);
+  }, [naturalGridItems, isServerHydrated, naturalGridItemsRef, setGridRows]);
 
   // Sync row heights when row count changes. Same hydrate gate as above —
   // before hydrate, `gridRows` may be the persisted shape and we don't want
@@ -416,7 +415,8 @@ export function PanelGrid({
       // count-keyed effect, so fall back to an equal split.
       return gridRows.map(() => 1 / Math.max(1, gridRows.length));
     });
-  }, [gridRows.length, isServerHydrated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- full `gridRows` omitted on purpose: this effect must re-run only on row-COUNT change (dep `gridRows.length`), not on every width edit, else heights reset on each column resize; setGridRowHeights is a stable setter
+  }, [gridRows.length, isServerHydrated, setGridRowHeights]);
 
   // Phase 30 PANE-01: direct server fetches for grid layout have been removed.
   // Server persistence of pane layout flows through state/pane/middleware/syncServer.ts
@@ -434,7 +434,7 @@ export function PanelGrid({
     onVerticalResize: (_divIdx: number, newHeights: number[]) => {
       setGridRowHeights(newHeights);
     },
-  }), []);
+  }), [setGridRows, setGridRowHeights]);
 
   // Data-attribute resolvers: dividers and cells use data-panel-* attributes for safe DOM resolution
   // Item wrappers have transition-all (for drag opacity) which must be disabled during resize
@@ -484,6 +484,7 @@ export function PanelGrid({
   useEffect(() => {
     return () => {
       // Cleanup any ghost elements still in the DOM on unmount
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional unmount-time read: activeGhostsRef holds one stable Set (never reassigned, only mutated); cleanup must drain whatever ghosts are live AT unmount, so reading .current here (not a mount snapshot) is correct
       for (const ghost of activeGhostsRef.current) {
         if (ghost.parentElement) {
           ghost.parentElement.removeChild(ghost);
@@ -728,12 +729,12 @@ export function PanelGrid({
 
     // Focus the split-out panel so the source group falls back to its first remaining tab
     onFocusPanel(topicId);
-  }, [onFocusPanel, openPanels, soloTopicIds, onNewChat]);
+  }, [onFocusPanel, openPanels, soloTopicIds, onNewChat, gridRowsRef, naturalGridItemsRef, setGridRows, setSoloCells]);
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
   const handleUnsoloTopic = useCallback((topicId: string) => {
     setSoloCells(prev => removeTopicFromCells(prev, topicId));
-  }, []);
+  }, [setSoloCells]);
 
   /* ---- Merge a tab INTO an existing split cell (multi-tab column).
          Dropping a tab onto another split cell's bar lands it there as the
@@ -741,7 +742,7 @@ export function PanelGrid({
   const handleMergeIntoCell = useCallback((topicId: string, targetPrimary: string) => {
     setSoloCells(prev => moveTopicToCell(prev, topicId, targetPrimary));
     onFocusPanel(topicId);
-  }, [onFocusPanel]);
+  }, [onFocusPanel, setSoloCells]);
 
   /* ---- Auto-solo: a newly created utility pane (terminal/browser) created via
          quick-create should land in its own grid cell rather than join the
@@ -759,7 +760,7 @@ export function PanelGrid({
       setSoloCells(prev => addSoloCell(prev, id));
     }
     onPendingSoloPanelIdConsumed?.();
-  }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed]);
+  }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed, setSoloCells]);
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -933,13 +934,13 @@ export function PanelGrid({
     const target = { rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag };
     setGridDropTarget(target);
     gridDropTargetRef.current = target; // sync update for immediate drop access
-  }, []);
+  }, [gridDropTargetRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
     setGridDropTarget(null);
     gridDropTargetRef.current = null;
-  }, []);
+  }, [gridDropTargetRef]);
 
   // Belt-and-suspenders: a cross-cell move unmounts the dragged item inside its
   // drop handler, so the browser may never fire `dragend` on the now-detached
@@ -1203,7 +1204,7 @@ export function PanelGrid({
     setDraggingGridKey(null);
     setGridDropTarget(null);
     gridDropTargetRef.current = null;
-  }, [itemMap]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, setGridRows, setSoloCells]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
@@ -1389,18 +1390,19 @@ export function PanelGrid({
       />
     ),
     [
-      topics, focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
+      focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
       handleGridItemDragStart, getSessionMessages, isSessionLoading,
       isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
       onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,
       pendingProjectPane, onPendingProjectPaneConsumed, onNewChatInProject,
       pendingProjectFocus, onPendingProjectFocusConsumed,
-      onProjectActiveTopicChange, onProjectOpenPanesChange, terminalSessions,
+      onProjectActiveTopicChange, onProjectOpenPanesChange,
       onCreateTerminal, handleStandaloneUtilityChange, pendingBrowserPane,
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
       draftMeta, handleSplitPane, handleUnsoloTopic,
       hasGridSplit, splitRowWidths, gridRowHeights,
+      handleMergeIntoCell, onClosePanelImmediate,
     ],
   );
 

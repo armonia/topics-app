@@ -246,6 +246,7 @@ export function useWebSocket(): UseWebSocketReturn {
   useEffect(() => {
     if (status === 'connected') {
       if (connectingGraceRef.current) { clearTimeout(connectingGraceRef.current); connectingGraceRef.current = null; }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- debounce sync: mirrors the WS `status` into the flicker-suppressed `displayStatus`; the 'connected' branch surfaces immediately, the else branch defers via timer. setDisplayStatus never feeds back into `status`, so this converges and cannot loop
       setDisplayStatus('connected');
     } else {
       if (!connectingGraceRef.current) {

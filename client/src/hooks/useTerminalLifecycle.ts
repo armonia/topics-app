@@ -124,7 +124,10 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
       return sessionIds.has(sessionId) || recentlyCreatedTerminalsRef.current.has(sessionId);
     });
     return filtered.length === currentPaneIds.length ? currentPaneIds : filtered;
-  }, []);
+    // sessionsRef is a stable ref object (identity never changes), so listing
+    // it keeps the callback's identity stable — this stays a zero-churn
+    // callback as the cleanup effect requires while satisfying exhaustive-deps.
+  }, [sessionsRef]);
 
   return {
     sessions,

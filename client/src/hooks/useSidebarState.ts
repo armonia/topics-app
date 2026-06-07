@@ -70,6 +70,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
   const [state, setStateRaw] = useState<SidebarState>(loadFromStorage);
 
   const stateRef = useRef(state);
+  // eslint-disable-next-line react-hooks/refs -- intentional state→ref mirror so async/WS callbacks read the latest committed value without re-subscribing
   stateRef.current = state;
 
   const isFromServerRef = useRef(false);

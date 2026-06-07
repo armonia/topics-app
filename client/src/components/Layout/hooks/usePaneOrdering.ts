@@ -169,12 +169,15 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) s.add(id);
     }
     const prev = prevEffectivePinnedRef.current;
+    // eslint-disable-next-line react-hooks/refs -- intentional contents-equality cache: read the previous Set to return a stable reference when contents are unchanged (avoids downstream memo churn); the read happens only inside this memo's compute
     if (s.size === prev.size && [...s].every(id => prev.has(id))) {
       return prev;
     }
+    // eslint-disable-next-line react-hooks/refs -- intentional contents-equality cache: store the freshly-computed Set so the next compute can compare against it; mutation is idempotent w.r.t. render output
     prevEffectivePinnedRef.current = s;
     return s;
   }, [pinnedIds, validatedOrderedIds]);
+  // eslint-disable-next-line react-hooks/refs -- useRef only reads this initial value on the first render to seed the mirror ref; subsequent syncs happen in the effect below (the value is ref-derived via the contents-equality cache, hence the transitive flag)
   const pinnedIdsRef = useRef(effectivePinnedIds);
   useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
 
@@ -241,18 +244,32 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   const lastLocalActiveRef = useRef<string | null>(
     persistOrder ? readStandaloneActivePane() : null,
   );
+  // Render-phase reconciliation of the "last locally-active" memory. This is a
+  // deliberate render-time ref write (not state) because the value must be
+  // available synchronously to the `activePaneId` memo below on the SAME render
+  // — an effect would land one frame late and the group would flash its first
+  // tab. The writes are idempotent (they only ever set focusedPanelId or null),
+  // so they don't affect this render's output beyond the memo that reads them.
   if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) {
+    // eslint-disable-next-line react-hooks/refs -- intentional render-phase write: remember the focused tab so an inactive split group keeps showing it; idempotent, see block comment above
     lastLocalActiveRef.current = focusedPanelId;
-  } else if (lastLocalActiveRef.current && !validatedOrderedIds.includes(lastLocalActiveRef.current)) {
-    // The remembered tab was closed/moved out of this group — drop it so we
-    // don't keep pointing at a stale id.
-    lastLocalActiveRef.current = null;
+  } else {
+    // eslint-disable-next-line react-hooks/refs -- intentional render-phase read: detect a remembered tab that left this group; idempotent guard, see block comment above
+    const remembered = lastLocalActiveRef.current;
+    if (remembered && !validatedOrderedIds.includes(remembered)) {
+      // The remembered tab was closed/moved out of this group — drop it so we
+      // don't keep pointing at a stale id.
+      // eslint-disable-next-line react-hooks/refs -- intentional render-phase write: clear the stale remembered tab, see block comment above
+      lastLocalActiveRef.current = null;
+    }
   }
   const activePaneId = useMemo<string | null>(
     () => {
       if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) return focusedPanelId;
-      if (lastLocalActiveRef.current && validatedOrderedIds.includes(lastLocalActiveRef.current)) {
-        return lastLocalActiveRef.current;
+      // eslint-disable-next-line react-hooks/refs -- intentional read of the render-phase memory computed just above; the memo recomputes whenever its deps change so the value is current
+      const remembered = lastLocalActiveRef.current;
+      if (remembered && validatedOrderedIds.includes(remembered)) {
+        return remembered;
       }
       return validatedOrderedIds[0] || null;
     },
@@ -455,8 +472,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     setOrderedIds(prev => prev.filter(id => !drop.has(id)));
   }, []);
 
+  // eslint-disable-next-line react-hooks/refs -- this hook intentionally returns pinnedIdsRef (read by consumers in effects/handlers, never in their render) as part of its stable public API
   return {
     state: { orderedIds, pinnedIds },
+    // eslint-disable-next-line react-hooks/refs -- effectivePinnedIds is the contents-equality-cached value (transitively ref-derived); returning it as derived state is the point — its stable reference keeps the parent's downstream memos from churning
     derived: { validatedOrderedIds, effectivePinnedIds, activePaneId },
     refs: { pinnedIdsRef },
     ops: { reorder, pin, ensureBrowserPane, openSessionViewerPane, removeLocalPane, removeLocalPanes },

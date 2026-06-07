@@ -2,7 +2,8 @@ import { createElement, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
-import { ToolCardBody, iconForDetail } from './ToolCards';
+import { ToolCardBody } from './ToolCards';
+import { iconForDetail } from './toolIcons';
 import { ToolInputForm } from './ToolInputForm';
 import { chatApi } from '../../lib/api';
 

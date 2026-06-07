@@ -14,7 +14,8 @@ import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
-import { isPlanResponse, PlanView } from './Chat/PlanView';
+import { PlanView } from './Chat/PlanView';
+import { isPlanResponse } from './Chat/planDetection';
 import { AgentSpawnCard } from './Chat/AgentSpawnCard';
 
 /**
@@ -25,6 +26,7 @@ import { AgentSpawnCard } from './Chat/AgentSpawnCard';
  * markdown has no on-disk "home" — in that case relative srcs fall through
  * to the existing plain-<img> fallback (preserving current behavior).
  */
+// eslint-disable-next-line react-refresh/only-export-components -- context is consumed by markdownComponents.img in THIS file (idiomatic Provider+consumer colocation); splitting it out would orphan that coupling for dev-only HMR
 export const MarkdownBaseDirContext = createContext<string | null>(null);
 
 /**
@@ -248,8 +250,12 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
     const onMeta = () => { if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration); };
     const onTime = () => {
       setCurrentTime(audio.currentTime);
-      // Safari sometimes only reports duration after playback starts
-      if (audio.duration && isFinite(audio.duration) && duration === 0) setDuration(audio.duration);
+      // Safari sometimes only reports duration after playback starts. Read the
+      // current value via the functional updater (not the closed-over `duration`)
+      // so this mount-once effect needn't depend on it / rebind listeners.
+      if (audio.duration && isFinite(audio.duration)) {
+        setDuration(prev => (prev === 0 ? audio.duration : prev));
+      }
     };
     const onEnded = () => { setPlaying(false); setCurrentTime(0); };
     const onError = (e: Event) => console.error('Audio error:', (e.target as HTMLAudioElement)?.error);
@@ -498,6 +504,7 @@ function highlightMentionsInChildren(children: React.ReactNode): React.ReactNode
   return children;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- a react-markdown Components map of inline renderers tightly coupled to this file's helpers (highlightMentionsInChildren, MarkdownBaseDirContext, getMediaUrl); not a standalone constant — extracting it is a large, risky refactor for dev-only HMR
 export const markdownComponents: Components = {
   p: ({ children }) => (
     <p>{highlightMentionsInChildren(children)}</p>

@@ -85,9 +85,16 @@ export function ChatPanel({
   });
   // Use external state if provided, otherwise internal
   const showContext = externalContextOpen !== undefined ? externalContextOpen : showContextInternal;
-  const setShowContext = externalToggleContext
-    ? (_v: boolean | ((prev: boolean) => boolean)) => externalToggleContext()
-    : setShowContextInternal;
+  // Memoized so its identity is stable across renders — otherwise the effects
+  // depending on it (persist + toggle-context listener) would re-subscribe
+  // every render.
+  const setShowContext = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (v) => {
+      if (externalToggleContext) externalToggleContext();
+      else setShowContextInternal(v);
+    },
+    [externalToggleContext],
+  );
   // Persist context inspector state
   useEffect(() => {
     try { localStorage.setItem(CONTEXT_INSPECTOR_KEY, String(showContext)); } catch {}

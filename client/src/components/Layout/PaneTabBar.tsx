@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
@@ -19,7 +19,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
-import { useTopics } from '../../contexts/TopicsContext';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
@@ -122,6 +122,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // icon). Without this, every chat tab fell back to a generic MessageSquare
   // while the sidebar row showed the real icon — a jarring inconsistency.
   const topics = useTopics();
+  // Authoritative claude-code detection: a terminal pane is a Claude Code
+  // session if its persisted `terminalType` says so OR the live terminal
+  // roster reports that session id as claude-code. The persisted field can be
+  // absent on panes created before it was tracked (or not yet rehydrated),
+  // which used to make a "Claude Code" tab fall through to the generic
+  // Terminal glyph — i.e. Claude Code shown without its own icon. The sidebar
+  // already keys off the roster `type`; the tab bar now matches it.
+  const terminalSessions = useTerminalSessions();
+  const claudeCodeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of terminalSessions) {
+      if (s.type === 'claude-code' || s.type === 'claude-code-team') ids.add(s.id);
+    }
+    return ids;
+  }, [terminalSessions]);
   // Add-pane menu (button + portal + items + Electron overlay path) is
   // entirely owned by <PaneAddMenu>. PaneTabBar used to inline the
   // button + click handler + portal + outside-click effect — all of that
@@ -495,6 +510,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {panes.map((pane, paneIdx) => {
         const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
+        // Claude Code = persisted terminalType OR live roster says so (see memo above).
+        const termSid = pane.type === 'terminal' ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id)) : null;
+        const isClaudeCodeTab = pane.type === 'terminal' && (pane.terminalType === 'claude-code' || (!!termSid && claudeCodeSessionIds.has(termSid)));
         // Selection reads in the SAME visual language as the sidebar (shared
         // SELECTED_SURFACE): the focused tab is a clearly raised NEUTRAL card,
         // every other split group still shows ITS active tab one step softer,
@@ -558,10 +576,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 don't re-render every other tab. It self-guards on a null
                 pending status, so it's safe to mount for every pane type. */}
             <PaneTabPendingOverlay paneId={pane.id} />
+            {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
+                in a fixed 14×14 box so labels line up across tabs. The project
+                branch deliberately does NOT: a project without a shipped
+                favicon renders nothing (fallback=null) and must reserve NO
+                empty box — otherwise every generic project tab showed a blank
+                gap where an icon would be. Claude Code uses the authoritative
+                `isClaudeCodeTab` so its tab never falls through to the generic
+                Terminal glyph. */}
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
-            ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
-              <ClaudeIcon size={14} className="flex-shrink-0 text-[#D97757]" />
+            ) : isClaudeCodeTab ? (
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                <ClaudeIcon size={14} className="text-[#D97757]" />
+              </span>
             ) : pane.type === 'chat' && pane.topicId && topics[pane.topicId] ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <TopicIcon name={topics[pane.topicId].icon} color={topics[pane.topicId].color || undefined} size={14} />
@@ -569,13 +597,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             ) : pane.type === 'project' && pane.projectPath ? (
               // Same real project favicon the sidebar shows (GET /api/projects/icon),
               // with the SAME "no fake folder glyph" convention: projects WITHOUT a
-              // shipped favicon/manifest icon render nothing (fallback=null), exactly
-              // like the sidebar row. Only real icons appear.
-              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
-                <ProjectFavicon path={pane.projectPath} size={14} fallback={null} />
-              </span>
+              // shipped favicon/manifest icon render nothing (fallback=null) and
+              // reserve no space — no fixed-size wrapper here so the slot collapses.
+              <ProjectFavicon path={pane.projectPath} size={14} fallback={null} className="flex-shrink-0" />
             ) : Icon ? (
-              <Icon size={14} className="flex-shrink-0" />
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                <Icon size={14} />
+              </span>
             ) : null}
             <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed

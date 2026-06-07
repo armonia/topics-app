@@ -7,6 +7,7 @@ import Demo from "./Demo";
    mocks, but a few raw fetch()/WebSocket calls exist (ui-state, browser ws).
    Return empty JSON / a dead socket so the real app boots with mock data only. */
 const realFetch = window.fetch.bind(window);
+// eslint-disable-next-line react-refresh/only-export-components -- demo entry-point/bootstrap (createRoot().render); has no component exports by design, fast refresh N/A
 const J = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { "content-type": "application/json" } });
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const u =

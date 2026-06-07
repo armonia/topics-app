@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType } from '../../types';
 import { LazyPane } from './LazyPane';
 import { useTopics } from '../../contexts/TopicsContext';
-import { ProjectHeader, getProjectName } from './ProjectHeader';
+import { ProjectHeader } from './ProjectHeader';
+import { getProjectName } from './projectColors';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
@@ -398,10 +399,10 @@ export function ProjectWindowPane({
         return null;
     }
   }, [
-    topics, focusedPanelId, projectPath,
-    getSessionMessages, isSessionLoading, isSessionStreaming,
-    sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-    handleOpenFile, pinPaneById,
+    topics, focusedPanelId, projectPath, wrapperPaneId,
+    getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
+    sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+    handleOpenFile, pinPaneById, onFocusPanel, browserNavigateUrl,
   ]);
 
   return (

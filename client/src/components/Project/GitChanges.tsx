@@ -135,7 +135,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       setAddingRemote(false);
     }
-  }, [projectPath, newRemoteName, newRemoteUrl, loadRemotes]);
+  }, [projectPath, newRemoteName, newRemoteUrl, loadRemotes, toast]);
 
   const handleRemoveRemote = useCallback(async (name: string) => {
     try {
@@ -144,7 +144,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } catch (err: unknown) {
       toast.error(errMessage(err));
     }
-  }, [projectPath, loadRemotes]);
+  }, [projectPath, loadRemotes, toast]);
 
   // Load remotes when we have a valid git status
   useEffect(() => {
@@ -188,7 +188,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } catch (err: unknown) {
       toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleUnstage = useCallback(async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -198,7 +198,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } catch (err: unknown) {
       toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleStageAll = useCallback(async () => {
     try {
@@ -210,7 +210,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       setStagingAll(false);
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleUnstageAll = useCallback(async () => {
     try {
@@ -219,7 +219,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } catch (err: unknown) {
       toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleDiscard = useCallback((filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -238,7 +238,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       toast.error(errMessage(err));
     }
     setDiscardConfirm(null);
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   // --- Multi-select helpers ---
   const getFileList = useCallback((group: 'staged' | 'unstaged') => {
@@ -328,7 +328,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.stageFiles(projectPath, files);
       await loadStatus();
     } catch (err: unknown) { toast.error(errMessage(err)); }
-  }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
+  }, [selectedFiles, projectPath, loadStatus, closeContextMenu, toast]);
 
   const handleBatchUnstage = useCallback(async () => {
     const files = [...selectedFiles];
@@ -337,7 +337,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.unstageFiles(projectPath, files);
       await loadStatus();
     } catch (err: unknown) { toast.error(errMessage(err)); }
-  }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
+  }, [selectedFiles, projectPath, loadStatus, closeContextMenu, toast]);
 
   const handleBatchDiscard = useCallback(() => {
     const files = [...selectedFiles];
@@ -368,7 +368,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       setGeneratingMsg(false);
     }
-  }, [projectPath]);
+  }, [projectPath, toast]);
 
   const handleCommit = useCallback(async () => {
     if (!commitMessage.trim()) return;
@@ -383,7 +383,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       setCommitting(false);
     }
-  }, [commitMessage, projectPath, loadStatus]);
+  }, [commitMessage, projectPath, loadStatus, toast]);
 
   const handlePull = useCallback(async () => {
     try {
@@ -396,7 +396,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       setPulling(false);
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handlePush = useCallback(async () => {
     try {
@@ -409,7 +409,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     } finally {
       setPushing(false);
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   // --- Context menu portal ---
   const renderContextMenu = () => {

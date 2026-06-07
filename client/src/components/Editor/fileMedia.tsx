@@ -6,12 +6,14 @@ const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'ogv']);
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'opus', 'wma']);
 const PDF_EXTS = new Set(['pdf']);
 
+// eslint-disable-next-line react-refresh/only-export-components -- pure media-type helper colocated with its only consumers (FilePane, EditorTabs); moving it would force edits to those importers
 export function getFileExt(filename: string): string {
   return (filename.split('.').pop() || '').toLowerCase();
 }
 
 export type MediaType = 'image' | 'video' | 'audio' | 'pdf' | 'text';
 
+// eslint-disable-next-line react-refresh/only-export-components -- pure media-type helper colocated with its only consumers (FilePane, EditorTabs); moving it would force edits to those importers
 export function getMediaType(filename: string): MediaType {
   const ext = getFileExt(filename);
   if (IMAGE_EXTS.has(ext)) return 'image';
@@ -21,6 +23,7 @@ export function getMediaType(filename: string): MediaType {
   return 'text';
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- pure HTML-file predicate colocated with its only consumers (FilePane, EditorTabs); moving it would force edits to those importers
 export function isHtmlFile(filename: string): boolean {
   return /\.(html?|htm)$/i.test(filename);
 }

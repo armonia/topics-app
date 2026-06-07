@@ -53,10 +53,12 @@ export function TopicsProvider({ topics, terminalSessions, workspaceProjects, ch
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useTopics(): Record<string, Topic> {
   return useContext(Ctx).topics;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useTerminalSessions(): TerminalSessionInfo[] {
   return useContext(Ctx).terminalSessions;
 }
