@@ -135,7 +135,6 @@ export function PendingActionProvider({
         .then(() => committed!.commit())
         .catch((err) => {
           // Soft-destructive — never crash the app on commit failure.
-          // eslint-disable-next-line no-console
           console.warn('[PendingAction] commit failed:', err);
         });
     }
@@ -344,7 +343,6 @@ function withApi<K extends keyof PendingActionApi>(
 ): PendingActionApi[K] {
   return ((...args: Parameters<PendingActionApi[K]>) => {
     if (!apiSingleton) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[PendingAction] ${fnName} called before <PendingActionProvider> mounted; ignoring.`,
       );

@@ -105,7 +105,6 @@ export const usePaneStore = create<PaneStore>()(
             // spam the console on every tick until OPEN_PANE dispatches.
             if (!warnedMissingPaneIds.has(paneId)) {
               warnedMissingPaneIds.add(paneId);
-              // eslint-disable-next-line no-console
               console.warn(
                 `[paneStore] setPaneScrollOffset: no pane entity for id="${paneId}" — scroll tracking is a no-op until OPEN_PANE dispatches. (This warning fires once per unique id.)`,
               );

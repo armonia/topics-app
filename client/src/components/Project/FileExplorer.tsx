@@ -763,7 +763,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     const allFiles: File[] = [];
     const allRelPaths: string[] = [];
     const emptyDirs: string[] = []; // track empty directories to create
-    let droppedDirNames: string[] = [];
+    const droppedDirNames: string[] = [];
 
     // Try webkitGetAsEntry for directory support
     if (items && items.length > 0) {

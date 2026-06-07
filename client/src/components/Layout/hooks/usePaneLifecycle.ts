@@ -157,9 +157,11 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handlePopOut = useCallback((paneId: string) => {
     const url = `${window.location.origin}?topic=${paneId}`;
-    isNativeApp
-      ? window.open(url, `topic-${paneId}`, 'width=900,height=700')
-      : window.open(url, `topic-${paneId}`);
+    if (isNativeApp) {
+      window.open(url, `topic-${paneId}`, 'width=900,height=700');
+    } else {
+      window.open(url, `topic-${paneId}`);
+    }
     onClosePanel(paneId);
   }, [onClosePanel]);
 

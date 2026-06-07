@@ -1560,9 +1560,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const pane = panes.find(p => p.id === paneId);
       if (!pane?.topicId) return;
       const url = `${window.location.origin}?topic=${pane.topicId}`;
-      isNativeApp
-        ? window.open(url, `topic-${pane.topicId}`, 'width=900,height=700')
-        : window.open(url, `topic-${pane.topicId}`);
+      if (isNativeApp) {
+        window.open(url, `topic-${pane.topicId}`, 'width=900,height=700');
+      } else {
+        window.open(url, `topic-${pane.topicId}`);
+      }
       setPanes(prev => prev.filter(p => p.id !== paneId));
     },
     [panes],

@@ -10,9 +10,9 @@ import type { Terminal, IDisposable, ILink, ILinkProvider } from '@xterm/xterm';
 // Then it maps regex matches back to multi-row (x,y) ranges so the entire URL
 // is clickable, even when it spans 2+ rows.
 
-const URL_REGEX = /https?:\/\/[^\s'"`<>()\[\]{}]+/g;
+const URL_REGEX = /https?:\/\/[^\s'"`<>()[\]{}]+/g;
 const TRAILING_PUNCT = /[.,;:!?)\]}>'"`]+$/;
-const URL_CHAR = /[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%\-]/;
+const URL_CHAR = /[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]/;
 
 function endsMidUrl(text: string): boolean {
   const trimmed = text.replace(/\s+$/, '');

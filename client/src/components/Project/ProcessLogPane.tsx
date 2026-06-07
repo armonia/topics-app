@@ -5,6 +5,7 @@ import { scriptsApi } from '../../lib/api';
 // Strip ANSI escape sequences (colors, bold, cursor, etc.)
 // Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
 const stripAnsi = (text: string) =>
+  // eslint-disable-next-line no-control-regex
   text.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g, '')
       .replace(/\[(?:\d+;)*\d*[A-HJKSTfm]/g, '');
 
