@@ -27,6 +27,23 @@ export function TimeSeriesChart({ points, metric, height = 200 }: TimeSeriesChar
     return () => ro.disconnect();
   }, []);
 
+  // Hooks must run on every render — declared before the early-return below
+  // (fixes react-hooks/rules-of-hooks: these were after the points.length===0 return).
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const cw = width - PADDING.left - PADDING.right;
+    const xAt = (i: number) => PADDING.left + (cw * i) / Math.max(points.length - 1, 1);
+    let closest = 0;
+    let closestDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const dist = Math.abs(xAt(i) - mx);
+      if (dist < closestDist) { closestDist = dist; closest = i; }
+    }
+    setHoverIdx(closestDist < 30 ? closest : null);
+  }, [points.length, width]);
+  const handleMouseLeave = useCallback(() => setHoverIdx(null), []);
+
   if (points.length === 0) {
     return (
       <div ref={containerRef} className="flex items-center justify-center text-app-text-muted text-[12px]" style={{ height }}>
@@ -75,21 +92,6 @@ export function TimeSeriesChart({ points, metric, height = 200 }: TimeSeriesChar
   // Show subset of X labels to avoid crowding
   const maxXLabels = Math.max(Math.floor(chartW / 60), 2);
   const xLabelStep = Math.max(1, Math.ceil(points.length / maxXLabels));
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    // Find closest point
-    let closest = 0;
-    let closestDist = Infinity;
-    for (let i = 0; i < points.length; i++) {
-      const dist = Math.abs(xScale(i) - mx);
-      if (dist < closestDist) { closestDist = dist; closest = i; }
-    }
-    setHoverIdx(closestDist < 30 ? closest : null);
-  }, [points.length, width]);
-
-  const handleMouseLeave = useCallback(() => setHoverIdx(null), []);
 
   return (
     <div ref={containerRef} className="w-full">

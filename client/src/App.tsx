@@ -57,48 +57,6 @@ const TOPICS_MENU_PAGES = [
 // (`usePanelLifecycle`); App-level helpers were inlined into that hook
 // during the Commit 5 refactor.
 
-export function _SafeAreaFill() {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 'env(safe-area-inset-bottom, 0px)',
-        background: 'var(--bg-surface)',
-        zIndex: 99998,
-        pointerEvents: 'none',
-      }}
-    />
-  );
-}
-
-export function _SafeAreaDebug() {
-  const [info, setInfo] = useState({ safe: '...', bodyBg: '...', appBg: '...' });
-  useEffect(() => {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:fixed;bottom:0;left:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;';
-    document.body.appendChild(probe);
-    requestAnimationFrame(() => {
-      const safe = probe.offsetHeight;
-      const bodyBg = getComputedStyle(document.body).backgroundColor;
-      const appEl = document.getElementById('root')?.firstElementChild as HTMLElement;
-      const appBg = appEl ? getComputedStyle(appEl).backgroundColor : '?';
-      document.body.removeChild(probe);
-      setInfo({ safe: safe + 'px', bodyBg, appBg });
-    });
-  }, []);
-  return (
-    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 99999, pointerEvents: 'none', padding: '2px 6px', background: 'rgba(200,0,0,0.9)', color: 'white', fontSize: '10px', fontFamily: 'monospace', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-      <span>safe: {info.safe}</span>
-      <span>body: {info.bodyBg}</span>
-      <span>app: {info.appBg}</span>
-      <span>dvh: {window.innerHeight}px</span>
-    </div>
-  );
-}
-
 /**
  * App — root component.
  *
