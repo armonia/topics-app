@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, ContentBlock, Message, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatRequest, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
@@ -926,8 +926,8 @@ export function useChat() {
       try {
         const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
         const chatMessages: ChatMessage[] = historyResponse.messages
-          .filter((msg: any) => !isContextMessage(msg.content))
-          .map((msg: any) => ({
+          .filter(msg => !isContextMessage(msg.content))
+          .map(msg => ({
             ...msg,
             id: msg.id || generateMessageId(),
             content: cleanInvisibleMarkers(msg.content || ''),
@@ -961,7 +961,7 @@ export function useChat() {
 
       // 409 = stream already active for this session — queue the message for auto-send
       // when the current stream ends (Claude Code-style message queuing)
-      const is409 = err && typeof err === 'object' && 'status' in err && (err as any).status === 409;
+      const is409 = !!err && typeof err === 'object' && 'status' in err && (err as { status?: unknown }).status === 409;
       if (is409) {
         // Remove the optimistic assistant placeholder but keep the user message visible
         setMessages(prev => {
@@ -1230,8 +1230,8 @@ export function useChat() {
       // We do this to get the updated thread with the new branch
       const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
       const chatMessages: ChatMessage[] = historyResponse.messages
-        .filter((msg: any) => !isContextMessage(msg.content))
-        .map((msg: any) => ({
+        .filter(msg => !isContextMessage(msg.content))
+        .map(msg => ({
           ...msg,
           id: msg.id || generateMessageId(),
           content: cleanInvisibleMarkers(msg.content || ''),
@@ -1331,9 +1331,9 @@ export function useChat() {
       setError(null);
       const response = await chatApi.switchBranch(messageId, branchIndex);
 
-      const chatMessages: ChatMessage[] = response.messages
-        .filter((msg: any) => !isContextMessage(msg.content))
-        .map((msg: any) => ({
+      const chatMessages: ChatMessage[] = (response.messages as HistoryMessage[])
+        .filter((msg) => !isContextMessage(msg.content))
+        .map((msg) => ({
           ...msg,
           id: msg.id || generateMessageId(),
           content: cleanInvisibleMarkers(msg.content || ''),

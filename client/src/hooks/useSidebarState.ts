@@ -1,6 +1,18 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { WSMessage } from '../types';
 
 export type SidebarViewMode = 'timeline' | 'grouped';
+
+/** Loosely-typed persisted sidebar state — the server/storage layer is
+ *  schemaless, so incoming values are coerced to a partial of the known
+ *  shape (extra keys, if any, are dropped by the spread over DEFAULT_STATE).
+ *  Spreading a `Partial<SidebarState>` over the full `DEFAULT_STATE` keeps
+ *  every field typed, so the result stays a valid `SidebarState`. */
+type PartialSidebarState = Partial<SidebarState>;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
 
 interface SidebarState {
   expandedNodes: string[];
@@ -36,7 +48,7 @@ function loadFromStorage(): SidebarState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as PartialSidebarState;
       // Migrate: if old format (no viewMode), derive from old fields
       if (!parsed.viewMode) {
         parsed.viewMode = 'timeline';
@@ -54,7 +66,7 @@ function saveToStorage(state: SidebarState): void {
   } catch {}
 }
 
-export function useSidebarState(onMessage?: (handler: (msg: any) => void) => () => void) {
+export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) => () => void) {
   const [state, setStateRaw] = useState<SidebarState>(loadFromStorage);
 
   const stateRef = useRef(state);
@@ -74,16 +86,17 @@ export function useSidebarState(onMessage?: (handler: (msg: any) => void) => () 
   // as of migration 012; unwrap .value for the legacy consumer shape.
   useEffect(() => {
     fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED: sidebar-state key, not pane state
-      .then(r => r.ok ? r.json() : null)
-      .then(envelope => {
+      .then((r): Promise<unknown> | null => r.ok ? r.json() : null)
+      .then((envelope: unknown) => {
         // PANE-01-ALLOWED: unwrap v2 envelope { value, payload_version, server_seq }
-        const serverValue = envelope && typeof envelope === 'object' && 'value' in envelope ? (envelope as any).value : envelope;
-        if (!mountedRef.current || serverValue === null || serverValue === undefined) return;
-        const merged = { ...DEFAULT_STATE, ...serverValue };
+        const serverValue: unknown = isRecord(envelope) && 'value' in envelope ? envelope.value : envelope;
+        if (!mountedRef.current || !isRecord(serverValue)) return;
+        const sv = serverValue as PartialSidebarState;
+        const merged: SidebarState = { ...DEFAULT_STATE, ...sv };
         // Migrate server state too
-        if (!serverValue.viewMode) {
+        if (!sv.viewMode) {
           merged.viewMode = 'timeline';
-          merged.showArchived = serverValue.showProjectsArchived || serverValue.showChatsArchived || false;
+          merged.showArchived = sv.showProjectsArchived || sv.showChatsArchived || false;
         }
         isFromServerRef.current = true;
         setStateRaw(merged);
@@ -95,18 +108,21 @@ export function useSidebarState(onMessage?: (handler: (msg: any) => void) => () 
   // WS listener — skip if user made a local change recently (prevents overwrite race)
   useEffect(() => {
     if (!onMessage) return;
-    return onMessage((msg: any) => {
+    return onMessage((msg: WSMessage) => {
       // If user interacted locally in the last 2s, ignore server pushes to avoid overwriting
       if (Date.now() - lastLocalChangeRef.current < 2000) return;
 
       if (msg.type === 'ui-state:updated' && msg.key === SERVER_KEY) {
-        const merged = { ...DEFAULT_STATE, ...msg.value };
+        if (!isRecord(msg.value)) return;
+        const merged: SidebarState = { ...DEFAULT_STATE, ...(msg.value as PartialSidebarState) };
         isFromServerRef.current = true;
         setStateRaw(merged);
         saveToStorage(merged);
       }
       if (msg.type === 'ui-state:init' && msg.data && SERVER_KEY in msg.data) {
-        const merged = { ...DEFAULT_STATE, ...msg.data[SERVER_KEY] };
+        const raw = msg.data[SERVER_KEY];
+        if (!isRecord(raw)) return;
+        const merged: SidebarState = { ...DEFAULT_STATE, ...(raw as PartialSidebarState) };
         isFromServerRef.current = true;
         setStateRaw(merged);
         saveToStorage(merged);
@@ -120,7 +136,7 @@ export function useSidebarState(onMessage?: (handler: (msg: any) => void) => () 
       if (e.key !== STORAGE_KEY || !e.newValue) return;
       try {
         isFromServerRef.current = true;
-        setStateRaw({ ...DEFAULT_STATE, ...JSON.parse(e.newValue) });
+        setStateRaw({ ...DEFAULT_STATE, ...(JSON.parse(e.newValue) as PartialSidebarState) });
       } catch {}
     };
     window.addEventListener('storage', handler);

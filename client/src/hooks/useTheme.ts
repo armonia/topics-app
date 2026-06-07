@@ -24,7 +24,11 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     // Phase F · 3rd no-flash layer: sync the resolved theme into the
     // Electron native chrome so the title bar / vibrancy material match
     // without flicker. No-op outside Electron.
-    const electronTheme = (window as any).electronAPI?.theme;
+    // Electron native-chrome theme bridge (preload-exposed). Not part of the
+    // shared electronAPI .d.ts; describe just the slice we touch here.
+    const electronTheme = (window as unknown as {
+      electronAPI?: { theme?: { setResolved?: (theme: 'light' | 'dark') => Promise<void> } };
+    }).electronAPI?.theme;
     if (electronTheme && typeof electronTheme.setResolved === 'function') {
       electronTheme.setResolved(effective).catch(() => {});
     }

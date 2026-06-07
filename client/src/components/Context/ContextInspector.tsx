@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2 } from 'lucide-react';
-import type { Topic, UpdateTopicRequest } from '../../types';
+import type { Topic, UpdateTopicRequest, WSMessage } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useOpenClawContext } from '../../hooks/useOpenClawContext';
 import { useMemory } from '../../hooks/useMemory';
@@ -15,7 +15,7 @@ interface ContextInspectorProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onOpenFile?: (path: string) => void;
 }
 

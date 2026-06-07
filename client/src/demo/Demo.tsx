@@ -20,9 +20,9 @@ gitCache.set(PROJECT, {
       { path: "server/routes/release.ts", status: "??" },
     ],
     ahead: 1, behind: 0,
-  } as any,
+  },
   remotes: [],
-} as any);
+});
 type Tab = "browser" | "git" | "processes";
 
 const TOPICS = [

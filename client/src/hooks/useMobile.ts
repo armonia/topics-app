@@ -66,7 +66,8 @@ function getInitialState(): MobileState {
   const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const isMobile = window.innerWidth < 768 || (isTouch && window.innerWidth < 1024);
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as any).standalone === true;
+    // `navigator.standalone` is a non-standard iOS Safari flag (PWA installed to home screen).
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
   // Get safe area insets from CSS env()
   const computedStyle = getComputedStyle(document.documentElement);

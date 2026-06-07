@@ -39,7 +39,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
       return;
     }
     if (useRegex) {
-      try { new RegExp(q); } catch (e: any) { setRegexError(e.message || 'Invalid regex'); setResults([]); return; }
+      try { new RegExp(q); } catch (e: unknown) { setRegexError((e instanceof Error && e.message) || 'Invalid regex'); setResults([]); return; }
     }
     setLoading(true);
     try {

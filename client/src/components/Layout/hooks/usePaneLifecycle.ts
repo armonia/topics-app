@@ -22,7 +22,7 @@ import {
 import { isUtilityPanelId } from '../UtilityPanel';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
+const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
 
 /**
  * Per-pane-kind close-side-effect descriptor. Keeps handleClosePane +

@@ -8,6 +8,7 @@ import type {
   HistoryRequest,
   HistoryResponse,
   HistoryMessage,
+  ToolCall,
   UploadResponse,
   SearchResult,
   UnreadData,
@@ -26,8 +27,8 @@ import type {
 const API_BASE = '/api';
 
 export class ApiError extends Error {
-  [key: string]: any;
-  constructor(public status: number, message: string, extra?: Record<string, any>) {
+  [key: string]: unknown;
+  constructor(public status: number, message: string, extra?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiError';
     if (extra) Object.assign(this, extra);
@@ -46,12 +47,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (!response.ok) {
     const text = await response.text();
     let message = text || response.statusText;
-    let extra: Record<string, any> | undefined;
+    let extra: Record<string, unknown> | undefined;
     try {
-      const parsed = JSON.parse(text);
-      if (parsed.error) message = parsed.error;
-      const { error: _, ...rest } = parsed;
-      if (Object.keys(rest).length) extra = rest;
+      const parsed: unknown = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        if (typeof obj.error === 'string') message = obj.error;
+        const { error: _, ...rest } = obj;
+        if (Object.keys(rest).length) extra = rest;
+      }
     } catch {}
     throw new ApiError(response.status, message, extra);
   }
@@ -193,8 +197,8 @@ export const chatApi = {
     return response.body;
   },
 
-  async switchBranch(messageId: string, branchIndex: number): Promise<{ messages: any[] }> {
-    return request<{ messages: any[] }>(`/messages/${encodeURIComponent(messageId)}/switch-branch`, {
+  async switchBranch(messageId: string, branchIndex: number): Promise<{ messages: HistoryMessage[] }> {
+    return request<{ messages: HistoryMessage[] }>(`/messages/${encodeURIComponent(messageId)}/switch-branch`, {
       method: 'POST',
       body: JSON.stringify({ branchIndex }),
     });
@@ -890,7 +894,7 @@ export interface CommandResult {
 }
 
 export const commandApi = {
-  async execute(sessionKey: string, command: string, args?: Record<string, any>): Promise<CommandResult> {
+  async execute(sessionKey: string, command: string, args?: Record<string, unknown>): Promise<CommandResult> {
     return request<CommandResult>('/command', {
       method: 'POST',
       body: JSON.stringify({ sessionKey, command, args }),
@@ -1252,7 +1256,7 @@ export interface TopicMessagesResponse {
     content: string;
     timestamp: string;
     thinking?: string;
-    toolCalls?: any[];
+    toolCalls?: ToolCall[];
     media?: string[];
   }>;
   total: number;
@@ -1268,7 +1272,7 @@ export const topicMessagesApi = {
 export interface TimelineEvent {
   type: 'session_start' | 'session_end' | 'heartbeat' | 'action';
   timestamp: string;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 export interface SessionTimelineResponse {
@@ -1437,7 +1441,7 @@ export interface AgentActionLog {
   actionType: string;
   entityType: string | null;
   entityId: string | null;
-  detail: any;
+  detail: unknown;
   createdAt: string;
 }
 
@@ -1542,21 +1546,21 @@ export const providersApi = {
   },
 
   async configureClaude(apiKey: string, model?: string, maxTokens?: number) {
-    return request<{ ok: boolean; provider: any }>('/providers/claude/configure', {
+    return request<{ ok: boolean; provider: unknown }>('/providers/claude/configure', {
       method: 'POST',
       body: JSON.stringify({ apiKey, model, maxTokens }),
     });
   },
 
   async configureOpenAI(apiKey: string, model?: string, maxTokens?: number) {
-    return request<{ ok: boolean; provider: any }>('/providers/openai/configure', {
+    return request<{ ok: boolean; provider: unknown }>('/providers/openai/configure', {
       method: 'POST',
       body: JSON.stringify({ apiKey, model, maxTokens }),
     });
   },
 
   async configureClaudeCode(model: string) {
-    return request<{ ok: boolean; provider: any }>('/providers/claude-code/configure', {
+    return request<{ ok: boolean; provider: unknown }>('/providers/claude-code/configure', {
       method: 'POST',
       body: JSON.stringify({ model }),
     });

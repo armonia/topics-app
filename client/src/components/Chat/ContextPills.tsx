@@ -86,6 +86,17 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
   );
 }
 
+/** A single line item in the `/api/context` token breakdown. */
+interface ContextBreakdownEntry {
+  label?: string;
+  description?: string;
+  tokens?: number;
+}
+
+interface ContextTokenResponse {
+  breakdown?: ContextBreakdownEntry[];
+}
+
 /** Hook to fetch token estimates for context files */
 export function useContextFileTokens(sessionKey: string, filePaths: string[]): Map<string, number> {
   const [tokenMap, setTokenMap] = useState<Map<string, number>>(new Map());
@@ -95,11 +106,11 @@ export function useContextFileTokens(sessionKey: string, filePaths: string[]): M
     if (!filePaths.length) { setTokenMap(new Map()); return; }
 
     fetch(`/api/context?sessionKey=${encodeURIComponent(sessionKey)}`)
-      .then(r => r.json())
-      .then((data: any) => {
+      .then(r => r.json() as Promise<ContextTokenResponse>)
+      .then((data) => {
         const map = new Map<string, number>();
         // Try to extract per-file tokens from breakdown description
-        const contextBreakdown = data.breakdown?.find((b: any) =>
+        const contextBreakdown = data.breakdown?.find((b) =>
           b.label === 'Context files' && b.description
         );
         if (contextBreakdown?.description) {

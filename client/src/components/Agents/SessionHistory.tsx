@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, X, ChevronLeft, ChevronRight, ArrowLeft, AlertCircle, Filter, MessageSquare, User, Bot, ExternalLink } from 'lucide-react';
 import { agentProfilesApi, chatApi, type SessionHistoryItem, type AgentProfile } from '../../lib/api';
-import type { HistoryMessage } from '../../types';
+import type { HistoryMessage, WSMessage } from '../../types';
 import type { AgentSession as LiveSession } from '../../hooks/useAgents';
 
 const STATUS_OPTIONS = [
@@ -135,7 +135,7 @@ interface SessionHistoryProps {
   liveSessions?: LiveSession[];
   onNavigateToTopic?: (topicId: string) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export function SessionHistory({ liveSessions = [], onNavigateToTopic, onOpenSessionViewer, onMessage }: SessionHistoryProps) {
@@ -369,10 +369,20 @@ function SessionRow({ session, onSelect }: { session: UnifiedSession; onSelect: 
 
 // ─── Unified Timeline Entry ───────────────────────────────────
 
+/** Non-message timeline payload (heartbeat / action / session_end events). */
+interface TimelineEventData {
+  status?: string;
+  errorMessage?: string;
+  tokensUsed?: number;
+  currentTask?: string;
+  actionType?: string;
+  detail?: { text?: string; message?: string };
+}
+
 interface TimelineEntry {
   type: 'message' | 'session_start' | 'session_end' | 'heartbeat' | 'action';
   timestamp: string;
-  data: any;
+  data: HistoryMessage | TimelineEventData;
 }
 
 function actionLabel(actionType: string): string {
@@ -395,7 +405,7 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
   onBack?: () => void;
   onNavigateToTopic?: (topicId: string) => void;
   onOpenInPane?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -453,7 +463,9 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
     for (const e of entries) {
       if (e.type === 'heartbeat') {
         const prev = deduped[deduped.length - 1];
-        if (prev?.type === 'heartbeat' && prev.data.status === e.data.status && !e.data.tokensUsed) continue;
+        const prevHb = prev?.data as TimelineEventData | undefined;
+        const curHb = e.data as TimelineEventData;
+        if (prev?.type === 'heartbeat' && prevHb?.status === curHb.status && !curHb.tokensUsed) continue;
       }
       deduped.push(e);
     }
@@ -486,7 +498,7 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
   // WS-driven refresh: re-fetch on stream:end or agents:stopped for this session
   useEffect(() => {
     if (!session.isLive || session.status !== 'active' || !onMessage) return;
-    const unsub = onMessage((msg: any) => {
+    const unsub = onMessage((msg: WSMessage) => {
       try {
         const isRelevant =
           (msg.type === 'stream:end' && msg.sessionKey === session.sessionKey) ||
@@ -628,7 +640,7 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
 export function TimelineEntryView({ entry }: { entry: TimelineEntry }) {
   switch (entry.type) {
     case 'message':
-      return <MessageBubble message={entry.data} />;
+      return <MessageBubble message={entry.data as HistoryMessage} />;
     case 'session_start':
       return (
         <div className="flex items-center gap-2 py-1.5 px-1">
@@ -641,58 +653,64 @@ export function TimelineEntryView({ entry }: { entry: TimelineEntry }) {
           <div className="flex-1 h-px bg-app-border/50" />
         </div>
       );
-    case 'session_end':
+    case 'session_end': {
+      const data = entry.data as TimelineEventData;
       return (
         <div className="flex items-center gap-2 py-1.5 px-1">
           <div className="flex-1 h-px bg-app-border/50" />
           <span className={`text-[11px] font-medium flex items-center gap-1 ${
-            entry.data.status === 'error' ? 'text-red-500' : 'text-blue-500'
+            data.status === 'error' ? 'text-red-500' : 'text-blue-500'
           }`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${entry.data.status === 'error' ? 'bg-red-500' : 'bg-blue-500'}`} />
-            {entry.data.status === 'error' ? 'Error' : 'Completed'}
+            <div className={`w-1.5 h-1.5 rounded-full ${data.status === 'error' ? 'bg-red-500' : 'bg-blue-500'}`} />
+            {data.status === 'error' ? 'Error' : 'Completed'}
           </span>
           <span className="text-[11px] text-app-text-muted">{formatDate(entry.timestamp)}</span>
           <div className="flex-1 h-px bg-app-border/50" />
-          {entry.data.errorMessage && (
-            <span className="text-[11px] text-red-400 truncate max-w-[200px]">{entry.data.errorMessage}</span>
+          {data.errorMessage && (
+            <span className="text-[11px] text-red-400 truncate max-w-[200px]">{data.errorMessage}</span>
           )}
         </div>
       );
-    case 'heartbeat':
+    }
+    case 'heartbeat': {
+      const data = entry.data as TimelineEventData;
       return (
         <div className="flex items-center gap-2 py-0.5 px-3">
-          <div className={`w-1 h-1 rounded-full flex-shrink-0 ${statusDot(entry.data.status)}`} />
+          <div className={`w-1 h-1 rounded-full flex-shrink-0 ${statusDot(data.status ?? '')}`} />
           <span className="text-[11px] text-app-text-muted">{formatDate(entry.timestamp)}</span>
-          {entry.data.tokensUsed > 0 && (
-            <span className="text-[11px] text-app-text-muted">+{formatTokens(entry.data.tokensUsed)} tok</span>
+          {(data.tokensUsed ?? 0) > 0 && (
+            <span className="text-[11px] text-app-text-muted">+{formatTokens(data.tokensUsed ?? 0)} tok</span>
           )}
-          {entry.data.currentTask && (
-            <span className="text-[11px] text-app-text-muted truncate" title={entry.data.currentTask}>
-              {entry.data.currentTask}
+          {data.currentTask && (
+            <span className="text-[11px] text-app-text-muted truncate" title={data.currentTask}>
+              {data.currentTask}
             </span>
           )}
         </div>
       );
-    case 'action':
+    }
+    case 'action': {
+      const data = entry.data as TimelineEventData;
       return (
         <div className="flex items-center gap-2 py-1 px-2 mx-1 rounded bg-amber-500/5 border border-amber-500/10">
           <span className="text-[11px]">⚡</span>
           <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
-            {actionLabel(entry.data.actionType)}
+            {actionLabel(data.actionType ?? '')}
           </span>
-          {entry.data.detail?.text && (
-            <span className="text-[11px] text-app-text-muted truncate flex-1" title={entry.data.detail.text}>
-              {entry.data.detail.text}
+          {data.detail?.text && (
+            <span className="text-[11px] text-app-text-muted truncate flex-1" title={data.detail.text}>
+              {data.detail.text}
             </span>
           )}
-          {entry.data.detail?.message && (
-            <span className="text-[11px] text-app-text-muted truncate flex-1" title={entry.data.detail.message}>
-              {entry.data.detail.message}
+          {data.detail?.message && (
+            <span className="text-[11px] text-app-text-muted truncate flex-1" title={data.detail.message}>
+              {data.detail.message}
             </span>
           )}
           <span className="text-[11px] text-app-text-muted flex-shrink-0">{formatDate(entry.timestamp)}</span>
         </div>
       );
+    }
     default:
       return null;
   }

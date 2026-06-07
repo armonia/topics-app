@@ -17,6 +17,10 @@ interface GitChangesProps {
   onToggle?: () => void;
 }
 
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function statusLabel(status: string): { text: string; color: string; bg: string } {
   switch (status) {
     case 'M': return { text: 'M', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
@@ -58,7 +62,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged' } | null>(null);
   const lastClickedRef = useRef<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const commitInputRef = useRef<HTMLTextAreaElement>(null);
+  const commitInputRef = useRef<HTMLInputElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const branchBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -126,8 +130,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setNewRemoteUrl('');
       setShowAddRemote(false);
       await loadRemotes();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     } finally {
       setAddingRemote(false);
     }
@@ -137,8 +141,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.removeRemote(projectPath, name);
       await loadRemotes();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
   }, [projectPath, loadRemotes]);
 
@@ -168,9 +172,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       }
       setOriginalContent(original);
       setModifiedContent(modified);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setOriginalContent('');
-      setModifiedContent('Error loading diff: ' + err.message);
+      setModifiedContent('Error loading diff: ' + errMessage(err));
     } finally {
       setLoadingDiff(false);
     }
@@ -181,8 +185,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.stage(projectPath, filePath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
   }, [projectPath, loadStatus]);
 
@@ -191,8 +195,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.unstage(projectPath, filePath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
   }, [projectPath, loadStatus]);
 
@@ -201,8 +205,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setStagingAll(true);
       await gitApi.stageAll(projectPath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     } finally {
       setStagingAll(false);
     }
@@ -212,8 +216,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.unstageAll(projectPath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
   }, [projectPath, loadStatus]);
 
@@ -230,8 +234,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         await gitApi.discardFiles(projectPath, files);
       }
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
     setDiscardConfirm(null);
   }, [projectPath, loadStatus]);
@@ -323,7 +327,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.stageFiles(projectPath, files);
       await loadStatus();
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err: unknown) { toast.error(errMessage(err)); }
   }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
 
   const handleBatchUnstage = useCallback(async () => {
@@ -332,7 +336,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.unstageFiles(projectPath, files);
       await loadStatus();
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err: unknown) { toast.error(errMessage(err)); }
   }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
 
   const handleBatchDiscard = useCallback(() => {
@@ -359,8 +363,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         const result = await gitApi.diffSummary(projectPath);
         setCommitMessage(result.message);
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     } finally {
       setGeneratingMsg(false);
     }
@@ -374,8 +378,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setCommitMessage('');
       await loadStatus();
       toast.success('Committed!');
-    } catch (err: any) {
-      toast.error(`Commit failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Commit failed: ${errMessage(err)}`);
     } finally {
       setCommitting(false);
     }
@@ -387,8 +391,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       const result = await gitApi.pull(projectPath);
       toast.success(result.output || 'Pull complete');
       await loadStatus();
-    } catch (err: any) {
-      toast.error(`Pull failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Pull failed: ${errMessage(err)}`);
     } finally {
       setPulling(false);
     }
@@ -400,8 +404,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       const result = await gitApi.push(projectPath);
       toast.success(result.output || 'Push complete');
       await loadStatus();
-    } catch (err: any) {
-      toast.error(`Push failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Push failed: ${errMessage(err)}`);
     } finally {
       setPushing(false);
     }
@@ -661,7 +665,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   {/* Inline commit row — input + AI + commit all in one line */}
                   <div className="border-t border-app-border px-3 py-1 flex items-center gap-1 flex-shrink-0">
                     <input
-                      ref={commitInputRef as any}
+                      ref={commitInputRef}
                       type="text"
                       value={commitMessage}
                       onChange={e => setCommitMessage(e.target.value)}

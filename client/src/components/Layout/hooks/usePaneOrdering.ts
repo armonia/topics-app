@@ -26,6 +26,7 @@ import {
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
 import { findPreviewInList, replaceInList } from '../../../lib/previewTabs';
+import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
 import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
@@ -288,9 +289,13 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
   // 8. WS browser:navigate listener. Lives in this hook (B5 option (a)).
   useEffect(() => {
-    const unsub = onWSMessage((msg: any) => {
+    const unsub = onWSMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate' && msg.url) {
         if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
+        // The server attaches a `topicId` to this broadcast for spawner
+        // tracking; it isn't part of the typed WSBrowserNavigateMessage shape,
+        // so read it defensively without widening the message type.
+        const navTopicId = (msg as { topicId?: string }).topicId;
         // Rewrite localhost URLs to use the current hostname (Tailscale / remote).
         let navigateUrl: string = msg.url;
         try {
@@ -303,8 +308,8 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         } catch { /* not a valid URL, leave as-is */ }
         onBrowserNavigateUrl(navigateUrl);
         setOrderedIds(prev => {
-          // Today's extra guard: msg.topicId must already be open in this group.
-          if (msg.topicId && !prev.includes(msg.topicId)) return prev;
+          // Today's extra guard: navTopicId must already be open in this group.
+          if (navTopicId && !prev.includes(navTopicId)) return prev;
           const { next, resolvedId } = browserSingletonReducer(prev);
           if (resolvedId) {
             queueMicrotask(() => onFocusPanel(resolvedId));
@@ -313,7 +318,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
             // header surface a jump-to-browser button and the browser
             // toolbar surface a jump-back-to-chat button.
             const ctx = getBrowserContextFromPaneId(resolvedId);
-            if (ctx && msg.topicId) setBrowserSpawner(ctx, msg.topicId);
+            if (ctx && navTopicId) setBrowserSpawner(ctx, navTopicId);
           }
           return next;
         });

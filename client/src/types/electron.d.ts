@@ -32,13 +32,13 @@ export interface ElectronBrowserAPI {
   canGoForward: () => Promise<{ canGoForward: boolean }>;
   
   // Advanced
-  executeJs: (code: string) => Promise<{ success: boolean; result?: any; error?: string }>;
+  executeJs: (code: string) => Promise<{ success: boolean; result?: unknown; error?: string }>;
   screenshot: (tabId?: string) => Promise<{ success: boolean; data?: string; format?: string; error?: string }>;
 }
 
 export interface ElectronAPI {
   browser: ElectronBrowserAPI;
-  onBrowserEvent: (callback: (data: any) => void) => void;
+  onBrowserEvent: (callback: (data: unknown) => void) => void;
   removeBrowserEventListener: () => void;
   onNavigateToTopic: (callback: (topicId: string) => void) => void;
   reportFocusedTopic: (topicId: string | null) => void;
