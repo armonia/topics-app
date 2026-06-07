@@ -193,14 +193,6 @@ export function usePendingActions(): PendingActionContextValue {
   return ctx;
 }
 
-/** Convenience helper that returns whether a given key has a pending entry
- *  (whether ticked or not). Useful for hiding the original action button. */
-export function useHasPendingAction(key: string | null | undefined): boolean {
-  const { entries } = usePendingActions();
-  if (!key) return false;
-  return entries.some((e) => e.key === key);
-}
-
 /** Returns the live status of a pending action by key, or null if no entry
  *  is queued. UI components use this to render an inline check + countdown
  *  ring in place of the original X / archive icon. The callsite typically:
@@ -365,7 +357,5 @@ function withApi<K extends keyof PendingActionApi>(
 
 /** Imperative: register a pending action. Mirrors `enqueue` from the hook. */
 export const enqueuePendingAction = withApi('enqueue');
-/** Imperative: cancel a pending action by key. */
-export const cancelPendingAction = withApi('cancel');
 /** Imperative: programmatically tick (rarely needed; usually the user does it). */
 export const tickPendingAction = withApi('tick');

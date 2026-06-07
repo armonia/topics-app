@@ -220,8 +220,3 @@ export function getFileIconDef(name: string, isDirectory = false, isOpen = false
 export function getFileIcon(name: string): LucideIcon {
   return getFileIconDef(name).icon;
 }
-
-/** Get the color for a file */
-export function getFileIconColor(name: string): string {
-  return getFileIconDef(name).color;
-}

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { selectSyncableSnapshot } from "./selectors";
-import type { PaneState, Pane, ProjectLayout, ClosedPaneRecord } from "./types";
+import type { PaneState, Pane, ClosedPaneRecord } from "./types";
 
 const blankState = (): PaneState => ({
   panes: {},

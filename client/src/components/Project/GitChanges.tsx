@@ -108,7 +108,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.init(projectPath);
       await loadStatus();
       await loadRemotes();
-    } catch (err: any) {
+    } catch {
       // error state is handled by useGitStatus
     } finally {
       setInitializing(false);

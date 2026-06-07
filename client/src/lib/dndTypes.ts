@@ -21,8 +21,6 @@ export const DND_TYPES = {
   PANE_TAB_SCOPE: 'application/x-pane-tab-scope',
 } as const;
 
-export type DndType = typeof DND_TYPES[keyof typeof DND_TYPES];
-
 /** The DnD scope of the top-level standalone window (its chat group + solo split
  *  cells). Every project window uses its projectPath as scope instead. The
  *  standalone grid must only react to tab drags of THIS scope — a project's
