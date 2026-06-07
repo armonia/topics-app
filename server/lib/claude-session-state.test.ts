@@ -2,8 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import {
   applyHook,
   applyJsonlEvent,
-  markDormant,
-  markPtyCrash,
   makeInitialState,
   parseJsonlLine,
   reapStaleSession,
@@ -263,30 +261,6 @@ describe('reapStaleSession', () => {
     const s1 = reapStaleSession(s0, T0 + 6 * 60 * 1000);
     expect(s1.phase).toBe('error');
     expect(s1.error?.code).toBe('start-timeout');
-  });
-});
-
-describe('markPtyCrash / markDormant', () => {
-  it('markPtyCrash transitions active session to error with code', () => {
-    const s0 = freshState({ phase: 'running', rev: 4 });
-    const s1 = markPtyCrash(s0, 137, T0 + TICK);
-    expect(s1.phase).toBe('error');
-    expect(s1.error?.code).toBe('pty-crashed');
-    expect(s1.error?.message).toContain('137');
-    expect(s1.rev).toBe(5);
-  });
-
-  it('markPtyCrash is a no-op on a completed session', () => {
-    const s0 = freshState({ phase: 'completed', rev: 9 });
-    const s1 = markPtyCrash(s0, 1, T0 + TICK);
-    expect(s1).toBe(s0);
-  });
-
-  it('markDormant moves active session to dormant', () => {
-    const s0 = freshState({ phase: 'awaiting-user', rev: 4 });
-    const s1 = markDormant(s0, T0 + TICK);
-    expect(s1.phase).toBe('dormant');
-    expect(s1.rev).toBe(5);
   });
 });
 

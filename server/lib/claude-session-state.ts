@@ -340,40 +340,6 @@ export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
 };
 
 /**
- * Mark a session as errored. Used by the PTY-exit signal path; not derivable
- * from hooks alone (the whole point of "crash" is the hook never arrived).
- */
-export function markPtyCrash(
-  prev: ClaudeSessionState,
-  exitCode: number,
-  now: number,
-): ClaudeSessionState {
-  if (TERMINAL_PHASES.has(prev.phase)) return prev;
-  return transition({ ...prev, updatedAt: now }, {
-    phase: 'error',
-    error: { code: 'pty-crashed', message: `PTY exited with code ${exitCode}`, failedAt: now },
-    lastTool: undefined,
-    pendingApproval: undefined,
-  }, now);
-}
-
-/**
- * Mark a session as dormant — its PTY is gone but the claude_session_id is
- * still resumable via `claude --resume`.
- */
-export function markDormant(
-  prev: ClaudeSessionState,
-  now: number,
-): ClaudeSessionState {
-  if (prev.phase === 'dormant' || TERMINAL_PHASES.has(prev.phase)) return prev;
-  return transition({ ...prev, updatedAt: now }, {
-    phase: 'dormant',
-    lastTool: undefined,
-    pendingApproval: undefined,
-  }, now);
-}
-
-/**
  * Initial state for a brand-new session.
  */
 export function makeInitialState(

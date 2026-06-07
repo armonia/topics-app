@@ -151,28 +151,7 @@ describe('ClaudeSessionTracker — ingestHook', () => {
   });
 });
 
-describe('ClaudeSessionTracker — PTY / reaper / dormant', () => {
-  it('notePtyCrash transitions to error', async () => {
-    const db = freshDb();
-    seedSession(db, 'topic-a', 'cli-1');
-    const rec = makeRecorder();
-    const trk = makeTracker(db, rec);
-    expect(trk.notePtyCrash('cli-1', 137, T0 + 10)).toBe(true);
-    const s = trk.getSession('cli-1')!;
-    expect(s.phase).toBe('error');
-    expect(s.error?.code).toBe('pty-crashed');
-    await rec.waitForBroadcast();
-    expect(rec.events.length).toBe(1);
-  });
-
-  it('noteDormant moves active session to dormant', () => {
-    const db = freshDb();
-    seedSession(db, 'topic-a', 'cli-1');
-    const trk = makeTracker(db, makeRecorder());
-    expect(trk.noteDormant('cli-1', T0 + 10)).toBe(true);
-    expect(trk.getSession('cli-1')!.phase).toBe('dormant');
-  });
-
+describe('ClaudeSessionTracker — reaper', () => {
   it('reapOnce demotes a stuck tool-running session', () => {
     const db = freshDb();
     seedSession(db, 'topic-a', 'cli-1');
@@ -251,110 +230,11 @@ describe('ClaudeSessionTracker — JSONL recovery', () => {
   });
 });
 
-describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
-  let db: Database;
-  let rec: Recorder;
-  let tracker: ClaudeSessionTracker;
-
-  beforeEach(() => {
-    db = freshDb();
-    rec = makeRecorder();
-    tracker = makeTracker(db, rec);
-  });
-
-  it('hooks for an unregistered terminal session are dropped as unknown', () => {
-    const res = tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
+describe('ClaudeSessionTracker — unknown sessions', () => {
+  it('drops hooks for a claude_session_id with no DB row as unknown-session', () => {
+    const db = freshDb();
+    const tracker = makeTracker(db, makeRecorder());
+    const res = tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'no-such-session' }, T0 + 10);
     expect(res.kind).toBe('unknown-session');
-  });
-
-  it('registers a terminal session so its hooks resolve and advance phase in-memory', async () => {
-    tracker.registerTerminalSession('term-1', T0);
-    const start = tracker.getSession('term-1')!;
-    expect(start.sessionKey).toBeNull();
-    expect(start.phase).toBe('starting');
-
-    const res = tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
-    expect(res.kind).toBe('ok');
-    if (res.kind === 'ok') {
-      expect(res.state.phase).toBe('running');
-      expect(res.state.lastHookAt).toBe(T0 + 10);
-    }
-    // Not persisted to the DB (no row possible).
-    expect(db.prepare('SELECT COUNT(*) c FROM claude_code_sessions').get() as any).toEqual({ c: 0 });
-  });
-
-  it('broadcasts session:state with sessionKey null + claudeSessionId in the state', async () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Bash' }, T0 + 10);
-    await rec.waitForBroadcast();
-    const last = rec.events.at(-1);
-    expect(last.type).toBe('session:state');
-    expect(last.sessionKey).toBeNull();
-    expect(last.state.claudeSessionId).toBe('term-1');
-    expect(last.state.phase).toBe('tool-running');
-  });
-
-  it('tracks the full turn lifecycle: running → tool-running → running → awaiting-user', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
-    expect(tracker.getSession('term-1')!.phase).toBe('running');
-    tracker.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Edit' }, T0 + 20);
-    expect(tracker.getSession('term-1')!.phase).toBe('tool-running');
-    tracker.ingestHook({ hook_event_name: 'PostToolUse', session_id: 'term-1' }, T0 + 30);
-    expect(tracker.getSession('term-1')!.phase).toBe('running');
-    tracker.ingestHook({ hook_event_name: 'Stop', session_id: 'term-1' }, T0 + 40);
-    expect(tracker.getSession('term-1')!.phase).toBe('awaiting-user');
-  });
-
-  it('includes terminal sessions in listSessions', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.registerTerminalSession('term-2', T0);
-    const ids = tracker.listSessions().map((s) => s.claudeSessionId).sort();
-    expect(ids).toEqual(['term-1', 'term-2']);
-  });
-
-  it('noteDormant and notePtyCrash work for in-memory terminal sessions', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
-    expect(tracker.noteDormant('term-1', T0 + 20)).toBe(true);
-    expect(tracker.getSession('term-1')!.phase).toBe('dormant');
-
-    tracker.registerTerminalSession('term-2', T0);
-    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-2' }, T0 + 10);
-    expect(tracker.notePtyCrash('term-2', 1, T0 + 20)).toBe(true);
-    expect(tracker.getSession('term-2')!.phase).toBe('error');
-  });
-
-  it('dropTerminalSession forgets the in-memory session', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    expect(tracker.getSession('term-1')).not.toBeNull();
-    tracker.dropTerminalSession('term-1');
-    expect(tracker.getSession('term-1')).toBeNull();
-  });
-
-  it('reaper sweeps stale in-memory tool-running back to running', () => {
-    const trk = makeTracker(db, rec, { reaperConfig: { toolRunningTimeoutMs: 100, awaitingApprovalTimeoutMs: 100, startTimeoutMs: 100 } });
-    trk.registerTerminalSession('term-1', T0);
-    trk.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Bash' }, T0 + 10);
-    expect(trk.getSession('term-1')!.phase).toBe('tool-running');
-    const changed = trk.reapOnce(T0 + 10 + 200);
-    expect(changed).toBeGreaterThanOrEqual(1);
-    expect(trk.getSession('term-1')!.phase).toBe('running');
-  });
-
-  it('re-registering a dormant terminal session revives it to starting', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.noteDormant('term-1', T0 + 10);
-    expect(tracker.getSession('term-1')!.phase).toBe('dormant');
-    tracker.registerTerminalSession('term-1', T0 + 20);
-    expect(tracker.getSession('term-1')!.phase).toBe('starting');
-  });
-
-  it('does not clobber a live terminal session on duplicate register', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
-    expect(tracker.getSession('term-1')!.phase).toBe('running');
-    tracker.registerTerminalSession('term-1', T0 + 20); // should be a no-op
-    expect(tracker.getSession('term-1')!.phase).toBe('running');
   });
 });
