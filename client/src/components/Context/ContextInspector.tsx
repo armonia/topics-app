@@ -224,18 +224,16 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             )}
 
             {/* Memory */}
-            {(memorySources.length > 0 || true) && (
-              <div>
-                <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
-                  Memory
-                </div>
-                {memorySources.length > 0 ? (
-                  renderSourceGroup(memorySources)
-                ) : (
-                  <div className="px-4 py-2 text-[11px] text-app-text-muted italic">No memory content yet</div>
-                )}
+            <div>
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+                Memory
               </div>
-            )}
+              {memorySources.length > 0 ? (
+                renderSourceGroup(memorySources)
+              ) : (
+                <div className="px-4 py-2 text-[11px] text-app-text-muted italic">No memory content yet</div>
+              )}
+            </div>
 
             {/* System Prompt */}
             <div>

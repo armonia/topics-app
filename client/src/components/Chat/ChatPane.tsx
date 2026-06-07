@@ -183,7 +183,6 @@ export function ChatPane({
       },
     );
     return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId]);
   const handleScrollOffsetChange = useCallback((top: number) => {
     usePaneStore.getState().setPaneScrollOffset(paneId, top);
@@ -503,7 +502,7 @@ export function ChatPane({
 
     // Instant auto-name: set title from first message text immediately
     if (finalMessage && currentMessages.length === 0 && (topic.name === 'New Chat' || topic.name.startsWith('New '))) {
-      const raw = message.trim().replace(/https?:\/\/\S+/g, '').replace(/[#*_`~\[\]()]/g, '').replace(/\s+/g, ' ').trim();
+      const raw = message.trim().replace(/https?:\/\/\S+/g, '').replace(/[#*_`~[\]()]/g, '').replace(/\s+/g, ' ').trim();
       if (raw.length > 0) {
         const words = raw.split(' ').filter(w => w.length > 0);
         let autoTitle = words.slice(0, 5).join(' ');
@@ -535,7 +534,7 @@ export function ChatPane({
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items); const imgs: File[] = [], others: File[] = [];
-    for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) { f.type.startsWith('image/') ? imgs.push(f) : others.push(f); } } }
+    for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) { if (f.type.startsWith('image/')) { imgs.push(f); } else { others.push(f); } } } }
     if (imgs.length > 0) { e.preventDefault(); Promise.all(imgs.map(f => resizeImageToBase64(f))).then(r => setPendingImages(prev => [...prev, ...r])).catch(() => {}); }
     if (others.length > 0) { e.preventDefault(); setPendingFiles(prev => [...prev, ...others]); }
   }, [resizeImageToBase64]);

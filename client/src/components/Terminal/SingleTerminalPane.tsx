@@ -256,12 +256,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       if (!s) return false;
       const stripped = s
         // OSC: ESC ] ... BEL  or  ESC ] ... ESC \
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
         // CSI / SGR / private modes: ESC [ params? final
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
         // 2-byte ESC sequences (e.g. ESC =, ESC >)
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b[\x20-\x2f]*[\x30-\x7e]/g, '')
         // Bare C0 controls that aren't TAB/LF/CR
+        // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
       return /\S/.test(stripped);
     }
