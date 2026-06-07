@@ -506,6 +506,9 @@ export const markdownComponents: Components = {
     <li {...rest}>{highlightMentionsInChildren(children)}</li>
   ),
   img: ({ src, alt }) => {
+    // react-markdown invokes this override as a real component, so useContext
+    // is valid here; the rule misfires only because the key is lowercase `img`.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const baseDir = useContext(MarkdownBaseDirContext);
     if (!src || typeof src !== 'string') return null;
 
