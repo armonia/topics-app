@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createElement, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
@@ -69,7 +69,10 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
         className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
       >
         {effectiveOpen ? <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" />}
-        <Icon size={13} className="text-app-text-muted flex-shrink-0" />
+        {/* `Icon` is a stable Lucide component from iconForDetail()'s static
+            lookup, not one defined during render; createElement is the
+            lint-clean equivalent of `<Icon/>` (react-hooks/static-components). */}
+        {createElement(Icon, { size: 13, className: 'text-app-text-muted flex-shrink-0' })}
         <span className="font-mono text-app-text flex-shrink-0">{label ?? display.name}</span>
         {display.summary && (
           <span className="text-[11px] text-app-text-muted truncate font-mono">

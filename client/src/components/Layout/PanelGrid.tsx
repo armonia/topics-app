@@ -978,8 +978,8 @@ export function PanelGrid({
     explicitTarget?: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right' },
   ) => {
     // Read from ref for synchronous access (state may lag behind after dragover)
-    const dropTarget = explicitTarget ?? gridDropTargetRef.current;
-    if (!dropTarget) return;
+    const rawDropTarget = explicitTarget ?? gridDropTargetRef.current;
+    if (!rawDropTarget) return;
 
     // Re-verify drop zone from actual mouse position at drop time — but only
     // for cell drops. Divider drops pass `explicitTarget`; recomputing from
@@ -992,6 +992,12 @@ export function PanelGrid({
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceTopicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
 
+    // Build a corrected drop target immutably rather than mutating the ref
+    // object (gridDropTargetRef.current must not be reassigned in place —
+    // react-hooks/immutability). The corrected zone/centerSide flow into the
+    // destructures below; rowIdx/colIdx pass through unchanged.
+    let dropTarget = rawDropTarget;
+
     // PANE_TAB drops: edge zones create split + move tab, center lets tab bar handle reorder.
     if (!effectiveKey && sourcePaneTab) {
       // Use actual zone at drop time, not the stale dragover zone
@@ -999,19 +1005,21 @@ export function PanelGrid({
       if (actualZone === 'top') return;
       if (!sourceTopicId) return;
       // Update dropTarget zone to match actual position
-      dropTarget.zone = actualZone;
+      dropTarget = { ...dropTarget, zone: actualZone };
     } else if (effectiveKey) {
       // GRID_ITEM drops suffer the same dragover-lag risk: fast edge-to-edge
       // drags can leave dropTarget.zone one frame behind the cursor. Sync
       // both zone and centerSide from the actual pointer position so the
       // reorder/split below acts on where the mouse actually is at drop —
       // unless the caller explicitly told us where to land (divider drops).
-      dropTarget.zone = actualZone;
+      dropTarget = { ...dropTarget, zone: actualZone };
       if (!explicitTarget && actualZone === 'center') {
         const cell = e.currentTarget as HTMLElement;
         const rect = cell.getBoundingClientRect();
-        dropTarget.centerSide =
-          e.clientX - rect.left < rect.width / 2 ? 'left' : 'right';
+        dropTarget = {
+          ...dropTarget,
+          centerSide: e.clientX - rect.left < rect.width / 2 ? 'left' : 'right',
+        };
       }
     }
 

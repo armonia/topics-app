@@ -154,6 +154,20 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
     return () => window.removeEventListener('keydown', handler);
   }, [browser.enterSelectMode, browser.exitSelectMode, browser.selectMode]);
 
+  // Click ripple — 500ms lifetime keyed on the click timestamp so each click
+  // re-triggers the CSS animation. Driven by an effect (not `Date.now()`
+  // during render, which is impure and never schedules the auto-hide): a new
+  // click timestamp shows the ripple and arms a timer to clear it after 500ms.
+  // Declared before the early-return below to keep hook order stable.
+  const [showRipple, setShowRipple] = useState(false);
+  const clickT = browser.lastClickPos?.t;
+  useEffect(() => {
+    if (clickT == null) return;
+    setShowRipple(true);
+    const id = setTimeout(() => setShowRipple(false), 500);
+    return () => clearTimeout(id);
+  }, [clickT]);
+
   // localhost iframe fallback — early-return path with full toolbar.
   const isLocalhost = browser.url && LOCAL_HOST_RX.test(browser.url);
   if (isLocalhost) {
@@ -208,9 +222,6 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
     browser.connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
     'bg-red-500';
 
-  // Click ripple — 500ms lifetime keyed on click timestamp so each click
-  // remounts the element and re-triggers the CSS animation.
-  const showRipple = !!browser.lastClickPos && (Date.now() - browser.lastClickPos.t < 500);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
