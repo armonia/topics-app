@@ -36,9 +36,7 @@ import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
 import { createJournalRouter } from "./server/routes/journal";
-import { createBoardsRouter } from "./server/routes/boards";
 import { createTagsRouter } from "./server/routes/tags";
-import { createApprovalsRouter } from "./server/routes/approvals";
 import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
@@ -263,9 +261,7 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
 const contextPreviewRouter = createContextPreviewRouter(ctx);
-const boardsRouter = createBoardsRouter(ctx);
 const tagsRouter = createTagsRouter(ctx);
-const approvalsRouter = createApprovalsRouter(ctx);
 const agentProfilesRouter = createAgentProfilesRouter(ctx);
 const webhooksRouter = createWebhooksRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
@@ -615,8 +611,6 @@ const server = Bun.serve<WSData>({
         || await spacesRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
-        || await boardsRouter(req, url, pathname, method)
-        || await approvalsRouter(req, url, pathname, method)
         || await tagsRouter(req, url, pathname, method)
         || await agentProfilesRouter(req, url, pathname, method)
         || await webhooksRouter(req, url, pathname, method)

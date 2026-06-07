@@ -65,14 +65,6 @@ export interface Topic {
    */
   initialMessage?: string | null;
   assignedAgents?: { id: string; name: string; role: string }[];
-  /**
-   * MASTER-01 (migration 026). When set to 'lead' the topic is an Agent
-   * Teams orchestrator; teammates carry 'teammate'. NULL on every legacy
-   * topic.
-   */
-  agentTeamRole?: 'lead' | 'teammate' | null;
-  /** MASTER-02 — link from a teammate back to its Master Topic. */
-  parentTopicId?: string | null;
 }
 
 /** First-class Project entity (Phase A · migration 016). Mirrors server/types.ts:Project. */
@@ -690,74 +682,13 @@ export interface WSUnreadUpdatedMessage {
   unreadCount: number;
 }
 
-/** Periodic "what needs attention" digest from the (user-enabled) session
- *  monitor. interactive-claude-primitive — free, model-less. */
-export interface WSMasterDigestMessage {
-  type: 'master:digest';
-  items: { topicId: string; name: string; reason: string }[];
-  count: number;
-  summary: string;
-  ts: number;
-}
-
-// --- Boards ------------------------------------------------------------------
-// `BoardTask` lives in lib/api.ts; we use a `import type` cycle to avoid a
-// runtime cycle. Consumers that narrow on `msg.type === 'task:created'`
-// then read `msg.task.id`, `...msg.task`, etc.
-import type { BoardTask, Approval, BoardMemory } from '../lib/api';
-
-// `WSTaskMessage` used to be a single shape with everything optional
-// (`task?`, `taskId?`) — that meant every consumer had to defensively
-// narrow `msg.task` even after checking `msg.type`. Split into two narrow
-// variants so the discriminator does the work for us: upsert events
-// always carry `task`, delete events always carry `taskId`.
-export interface WSTaskUpsertMessage {
-  type: 'task:created' | 'task:updated' | 'task:moved' | 'task:unarchived';
-  projectId: string;
-  task: BoardTask;
-}
-export interface WSTaskDeleteMessage {
-  type: 'task:deleted' | 'task:archived';
-  projectId: string;
-  taskId: string;
-}
-
 /**
- * KANBAN-DELTA-01 (Phase D, jump-to-tab) — emitted by the server when a
- * task is bound to a teammate Topic via POST /api/boards/.../assign-topic.
- * Listeners (board, layout) bring the relevant pane into focus.
+ * Emitted by the server to ask listeners to bring a topic's pane into focus.
  */
 export interface WSPaneFocusSuggestMessage {
   type: 'pane:focus-suggest';
   topicId: string;
   taskId: string;
-}
-
-export interface WSApprovalCreatedMessage {
-  type: 'approval:created';
-  projectId: string;
-  approval: Approval;
-}
-/**
- * Server emits one of these literal names depending on the resolution.
- * Code paths that need to distinguish branch on `type`; paths that just
- * want "the approval is gone" treat both alike.
- */
-export interface WSApprovalResolvedMessage {
-  type: 'approval:resolved' | 'approval:approved' | 'approval:rejected';
-  projectId?: string;
-  approvalId: string;
-}
-
-export interface WSBoardMemoryUpsertMessage {
-  type: 'board-memory:created' | 'board-memory:updated' | 'board:memory_added';
-  projectId: string;
-  memory: BoardMemory;
-}
-export interface WSBoardMemoryDeleteMessage {
-  type: 'board-memory:deleted';
-  projectId: string;
-  memoryId: string;
 }
 
 /**
@@ -1008,14 +939,7 @@ export type WSMessage =
   | WSTerminalActivityMessage
   | WSUnreadInitMessage
   | WSUnreadUpdatedMessage
-  | WSMasterDigestMessage
-  | WSTaskUpsertMessage
-  | WSTaskDeleteMessage
   | WSPaneFocusSuggestMessage
-  | WSApprovalCreatedMessage
-  | WSApprovalResolvedMessage
-  | WSBoardMemoryUpsertMessage
-  | WSBoardMemoryDeleteMessage
   | WSAgentHeartbeatMessage
   | WSAgentEscalationMessage
   | WSAgentActiveMessage
@@ -1205,9 +1129,6 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   notificationsSound: boolean;
   notifyEvenWhenFocused: boolean;
-  // Sidebar Board/Master shortcuts — default on, opt-out from Settings → Aspetto.
-  showBoard: boolean;
-  showMaster: boolean;
 }
 
 export interface ProcessInfo {

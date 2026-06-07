@@ -76,34 +76,6 @@ describe("rollupProjectAttention", () => {
     expect(sum).toBe(4);
   });
 
-  test("excludes lead (Master) topics so the badge matches the visible rows", () => {
-    const topics = {
-      chat: topic("chat", { projectPath: PROJ }),
-      master: topic("master", { projectPath: PROJ, agentTeamRole: "lead" }),
-    };
-    const sum = rollupProjectAttention(
-      PROJ,
-      topics,
-      [],
-      unread({ chat: 1, master: 9 }), // master has unread but is a lead
-      new Set(),
-      new Set(),
-    );
-    expect(sum).toBe(1); // only the non-lead chat counts
-  });
-
-  test("is input-independent across lead filtering — tab bar (full map) and sidebar (pre-filtered) agree", () => {
-    const lead = topic("master", { projectPath: PROJ, agentTeamRole: "lead" });
-    const chat = topic("chat", { projectPath: PROJ });
-    const fullMap = { chat, master: lead };          // tab bar hands the full topic map
-    const filteredMap = { chat };                     // sidebar pre-filters leads out
-    const u = unread({ chat: 2, master: 7 });
-    const fromTabBar = rollupProjectAttention(PROJ, fullMap, [], u, new Set(), new Set());
-    const fromSidebar = rollupProjectAttention(PROJ, filteredMap, [], u, new Set(), new Set());
-    expect(fromTabBar).toBe(fromSidebar);
-    expect(fromTabBar).toBe(2);
-  });
-
   test("zero for a project with no pending attention", () => {
     const topics = { a: topic("a", { projectPath: PROJ }) };
     expect(rollupProjectAttention(PROJ, topics, [], unread({}), new Set(), new Set())).toBe(0);

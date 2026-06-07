@@ -228,24 +228,6 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
         </div>
       </div>
 
-      {/* Sidebar shortcuts */}
-      <div>
-        <label className="text-[13px] font-medium text-app-text mb-1 block">Scorciatoie sidebar</label>
-        <div className="bg-app-hover rounded-lg px-3 border border-app-border">
-          <ToggleRow
-            label="Mostra Board"
-            description="Mostra la scorciatoia Board nella sidebar e abilita ⇧⌘M / scorciatoie correlate."
-            value={settings.showBoard}
-            onChange={(v) => onChange('showBoard', v)}
-          />
-          <ToggleRow
-            label="Mostra Master"
-            description="Mostra la scorciatoia Master nella sidebar e nelle board, e abilita ⇧⌘M."
-            value={settings.showMaster}
-            onChange={(v) => onChange('showMaster', v)}
-          />
-        </div>
-      </div>
     </div>
   );
 }

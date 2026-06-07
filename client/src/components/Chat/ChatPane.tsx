@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ArrowLeft, Crown } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
@@ -57,14 +57,6 @@ export interface ChatPaneProps {
    *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
    *  the board strip so it stays visible while typing. */
   aboveInputSlot?: React.ReactNode;
-  /** When provided AND different from this pane's topic.id, the pane shows a
-   *  "← Master" pill in the top-right corner that focuses the Master pane on
-   *  click. Wired up by both StandaloneChatGroup → ChatPanel → ChatPane and
-   *  ProjectWindow → ChatPane so the back-to-master shortcut works regardless
-   *  of where a session lives. */
-  masterPaneId?: string | null;
-  /** Called with `masterPaneId` when the back-to-master pill is clicked. */
-  onFocusPanel?: (id: string) => void;
 }
 
 export function ChatPane({
@@ -74,7 +66,6 @@ export function ChatPane({
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, switchBranch, onOpenSessionViewer,
   aboveInputSlot,
-  masterPaneId, onFocusPanel,
 }: ChatPaneProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -560,23 +551,6 @@ export function ChatPane({
 
   return (
     <div className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
-      {/* Back-to-Master pill — shown when this pane isn't the Master and a
-          Master pane exists somewhere. Wired up here (not only in ChatPanel)
-          so sessions opened inside a ProjectWindow get the shortcut too. */}
-      {masterPaneId && masterPaneId !== topic.id && onFocusPanel && (
-        <button
-          type="button"
-          data-testid="back-to-master"
-          onClick={(e) => { e.stopPropagation(); onFocusPanel(masterPaneId); }}
-          className="absolute top-2 right-2 z-30 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-purple-500/20 hover:bg-purple-500/35 text-purple-100 border border-purple-400/35 backdrop-blur-sm shadow-sm transition-colors"
-          title="Torna al Master (Shift+Cmd+M)"
-          aria-label="Torna al Master"
-        >
-          <ArrowLeft size={11} />
-          <Crown size={11} className="text-purple-300" />
-          <span>Master</span>
-        </button>
-      )}
       {commandResult && (
         <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>

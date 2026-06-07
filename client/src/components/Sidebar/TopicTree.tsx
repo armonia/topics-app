@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, LayoutGrid, FolderOpen, MoreHorizontal, X, CheckCheck, Crown as CrownIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -9,8 +9,6 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
-import { MasterMonitorToggle } from './MasterMonitorToggle';
-import { utilityPanelId } from '@/components/Layout/UtilityPanel';
 import { topicsApi } from '@/lib/api';
 import { createPaneId, getAddableTypesForScope } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
@@ -18,7 +16,7 @@ import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
-import { useStreamingCount, useAttentionSignals, signalsActions } from '@/state/signals';
+import { useAttentionSignals, signalsActions } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard } from '@/lib/selectionStyles';
@@ -71,14 +69,6 @@ export interface TopicTreeProps {
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
   onProjectClick?: (projectPath: string) => void;
   stopSession?: (sessionKey: string) => boolean;
-  boardTaskCounts?: Record<string, number>;
-  onOpenProjectBoard?: (projectPath: string) => void;
-  /** Open (or create + open) the global Master Topic. Renders the
-   *  "Master" sidebar shortcut next to Board when provided. */
-  onOpenMaster?: () => void;
-  /** Settings opt-out: hide the Board / Master sidebar shortcuts entirely. Default true. */
-  showBoard?: boolean;
-  showMaster?: boolean;
   onNewChat?: () => void;
   onNewBrowser?: () => void;
   terminalSessions?: TerminalSessionInfo[];
@@ -121,11 +111,6 @@ export function TopicTree({
   onAddProjectPane,
   onProjectClick,
   stopSession,
-  boardTaskCounts,
-  onOpenProjectBoard,
-  onOpenMaster,
-  showBoard = true,
-  showMaster = true,
   onNewChat: _onNewChat,
   onNewBrowser: _onNewBrowser,
   terminalSessions = [],
@@ -168,11 +153,6 @@ export function TopicTree({
     return () => document.removeEventListener('mousedown', h);
   }, [projectContextMenu]);
 
-  // Total streaming session count from the canonical context. Was a
-  // per-render O(N) filter over `topics` driven by the legacy
-  // isSessionStreaming prop; now pre-computed once at provider scope.
-  const activeStreamingCount = useStreamingCount();
-
   // ── Build unified items ──────────────────────────────────────────────────
 
   const { lastNotifiedAt } = useTabNotifications();
@@ -190,21 +170,8 @@ export function TopicTree({
     if (focusedTopicId !== createPaneId('project', projectPath)) return false;
     return activePaneByProject[projectPath] === innerPaneId;
   }, [focusedTopicId, activePaneByProject]);
-  // Master Topics are surfaced exclusively by the dedicated "Master"
-  // sidebar shortcut at the top of the tree — hide them from the
-  // generic topic list so the user has a single, unambiguous entry
-  // point instead of a duplicated row inside the tree.
-  const topicsForTree = useMemo(() => {
-    const filtered: Record<string, Topic> = {};
-    for (const [id, t] of Object.entries(topics)) {
-      if (t.agentTeamRole === 'lead') continue;
-      filtered[id] = t;
-    }
-    return filtered;
-  }, [topics]);
-
   const allItems = useMemo(() => buildSidebarItems({
-    topics: topicsForTree,
+    topics,
     workspaceProjects,
     terminalSessions,
     browserContexts,
@@ -215,7 +182,7 @@ export function TopicTree({
     lastNotifiedAt,
     claudeAttentionTopics,
     terminalFinishedIds,
-  }), [topicsForTree, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds]);
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -439,11 +406,6 @@ export function TopicTree({
             {/* Action buttons on hover */}
             {!isTouch && (
               <>
-                {onOpenProjectBoard && (
-                  <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(pp); }} className="hidden group-hover/proj:flex flex-shrink-0 w-6 h-6 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-500 hover:text-emerald-400 transition-colors" title="Open Board">
-                    <LayoutGrid size={12} />
-                  </button>
-                )}
                 {onArchiveProject && (
                   <ProjectArchiveButton
                     projectPath={pp}
@@ -472,13 +434,12 @@ export function TopicTree({
               </>
             )}
             {/* Touch: overflow menu */}
-            {isTouch && (onNewTopicInProject || onAddProjectPane || onOpenProjectBoard || onArchiveProject) && (
+            {isTouch && (onNewTopicInProject || onAddProjectPane || onArchiveProject) && (
               <TouchProjectMenu
                 pp={pp}
                 allArchived={allArchived}
                 onNewTopicInProject={onNewTopicInProject}
                 onAddProjectPane={onAddProjectPane}
-                onOpenProjectBoard={onOpenProjectBoard}
                 onArchiveProject={onArchiveProject}
               />
             )}
@@ -569,69 +530,10 @@ export function TopicTree({
     );
   };
 
-  // ── Board shortcut (always visible at top) ───────────────────────────────
-
-  const renderBoardShortcut = () => {
-    if (searchQuery || !onOpenProjectBoard) return null;
-    // Settings opt-out: if both Board and Master are hidden, render nothing.
-    if (!showBoard && !showMaster) return null;
-    // Board + Master are fixed sidebar tabs — show the same selected-surface
-    // highlight as the other rows when their pane is focused/open.
-    const boardPaneId = utilityPanelId('all-boards');
-    const boardActive = focusedTopicId === boardPaneId || allOpenPaneIds.has(boardPaneId);
-    const masterSession = terminalSessions.find((s) => s.name === 'Master');
-    const masterPaneId = masterSession ? createPaneId('terminal', masterSession.id) : null;
-    const masterActive = !!masterPaneId && (focusedTopicId === masterPaneId || allOpenPaneIds.has(masterPaneId));
-    return (
-      <div className="flex-shrink-0">
-        {showBoard && (
-        <div className={`flex items-center ${sidebarRowCard({ focused: boardActive })}`}>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-all-boards'))}
-            className="group/ab flex items-center gap-2 flex-1 min-w-0 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium"
-            title="View all project boards"
-          >
-            <LayoutGrid size={14} className={`flex-shrink-0 ${activeStreamingCount > 0 ? 'text-emerald-500' : 'text-app-text-secondary'}`} />
-            <span className="flex-1 truncate text-app-text">Board</span>
-            {activeStreamingCount > 0 && (
-              <span className="flex items-center gap-1 pr-3">
-                <span className="w-2.5 h-2.5 border-[1.5px] border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-[11px] text-emerald-500 font-medium tabular-nums">{activeStreamingCount}</span>
-              </span>
-            )}
-            {activeStreamingCount === 0 && Object.keys(boardTaskCounts || {}).length > 0 && (
-              <span className="text-[11px] text-app-text-muted tabular-nums pr-3">
-                {Object.values(boardTaskCounts || {}).reduce((a, b) => a + b, 0)}
-              </span>
-            )}
-          </button>
-        </div>
-        )}
-        {showMaster && onOpenMaster && (
-          <div className={`flex items-center ${sidebarRowCard({ focused: masterActive })}`}>
-            <button
-              data-testid="sidebar-master-shortcut"
-              onClick={() => onOpenMaster()}
-              className="group/mst flex items-center gap-2 flex-1 min-w-0 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 text-left text-[14px] md:text-[13px] font-medium"
-              title="Open Master · Global (Shift+Cmd+M)"
-            >
-              <CrownIcon size={14} className="flex-shrink-0 text-purple-400" />
-              <span className="flex-1 truncate text-app-text">Master</span>
-              <span className="text-[11px] text-app-text-muted/70 tabular-nums">⇧⌘M</span>
-            </button>
-            <span className="pr-1.5 flex-shrink-0"><MasterMonitorToggle /></span>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div role="tree" aria-label="Sidebar" className="flex flex-col h-full min-h-0">
-      {renderBoardShortcut()}
-
       {/* py-[7px] + each card's my-px (1px) = 8px above the first row and below
           the last, matching the cards' 8px lateral inset (mx-2). */}
       <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll py-[7px]">
@@ -830,17 +732,16 @@ interface TouchProjectMenuProps {
   // useClaudeSkipPermissions(); we don't thread it through here anymore.
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
-  onOpenProjectBoard?: (projectPath: string) => void;
   onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
 }
 
-function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPane, onOpenProjectBoard, onArchiveProject }: TouchProjectMenuProps) {
+function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPane, onArchiveProject }: TouchProjectMenuProps) {
   const overflowBtnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
 
   const hasAddItems = !!(onNewTopicInProject || onAddProjectPane);
-  const hasProjectActions = !!(onOpenProjectBoard || onArchiveProject);
+  const hasProjectActions = !!onArchiveProject;
 
   return (
     <div className="relative">
@@ -864,11 +765,6 @@ function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPa
         />
         {/* Divider before project-level actions — only when both halves render. */}
         {hasAddItems && hasProjectActions && <div className="h-px bg-app-border mx-2 my-1" />}
-        {onOpenProjectBoard && (
-          <button onClick={(e) => { e.stopPropagation(); onOpenProjectBoard(pp); close(); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
-            <LayoutGrid size={14} className="flex-shrink-0 text-emerald-500" /><span className="flex-1 text-left">Open Board</span>
-          </button>
-        )}
         {onArchiveProject && (
           <button onClick={(e) => { e.stopPropagation(); onArchiveProject(pp, !allArchived); close(); }} className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors">
             {allArchived ? <ArchiveRestore size={14} className="flex-shrink-0" /> : <Archive size={14} className="flex-shrink-0" />}

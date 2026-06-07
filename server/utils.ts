@@ -192,10 +192,6 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.worktree_id) topic.worktreeId = row.worktree_id;
     // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
     if (row.initial_message) topic.initialMessage = row.initial_message;
-    // MASTER-01 (migration 026). Surface Agent Teams role + parent linkage
-    // so the client can render the Master board strip & teammate badges.
-    if (row.agent_team_role) (topic as any).agentTeamRole = row.agent_team_role;
-    if (row.parent_topic_id) (topic as any).parentTopicId = row.parent_topic_id;
 
     const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;

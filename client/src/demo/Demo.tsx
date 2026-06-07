@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { ToastProvider, ToastOutlet } from "../components/Shared/Toast";
-import { KanbanBoard } from "../components/Board/KanbanBoard";
 import { GitChanges } from "../components/Project/GitChanges";
 import { ProcessLogPane } from "../components/Project/ProcessLogPane";
 import { gitCache } from "../hooks/useGitStatus";
-import type { WSMessage } from "../types";
 
 const PROJECT = "/demo/topics-app";
 
@@ -25,8 +23,7 @@ gitCache.set(PROJECT, {
   } as any,
   remotes: [],
 } as any);
-const noWS = (_h: (m: WSMessage) => void) => () => {};
-type Tab = "browser" | "git" | "processes" | "board";
+type Tab = "browser" | "git" | "processes";
 
 const TOPICS = [
   { n: "ship-v1.1", c: "#4d7cff", on: true },
@@ -48,7 +45,7 @@ function Shell() {
   const [topic, setTopic] = useState(0);
   const TABS: { id: Tab; label: string }[] = [
     { id: "browser", label: "Browser" }, { id: "git", label: "Git" },
-    { id: "processes", label: "Processes" }, { id: "board", label: "Board" },
+    { id: "processes", label: "Processes" },
   ];
   return (
     <div className="h-screen w-screen flex flex-col bg-app-bg text-app-text overflow-hidden text-[13px]">
@@ -106,7 +103,6 @@ function Shell() {
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
               {tab === "git" && <GitChanges projectPath={PROJECT} />}
-              {tab === "board" && <KanbanBoard projectId={PROJECT} topicId="t-ship" onWSMessage={noWS} />}
               {tab === "processes" && <ProcessLogPane processId="p1" scriptName="dev:server" />}
               {tab === "browser" && (
                 <div className="h-full flex flex-col">

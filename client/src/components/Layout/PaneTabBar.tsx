@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Crown } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -560,8 +560,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             <PaneTabPendingOverlay paneId={pane.id} />
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
-            ) : pane.type === 'terminal' && pane.title === 'Master' ? (
-              <Crown size={14} className="flex-shrink-0 text-purple-400" />
             ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
               <ClaudeIcon size={14} className="flex-shrink-0 text-[#D97757]" />
             ) : pane.type === 'chat' && pane.topicId && topics[pane.topicId] ? (
