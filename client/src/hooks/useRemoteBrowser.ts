@@ -54,6 +54,17 @@ const IDLE_INTERVAL = 2000;
 const ACTIVE_INTERVAL = 300;
 const ACTIVE_DURATION = 3000;
 const FALLBACK_DELAY_MS = 2000;
+// Watchdog: `loading` is set true on navigate/reload and is normally cleared by
+// the server's `nav`/`response` message. If that message is lost (server crash,
+// dropped WS frame, a disconnect right after the request), `loading` — and thus
+// the pane's busy spinner — would otherwise stick ON forever. This is the upper
+// bound after which we force-clear it. Deliberately long: it must be a true
+// backstop for a LOST completion signal, not fire during a genuinely slow page
+// load (heavy assets / high latency can legitimately take 30s+) — firing early
+// would flip the spinner off while the page is still loading, a deceptive
+// "done" signal. The happy path clears in well under a second, so this only
+// ever fires when something is actually wrong.
+const NAV_LOADING_TIMEOUT_MS = 60000;
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -128,6 +139,27 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
   const connectionStateRef = useRef<ConnectionState>('connecting');
   const typeBufRef = useRef<string>('');
   const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // See NAV_LOADING_TIMEOUT_MS — force-clears a stuck `loading` if the nav
+  // completion signal never arrives.
+  const loadingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearLoadingWatchdog = useCallback(() => {
+    if (loadingWatchdogRef.current) {
+      clearTimeout(loadingWatchdogRef.current);
+      loadingWatchdogRef.current = null;
+    }
+  }, []);
+
+  // Arm the watchdog when a navigation starts. Re-arming cancels the prior
+  // timer so only the latest in-flight nav is timed.
+  const armLoadingWatchdog = useCallback(() => {
+    clearLoadingWatchdog();
+    loadingWatchdogRef.current = setTimeout(() => {
+      loadingWatchdogRef.current = null;
+      if (!mountedRef.current) return;
+      setState(s => (s.loading ? { ...s, loading: false } : s));
+    }, NAV_LOADING_TIMEOUT_MS);
+  }, [clearLoadingWatchdog]);
   const lastScrollRef = useRef<number>(0);
 
   const markActive = useCallback(() => {
@@ -275,6 +307,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
           }
           case 'nav':
             if (msg.phase === 'response') {
+              clearLoadingWatchdog();
               setState(s => ({ ...s, url: msg.url, loading: false }));
             }
             break;
@@ -323,8 +356,9 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
         fallbackTimerRef.current = null;
       }
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+      clearLoadingWatchdog();
     };
-  }, [contextId, encodedId, updateConnectionState]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog]);
 
   // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
   // Mirrors the legacy polling loop but gated on connectionState.
@@ -360,6 +394,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
 
   const navigate = useCallback((url: string) => {
     setState(s => ({ ...s, loading: true, url }));
+    armLoadingWatchdog();
     markActive();
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
       const msg: BrowserWsMessage = { type: 'nav', url, phase: 'request' };
@@ -377,7 +412,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
         fetchInfo();
       }
     });
-  }, [interact, markActive, fetchScreenshot, fetchInfo]);
+  }, [interact, markActive, fetchScreenshot, fetchInfo, armLoadingWatchdog]);
 
   const goBack = useCallback(() => {
     if (!connectionStateRef.current || connectionStateRef.current === 'disconnected') return;
@@ -404,6 +439,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
   const reload = useCallback(() => {
     if (!connectionStateRef.current || connectionStateRef.current === 'disconnected') return;
     setState(s => ({ ...s, loading: true }));
+    armLoadingWatchdog();
     markActive();
     interact({ action: 'reload' }).then(() => {
       if (connectionStateRef.current === 'fallback-http') {
@@ -411,7 +447,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
         fetchInfo();
       }
     });
-  }, [interact, markActive, fetchScreenshot, fetchInfo]);
+  }, [interact, markActive, fetchScreenshot, fetchInfo, armLoadingWatchdog]);
 
   const goHome = useCallback(() => {
     navigate('about:blank');

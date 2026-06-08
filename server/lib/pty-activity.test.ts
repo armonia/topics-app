@@ -3,7 +3,7 @@
  * animated TUI statusline from pinning a session "busy" forever.
  */
 import { describe, test, expect } from "bun:test";
-import { visibleSignature, classifyFrame } from "./pty-activity";
+import { visibleSignature, classifyFrame, isInputEcho, INPUT_ECHO_WINDOW_MS } from "./pty-activity";
 
 const ESC = "\x1b";
 
@@ -62,5 +62,36 @@ describe("classifyFrame", () => {
     const first = classifyFrame(undefined, goalFrameA);
     const second = classifyFrame(first.sig, goalFrameA);
     expect(second.cosmetic).toBe(true);
+  });
+});
+
+describe("isInputEcho", () => {
+  test("a frame right after a keystroke is echo (the core fix)", () => {
+    // User typed 5ms ago → the redrawn input line is that keystroke's echo.
+    expect(isInputEcho(5)).toBe(true);
+    expect(isInputEcho(0)).toBe(true);
+    expect(isInputEcho(INPUT_ECHO_WINDOW_MS - 1)).toBe(true);
+  });
+
+  test("a frame long after input is real process output", () => {
+    // Claude streaming a token 800ms after the last keystroke is real work.
+    expect(isInputEcho(INPUT_ECHO_WINDOW_MS)).toBe(false);
+    expect(isInputEcho(800)).toBe(false);
+    expect(isInputEcho(5000)).toBe(false);
+  });
+
+  test("no recorded input is never echo (startup banner, idle redraw)", () => {
+    // A session that has produced output but received no keystrokes — e.g. the
+    // startup banner — must still be allowed to mark busy.
+    expect(isInputEcho(null)).toBe(false);
+  });
+
+  test("a negative elapsed (clock skew) is not echo", () => {
+    expect(isInputEcho(-1)).toBe(false);
+  });
+
+  test("honours a custom window", () => {
+    expect(isInputEcho(120, 100)).toBe(false);
+    expect(isInputEcho(80, 100)).toBe(true);
   });
 });

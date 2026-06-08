@@ -1091,6 +1091,25 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return json({ ...data, workspaceProjects: getWorkspaceProjects() });
     }
 
+    // Streaming-session snapshot for cross-reload loading hydration. The client
+    // (useSignalsSync) polls this so a chat that was mid-reply when the page
+    // (re)loaded shows its spinner even before its window mounts — the live WS
+    // stream only drives the foreground session. Sourced from the authoritative
+    // in-memory activeStreams registry (isStreaming auto-expires stale entries),
+    // NOT the DB `partial` flag which a crashed stream can leave set forever.
+    // Replaces the route lost when Master was removed: the old client path
+    // /api/topics/master/sessions 404'd, so hydration silently never fired.
+    if (method === "GET" && pathname === "/api/topics/streaming") {
+      const data = loadTopics();
+      const sessions: { topicId: string; state: "streaming" }[] = [];
+      for (const topic of Object.values(data.topics)) {
+        if (topic.sessionKey && isStreaming(topic.sessionKey)) {
+          sessions.push({ topicId: topic.id, state: "streaming" });
+        }
+      }
+      return json({ sessions });
+    }
+
     if (method === "POST" && pathname === "/api/topics") {
       const body = await readJSON(req);
       if (!body || !body.name) return json({ error: "name required" }, 400);

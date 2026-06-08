@@ -9,7 +9,7 @@ import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
 import { augmentPath } from "../utils/path-env";
-import { classifyFrame } from "../lib/pty-activity";
+import { classifyFrame, isInputEcho } from "../lib/pty-activity";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -76,6 +76,20 @@ const terminalActivity = new Map<string, TerminalActivity>();
 // (e.g. the animated "/goal active" statusline) so they don't count as pty
 // activity and pin a session "busy" forever. See lib/pty-activity.ts.
 const lastVisibleSig = new Map<string, string>();
+// Time (ms) of the last keystroke we forwarded to each session's pty. An output
+// frame arriving within INPUT_ECHO_WINDOW_MS of this is the user's input being
+// echoed/redrawn (typing, an autocomplete menu, prompt reflow) — NOT the
+// process working — so it must not mark the session busy or revive it. This is
+// the fix for "just typing into a Claude Code prompt raises the loading
+// spinner". See lib/pty-activity.ts → isInputEcho.
+const lastInputAt = new Map<string, number>();
+
+/** Record that the user just sent input to a session's pty (any write: a typed
+ *  char, a paste, Enter, an arrow key). Stamped from every write path so the
+ *  data handler can recognise the resulting echo frames. */
+function noteTerminalInput(id: string) {
+  lastInputAt.set(id, Date.now());
+}
 
 function markTerminalActivity(id: string) {
   const session = sessions.get(id);
@@ -103,6 +117,7 @@ function clearTerminalActivity(id: string) {
   if (a?.timer) clearTimeout(a.timer);
   terminalActivity.delete(id);
   lastVisibleSig.delete(id);
+  lastInputAt.delete(id);
   // Tell clients to drop any loading state for this session (no `finished`:
   // an exit isn't a completed turn).
   if (a?.busy) _broadcastToAll?.({ type: 'terminal:activity', id, busy: false });
@@ -382,12 +397,20 @@ function handleBridgeMessage(msg: any) {
       const session = sessions.get(msg.id);
       if (!session) break;
       // Central activity signal (loading + finished) — independent of whether
-      // any client has the terminal pane mounted. Skip cosmetic repaints
-      // (animated statuslines redraw the same visible text forever and would
-      // otherwise pin the session "busy" indefinitely).
+      // any client has the terminal pane mounted. Skip two kinds of frame that
+      // change the screen without the PROCESS doing work:
+      //   1. cosmetic repaints — an animated statusline redraws the same
+      //      visible text forever and would otherwise pin the session "busy".
+      //   2. input echo — the user typing/pasting/navigating the prompt makes
+      //      the TUI echo or redraw the input line within a few ms; counting
+      //      that as activity is the "just typing raises the spinner" bug (and
+      //      it would revive a dormant session). isInputEcho gates on how long
+      //      ago we forwarded a keystroke to this pty. See lib/pty-activity.ts.
       const { cosmetic, sig } = classifyFrame(lastVisibleSig.get(msg.id), msg.data);
       lastVisibleSig.set(msg.id, sig);
-      if (!cosmetic) {
+      const inAt = lastInputAt.get(msg.id);
+      const echo = isInputEcho(inAt !== undefined ? Date.now() - inAt : null);
+      if (!cosmetic && !echo) {
         markTerminalActivity(msg.id);
         // Real output revives a session the reaper demoted to dormant while it
         // was merely silent (missed Stop hook), so the loading dots come back.
@@ -958,6 +981,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const body = await readJSON(req).catch(() => ({}));
       const input = body.input || body.text || body.data || "";
       if (!input) return errorResponse(400, "No input provided");
+      noteTerminalInput(sendMatch.id);
       sendToBridge({ type: "write", id: sendMatch.id, data: input });
       return json({ ok: true, sent: input.length });
     }
@@ -1005,6 +1029,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (claudeSessionId && (sessionType === 'claude-code' || sessionType === 'claude-code-team')) {
         _tracker?.dropTerminalSession(claudeSessionId);
       }
+      // Drop the per-session activity bookkeeping (busy timer + lastVisibleSig +
+      // lastInputAt). The session-exit path (case "exit") already does this, but
+      // an explicit DELETE never hit it, so these Maps grew unbounded across the
+      // server's life. Safe (no-op) when there's no entry, e.g. a dormant row.
+      clearTerminalActivity(deleteMatch.id);
       broadcastTerminalSessions();
       return json({ ok: true });
     }
@@ -1118,6 +1147,7 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
   return {
     message(data: string | Buffer | ArrayBuffer) {
       const input = typeof data === "string" ? data : new TextDecoder().decode(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+      noteTerminalInput(sessionId);
       sendToBridge({ type: "write", id: sessionId, data: input });
     },
     close() {
