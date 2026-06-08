@@ -979,7 +979,7 @@ input[type="range"]::-webkit-slider-thumb {
  * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
- * (the "working now" cue is `grid-seq` below, defined with GridLoader.)
+ * (the "working now" cue is `grid-lit` below, defined with GridLoader.)
  * Plus three Material easing curves.
  */
 @keyframes timeline-blur-in {
@@ -998,17 +998,19 @@ input[type="range"]::-webkit-slider-thumb {
 /* Grid loader — the canonical "working now" cue (GridLoader in
  * StreamingIndicator). A vertical 2-column × 3-row matrix of tiny squares where
  * ONE cell lights up at a time and the lit cell TRAVELS column-by-column,
- * top→bottom (the per-cell animation-delay sets the order). Each square pops on
- * at full strength and snaps off — a hard cut, NOT a soft collective fade — so
- * it reads as cells activating one by one (the metaphor: discrete computation
- * steps). Unlit cells stay faint so the frame is always visible. The on-window
- * (~17%) ≈ one slot (1/6), so exactly one cell is lit through the cycle.
- * Opacity/transform only → no layout reflow when it mounts. */
-@keyframes grid-seq {
-  0%, 17%      { opacity: 1;    transform: scale(1); }
-  17.01%, 100% { opacity: 0.16; transform: scale(0.6); }
+ * top→bottom (the per-cell animation-delay sets the order). This drives the LIT
+ * OVERLAY only: each cell has a permanent neutral base frame (the SplitMiniMap
+ * "deactivated pane" wash) and a blue gradient overlay on top. The overlay pops
+ * to full opacity, then snaps to 0 — a hard cut, NOT a soft fade — fully
+ * revealing the neutral base, so it reads as cells activating one by one (the
+ * metaphor: discrete computation steps) over an always-visible frame. The
+ * on-window (~17%) ≈ one slot (1/6), so exactly one cell is lit through the
+ * cycle. Opacity only → no layout reflow when it mounts. */
+@keyframes grid-lit {
+  0%, 17%      { opacity: 1; }
+  17.01%, 100% { opacity: 0; }
 }
-.animate-grid-seq { animation: grid-seq 1.1s linear infinite; }
+.animate-grid-lit { animation: grid-lit 1.1s linear infinite; }
 
 /* Material easing curves as CSS custom properties so components can opt in
  * without re-deriving them. */
