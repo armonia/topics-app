@@ -47,13 +47,16 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
     signalsActions.setLiveStreamTopics(ids);
   }, [topics, isSessionStreaming]);
 
-  // Hydrated "mid-reply" baseline (DB partial flag) — covers sessions already
-  // streaming at load. Refetched on stream lifecycle + a slow interval.
+  // Hydrated "mid-reply" baseline — covers sessions already streaming at load
+  // (the live WS stream only drives the foreground session, so a background
+  // topic that was mid-reply when the page reloaded needs this to show its
+  // spinner). Server reads its authoritative in-memory activeStreams registry.
+  // Refetched on stream lifecycle + a slow interval.
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const res = await fetch('/api/topics/master/sessions');
+        const res = await fetch('/api/topics/streaming');
         if (!res.ok) return;
         const body = (await res.json()) as { sessions?: { topicId?: string; state?: string }[] };
         if (cancelled) return;
