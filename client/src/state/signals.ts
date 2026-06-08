@@ -61,6 +61,28 @@ export const ACTIVE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<Cla
   'tool-running',
 ]);
 
+/** Phases where the session is CONFIDENTLY idle, so the pty heuristic is
+ *  suppressed (a TUI repaint or an awaiting-input prompt must not raise the
+ *  spinner — those phases show a notification badge instead, never a spinner).
+ *
+ *  Deliberately EXCLUDES `starting`. `starting` is the INITIAL, not-yet-confirmed
+ *  phase: a session can sit there while genuinely working when its phase hooks
+ *  never advanced it (bare-CLI / tmux sessions Topics only monitors, or a
+ *  session whose first hook was missed). Treating `starting` as resting hid the
+ *  loading spinner for real work — the "sessions are loading but no spinner in
+ *  the tabs" bug. So `starting` (and any unknown phase) falls through to the pty
+ *  heuristic, exactly like a session with no phase entry yet. The cost is a brief
+ *  spinner while a freshly-opened session paints its startup banner — an
+ *  acceptable trade vs. silently hiding active work. */
+export const RESTING_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
+  'awaiting-user',
+  'awaiting-approval',
+  'paused',
+  'completed',
+  'error',
+  'dormant',
+]);
+
 // ---- Store -----------------------------------------------------------------
 
 interface SignalsState {
@@ -264,11 +286,12 @@ export interface TerminalRosterTypeEntry {
 /**
  * Partition claude-code terminal sessions by phase, for terminalLoadingFrom:
  *   - active:  phase ∈ {running, tool-running} → drives the spinner.
- *   - resting: phase is KNOWN but not active → suppresses the pty heuristic
- *              (the session isn't working; its pty output is startup/idle paint).
- * A claude-code session with no phase entry yet appears in NEITHER set, so pty
- * still drives it (union fallback) until its first session:state lands. Plain
- * shells never appear here at all.
+ *   - resting: phase ∈ RESTING_CLAUDE_PHASES (confidently idle) → suppresses the
+ *              pty heuristic (the session isn't working; pty is idle paint).
+ * A claude-code session with no phase entry yet — OR one still at `starting` —
+ * appears in NEITHER set, so pty drives it (union fallback). That keeps the
+ * spinner honest for sessions that work while pinned at `starting` (hooks never
+ * advanced them). Plain shells never appear here at all.
  */
 export function derivePhaseTerminals(
   roster: TerminalRosterTypeEntry[],
@@ -282,7 +305,8 @@ export function derivePhaseTerminals(
     const st = byCsid.get(ts.claudeSessionId);
     if (!st) continue;
     if (ACTIVE_CLAUDE_PHASES.has(st.phase)) active.add(ts.id);
-    else resting.add(ts.id);
+    else if (RESTING_CLAUDE_PHASES.has(st.phase)) resting.add(ts.id);
+    // `starting` / unknown → neither set → pty heuristic decides.
   }
   return { active, resting };
 }
@@ -332,6 +356,13 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
       if (t.projectPath === projectPath && (live.has(t.id) || hydrated.has(t.id) || agent.has(t.id))) return true;
     }
     for (const ts of terminalSessions) {
+      // Plain shells are the user's own background processes (dev servers,
+      // watchers, ad-hoc commands). Their intermittent pty output must NOT make
+      // the project tab flicker "loading" — the rollup means "a chat or a Claude
+      // Code session in this project is working", not "a shell printed a line".
+      // (A shell still shows loading on its OWN terminal tab; it just doesn't
+      // roll up.) Only claude-code / claude-code-team sessions count here.
+      if (ts.type === 'shell') continue;
       if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
       if (terminalLoadingFrom(ts.id, phaseActive, term, phaseResting)) return true;
     }

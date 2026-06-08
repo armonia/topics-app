@@ -92,9 +92,11 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
 
   // Phase-driven loading for claude-code terminals. The phase is authoritative
   // when known: an active phase (running/tool-running) drives the spinner, while
-  // a resting phase (starting/awaiting-user/…) SUPPRESSES the pty heuristic so a
-  // freshly-opened session's startup paint doesn't flash "loading". pty still
-  // drives shells and sessions with no phase yet — see terminalLoadingFrom.
+  // a resting phase (awaiting-user/paused/completed/…) SUPPRESSES the pty
+  // heuristic. `starting` is NOT resting — a session can work while pinned there
+  // (hooks never advanced it), so pty drives it; this is the fix for "sessions
+  // loading but no spinner in the tabs". pty also drives shells and sessions
+  // with no phase yet — see terminalLoadingFrom / RESTING_CLAUDE_PHASES.
   useEffect(() => {
     const byCsid = new Map<string, TerminalPhaseLite>();
     for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
