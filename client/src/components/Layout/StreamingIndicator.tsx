@@ -35,12 +35,19 @@
 import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
 
 /**
- * The vertical 2-column × 3-row square matrix. Six `bg-primary` squares; exactly
- * one lights up at a time and the lit cell TRAVELS column-by-column, top→bottom
- * — each cell's `animation-delay` is its slot in that path × one slot (the
- * `.animate-grid-seq` keyframe in index.css pops a cell on, then snaps it off).
- * Reads as cells activating one by one, not a soft collective fade. Pure
- * opacity/transform — no layout reflow when it mounts.
+ * The vertical 2-column × 3-row square matrix, drawn with the SAME grammar as
+ * SplitMiniMap so the two glyphs read as one family: identical cell radius
+ * (1.5px), identical gap (1.5px), and unlit cells painted the exact "deactivated
+ * pane" wash of the mini-map (`currentColor 22%`, theme-inverting). Each cell is
+ * two layers — a quiet neutral base frame that's always present, plus a lit
+ * OVERLAY carrying the primary-blue "sfumatura dentro" (an internal gradient).
+ * Exactly one overlay is lit at a time and the lit cell TRAVELS
+ * column-by-column, top→bottom — each cell's `animation-delay` is its slot in
+ * that path × one slot (the `.animate-grid-lit` keyframe in index.css pops the
+ * overlay on, then snaps it off, revealing the neutral base). Reads as cells
+ * activating one by one, not a soft collective fade. Opacity-only → no layout
+ * reflow when it mounts. The blue stays the loading accent; only the unlit frame
+ * went neutral to match the mini-map.
  */
 // Grid auto-flows row-major (2 cols), so DOM children are [r0c0, r0c1, r1c0,
 // r1c1, r2c0, r2c1]. We want the lit cell to descend column 0 (r0→r1→r2) then
@@ -48,6 +55,15 @@ import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoadi
 //   r0c0→0  r0c1→3  r1c0→1  r1c1→4  r2c0→2  r2c1→5
 const SEQ_ORDER = [0, 3, 1, 4, 2, 5];
 const SLOT_MS = 183; // ≈ 1100ms cycle / 6 cells
+
+// The "lit" tile's internal gradient (sfumatura dentro): a light-blue sheen at
+// the top-left easing into the primary and a touch deeper at the bottom-right,
+// so a lit cell reads as a glossy tile rather than a flat fill.
+const LIT_GRADIENT =
+  'linear-gradient(150deg, color-mix(in srgb, var(--primary) 72%, #fff) 0%, var(--primary) 58%, color-mix(in srgb, var(--primary) 82%, #000) 100%)';
+// The unlit frame: the exact wash a deactivated SplitMiniMap pane uses, so the
+// two glyphs share their quiet colour and invert together with the theme.
+const UNLIT_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
 
 export function GridLoader({ className = '' }: { className?: string }) {
   return (
@@ -59,9 +75,26 @@ export function GridLoader({ className = '' }: { className?: string }) {
       {SEQ_ORDER.map((slot, i) => (
         <span
           key={i}
-          className="bg-primary rounded-[1px] animate-grid-seq"
-          style={{ width: 3, height: 3, animationDelay: `${slot * SLOT_MS}ms` }}
-        />
+          style={{
+            position: 'relative',
+            width: 3,
+            height: 3,
+            borderRadius: 1.5,
+            overflow: 'hidden',
+            background: UNLIT_WASH,
+          }}
+        >
+          <span
+            className="animate-grid-lit"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: 'inherit',
+              background: LIT_GRADIENT,
+              animationDelay: `${slot * SLOT_MS}ms`,
+            }}
+          />
+        </span>
       ))}
     </span>
   );

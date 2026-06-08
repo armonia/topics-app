@@ -64,10 +64,13 @@ export const SplitMiniMap = memo(function SplitMiniMap({
                   // light one. A hardcoded white read fine in dark mode but went
                   // invisible on the default LIGHT sidebar (white-on-#f8f9fa); the
                   // mini-map now renders on sidebar rows only, so that was every
-                  // live instance. Unlit cells stay a fainter wash of the same
-                  // colour so the grid frame reads in both themes.
+                  // live instance. The active cell carries an internal gradient
+                  // ("sfumatura dentro") — the same lit-tile grammar the
+                  // GridLoader uses — so the two glyphs share one look; unlit
+                  // cells stay the fainter 22% wash GridLoader reuses for its
+                  // frame, so the grid reads in both themes.
                   background: isActive
-                    ? 'color-mix(in srgb, currentColor 85%, transparent)'
+                    ? 'linear-gradient(150deg, color-mix(in srgb, currentColor 95%, transparent) 0%, color-mix(in srgb, currentColor 72%, transparent) 100%)'
                     : 'color-mix(in srgb, currentColor 22%, transparent)',
                   boxShadow: isActive
                     ? '0 0 0 0.5px color-mix(in srgb, currentColor 40%, transparent)'
