@@ -114,13 +114,13 @@ interface NotificationOptions {
 const httpAgent = new https.Agent({ rejectUnauthorized: false });
 
 function serverGet(urlPath: string, callback: (res: http.IncomingMessage) => void) {
-  const url = new URL(urlPath, SERVER_URL || 'https://localhost:3333');
+  const url = new URL(urlPath, SERVER_URL || 'https://127.0.0.1:3333');
   const mod = url.protocol === 'https:' ? https : http;
   return mod.get(url.href, { agent: url.protocol === 'https:' ? httpAgent : undefined }, callback);
 }
 
 function serverRequest(urlPath: string, options: http.RequestOptions = {}) {
-  const url = new URL(urlPath, SERVER_URL || 'https://localhost:3333');
+  const url = new URL(urlPath, SERVER_URL || 'https://127.0.0.1:3333');
   const mod = url.protocol === 'https:' ? https : http;
   return mod.request(url.href, { ...options, agent: url.protocol === 'https:' ? httpAgent : undefined });
 }
@@ -176,8 +176,14 @@ let activeTabId: string | null = null;
 let browserPanelVisible = false;
 const browserPanelWidth = 0.4;
 
-// Server URL - use DEV_URL env var for hot reload development
-const SERVER_URL = process.env.DEV_URL || 'https://localhost:3333';
+// Server URL - use DEV_URL env var for hot reload development.
+// 127.0.0.1 (NOT localhost): on macOS `localhost` resolves to BOTH ::1 (IPv6)
+// and 127.0.0.1 (IPv4); page loads do Happy-Eyeballs fallback but the in-app
+// WebSocket does NOT, so if anything else holds :3333 on IPv6 (e.g. another
+// project's dev server squatting the port) the page loads but the WS stays
+// stuck "connecting". Pinning to IPv4 removes the ambiguity. The dev cert's SAN
+// includes 127.0.0.1, and the app bypasses cert errors anyway.
+const SERVER_URL = process.env.DEV_URL || 'https://127.0.0.1:3333';
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
 // CDP port for browser control (Electron DevTools)
