@@ -301,16 +301,41 @@ async function start() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Exit when parent dies. An orphaned bridge (reparented to launchd, PPID=1)
-  // loses its Aqua/GUI session context, which breaks `open <url>` for child
-  // PTYs (Launch Services can't resolve the default browser). On parent
-  // death, exit so the next request spawns a fresh bridge in the proper
-  // session context.
+  // Survive server restarts. When our parent (the server) dies we get
+  // reparented to launchd (PPID=1) — but that ALSO happens on a NORMAL server
+  // reload/kickstart, after which a fresh server reconnects within seconds.
+  // The old code shut down the instant the parent died, killing every live
+  // Claude PTY on each restart — the "This terminal session has expired after
+  // an update" bug. Instead: once orphaned we only exit if NO server is/becomes
+  // connected for a grace window (i.e. the app really quit). A connected client
+  // == a server is actively using us, so we stay alive regardless of PPID, and
+  // the reconnecting server reattaches to the surviving PTYs via reconcile.
+  //
+  // Trade-off: while orphaned (PPID=1) a child PTY's `open <url>` may fail to
+  // resolve the default browser (lost Aqua session) — a rare, acceptable cost
+  // versus losing every running session on every restart.
   const initialPpid = process.ppid;
+  const ORPHAN_GRACE_MS = 90_000;
+  let orphanDeadline = null;
   setInterval(() => {
-    if (process.ppid === 1 && initialPpid !== 1) {
-      console.error(`[PTY Bridge] Parent died (was ${initialPpid}, now reparented to launchd). Exiting to avoid losing GUI session.`);
-      shutdown('PARENT_DIED');
+    const orphaned = process.ppid === 1 && initialPpid !== 1;
+    if (!orphaned) { orphanDeadline = null; return; }
+    if (clients.size > 0) {
+      // A server is connected (we were restarted and it reattached). Not abandoned.
+      if (orphanDeadline !== null) {
+        console.error('[PTY Bridge] Server reconnected after parent death — staying alive, PTYs preserved.');
+        orphanDeadline = null;
+      }
+      return;
+    }
+    // Orphaned AND no server connected — start/await the grace countdown.
+    const now = Date.now();
+    if (orphanDeadline === null) {
+      orphanDeadline = now + ORPHAN_GRACE_MS;
+      console.error(`[PTY Bridge] Parent died (was ${initialPpid}) and no server connected — will exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects (PTYs preserved across server restarts).`);
+    } else if (now >= orphanDeadline) {
+      console.error('[PTY Bridge] No server reconnected within grace window — app likely quit, shutting down.');
+      shutdown('ORPHAN_ABANDONED');
     }
   }, 5000).unref();
 }

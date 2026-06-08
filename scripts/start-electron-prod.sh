@@ -48,7 +48,7 @@ SERVER_PID=$!
 echo "[start-electron-prod] Waiting for server on port 3333..."
 TIMEOUT=30
 ELAPSED=0
-while ! curl -sfk https://localhost:3333 > /dev/null 2>&1; do
+while ! curl -sfk https://127.0.0.1:3333 > /dev/null 2>&1; do
   sleep 1
   ELAPSED=$((ELAPSED + 1))
   if [ $ELAPSED -ge $TIMEOUT ]; then
