@@ -16,6 +16,8 @@ import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
+import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useAttentionSignals, signalsActions } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
@@ -388,6 +390,12 @@ export function TopicTree({
             <span className="truncate flex-1">{item.name}</span>
           </button>
           <div className="flex items-center flex-shrink-0">
+            {/* Window-position mini-map: where THIS project's window sits in the
+                tiled top-level split (PanelGrid publishes it keyed by project
+                path). Only present when more than one window is open — a single
+                window has nothing to orient against. Lives on the sidebar row
+                only (user preference), never on the top tab bar. */}
+            <ProjectSplitMiniMap projectPath={pp} />
             {/* Project loading indicator — same component the project tab uses
                 (PaneTabBar): a spinner while any child is producing output.
                 "Needs you" (Claude awaiting, finished turns) is NOT a separate
@@ -559,7 +567,7 @@ export function TopicTree({
       {/* Project context menu */}
       {projectContextMenu && (
         <div
-          className="fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[100] min-w-[160px]"
+          className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[100] min-w-[160px]"
           style={{ top: projectContextMenu.y, left: projectContextMenu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -643,22 +651,22 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           ? <ClaudeIcon size={13} className="flex-shrink-0 text-[#D97757]" />
           : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
         <span className="text-[12px] truncate flex-1">{s.name}</span>
-        {/* Loading spinner — pulses while this session's pty is producing
-            output, mirroring the terminal tab. Same source (useTerminalActivity)
-            so the sidebar row and the tab agree. A finished turn surfaces as the
-            notification badge below, not a separate dot. */}
-        <TerminalStreamingSpinner sessionId={s.id} className="mr-1" />
-        <NotificationBadge count={notificationCount} className="mr-1" />
         {projectName && (
-          <span className="text-[11px] text-app-text-tertiary truncate max-w-[80px]" title={s.cwd}>
+          <span className="text-[11px] text-app-text-tertiary truncate max-w-[80px] mr-1" title={s.cwd}>
             {projectName}
           </span>
         )}
         {s.clients > 0 && (
-          <span className="text-[11px] text-app-text-tertiary" title={`${s.clients} connected`}>
+          <span className="text-[11px] text-app-text-tertiary mr-1" title={`${s.clients} connected`}>
             {s.clients}
           </span>
         )}
+        {/* Loading spinner + status pinned to the END of the row (after the cwd
+            / client-count metadata) so "what's working" reads at the trailing
+            edge, mirroring the tab bar. A finished turn surfaces as the
+            notification badge, not a separate dot. */}
+        <TerminalStreamingSpinner sessionId={s.id} className="ml-0.5" />
+        <NotificationBadge count={notificationCount} className="ml-0.5" />
       </button>
 
       {/* Inline "Open as project" icon removed — it competed with the
@@ -667,7 +675,13 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           (DropdownPortal below) and from the right-click context menu. */}
 
       {onCloseTerminal && (
-        <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 relative mr-1">
+        // The close affordance only takes layout space on hover (or when a
+        // close is pending / on touch). At rest it's `hidden` → zero width, so
+        // the spinner + badge inside the flex-1 button above sit FLUSH at the
+        // row's trailing edge. Reserving it always (the old behaviour) pushed
+        // the loading spinner ~28px in from the edge — the "spinner non in
+        // fondo" bug. Same hover-reveal pattern the project row already uses.
+        <span className={`flex-shrink-0 items-center justify-center w-6 h-6 relative mr-1 ${isTouch || pendingClose ? 'flex' : 'hidden group-hover/terminal:flex'}`}>
           {isTouch ? (
             <>
               <button
@@ -846,6 +860,26 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
   return <PendingActionProgressOverlay status={status} />;
 }
 
+/**
+ * The project window's position mini-map for its sidebar row. Reads the
+ * project path's cell in the published top-level split (undefined unless more
+ * than one window is open), and renders the same proportional SplitMiniMap the
+ * sidebar chat rows use, with this window's cell lit. Module-scope sub-component
+ * because it calls a hook — can't run inside the projects render loop above.
+ */
+function ProjectSplitMiniMap({ projectPath }: { projectPath: string }) {
+  const pos = useSplitPosition(projectPath);
+  if (!pos) return null;
+  return (
+    <SplitMiniMap
+      rows={pos.rows}
+      rowHeights={pos.rowHeights}
+      active={pos.active}
+      className="flex-shrink-0 mr-1.5 text-app-text-tertiary"
+    />
+  );
+}
+
 
 /**
  * Browser sidebar item — extracted from the parent's `renderBrowserItem`
@@ -882,15 +916,19 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
-      {/* Loading spinner — page load or an agent driving the browser, same
-          signal (useBrowserLoading) and component the browser TAB uses, so the
-          sidebar row and the tab agree. */}
-      <BrowserStreamingSpinner paneId={`browser:${bc.id}`} className="mr-1" />
       <span className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
         {relativeTime(bc.lastActivity)}
       </span>
+      {/* Loading spinner pinned to the row's trailing edge (after the
+          last-activity timestamp), mirroring the tab + terminal rows. Same
+          signal (useBrowserLoading) and component the browser TAB uses. No
+          right margin so it sits flush when the close slot is hidden. */}
+      <BrowserStreamingSpinner paneId={`browser:${bc.id}`} className="ml-0.5" />
       {onCloseBrowser && (
-        <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center mr-1 relative z-10">
+        // Hover-only close slot (or visible while a close is pending) so the
+        // spinner above sits FLUSH at the trailing edge at rest — reserving it
+        // always pushed the spinner ~28px in from the edge.
+        <span className={`flex-shrink-0 w-6 h-6 items-center justify-center mr-1 relative z-10 ${pendingClose ? 'flex' : 'hidden group-hover:flex'}`}>
           {pendingClose ? (
             <PendingActionRing
               status={pendingClose}

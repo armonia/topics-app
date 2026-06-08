@@ -13,7 +13,6 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
-import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '../../lib/selectionStyles';
@@ -529,7 +528,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // Streaming spinner: chat panes pulse during an LLM stream;
         // Loading affordance is owned by the canonical widgets below —
         // each reads from StreamingContext, no upstream prop needed.
-        const badgeCount = !isSelected && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
+        // Suppress the badge for the tab you're looking at — EXCEPT a project
+        // tab. A project badge is a ROLLUP of its children (chats / terminals in
+        // inner groups you may not be viewing), so selecting the project tab
+        // doesn't mean you've seen them. Zeroing it here also made the project
+        // tab disagree with the sidebar project row (which never suppresses the
+        // rollup): same project, two different numbers. Keep the rollup visible
+        // on the selected project tab so the two surfaces always match.
+        const suppressOnSelect = isSelected && pane.type !== 'project';
+        const badgeCount = !suppressOnSelect && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
           <div
@@ -605,13 +612,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Icon size={14} />
               </span>
             ) : null}
-            <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            <span className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}>{label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed
                 files / ahead-behind / running processes) — the sidebar project row
                 dropped them (cryptic numbers) and the two surfaces must read the
                 same: icon + name + notification badge + loading spinner. Git /
                 process status lives in the git & terminal panes where it's
                 actionable. */}
+            {/* Close / ⌘N affordance sits BEFORE the loading + status widgets so
+                the spinner and notification badge are the trailing-most things on
+                the tab ("loading e stato a fine tab"). The close X is revealed on
+                hover in this slot; idle it shows the ⌘N index (Electron). */}
+            <PaneCloseButton
+              paneId={pane.id}
+              onClose={onClose}
+              isTouch={isTouch}
+            />
             {/* Loading spinner — one canonical widget per pane kind.
                 All three read from StreamingContext; rendering only when
                 the corresponding signal is on. Chat is interruptible
@@ -635,17 +651,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
             {pane.type === 'agents' && <AgentStreamingSpinner />}
-            {/* The split position mini-map lives on the SIDEBAR cards, not on
-                the tab bar (user preference) — see TopicItem / SplitMiniMap. */}
+            {/* The split position mini-map lives on the SIDEBAR topic cards
+                only (user preference), NOT on the top tab bar — see
+                Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally
+                ignored here. */}
             <NotificationBadge count={badgeCount} className="ml-0.5" />
-            <PaneCloseButton
-              paneId={pane.id}
-              onClose={onClose}
-              isElectron={isElectron}
-              isTouch={isTouch}
-              isAppFocused={isAppFocused}
-              isMac={isMac}
-            />
             {showRightIndicator && (
               <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
             )}
@@ -693,7 +703,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {ctxMenu && createPortal(
         <div
           ref={ctxMenuRef}
-          className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
+          className="fixed glass-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
         >
           {/* Right-click "Close" is the explicit-confirmation path — bypass
@@ -818,23 +828,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 }
 
 /**
- * Per-tab close button. Shows the global ⌘N badge (sourced from
- * GlobalTabIndexContext) when idle and an X on hover. Pulled out of the main
- * render loop so each tab can call `useGlobalTabIndex` — calling hooks inside
- * `panes.map(...)` is forbidden.
+ * Per-tab close button: empty on idle, the soft-close ring (X) revealed on
+ * hover. The grey ⌘N keyboard-index badge that used to occupy this slot when
+ * idle was removed — it read as a cryptic indicator on the first nine tabs and
+ * earned its keep nowhere; the Cmd/Ctrl+1-9 shortcut still works (owned by
+ * useKeyboardShortcuts). Pulled out of the main render loop because it calls
+ * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose, isElectron, isTouch, isAppFocused, isMac,
+  paneId, onClose, isTouch,
 }: {
   paneId: string;
   onClose: (id: string) => void;
-  isElectron: boolean;
   isTouch: boolean;
-  isAppFocused: boolean;
-  isMac: boolean;
 }) {
-  const globalIdx = useGlobalTabIndex(paneId);
-  const showBadge = isElectron && !isTouch && isAppFocused && globalIdx >= 0 && globalIdx < 9;
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
   // `close-terminal:<id>` / `close-browser:<id>`) so the topbar tab shows
@@ -855,17 +862,12 @@ function PaneCloseButton({
     );
   }
 
-  // Idle, soft-destructive: empty "todo" circle on hover. Click triggers
-  // the deferred close (auto-tick → 3 s countdown).
+  // Idle, soft-destructive: empty "todo" circle on hover (always shown on
+  // touch). Click triggers the deferred close (auto-tick → 3 s countdown).
   return (
     <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative z-10">
-      {showBadge ? (
-        <kbd className="kbd text-app-text-muted/50 group-hover:hidden">
-          {isMac ? '⌘' : '⌃'}{globalIdx + 1}
-        </kbd>
-      ) : null}
       <span className={`absolute inset-0 flex items-center justify-center ${
-        showBadge ? 'opacity-0 group-hover:opacity-100' : (isTouch ? '' : 'opacity-0 group-hover:opacity-100')
+        isTouch ? '' : 'opacity-0 group-hover:opacity-100'
       } transition-opacity`}>
         <PendingActionRing
           status={null}
