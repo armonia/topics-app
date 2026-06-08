@@ -131,6 +131,83 @@ function stripSlowAnnotation(content: string): string {
  * Broadcasts are collected and emitted AFTER the transaction commits so
  * clients never see a mutation that was subsequently rolled back.
  */
+/**
+ * Remove every reference to `topicId` from a single ui_state record value,
+ * mutating `parsed` in place. Returns true iff something changed.
+ *
+ * Handles BOTH persisted shapes that can hold an open chat:
+ *  - Project / legacy tab-identity records: `{ openChatTopicIds: string[],
+ *    activeChatTopicId? }` (written by the project-window layout sync).
+ *  - The single global `pane-store-v2` snapshot: `{ panes, groups, closedStack }`,
+ *    where a top-level chat pane is keyed by the RAW topic id
+ *    (`createPaneId('chat', id) === id`).
+ *
+ * Why both: before this, the purge only filtered `openChatTopicIds`, which the
+ * current `pane-store-v2` snapshot does NOT contain. So archiving/deleting a
+ * chat removed it from project records but NEVER from `pane-store-v2` — the
+ * pane lingered in the single shared snapshot and resurfaced as a phantom tab
+ * on any client that didn't independently filter it (the "ghost tab on mobile"
+ * bug). Now the shared snapshot is purged too, with a fresh server_seq so LWW
+ * treats the removal as newer than any pre-purge client write.
+ */
+export function removeTopicFromUiStateValue(parsed: any, topicId: string): boolean {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  let changed = false;
+
+  // Shape A — project / legacy tab-identity records.
+  if (Array.isArray(parsed.openChatTopicIds) && parsed.openChatTopicIds.includes(topicId)) {
+    parsed.openChatTopicIds = parsed.openChatTopicIds.filter((id: string) => id !== topicId);
+    changed = true;
+  }
+  if (parsed.activeChatTopicId === topicId) {
+    delete parsed.activeChatTopicId;
+    changed = true;
+  }
+
+  // Shape B — pane-store-v2 snapshot (panes / groups / closedStack).
+  const removedPaneIds = new Set<string>();
+  if (parsed.panes && typeof parsed.panes === "object" && !Array.isArray(parsed.panes)) {
+    for (const [pid, p] of Object.entries(parsed.panes as Record<string, any>)) {
+      if (pid === topicId || (p && typeof p === "object" && (p as any).topicId === topicId)) {
+        removedPaneIds.add(pid);
+      }
+    }
+    for (const pid of removedPaneIds) {
+      delete (parsed.panes as Record<string, any>)[pid];
+      changed = true;
+    }
+  }
+  if (parsed.groups && typeof parsed.groups === "object" && !Array.isArray(parsed.groups)) {
+    for (const g of Object.values(parsed.groups as Record<string, any>)) {
+      if (g && Array.isArray(g.paneIds)) {
+        const filtered = g.paneIds.filter((id: string) => id !== topicId && !removedPaneIds.has(id));
+        if (filtered.length !== g.paneIds.length) {
+          g.paneIds = filtered;
+          changed = true;
+        }
+      }
+      // Defensive only: the current synced pane-store-v2 Group shape carries no
+      // `activePaneId` (active pane is derived at render time, never persisted),
+      // so this never fires for real data — it's a no-op guard for legacy/demo
+      // group shapes that did carry it. Kept for parity with the orphan-cleanup
+      // backstop; safe because `Set.has(undefined)` is false.
+      if (g && typeof g === "object" && removedPaneIds.has((g as any).activePaneId)) {
+        delete (g as any).activePaneId;
+        changed = true;
+      }
+    }
+  }
+  if (Array.isArray(parsed.closedStack)) {
+    const before = parsed.closedStack.length;
+    parsed.closedStack = parsed.closedStack.filter(
+      (rec: any) => !(rec && rec.pane && (rec.pane.id === topicId || rec.pane.topicId === topicId)),
+    );
+    if (parsed.closedStack.length !== before) changed = true;
+  }
+
+  return changed;
+}
+
 function purgeTopicFromUiState(
   db: import("bun:sqlite").Database,
   broadcastToAll: (msg: any) => void,
@@ -162,10 +239,7 @@ function purgeTopicFromUiState(
       for (const row of rows) {
         let parsed: any;
         try { parsed = JSON.parse(row.value); } catch { continue; }
-        if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.openChatTopicIds)) continue;
-        if (!parsed.openChatTopicIds.includes(topicId)) continue;
-        parsed.openChatTopicIds = parsed.openChatTopicIds.filter((id: string) => id !== topicId);
-        if (parsed.activeChatTopicId === topicId) delete parsed.activeChatTopicId;
+        if (!removeTopicFromUiStateValue(parsed, topicId)) continue;
         const next = JSON.stringify(parsed);
         const nextSeq = maxSeq + (++i);
         db.run(
