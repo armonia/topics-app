@@ -112,7 +112,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
     <div
       ref={menuRef}
       data-mention-menu
-      className="absolute bottom-full left-0 right-0 mb-1 bg-surface border border-app-border-light rounded-lg shadow-xl z-50 overflow-hidden max-h-64 flex flex-col"
+      className="absolute bottom-full left-0 right-0 mb-1 glass-surface border border-app-border-light rounded-lg shadow-xl z-50 overflow-hidden max-h-64 flex flex-col"
     >
       {/* Header */}
       <div className="px-3 py-1.5 border-b border-app-border flex items-center gap-2">

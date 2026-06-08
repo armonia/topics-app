@@ -91,7 +91,7 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
+      className="fixed z-[9999] glass-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
       style={{
         top: position.top,
         left: position.left,

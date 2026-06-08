@@ -187,7 +187,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               if (row) { e.preventDefault(); select(row.provider, row.model); }
             }
           }}
-          className="bg-surface border border-app-border rounded-lg shadow-xl w-[320px] max-h-[70vh] flex flex-col overflow-hidden"
+          className="glass-surface border border-app-border rounded-lg shadow-xl w-[320px] max-h-[70vh] flex flex-col overflow-hidden"
           data-testid="provider-model-popover"
           style={{
             position: 'fixed',

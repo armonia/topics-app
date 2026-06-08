@@ -42,8 +42,8 @@ export function DropdownPortal({ open, anchorRef, onClose, children, align = 'ri
       <div
         ref={menuRef}
         className={isMobile
-          ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-          : 'bg-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[150px]'}
+          ? 'fixed bottom-0 left-0 right-0 glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
+          : 'glass-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[150px]'}
         style={isMobile
           ? { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }
           : { position: 'fixed', top: rect.bottom + 4, ...(align === 'left' ? { left: rect.left } : { right: window.innerWidth - rect.right }), zIndex: 9999 }}

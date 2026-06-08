@@ -77,7 +77,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
       ref={menuRef}
       role="menu"
       aria-label={`Actions for ${topic.name}`}
-      className="fixed z-50 bg-surface rounded-xl shadow-xl border border-app-border-light py-1 min-w-[200px]"
+      className="fixed z-50 glass-surface rounded-xl shadow-xl border border-app-border-light py-1 min-w-[200px]"
       style={{ left: pos.left, top: pos.top }}
     >
       {subMenu === 'none' && (

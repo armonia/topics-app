@@ -427,7 +427,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return createPortal(
       <div
         ref={contextMenuRef}
-        className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
+        className="fixed glass-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
         style={{ left: x, top: y }}
       >
         <div className="px-3 py-1 text-[11px] text-app-text-muted truncate border-b border-app-border mb-0.5">
@@ -784,7 +784,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {showBranches && branchBtnRef.current && createPortal(
           <div
             ref={branchDropdownRef}
-            className="fixed w-52 max-h-[220px] overflow-y-auto bg-surface dark:bg-app-panel border border-app-border rounded-md shadow-lg z-[9999]"
+            className="fixed w-52 max-h-[220px] overflow-y-auto glass-surface border border-app-border rounded-md shadow-lg z-[9999]"
             style={{
               top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
               left: branchBtnRef.current.getBoundingClientRect().left,
@@ -1107,7 +1107,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && branchBtnRef.current && createPortal(
         <div
           ref={branchDropdownRef}
-          className="fixed w-56 max-h-[320px] overflow-y-auto bg-surface dark:bg-app-panel border border-app-border rounded-md shadow-lg z-[9999]"
+          className="fixed w-56 max-h-[320px] overflow-y-auto glass-surface border border-app-border rounded-md shadow-lg z-[9999]"
           style={{
             top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
             left: branchBtnRef.current.getBoundingClientRect().left,
