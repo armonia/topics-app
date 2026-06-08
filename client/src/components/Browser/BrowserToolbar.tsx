@@ -218,7 +218,7 @@ export function BrowserToolbar({
           </button>
           {historyOpen && (
             <div
-              className="absolute top-full right-0 mt-1 z-50 min-w-[260px] max-w-[480px] bg-surface dark:bg-elevated border border-app-border rounded-md shadow-xl py-1"
+              className="absolute top-full right-0 mt-1 z-50 min-w-[260px] max-w-[480px] glass-surface border border-app-border rounded-md shadow-xl py-1"
               data-testid="browser-history-menu"
             >
               {history.slice(0, 10).map((entry) => (

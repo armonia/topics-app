@@ -57,11 +57,20 @@ export const SplitMiniMap = memo(function SplitMiniMap({
                   flex: `${widthFraction} 1 0%`,
                   minWidth: 0,
                   borderRadius: 1.5,
+                  // The cell that marks "you are here": a neutral high-contrast
+                  // wash of the surrounding text colour (user preference: NOT the
+                  // primary blue). Derived from `currentColor` so it inverts with
+                  // the theme — near-white on the dark sidebar, near-black on the
+                  // light one. A hardcoded white read fine in dark mode but went
+                  // invisible on the default LIGHT sidebar (white-on-#f8f9fa); the
+                  // mini-map now renders on sidebar rows only, so that was every
+                  // live instance. Unlit cells stay a fainter wash of the same
+                  // colour so the grid frame reads in both themes.
                   background: isActive
-                    ? 'var(--primary)'
+                    ? 'color-mix(in srgb, currentColor 85%, transparent)'
                     : 'color-mix(in srgb, currentColor 22%, transparent)',
                   boxShadow: isActive
-                    ? '0 0 0 0.5px color-mix(in srgb, var(--primary) 60%, transparent)'
+                    ? '0 0 0 0.5px color-mix(in srgb, currentColor 40%, transparent)'
                     : undefined,
                 }}
               />

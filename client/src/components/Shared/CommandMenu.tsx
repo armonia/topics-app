@@ -79,7 +79,7 @@ export function CommandMenu({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-48 glass-surface border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-hidden">
           {/* Status */}
           <button
             onClick={() => handleAction(onStatus)}

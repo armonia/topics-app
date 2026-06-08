@@ -468,8 +468,8 @@ export function PaneAddMenu({
             ref={menuRef}
             className={
               isMobile
-                ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-                : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'
+                ? 'fixed bottom-0 left-0 right-0 glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
+                : 'fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'
             }
             style={
               isMobile

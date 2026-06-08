@@ -1150,7 +1150,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     <div
       ref={contextMenuRef}
       role="menu"
-      className="fixed z-50 bg-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[200px]"
+      className="fixed z-50 glass-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[200px]"
       style={contextMenuStyle()}
     >
       {/* Header */}

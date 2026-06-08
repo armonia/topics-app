@@ -1,35 +1,126 @@
 /**
- * Streaming spinners — canonical loading affordance for a row/tab.
+ * Streaming indicators — the canonical "working now" affordance for a row/tab,
+ * rendered as a 3×3 grid of squares lit by a diagonal wave (see GridLoader),
+ * NOT a rotating ring or a row of dots. A spinner reads as "blocking / fetching
+ * a resource"; the rippling matrix reads as "alive, computing" — the right
+ * metaphor for an LLM turn or a busy pty.
  *
- * Two variants matching the StreamingContext shape:
+ * Every variant renders through ONE wrapper (LoaderSlot), so the loader is
+ * pixel-identical across surfaces — a project (parent) tab and its chat /
+ * terminal (children) tabs line up exactly, instead of drifting because one was
+ * a bare span and another a button. The slot is a fixed 16px box; vary it only
+ * via an explicit `size` (the sidebar chat row wants a bigger hit target).
+ *
+ * Variants, matching the StreamingContext shape:
  *   - <TopicStreamingSpinner topicId onStop? />   — single topic; optional
- *     stop affordance (a chat tab/sidebar row passes onStop so the user
- *     can interrupt the LLM stream from there).
- *   - <ProjectStreamingSpinner projectPath />     — aggregated; surfaces
- *     when ANY child of the project is producing output: a chat mid-stream
+ *     stop affordance (a chat tab/sidebar row passes onStop so the user can
+ *     interrupt the LLM stream in place — on hover the grid swaps for a stop
+ *     glyph).
+ *   - <ProjectStreamingSpinner projectPath />     — aggregated; surfaces when
+ *     ANY child of the project is producing output: a chat mid-stream
  *     (StreamingContext, works even before the window mounts) OR a non-chat
  *     child — terminal / browser / agent — reported by the mounted
- *     ProjectWindow into the projectActivity store. Read-only because
- *     stopping a specific inner stream requires drilling into that child.
+ *     ProjectWindow into the projectActivity store. Read-only because stopping
+ *     a specific inner stream requires drilling into that child.
+ *   - Terminal / Browser / Agent variants — read-only, same look.
  *
  * Used in: PaneTabBar (chat / project / terminal / browser / agents tabs) and
  * Sidebar/TopicTree (project, terminal, browser rows). Sidebar/TopicItem reads
  * the same useTopicLoading signal but renders its own larger stop-button hit
- * target for the chat row. Don't roll your own off a DIFFERENT signal — every
- * surface must report from the same loading facade so they can't drift.
- *
- * Spinner is fixed at 12px (w-3/h-3). Tailwind JIT can't pick up arbitrary
- * sizes built from runtime template strings, and varying the size across
- * surfaces makes the affordance feel inconsistent anyway. If a future
- * surface really needs a different size, add a variant — don't take a
- * size prop.
+ * target for the chat row (still the GridLoader glyph). Don't roll your own off
+ * a DIFFERENT signal or a different glyph — every surface must report from the
+ * same loading facade and the same component so they can't drift.
  */
 
 import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
 
-function SpinnerCircle() {
+/**
+ * The vertical 2-column × 3-row square matrix. Six `bg-primary` squares; exactly
+ * one lights up at a time and the lit cell TRAVELS column-by-column, top→bottom
+ * — each cell's `animation-delay` is its slot in that path × one slot (the
+ * `.animate-grid-seq` keyframe in index.css pops a cell on, then snaps it off).
+ * Reads as cells activating one by one, not a soft collective fade. Pure
+ * opacity/transform — no layout reflow when it mounts.
+ */
+// Grid auto-flows row-major (2 cols), so DOM children are [r0c0, r0c1, r1c0,
+// r1c1, r2c0, r2c1]. We want the lit cell to descend column 0 (r0→r1→r2) then
+// column 1, so each child's slot in that vertical path is:
+//   r0c0→0  r0c1→3  r1c0→1  r1c1→4  r2c0→2  r2c1→5
+const SEQ_ORDER = [0, 3, 1, 4, 2, 5];
+const SLOT_MS = 183; // ≈ 1100ms cycle / 6 cells
+
+export function GridLoader({ className = '' }: { className?: string }) {
   return (
-    <span className="inline-block w-3 h-3 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin" />
+    <span
+      className={`inline-grid ${className}`}
+      style={{ gridTemplateColumns: 'repeat(2, 3px)', gap: 1.5, width: 7.5, height: 12 }}
+      aria-hidden="true"
+    >
+      {SEQ_ORDER.map((slot, i) => (
+        <span
+          key={i}
+          className="bg-primary rounded-[1px] animate-grid-seq"
+          style={{ width: 3, height: 3, animationDelay: `${slot * SLOT_MS}ms` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Filled stop square shown on hover in place of the loader. */
+function StopGlyph({ size = 7, className = '' }: { size?: number; className?: string }) {
+  return (
+    <span
+      className={`bg-primary rounded-[1px] ${className}`}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+interface LoaderSlotProps {
+  /** When provided, the slot becomes a stop button — hover swaps the grid for a
+   *  stop glyph and a click interrupts. Omit for read-only loaders. */
+  onStop?: () => void;
+  title?: string;
+  /** Wrapper classes (margins, alignment). */
+  className?: string;
+  /** Box size in px (square). Default 16 (the tab-bar slot); the sidebar chat
+   *  row passes a larger value for a comfier hit target. */
+  size?: number;
+}
+
+/**
+ * The single wrapper every loading indicator renders through, so the glyph
+ * sits in an identically-sized, identically-centred box on every surface. This
+ * is what keeps the parent (project) tab loader aligned with the children
+ * (chat / terminal / …) tab loaders — they can no longer drift apart.
+ */
+function LoaderSlot({ onStop, title, className = '', size = 16 }: LoaderSlotProps) {
+  const tip = title ?? (onStop ? 'Stop' : 'In esecuzione');
+  const box = { width: size, height: size } as const;
+  if (onStop) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onStop(); }}
+        className={`group/stop flex-shrink-0 inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
+        style={box}
+        title={tip}
+        aria-label={tip}
+      >
+        <GridLoader className="group-hover/stop:hidden" />
+        <StopGlyph className="hidden group-hover/stop:block" />
+      </button>
+    );
+  }
+  return (
+    <span
+      className={`flex-shrink-0 inline-flex items-center justify-center ${className}`}
+      style={box}
+      title={tip}
+      aria-label={tip}
+    >
+      <GridLoader />
+    </span>
   );
 }
 
@@ -38,9 +129,9 @@ interface TopicSpinnerProps {
   /** Wrapper classes (margins, alignment). */
   className?: string;
   /**
-   * When provided, the spinner becomes a stop button — hover swaps the
-   * spinner for a stop glyph. Used by the chat-tab and sidebar-chat-row
-   * surfaces where the user can interrupt the generation in place.
+   * When provided, the loader becomes a stop button — hover swaps it for a stop
+   * glyph. Used by the chat-tab and sidebar-chat-row surfaces where the user
+   * can interrupt the generation in place.
    */
   onStop?: () => void;
   /** Tooltip override. Defaults to "Stop generating" or "Streaming". */
@@ -56,26 +147,7 @@ export function TopicStreamingSpinner({
   const streaming = useTopicLoading(topicId);
   if (!streaming) return null;
   const tip = title ?? (onStop ? 'Stop generating' : 'Streaming');
-  if (onStop) {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onStop(); }}
-        className={`group/stop flex-shrink-0 w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer ${className}`}
-        title={tip}
-        aria-label={tip}
-      >
-        <span className="group-hover/stop:hidden inline-flex">
-          <SpinnerCircle />
-        </span>
-        <span className="hidden group-hover/stop:block w-[7px] h-[7px] bg-primary rounded-[1px]" />
-      </button>
-    );
-  }
-  return (
-    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
-      <SpinnerCircle />
-    </span>
-  );
+  return <LoaderSlot onStop={onStop} title={tip} className={className} />;
 }
 
 interface ProjectSpinnerProps {
@@ -93,12 +165,7 @@ export function ProjectStreamingSpinner({
   // project is loading — computed from global signals, no window mount needed.
   const loading = useProjectLoading(projectPath);
   if (!loading) return null;
-  const tip = title ?? 'Una chat di questo progetto sta rispondendo';
-  return (
-    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
-      <SpinnerCircle />
-    </span>
-  );
+  return <LoaderSlot title={title ?? 'Una chat di questo progetto sta rispondendo'} className={className} />;
 }
 
 interface TerminalSpinnerProps {
@@ -119,12 +186,7 @@ export function TerminalStreamingSpinner({
 }: TerminalSpinnerProps) {
   const active = useTerminalLoading(sessionId);
   if (!active) return null;
-  const tip = title ?? 'Terminal is producing output';
-  return (
-    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
-      <SpinnerCircle />
-    </span>
-  );
+  return <LoaderSlot title={title ?? 'Terminal is producing output'} className={className} />;
 }
 
 interface BrowserSpinnerProps {
@@ -146,12 +208,7 @@ export function BrowserStreamingSpinner({
 }: BrowserSpinnerProps) {
   const active = useBrowserLoading(paneId);
   if (!active) return null;
-  const tip = title ?? 'Browser is working';
-  return (
-    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
-      <SpinnerCircle />
-    </span>
-  );
+  return <LoaderSlot title={title ?? 'Browser is working'} className={className} />;
 }
 
 /**
@@ -168,10 +225,5 @@ export function AgentStreamingSpinner({
 }) {
   const active = useAnyAgentActive();
   if (!active) return null;
-  const tip = title ?? 'An agent is running';
-  return (
-    <span className={`flex-shrink-0 inline-flex items-center ${className}`} title={tip} aria-label={tip}>
-      <SpinnerCircle />
-    </span>
-  );
+  return <LoaderSlot title={title ?? 'An agent is running'} className={className} />;
 }

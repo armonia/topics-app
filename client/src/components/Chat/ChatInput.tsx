@@ -72,7 +72,7 @@ function OverflowMenu({
         <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-xl shadow-xl z-50 py-1.5 min-w-[220px]">
+        <div className="absolute bottom-full right-0 mb-1 glass-surface border border-app-border-light rounded-xl shadow-xl z-50 py-1.5 min-w-[220px]">
           {/* Slash commands */}
           {SLASH_COMMANDS.map((cmd) => {
             const Icon = cmd.icon;
@@ -198,7 +198,7 @@ function MessageQueueBadge({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 bg-surface dark:bg-app-panel border border-app-border-light rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
+        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface border border-app-border-light rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
           <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
             <span className="text-[11px] font-medium text-app-text">
               Queued message{count > 1 ? 's' : ''} ({count})
@@ -1023,7 +1023,7 @@ export function ChatInput({
 
             {/* Popover menus (anchored to form) */}
             {showSlashMenu && filteredSlashCommands.length > 0 && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface dark:bg-app-panel border border-app-border-input rounded-xl shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto">
+              <div className="absolute bottom-full left-0 right-0 mb-1 glass-surface border border-app-border-input rounded-xl shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto">
                 {filteredSlashCommands.map((cmd, idx) => (
                   <button
                     key={cmd.cmd}
