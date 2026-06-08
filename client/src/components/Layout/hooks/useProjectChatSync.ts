@@ -19,7 +19,6 @@
  *  - Any layout state or setters — all writes flow through
  *    `applyChatReconciliation` / `reopenChatPane` (functional updaters
  *    inside layout, no stale-closure races).
- *  - `userEditedRef` — only the persistence-save effect mutates that flag.
  *
  * `initialChatsSyncedRef` is shared via `gateRefs` (single source of truth).
  * Whichever runs first (server-hydrate OR mount effect) flips the flag; the
@@ -60,10 +59,9 @@ export interface UseProjectChatSyncArgs {
    *  `useProjectLayout` so the fallback chain (focused-or-first chat group;
    *  create new group if none) stays atomic. */
   reopenChatPane: (topicId: string, title: string) => void;
-  /** Cross-hook gates from `useProjectPersistenceLoad`. Reads/writes
+  /** Cross-hook gate from `useProjectPersistenceLoad`. Reads/writes
    *  `initialChatsSyncedRef` so server-hydrate AND the mount effect
-   *  converge on the same flag. Reads `userEditedRef` to suppress
-   *  server-hydrate after the user has edited. */
+   *  converge on the same "initial restore done" flag. */
   gateRefs: PersistenceGateRefs;
   /** Idempotent signal that the initial chat-tab restoration has happened
    *  — unblocks the persistence-save effect. */
@@ -158,12 +156,21 @@ export function useProjectChatSync(
       return;
     }
 
-    // Remove chat panes whose topic no longer exists in the project.
+    // Remove chat panes whose topic no longer belongs in the project — but ONLY
+    // when the topic is KNOWN. A chat pane whose topic is still LOADING (absent
+    // from `topics`, e.g. created on another device and not yet fetched here) is
+    // KEPT: removing it would drop a pane the user has open AND make the ensuing
+    // save PUT a smaller openChatTopicIds, stripping that topic from the shared
+    // cross-device record. This mirrors the seed (useProjectLayout) and
+    // onServerHydrate, which both keep unknown ids until topics populate. A
+    // known topic absent from currentSet means archived or moved to another
+    // project → genuinely remove.
     const remove: string[] = [];
     for (const p of curPanes) {
-      if (p.type === 'chat' && !(p.topicId && currentSet.has(p.topicId))) {
-        remove.push(p.id);
-      }
+      if (p.type !== 'chat') continue;
+      if (!p.topicId) { remove.push(p.id); continue; }
+      if (!topics[p.topicId]) continue; // still loading → keep
+      if (!currentSet.has(p.topicId)) remove.push(p.id);
     }
 
     const add: Pane[] = [];
@@ -284,23 +291,43 @@ export function useProjectChatSync(
   // functional setState) so it composes safely with concurrent state changes.
   const onServerHydrate = useCallback(
     (fresh: PersistedSnapshot) => {
-      if (gateRefs.userEditedRef.current) return;
+      // Cross-device convergence is ADDITIVE (union): applying a remote snapshot
+      // can only ADD tabs this device is missing, never remove a pane the local
+      // user has open. That is what makes hydration safe to run at ANY time, so
+      // we deliberately DON'T gate on userEditedRef anymore — that gate used to
+      // suppress every steady-state remote update (it flips true on the first
+      // post-mount reconcile), which silently killed convergence after load.
+      // Echo/stale frames are already filtered upstream in
+      // projectLayoutSync.applyServerValue (sourceClientId + server_seq +
+      // last-synced-JSON dedupe), so dropping the gate cannot loop.
 
-      // Replace non-chat panes via reconciliation: remove the current set,
-      // add the fresh set. Preserves the prior `setPanes(fresh.nonChatPanes)`
-      // semantics while flowing through the atomic API (so chat panes are
-      // not stomped).
-      if (fresh.nonChatPanes) {
-        const curPanes = panesRef.current;
-        const remove: string[] = [];
-        for (const p of curPanes) {
-          if (p.type !== 'chat') remove.push(p.id);
-        }
-        applyChatReconciliation({
-          add: fresh.nonChatPanes,
-          remove,
-          retitle: new Map(),
+      // Non-chat panes (terminal/browser/file): UNION by id — add only the ones
+      // we don't already have. A remote empty/smaller set therefore can never
+      // wipe a terminal/browser the local user has open (the old code did a
+      // remove-all-then-add, which an empty `[]` turned into a destructive
+      // wipe).
+      if (fresh.nonChatPanes && fresh.nonChatPanes.length > 0) {
+        const curIds = new Set(panesRef.current.map(p => p.id));
+        // Per-project singleton VIEW panes (git, files, dashboard, activity,
+        // journal, agents, browser, …) are created with createPaneId(type) and
+        // NO key, i.e. a RANDOM uuid, so the same logical pane has a different id
+        // on each device — union-by-id would add the peer's copy as a visual
+        // DUPLICATE. Only chat / terminal / session-viewer carry a STABLE
+        // cross-device id (keyed by topic/session) and may legitimately appear
+        // more than once per project, so those union by id. Every other type is
+        // a singleton: skip a remote one when we already hold that type locally.
+        const STABLE_MULTI_TYPES = new Set<PaneType>(['chat', 'terminal', 'session-viewer']);
+        const localSingletonTypes = new Set(
+          panesRef.current.filter(p => !STABLE_MULTI_TYPES.has(p.type)).map(p => p.type),
+        );
+        const add = fresh.nonChatPanes.filter(p => {
+          if (curIds.has(p.id)) return false;
+          if (!STABLE_MULTI_TYPES.has(p.type) && localSingletonTypes.has(p.type)) return false;
+          return true;
         });
+        if (add.length > 0) {
+          applyChatReconciliation({ add, remove: [], retitle: new Map() });
+        }
       }
 
       if (fresh.openChatTopicIds) {
@@ -314,20 +341,21 @@ export function useProjectChatSync(
         const stubs: Pane[] = [];
         for (const tid of fresh.openChatTopicIds) {
           if (existing.has(tid)) continue;
-          // Same guard as the initial seed in useProjectLayout: a
-          // utility-pane id is never a topic, so don't materialise it
-          // as a "Topic not found" stub on cross-device hydrate.
+          // A utility-pane id is never a topic — don't materialise a stub.
           if (tid.startsWith('__') && tid.endsWith('__')) continue;
-          // Cross-project leak guard: server-hydrate may carry foreign-project
-          // topic ids if a previous buggy build wrote them. Drop them here so
-          // they don't get materialised as ghost tabs in this project.
+          // Only open chats whose topic is KNOWN locally and belongs to THIS
+          // project. Skipping unknown ids avoids the add-then-remove churn that
+          // used to strip a lagging topic from the shared set (the chat-sync
+          // reconcile removes any chat pane not in `topicIds`, and the ensuing
+          // save would PUT the smaller set). When the topic actually loads via
+          // WS, chat-sync's delta-add opens it.
           const ftopic = topics[tid];
-          if (ftopic && ftopic.projectPath !== projectPath) continue;
+          if (!ftopic || ftopic.archived || ftopic.projectPath !== projectPath) continue;
           stubs.push({
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,
             topicId: tid,
-            title: topics[tid]?.name || 'Chat',
+            title: ftopic.name || 'Chat',
             preview: false,
           });
         }

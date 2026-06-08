@@ -38,21 +38,19 @@ export interface PersistedSnapshot {
 }
 
 /**
- * Cross-hook synchronization gates owned by `useProjectPersistenceLoad`
- * and consumed by `useProjectChatSync` (reads `initialChatsSyncedRef`)
- * and `useProjectPersistenceSave` (reads `userEditedRef` + `mountedRef`).
+ * Cross-hook synchronization gate owned by `useProjectPersistenceLoad` and
+ * consumed by `useProjectChatSync` (reads `initialChatsSyncedRef`).
  *
- * Single source of truth for "has the user touched layout yet" and
- * "has the initial chat-tab restoration completed". Avoids duplication
- * across hooks; whoever flips a flag, everyone sees the flip immediately.
+ * Single source of truth for "has the initial chat-tab restoration completed".
+ * Whoever flips it, everyone sees the flip immediately.
+ *
+ * (The former `userEditedRef`/`mountedRef` gate — which suppressed server
+ * hydration after the first local edit — was removed when cross-device
+ * hydration became additive/union: a union can only ADD tabs this device is
+ * missing, so there is nothing to suppress. See
+ * `useProjectChatSync.onServerHydrate`.)
  */
 export interface PersistenceGateRefs {
-  /** Set to `true` on first render-after-mount inside the save effect.
-   *  Once true, the server-fetch async callback skips overwriting. */
-  userEditedRef: MutableRefObject<boolean>;
-  /** Sentinel: `false` on initial mount, `true` thereafter. The save
-   *  effect uses this to distinguish "first commit" from "user edit". */
-  mountedRef: MutableRefObject<boolean>;
   /** Set to `true` once the initial chat-tab restoration has happened
    *  (server-fetch path OR the chat-sync mount effect — whichever fires
    *  first wins; the other observes and skips). Both sides MUST go

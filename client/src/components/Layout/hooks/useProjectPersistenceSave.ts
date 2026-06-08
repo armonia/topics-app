@@ -5,9 +5,6 @@
  *
  * Owns:
  *  - The big save effect that runs on every layout/chat change.
- *  - The `userEditedRef` flag-flip on first render-after-mount via
- *    `mountedRef` (PLAN A2). This MUST stay inside the save effect — no
- *    other hook touches the flag.
  *  - Calls `savePersistedTabState` (server-synced) and
  *    `savePersistedLayoutState` (local-only) on each commit.
  *  - Fires `onOpenPanesChange` so the parent sidebar can filter.
@@ -27,7 +24,6 @@ import {
   savePersistedLayoutState,
   stripWrapperPaneId,
 } from './projectPersistence';
-import type { PersistenceGateRefs } from './types';
 
 export interface UseProjectPersistenceSaveArgs {
   projectPath: string;
@@ -41,7 +37,6 @@ export interface UseProjectPersistenceSaveArgs {
   activeChatTopicId?: string;
   /** Which split cell is focused — persisted so a reload restores it. */
   focusedGroupId: string | null;
-  gateRefs: PersistenceGateRefs;
   onOpenPanesChange?: (paneIds: string[]) => void;
 }
 
@@ -57,21 +52,15 @@ export function useProjectPersistenceSave(
     sidebarCollapsed,
     activeChatTopicId,
     focusedGroupId,
-    gateRefs,
     onOpenPanesChange,
   } = args;
-  const { userEditedRef, mountedRef } = gateRefs;
 
-  // Persist tab identity to server (cross-device sync) and layout to
-  // localStorage only. Mark userEditedRef after mount so the server-fetch
-  // callback skips stale overwrites. Deps mirror the original inline effect
-  // (panes, groups, rows, rowHeights, sidebarCollapsed, projectPath,
-  // onOpenPanesChange) plus activeChatTopicId since the value is now
-  // computed by chat-sync and passed in.
+  // Persist tab identity to the server (cross-device sync) and layout to
+  // localStorage only, on every layout/chat change. Deps mirror the original
+  // inline effect (panes, groups, rows, rowHeights, sidebarCollapsed,
+  // projectPath, onOpenPanesChange) plus activeChatTopicId since the value is
+  // now computed by chat-sync and passed in.
   useEffect(() => {
-    if (mountedRef.current) userEditedRef.current = true;
-    else mountedRef.current = true;
-
     // Defensive: never persist the project's own wrapper pane as one of its
     // child panes. If it ever sneaks in (e.g. from a corrupted snapshot), it
     // would resurface on reload as an unkillable phantom tab inside the
@@ -102,6 +91,5 @@ export function useProjectPersistenceSave(
 
     // Report open panes to parent for sidebar filtering
     onOpenPanesChange?.(panes.map(p => p.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panes, groups, rows, rowHeights, sidebarCollapsed, activeChatTopicId, focusedGroupId, projectPath, onOpenPanesChange]);
 }
