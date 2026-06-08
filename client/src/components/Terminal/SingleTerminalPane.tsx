@@ -370,9 +370,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     });
 
     term.onResize(({ cols, rows }) => {
-      // Only send resize when this window has focus — prevents background windows
-      // from overriding the PTY size for the active window (e.g., browser vs Electron).
-      if (!document.hasFocus()) return;
+      // Only an ACTIVE window drives the shared PTY size so background windows
+      // (browser vs Electron) don't fight over it. On desktop "active" = focused.
+      // BUT on touch devices `document.hasFocus()` is unreliable — iOS PWAs
+      // frequently report false even while in the foreground — so the mobile
+      // client never resized the shared PTY: it stayed sized for some other
+      // (desktop) client and the mobile xterm rendered the TUI with a big band
+      // of empty rows below it (the "spazio sotto" on the phone). A VISIBLE
+      // touch client therefore counts as active too.
+      const active = document.hasFocus() || (isTouchDevice && document.visibilityState === 'visible');
+      if (!active) return;
       fetch(`/api/terminal/sessions/${sessionId}/resize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -424,6 +431,54 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
+  }, [sessionId]);
+
+  // When this pane becomes the ACTIVE/visible tab, re-fit and force-send the
+  // current size to the shared PTY. Switching tabs inside an already-focused
+  // window fires NEITHER `window.focus` (the window never lost focus) NOR
+  // `document.visibilitychange` (the document stayed visible), and the
+  // ResizeObserver is a no-op when the container size didn't change — so if the
+  // shared PTY was resized by another tab/window/client while this tab was
+  // `display:none`, a full-screen TUI like Claude Code stays drawn at that stale
+  // geometry (clipped / overflowing) until you manually resize the window. This
+  // is the "ogni tanto si perde la finestra e devo resizarla" bug. Force-sending
+  // the size triggers a SIGWINCH → the TUI repaints at the right size, and
+  // `refresh()` repaints xterm's own viewport immediately. The rAF lets the
+  // just-shown element settle its layout before `fit()` measures it.
+  useEffect(() => {
+    if (!isActive) return;
+    const raf = requestAnimationFrame(() => {
+      const ref = termRef.current;
+      if (!ref) return;
+      try { ref.fit.fit(); } catch {}
+      try { ref.term.refresh(0, ref.term.rows - 1); } catch {}
+      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
+      }).catch(() => {});
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isActive, sessionId]);
+
+  // Touch devices: when the PWA returns to the foreground, re-fit and force-send
+  // dimensions. `document.hasFocus()` can't be relied on here (see onResize), so
+  // visibility is the trigger that the user is actually looking at this terminal.
+  useEffect(() => {
+    if (!isTouchDevice) return;
+    const handleVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const ref = termRef.current;
+      if (!ref) return;
+      try { ref.fit.fit(); } catch {}
+      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
+      }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => document.removeEventListener('visibilitychange', handleVisible);
   }, [sessionId]);
 
   const handleCopyOutput = () => {

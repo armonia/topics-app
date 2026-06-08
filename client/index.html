@@ -6,12 +6,19 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png" />
     <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/icons/icon-180.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content, viewport-fit=cover" />
-    <meta name="theme-color" content="#1a1a1a" />
+    <meta name="theme-color" content="#f8f9fa" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-180.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-180.png" />
     <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-180.png" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- `black` (opaque), NOT `black-translucent`: on iOS standalone PWAs,
+         black-translucent makes the webview full-screen at the top (content under
+         the Dynamic Island) but leaves the layout viewport ~topInset px SHORT at
+         the BOTTOM (innerHeight = screen − topInset), so a band of webview
+         background shows below the content and can't be filled from inside the
+         page. `black` insets the viewport BELOW an opaque status bar and fills
+         all the way to the bottom edge. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
     <title>Topics</title>
@@ -25,6 +32,15 @@
         } catch(e) {}
         var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) document.documentElement.classList.add('dark');
+
+        // Keep the iOS/Android status-bar tint in lock-step with the resolved
+        // theme so the safe-area zone reads as one continuous surface (no light
+        // status bar over a dark app, or vice-versa). These hexes MUST match the
+        // `--bg` tokens in index.css (light #f8f9fa / dark hsl(222 16% 8.5%) = #121419).
+        try {
+          var tc = document.querySelector('meta[name="theme-color"]');
+          if (tc) tc.setAttribute('content', dark ? '#121419' : '#f8f9fa');
+        } catch(e) {}
 
         // Electron on macOS: tag <html> so the app can let native window vibrancy
         // (configured in electron-app/main.ts) show through the chrome. Set before
