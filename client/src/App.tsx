@@ -8,7 +8,6 @@ import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
-import { GlobalTabIndexProvider } from './contexts/GlobalTabIndexContext';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
@@ -106,7 +105,6 @@ function App() {
     sidebarWidth,
     sidebarCollapsed,
     isMobile,
-    isPWA,
     viewportHeight,
     isElectron,
     windowId,
@@ -488,7 +486,6 @@ function App() {
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
-    <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <SplitPositionProvider>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
@@ -501,6 +498,7 @@ function App() {
       settings={appSettings}
       topics={topics}
       focusedPanelId={focusedPanelId}
+      terminalSessions={terminalSessions}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original
@@ -549,7 +547,13 @@ function App() {
         style={{
           width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
-          paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined,
+          // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
+          // there's no inset (desktop, non-notched), so gating it on isPWA was
+          // the bug that left content clipped under the notch when the app is
+          // opened in a plain mobile browser tab (e.g. over Tailscale, where
+          // display-mode is 'browser', not 'standalone'). The mobile sidebar is
+          // `position: fixed inset-y-0`, so it escapes the root and needs its own.
+          paddingTop: 'env(safe-area-inset-top, 0px)',
         }}
       >
 
@@ -711,7 +715,7 @@ function App() {
       {sidebarCollapsed && openPanels.length === 0 && (
         <div
           className="absolute left-2 z-30 flex items-center gap-1"
-          style={{ top: isMobile && isPWA ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
+          style={{ top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
         >
           <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="bg-surface border border-app-border-light rounded-lg shadow-sm" />
         </div>
@@ -741,7 +745,7 @@ function App() {
 
       {/* Main Content */}
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ contain: 'layout style', paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined }}
+        style={{ contain: 'layout style', paddingTop: 'env(safe-area-inset-top, 0px)' }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
@@ -800,7 +804,7 @@ function App() {
       {showTopicsMenu && createPortal(
         <div
           ref={topicsDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
+          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
           style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
         >
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
@@ -883,7 +887,7 @@ function App() {
       {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
           ref={remoteAccessDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
+          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
           style={{
             position: 'fixed',
             // Anchored to the Topics ▾ menu (its trigger is now the menu item),
@@ -1032,7 +1036,6 @@ function App() {
     </PendingActionProvider>
     </ToastProvider>
     </SplitPositionProvider>
-    </GlobalTabIndexProvider>
     </TabNotificationProvider>
     </TopicsProvider>
   );

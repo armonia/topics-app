@@ -181,7 +181,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
 
   return (
     <>
-      <div className="flex items-center gap-2 h-7 px-3 border-t border-app-border flex-shrink-0 bg-app-bg">
+      <div className="flex items-center gap-2 min-h-7 px-3 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -273,7 +273,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
       {showStatusDropdown && statusBtnRef.current && createPortal(
         <div
           ref={statusDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[320px]"
+          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[320px]"
           style={{
             position: 'fixed',
             // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect against the live button node positions the fixed dropdown above it
