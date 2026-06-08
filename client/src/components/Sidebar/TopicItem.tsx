@@ -11,6 +11,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTopicLoading } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
+import { GridLoader } from '@/components/Layout/StreamingIndicator';
 import { sidebarRowCard } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
@@ -216,7 +217,35 @@ export const TopicItem = memo(function TopicItem({
         {topic.name}
       </span>
 
-      {/* Streaming spinner */}
+      {/* Split position — the same proportional mini-map the tab bar shows,
+          this topic's cell lit. Only present when the topic is open in a split
+          grid. Rendered BEFORE the spinner/timestamp slot so the streaming
+          spinner lands at the row's trailing edge (see below). */}
+      {splitPosition && (
+        <SplitMiniMap
+          rows={splitPosition.rows}
+          rowHeights={splitPosition.rowHeights}
+          active={splitPosition.active}
+          className="flex-shrink-0 text-app-text-tertiary"
+        />
+      )}
+
+      {/* Assigned agents badge */}
+      {assignedAgentCount > 0 && (
+        <span
+          className="flex-shrink-0 flex items-center gap-0.5 text-[11px] text-purple-500 dark:text-purple-400"
+          title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
+        >
+          <Bot size={12} />
+          {assignedAgentCount > 1 && <span className="font-medium">{assignedAgentCount}</span>}
+        </span>
+      )}
+
+      {/* Streaming spinner (when working) XOR timestamp/archive (at rest).
+          Pinned AFTER the split-map + agents badge so the "working" cue sits at
+          the END of the row — matching the tab bar and the terminal/browser
+          sidebar rows. The notification badge below is the only trailing
+          element after it. */}
       {isStreaming ? (
         <button
           onClick={(e) => { e.stopPropagation(); onStopStreaming?.(); }}
@@ -224,7 +253,7 @@ export const TopicItem = memo(function TopicItem({
           title="Stop generating"
           aria-label="Stop generating"
         >
-          <div className="w-3.5 h-3.5 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin group-hover/stop:hidden" />
+          <GridLoader className="group-hover/stop:hidden" />
           <div className="w-2 h-2 bg-primary rounded-[1px] hidden group-hover/stop:block" />
         </button>
       ) : (
@@ -316,31 +345,9 @@ export const TopicItem = memo(function TopicItem({
         )
       )}
 
-      {/* Split position — the same proportional mini-map the tab bar shows,
-          this topic's cell lit. Only present when the topic is open in a split
-          grid. */}
-      {splitPosition && (
-        <SplitMiniMap
-          rows={splitPosition.rows}
-          rowHeights={splitPosition.rowHeights}
-          active={splitPosition.active}
-          className="flex-shrink-0 text-app-text-tertiary"
-        />
-      )}
-
-      {/* Assigned agents badge */}
-      {assignedAgentCount > 0 && (
-        <span
-          className="flex-shrink-0 flex items-center gap-0.5 text-[11px] text-purple-500 dark:text-purple-400"
-          title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
-        >
-          <Bot size={12} />
-          {assignedAgentCount > 1 && <span className="font-medium">{assignedAgentCount}</span>}
-        </span>
-      )}
-
       {/* Notification badge — hidden when focused so the user doesn't see a
-          count for the topic they're actively looking at. */}
+          count for the topic they're actively looking at. The only element
+          after the spinner/timestamp slot, so "working" reads at the row end. */}
       {!isFocused && <NotificationBadge count={notificationCount} />}
     </div>
   );

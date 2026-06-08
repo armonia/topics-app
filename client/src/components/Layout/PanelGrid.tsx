@@ -4,6 +4,7 @@ import { useTopics } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
+import { getProjectPathFromPaneId } from '../../state/pane/adapters';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
@@ -1322,8 +1323,16 @@ export function PanelGrid({
     const assign = (key: string, rowIdx: number, colIdx: number) => {
       const item = itemMap.get(key);
       if (!item) return;
-      for (const topicId of item.panelIds) {
-        out.set(topicId, { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] });
+      const desc: SplitMapDescriptor = { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] };
+      for (const paneId of item.panelIds) {
+        // Key by the chat topic id (sidebar chat rows read this) AND, for a
+        // project pane, by its project path — so the sidebar PROJECT row can
+        // show where that project window sits in the tiled top-level split
+        // ("posizione della finestra"). Topic ids are UUIDs and project paths
+        // are filesystem paths, so the two key spaces never collide.
+        out.set(paneId, desc);
+        const projectPath = getProjectPathFromPaneId(paneId);
+        if (projectPath) out.set(projectPath, desc);
       }
     };
     gridRows.forEach((row, rowIdx) => {
