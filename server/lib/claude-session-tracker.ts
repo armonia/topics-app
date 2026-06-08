@@ -16,6 +16,11 @@ import {
   applyHook,
   applyJsonlEvent,
   reapStaleSession,
+  markPtyCrash,
+  markDormant,
+  reviveOnPtyActivity,
+  makeInitialState,
+  isActivePhase,
   parseJsonlLine,
   splitJsonlChunk,
   isKnownHookEvent,
@@ -55,6 +60,14 @@ export interface ClaudeSessionTrackerOptions {
    * shorter ones.
    */
   reaperConfig?: ReaperConfig;
+  /**
+   * How long (ms) a terminal session's PTY has been idle, by claudeSessionId,
+   * or null when unknown. The reaper consults this to tell a genuinely-stuck
+   * `running` session (PTY silent for a long time → demote to dormant) from a
+   * long-but-live turn (PTY still busy → leave it). Injected by the server from
+   * the terminal route's activity tracker; omitted in tests → reaper sees null.
+   */
+  ptyIdleMs?: (claudeSessionId: string) => number | null;
 }
 
 interface DedupEntry {
@@ -77,6 +90,35 @@ export interface ClaudeSessionTracker {
    * dropped (unknown session, rate-limit, dedup).
    */
   ingestHook(payload: HookPayload, now?: number): IngestResult;
+  /**
+   * Mark a session as PTY-crashed. Used by the terminal route when it sees a
+   * non-zero exit without a SessionEnd hook.
+   */
+  notePtyCrash(claudeSessionId: string, exitCode: number, now?: number): boolean;
+  /**
+   * Mark a session as dormant (PTY exited cleanly, resumable).
+   */
+  noteDormant(claudeSessionId: string, now?: number): boolean;
+  /**
+   * Note live PTY output for a session. Revives a `dormant` session (one the
+   * reaper demoted while it was merely silent) back to `running` so the loading
+   * dots return; no-op for any other phase. Called by the terminal route on
+   * each non-cosmetic frame.
+   */
+  notePtyActivity(claudeSessionId: string, now?: number): boolean;
+  /**
+   * Register a topic-less terminal claude session so its hooks resolve. These
+   * have no `claude_code_sessions` row (the table's PK is a topic session_key
+   * with an FK to topics), so their phase lives in-memory keyed by
+   * claudeSessionId. Called by the terminal route at spawn time with the same
+   * UUID it passes to `claude --session-id`. Idempotent; revives a dormant one.
+   */
+  registerTerminalSession(claudeSessionId: string, now?: number): void;
+  /**
+   * Forget an in-memory terminal session (its PTY is gone for good, e.g. the
+   * session was deleted). No-op for DB-backed (topic) sessions.
+   */
+  dropTerminalSession(claudeSessionId: string): void;
   /**
    * Run one reaper pass. Returns the number of sessions whose phase changed.
    */
@@ -113,11 +155,18 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const rateLimitPerSec = opts.rateLimitPerSec ?? 50;
   const coalesceWindowMs = opts.coalesceWindowMs ?? 50;
   const reaperConfig = opts.reaperConfig ?? DEFAULT_REAPER_CONFIG;
+  const ptyIdleMs = opts.ptyIdleMs;
 
   // Dedup map: claudeSessionId|event → DedupEntry
   const dedupMap = new Map<string, DedupEntry>();
   const rateBuckets = new Map<string, RateBucket>();
   const pendingBroadcasts = new Map<string, CoalescedBroadcast>();
+  // In-memory phase for topic-less terminal claude sessions, keyed by
+  // claudeSessionId. They can't live in claude_code_sessions (PK is a topic
+  // session_key with an FK to topics), so this is their only home. Volatile by
+  // design: terminal.ts re-registers on reconcile after a restart and the next
+  // hook re-establishes phase.
+  const terminalStates = new Map<string, ClaudeSessionState>();
 
   function dedupKey(claudeSessionId: string, event: string): string {
     return `${claudeSessionId}|${event}`;
@@ -145,8 +194,10 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   }
 
   function scheduleBroadcast(state: ClaudeSessionState): void {
-    // Coalesce per session; surfaces to the client as `session:state`. The
-    // `csid:` fallback is defensive — DB-backed sessions always carry a key.
+    // Coalesce by sessionKey for topic sessions, else by claudeSessionId for
+    // topic-less terminal sessions. Both surface to the client as
+    // `session:state` (sessionKey may be null; the client falls back to
+    // state.claudeSessionId as the key).
     const k = state.sessionKey ?? `csid:${state.claudeSessionId}`;
     const existing = pendingBroadcasts.get(k);
     if (existing) {
@@ -178,6 +229,14 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return { changed: true, state: next };
   }
 
+  /** Commit path for in-memory terminal sessions (no DB row). */
+  function commitTerminal(prev: ClaudeSessionState, next: ClaudeSessionState): { changed: boolean; state: ClaudeSessionState } {
+    terminalStates.set(next.claudeSessionId, next);
+    if (next === prev) return { changed: false, state: next };
+    scheduleBroadcast(next);
+    return { changed: true, state: next };
+  }
+
   // ─── Public API ─────────────────────────────────────────────────────────
 
   function ingestHook(payload: HookPayload, overrideNow?: number): IngestResult {
@@ -200,13 +259,63 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       return { kind: 'duplicate', claudeSessionId: sid };
     }
 
+    // Topic sessions live in the DB; topic-less terminal sessions in-memory.
     const dbPrev = repo.loadByClaudeSessionId(sid);
-    if (!dbPrev) {
-      return { kind: 'unknown-session', claudeSessionId: sid };
+    if (dbPrev) {
+      const next = applyHook(dbPrev, payload, t);
+      const res = commit(dbPrev, next);
+      return { kind: 'ok', state: res.state, changed: res.changed };
     }
-    const next = applyHook(dbPrev, payload, t);
-    const res = commit(dbPrev, next);
-    return { kind: 'ok', state: res.state, changed: res.changed };
+    const memPrev = terminalStates.get(sid);
+    if (memPrev) {
+      const next = applyHook(memPrev, payload, t);
+      const res = commitTerminal(memPrev, next);
+      return { kind: 'ok', state: res.state, changed: res.changed };
+    }
+    return { kind: 'unknown-session', claudeSessionId: sid };
+  }
+
+  function notePtyCrash(claudeSessionId: string, exitCode: number, overrideNow?: number): boolean {
+    const t = overrideNow ?? now();
+    const dbPrev = repo.loadByClaudeSessionId(claudeSessionId);
+    if (dbPrev) return commit(dbPrev, markPtyCrash(dbPrev, exitCode, t)).changed;
+    const memPrev = terminalStates.get(claudeSessionId);
+    if (memPrev) return commitTerminal(memPrev, markPtyCrash(memPrev, exitCode, t)).changed;
+    return false;
+  }
+
+  function noteDormant(claudeSessionId: string, overrideNow?: number): boolean {
+    const t = overrideNow ?? now();
+    const dbPrev = repo.loadByClaudeSessionId(claudeSessionId);
+    if (dbPrev) return commit(dbPrev, markDormant(dbPrev, t)).changed;
+    const memPrev = terminalStates.get(claudeSessionId);
+    if (memPrev) return commitTerminal(memPrev, markDormant(memPrev, t)).changed;
+    return false;
+  }
+
+  function notePtyActivity(claudeSessionId: string, overrideNow?: number): boolean {
+    const t = overrideNow ?? now();
+    const dbPrev = repo.loadByClaudeSessionId(claudeSessionId);
+    if (dbPrev) return commit(dbPrev, reviveOnPtyActivity(dbPrev, t)).changed;
+    const memPrev = terminalStates.get(claudeSessionId);
+    if (memPrev) return commitTerminal(memPrev, reviveOnPtyActivity(memPrev, t)).changed;
+    return false;
+  }
+
+  function registerTerminalSession(claudeSessionId: string, overrideNow?: number): void {
+    // A topic session owns this id — leave it to the DB-backed path.
+    if (repo.loadByClaudeSessionId(claudeSessionId)) return;
+    const existing = terminalStates.get(claudeSessionId);
+    // Already tracking a live incarnation — keep its phase.
+    if (existing && isActivePhase(existing.phase)) return;
+    const t = overrideNow ?? now();
+    const state = makeInitialState(claudeSessionId, null, t);
+    terminalStates.set(claudeSessionId, state);
+    scheduleBroadcast(state);
+  }
+
+  function dropTerminalSession(claudeSessionId: string): void {
+    terminalStates.delete(claudeSessionId);
   }
 
   function reapOnce(overrideNow?: number): number {
@@ -220,15 +329,28 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         changed += 1;
       }
     });
+    // Same stale-phase sweep for in-memory terminal sessions — EXCEPT the
+    // starting→error rule. A terminal session sits at 'starting' while it idles
+    // at an empty prompt (or after a reattach that won't re-fire SessionStart);
+    // that's not a failed launch, so we must not mark it errored.
+    for (const prev of terminalStates.values()) {
+      if (prev.phase === 'starting') continue;
+      const idle = ptyIdleMs?.(prev.claudeSessionId) ?? null;
+      const next = reapStaleSession(prev, t, reaperConfig, idle);
+      if (next !== prev) {
+        commitTerminal(prev, next);
+        changed += 1;
+      }
+    }
     return changed;
   }
 
   function listSessions(): ClaudeSessionState[] {
-    return repo.listAll();
+    return [...repo.listAll(), ...terminalStates.values()];
   }
 
   function getSession(claudeSessionId: string): ClaudeSessionState | null {
-    return repo.loadByClaudeSessionId(claudeSessionId) ?? null;
+    return repo.loadByClaudeSessionId(claudeSessionId) ?? terminalStates.get(claudeSessionId) ?? null;
   }
 
   function getSessionByKey(sessionKey: string): ClaudeSessionState | null {
@@ -289,6 +411,11 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
 
   return {
     ingestHook,
+    notePtyCrash,
+    noteDormant,
+    notePtyActivity,
+    registerTerminalSession,
+    dropTerminalSession,
     reapOnce,
     listSessions,
     getSession,

@@ -26,8 +26,8 @@ describe("derivePhaseTerminals — active / resting partition", () => {
     }
   });
 
-  test("known non-active phases are resting (suppress pty)", () => {
-    for (const p of ["awaiting-user", "awaiting-approval", "paused", "completed", "error", "dormant", "starting"] as const) {
+  test("confidently-idle phases are resting (suppress pty)", () => {
+    for (const p of ["awaiting-user", "awaiting-approval", "paused", "completed", "error", "dormant"] as const) {
       const { active, resting } = derivePhaseTerminals(
         roster([["t1", "claude-code", "c1"]]),
         phases([["c1", { phase: p }]]),
@@ -35,6 +35,17 @@ describe("derivePhaseTerminals — active / resting partition", () => {
       expect([...active]).toEqual([]);
       expect([...resting]).toEqual(["t1"]);
     }
+  });
+
+  test("'starting' is NEITHER active nor resting → pty drives it (work-while-starting fix)", () => {
+    // A session can sit at 'starting' while genuinely working when its phase
+    // hooks never advance it; suppressing pty there hid the loading spinner.
+    const { active, resting } = derivePhaseTerminals(
+      roster([["t1", "claude-code", "c1"]]),
+      phases([["c1", { phase: "starting" }]]),
+    );
+    expect([...active]).toEqual([]);
+    expect([...resting]).toEqual([]);
   });
 
   test("no phase entry → neither active nor resting (pty alone drives it)", () => {
@@ -70,9 +81,11 @@ describe("terminalLoadingFrom — phase-authoritative", () => {
     expect(terminalLoadingFrom("t1", new Set(["t1"]), new Set(), new Set(["t1"]))).toBe(true);
   });
 
-  test("resting phase SUPPRESSES pty — the open-a-session false-loading fix", () => {
-    // Fresh claude-code session: phase=starting (resting), TUI startup paint
-    // makes pty busy → must NOT show loading.
+  test("resting phase SUPPRESSES pty (e.g. awaiting-user with an idle redraw)", () => {
+    // A confidently-idle phase (awaiting-user/paused/completed/…) suppresses the
+    // pty heuristic so a TUI repaint doesn't show loading. NB: `starting` is NOT
+    // resting anymore (see derivePhaseTerminals) — this tests the function
+    // contract given a resting id, not the starting phase.
     expect(terminalLoadingFrom("t1", new Set(), new Set(["t1"]), new Set(["t1"]))).toBe(false);
   });
 

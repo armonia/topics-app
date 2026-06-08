@@ -2,9 +2,12 @@ import { describe, expect, it } from 'bun:test';
 import {
   applyHook,
   applyJsonlEvent,
+  markDormant,
+  markPtyCrash,
   makeInitialState,
   parseJsonlLine,
   reapStaleSession,
+  reviveOnPtyActivity,
   splitJsonlChunk,
   type ClaudeSessionState,
   type HookPayload,
@@ -261,6 +264,76 @@ describe('reapStaleSession', () => {
     const s1 = reapStaleSession(s0, T0 + 6 * 60 * 1000);
     expect(s1.phase).toBe('error');
     expect(s1.error?.code).toBe('start-timeout');
+  });
+
+  it('demotes a running session whose PTY has been idle >10min to dormant', () => {
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0, lastTool: { name: 'X', startedAt: T0 } });
+    // ptyIdleMs over the threshold → genuinely stuck (missed Stop hook).
+    const s1 = reapStaleSession(s0, T0 + 30 * 60 * 1000, undefined, 11 * 60 * 1000);
+    expect(s1.phase).toBe('dormant');
+    expect(s1.lastTool).toBeUndefined();
+    expect(s1.rev).toBe(4);
+  });
+
+  it('NEVER reaps a running session whose PTY is still busy, however old the phase', () => {
+    // age is huge (a long turn) but the PTY is active → real work, leave it.
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+    const s1 = reapStaleSession(s0, T0 + 60 * 60 * 1000, undefined, 0);
+    expect(s1).toBe(s0);
+  });
+
+  it('does not reap running when there is no PTY signal (null) — preserves chat-session behaviour', () => {
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+    const s1 = reapStaleSession(s0, T0 + 60 * 60 * 1000, undefined, null);
+    expect(s1).toBe(s0);
+    // omitting the arg entirely behaves the same (defaults to null).
+    expect(reapStaleSession(s0, T0 + 60 * 60 * 1000)).toBe(s0);
+  });
+
+  it('leaves a running session with brief PTY idleness alone', () => {
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+    const s1 = reapStaleSession(s0, T0 + 30 * 60 * 1000, undefined, 9 * 60 * 1000);
+    expect(s1).toBe(s0);
+  });
+});
+
+describe('reviveOnPtyActivity', () => {
+  it('revives a dormant session back to running', () => {
+    const s0 = freshState({ phase: 'dormant', rev: 5 });
+    const s1 = reviveOnPtyActivity(s0, T0 + TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.rev).toBe(6);
+  });
+
+  it('is a no-op for any non-dormant phase (does not clobber awaiting-user)', () => {
+    for (const phase of ['running', 'tool-running', 'awaiting-user', 'awaiting-approval', 'paused', 'completed', 'error'] as const) {
+      const s0 = freshState({ phase, rev: 5 });
+      expect(reviveOnPtyActivity(s0, T0 + TICK)).toBe(s0);
+    }
+  });
+});
+
+describe('markPtyCrash / markDormant', () => {
+  it('markPtyCrash transitions active session to error with code', () => {
+    const s0 = freshState({ phase: 'running', rev: 4 });
+    const s1 = markPtyCrash(s0, 137, T0 + TICK);
+    expect(s1.phase).toBe('error');
+    expect(s1.error?.code).toBe('pty-crashed');
+    expect(s1.error?.message).toContain('137');
+    expect(s1.rev).toBe(5);
+  });
+
+  it('markPtyCrash is a no-op on a completed session', () => {
+    const s0 = freshState({ phase: 'completed', rev: 9 });
+    const s1 = markPtyCrash(s0, 1, T0 + TICK);
+    expect(s1).toBe(s0);
+  });
+
+  it('markDormant moves active session to dormant', () => {
+    const s0 = freshState({ phase: 'awaiting-user', rev: 4 });
+    const s1 = markDormant(s0, T0 + TICK);
+    expect(s1.phase).toBe('dormant');
+    expect(s1.rev).toBe(5);
   });
 });
 

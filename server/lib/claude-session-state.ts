@@ -289,6 +289,16 @@ export function reapStaleSession(
   prev: ClaudeSessionState,
   now: number,
   config: ReaperConfig = DEFAULT_REAPER_CONFIG,
+  /**
+   * Milliseconds since this session's PTY last produced (non-cosmetic) output,
+   * or null when there is no PTY signal (a chat/repo session, or a terminal
+   * session we have no activity record for). Drives the `running` rule: a phase
+   * pinned at `running` is only "stale" if the PTY has ALSO gone quiet — a
+   * genuinely long turn keeps the PTY busy, so it is never reaped. Omitted →
+   * treated as null → the `running` rule is a no-op (preserves prior behaviour
+   * for non-terminal sessions).
+   */
+  ptyIdleMs: number | null = null,
 ): ClaudeSessionState {
   if (TERMINAL_PHASES.has(prev.phase)) return prev;
 
@@ -300,6 +310,29 @@ export function reapStaleSession(
         return transition({ ...prev, updatedAt: now }, {
           phase: 'running',
           lastTool: undefined,
+        }, now);
+      }
+      return prev;
+
+    case 'running':
+      // A session stuck at `running` while its PTY is alive (still in the
+      // roster) but SILENT for a long time is a missed `Stop` hook, not work in
+      // progress — Claude Code hooks fire unreliably and PreToolUse/PostToolUse
+      // were dropped, so nothing else moves it out of `running`. Left alone it
+      // pins the loading dots (and the project rollup) forever.
+      //
+      // Gate strictly on PTY idleness, NOT on `age`: for a live `running`
+      // session `age` is just "time since the prompt was submitted", which is
+      // large for any long turn and would wrongly reap real work. ptyIdleMs is
+      // the honest "nothing is happening" signal. Demote to `dormant` (the
+      // client then lets the PTY decide, and there's no false attention badge or
+      // completion toast). If the turn was merely silent and resumes, the PTY's
+      // next frame revives it via reviveOnPtyActivity → running.
+      if (ptyIdleMs != null && ptyIdleMs >= config.runningTimeoutMs) {
+        return transition({ ...prev, updatedAt: now }, {
+          phase: 'dormant',
+          lastTool: undefined,
+          pendingApproval: undefined,
         }, now);
       }
       return prev;
@@ -331,13 +364,71 @@ export interface ReaperConfig {
   toolRunningTimeoutMs: number;
   awaitingApprovalTimeoutMs: number;
   startTimeoutMs: number;
+  /** Max PTY-idle time a `running` session may accrue before it's treated as a
+   *  missed Stop hook and demoted to dormant. Generous because it's gated on
+   *  real PTY silence — only a session producing NO output for this long. */
+  runningTimeoutMs: number;
 }
 
 export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
   toolRunningTimeoutMs: 10 * 60 * 1000,
   awaitingApprovalTimeoutMs: 10 * 60 * 1000,
   startTimeoutMs: 5 * 60 * 1000,
+  runningTimeoutMs: 10 * 60 * 1000,
 };
+
+/**
+ * Mark a session as errored. Used by the PTY-exit signal path; not derivable
+ * from hooks alone (the whole point of "crash" is the hook never arrived).
+ */
+export function markPtyCrash(
+  prev: ClaudeSessionState,
+  exitCode: number,
+  now: number,
+): ClaudeSessionState {
+  if (TERMINAL_PHASES.has(prev.phase)) return prev;
+  return transition({ ...prev, updatedAt: now }, {
+    phase: 'error',
+    error: { code: 'pty-crashed', message: `PTY exited with code ${exitCode}`, failedAt: now },
+    lastTool: undefined,
+    pendingApproval: undefined,
+  }, now);
+}
+
+/**
+ * Mark a session as dormant — its PTY is gone but the claude_session_id is
+ * still resumable via `claude --resume`.
+ */
+export function markDormant(
+  prev: ClaudeSessionState,
+  now: number,
+): ClaudeSessionState {
+  if (prev.phase === 'dormant' || TERMINAL_PHASES.has(prev.phase)) return prev;
+  return transition({ ...prev, updatedAt: now }, {
+    phase: 'dormant',
+    lastTool: undefined,
+    pendingApproval: undefined,
+  }, now);
+}
+
+/**
+ * Revive a dormant session because its PTY just produced output. This is the
+ * counterpart to the `running`-reaper: if the reaper demoted a merely-silent
+ * (not finished) turn to `dormant`, the next non-cosmetic PTY frame proves it
+ * was still working, so we put it back to `running` and the loading dots return.
+ *
+ * ONLY revives from `dormant` — never clobbers awaiting-user / awaiting-approval
+ * / paused (a TUI repaint there is not a new turn) nor a terminal phase. No-op
+ * (returns the input ref) for every other phase, so it's cheap to call on every
+ * frame.
+ */
+export function reviveOnPtyActivity(
+  prev: ClaudeSessionState,
+  now: number,
+): ClaudeSessionState {
+  if (prev.phase !== 'dormant') return prev;
+  return transition({ ...prev, updatedAt: now }, { phase: 'running' }, now);
+}
 
 /**
  * Initial state for a brand-new session.
