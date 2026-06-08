@@ -254,8 +254,8 @@ export function ProjectWindowPane({
     return () => window.removeEventListener('global-tab:focus-inner', handler);
   }, [projectPath, groups, handleActivatePane]);
 
-  // Persist tab identity to server (cross-device sync) and layout to
-  // localStorage only. Owns the userEditedRef flag-flip via mountedRef.
+  // Persist tab identity to the server (cross-device sync) and layout to
+  // localStorage only, on every layout/chat change.
   useProjectPersistenceSave({
     projectPath,
     panes,
@@ -265,7 +265,6 @@ export function ProjectWindowPane({
     sidebarCollapsed,
     activeChatTopicId: activeTopicId ?? undefined,
     focusedGroupId,
-    gateRefs: loaded.gateRefs,
     onOpenPanesChange,
   });
 

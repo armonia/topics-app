@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { PersistedSnapshot, PersistenceGateRefs } from './types';
-import { loadPersistedState, markChatSyncComplete } from './projectPersistence';
+import { loadPersistedState, markChatSyncComplete, unsubscribeFromProjectLayout } from './projectPersistence';
 
 export interface UseProjectPersistenceLoadArgs {
   projectPath: string;
@@ -36,20 +36,14 @@ export interface UseProjectPersistenceLoadReturn {
  *  - Loads the initial snapshot from localStorage at mount.
  *  - Subscribes to async server hydration via `loadPersistedState`'s
  *    callback param and forwards into the registered onServerHydrate.
- *  - Holds the cross-hook sync gates (userEditedRef, mountedRef,
- *    initialChatsSyncedRef) so all hooks converge on the same flags.
+ *  - Holds the cross-hook `initialChatsSyncedRef` gate so all hooks
+ *    converge on the same "initial restore done" flag.
  *
  * Does NOT save anything — that's `useProjectPersistenceSave`'s job.
- *
- * Resets `userEditedRef` to false whenever `projectPath` changes (a
- * project switch counts as a fresh load; the user's edits to the
- * previous project don't transfer).
  */
 export function useProjectPersistenceLoad(
   args: UseProjectPersistenceLoadArgs,
 ): UseProjectPersistenceLoadReturn {
-  const userEditedRef = useRef(false);
-  const mountedRef = useRef(false);
   const initialChatsSyncedRef = useRef(false);
 
   // Load snapshot once (per `projectPath`). Use a ref so re-renders don't
@@ -73,29 +67,31 @@ export function useProjectPersistenceLoad(
 
   const onServerHydrateRef = useRef<((fresh: PersistedSnapshot) => void) | null>(null);
 
-  // Async hydration: subscribe to fresher snapshots from the pane-store
-  // reducer's `projects[path]` (WS init, cross-device sync). Forward to
-  // whoever registered onServerHydrate.
-  //
-  // Reset `userEditedRef` whenever `projectPath` changes. Note: this
-  // races with `markUserEdited` only if the user makes a layout edit on
-  // a different project AND switches to this project in the same frame
-  // — practically impossible. The save effect's flag-flip happens AFTER
-  // mount, so it cannot fire before this reset on first render.
+  // Async hydration: subscribe to fresher snapshots (WS init / cross-device
+  // sync) and forward them to whoever registered onServerHydrate. Reset the
+  // initial-restore gate whenever `projectPath` changes (a project switch is a
+  // fresh load).
   useEffect(() => {
-    userEditedRef.current = false;
     initialChatsSyncedRef.current = false;
     loadPersistedState(args.projectPath, (fresh) => {
-      if (userEditedRef.current) return;
+      // No userEditedRef gate here: cross-device hydration is additive (union)
+      // in onServerHydrate, so forwarding a remote snapshot can only ADD tabs
+      // this device is missing — it can never clobber a local edit. Echo/stale
+      // frames are already filtered in projectLayoutSync.applyServerValue
+      // (sourceClientId + server_seq + last-synced-JSON) before reaching here.
       onServerHydrateRef.current?.(fresh);
     });
+    // Drop the cross-device subscription when this project unmounts or the path
+    // changes, so the per-project callback + its WS fan-out slot don't leak for
+    // the life of the page.
+    return () => unsubscribeFromProjectLayout(args.projectPath);
   }, [args.projectPath]);
 
   // eslint-disable-next-line react-hooks/refs -- the returned object exposes/mutates the snapshot reseeded during render above. `initial` is read only in mount-only useState seeders or a per-render ref mirror; `bumpInitial` runs later (server-hydrate) and merges in place by design so readers see fresher data WITHOUT a re-render (see the `initial` JSDoc). A ref is the correct store here, not state.
   return {
     // eslint-disable-next-line react-hooks/refs -- see the disable above: this snapshot read during render is intentional; `initial` is consumed only by mount-only seeders / a per-render ref mirror
     initial: snapshotRef.current,
-    gateRefs: { userEditedRef, mountedRef, initialChatsSyncedRef },
+    gateRefs: { initialChatsSyncedRef },
     markChatSyncDone: () => markChatSyncComplete(args.projectPath),
     setOnServerHydrate: (cb) => {
       onServerHydrateRef.current = cb;
