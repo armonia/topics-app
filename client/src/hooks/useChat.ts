@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, ContentBlock, Message, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatRequest, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
@@ -9,6 +9,39 @@ import { useRefMirror } from './useRefMirror';
 const CACHE_PREFIX = 'messages-cache-';
 const CACHE_MAX_MESSAGES = 50;
 const QUEUE_KEY = 'messages-outbound-queue';
+
+// Auto-clear stuck streams after 3 minutes of no activity. Module-scoped
+// constant — no per-render identity, so it's not a hook dependency.
+const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
+
+const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// --- Server-side internal marker stripping (pure, arg-only) ---
+// Strip {{BROWSER:...}} markers from visible content (processed server-side for navigation)
+const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
+// Strip {{TOPIC_SWITCH:...}} and {{TOPIC_NEW:...}} markers from visible content (processed server-side for topic switching)
+const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}\s*/g, '');
+// Strip {{PROJECT_CREATE:...}} and {{PROJECT_OPEN:...}} markers (server-side processed; previously leaked to UI — audit fix).
+const stripProjectMarker = (text: string): string => text.replace(/\{\{PROJECT_CREATE:[^}]+\}\}\s*/g, '').replace(/\{\{PROJECT_OPEN:[^}]+\}\}\s*/g, '');
+/**
+ * Single entry point for stripping every server-side internal marker from
+ * a visible string. The 9+ call sites in this file previously applied 2 of
+ * the 3 marker families inconsistently (PROJECT_* leaked); centralising
+ * makes the contract obvious and prevents regression when a new marker is
+ * added. Also defensively strips an *unclosed* marker at end-of-string —
+ * mirrors the server-side OPEN_MARKER_TAIL_REGEX in routes/topics.ts, so a
+ * chunk-split delta that lands on the client without a closing `}}` doesn't
+ * surface as raw `{{NAME:partial` text.
+ */
+const cleanInvisibleMarkers = (text: string): string => {
+  const closedStripped = stripProjectMarker(stripTopicSwitchMarker(stripBrowserMarker(text)));
+  return closedStripped.replace(/\{\{(?:BROWSER|TOPIC_SWITCH|TOPIC_NEW|PROJECT_CREATE|PROJECT_OPEN):[^}]*$/, '');
+};
+
+// Filter out internal gateway context messages
+const isContextMessage = (content: string): boolean => {
+  return content.startsWith('[Chat messages since your last reply');
+};
 
 export interface SendMessageOptions {
   planMode?: boolean;
@@ -154,9 +187,6 @@ export function useChat() {
   // Ref for sendMessage to allow stream:end to trigger next queued message
   const sendMessageRef = useRef<((sk: string, content: string, opts?: SendMessageOptions) => Promise<boolean>) | null>(null);
 
-  // Auto-clear stuck streams after 3 minutes of no activity
-  const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
-  
   const resetStreamTimeout = useCallback((sessionKey: string) => {
     // Clear existing timeout
     if (streamingTimeoutRef.current[sessionKey]) {
@@ -177,34 +207,6 @@ export function useChat() {
       delete streamingTimeoutRef.current[sessionKey];
     }
   }, []);
-
-  const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  // Strip {{BROWSER:...}} markers from visible content (processed server-side for navigation)
-  const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
-  // Strip {{TOPIC_SWITCH:...}} and {{TOPIC_NEW:...}} markers from visible content (processed server-side for topic switching)
-  const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}\s*/g, '');
-  // Strip {{PROJECT_CREATE:...}} and {{PROJECT_OPEN:...}} markers (server-side processed; previously leaked to UI — audit fix).
-  const stripProjectMarker = (text: string): string => text.replace(/\{\{PROJECT_CREATE:[^}]+\}\}\s*/g, '').replace(/\{\{PROJECT_OPEN:[^}]+\}\}\s*/g, '');
-  /**
-   * Single entry point for stripping every server-side internal marker from
-   * a visible string. The 9+ call sites in this file previously applied 2 of
-   * the 3 marker families inconsistently (PROJECT_* leaked); centralising
-   * makes the contract obvious and prevents regression when a new marker is
-   * added. Also defensively strips an *unclosed* marker at end-of-string —
-   * mirrors the server-side OPEN_MARKER_TAIL_REGEX in routes/topics.ts, so a
-   * chunk-split delta that lands on the client without a closing `}}` doesn't
-   * surface as raw `{{NAME:partial` text.
-   */
-  const cleanInvisibleMarkers = (text: string): string => {
-    const closedStripped = stripProjectMarker(stripTopicSwitchMarker(stripBrowserMarker(text)));
-    return closedStripped.replace(/\{\{(?:BROWSER|TOPIC_SWITCH|TOPIC_NEW|PROJECT_CREATE|PROJECT_OPEN):[^}]*$/, '');
-  };
-
-  // Filter out internal gateway context messages
-  const isContextMessage = (content: string): boolean => {
-    return content.startsWith('[Chat messages since your last reply');
-  };
 
   const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
     const newMessage: ChatMessage = {
@@ -767,14 +769,13 @@ export function useChat() {
       const decoder = new TextDecoder();
       let buffer = '';
       let assistantMessageCreated = true;
-      let currentThinking = '';
       let currentContent = '';
       let isInThinking = false;
 
       try {
         while (true) {
           const { done, value } = await reader.read();
-          
+
           if (done) break;
           
           buffer += decoder.decode(value, { stream: true });
@@ -820,7 +821,6 @@ export function useChat() {
                 // Create assistant message on first content chunk
                 if (!assistantMessageCreated) {
                   if (isInThinking) {
-                    currentThinking = chunk;
                     addMessage(sessionKey, {
                       role: 'assistant',
                       content: '',
@@ -841,7 +841,6 @@ export function useChat() {
                 } else {
                   // Accumulate into batch — single state update after the loop
                   if (isInThinking) {
-                    currentThinking += chunk;
                     thinkingBatch += chunk;
                   } else if (chunk) {
                     currentContent += chunk;
@@ -929,8 +928,8 @@ export function useChat() {
       try {
         const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
         const chatMessages: ChatMessage[] = historyResponse.messages
-          .filter((msg: any) => !isContextMessage(msg.content))
-          .map((msg: any) => ({
+          .filter(msg => !isContextMessage(msg.content))
+          .map(msg => ({
             ...msg,
             id: msg.id || generateMessageId(),
             content: cleanInvisibleMarkers(msg.content || ''),
@@ -964,7 +963,7 @@ export function useChat() {
 
       // 409 = stream already active for this session — queue the message for auto-send
       // when the current stream ends (Claude Code-style message queuing)
-      const is409 = err && typeof err === 'object' && 'status' in err && (err as any).status === 409;
+      const is409 = !!err && typeof err === 'object' && 'status' in err && (err as { status?: unknown }).status === 409;
       if (is409) {
         // Remove the optimistic assistant placeholder but keep the user message visible
         setMessages(prev => {
@@ -1030,7 +1029,7 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage]);
+  }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage, messagesRef]);
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
@@ -1085,7 +1084,7 @@ export function useChat() {
     }
 
     return isFirstMessage;
-  }, [updateLastMessage]);
+  }, [updateLastMessage, messagesRef]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
@@ -1206,7 +1205,7 @@ export function useChat() {
     } finally {
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
     }
-  }, [resetStreamTimeout]);
+  }, [resetStreamTimeout, messagesRef]);
 
   /** Edit a user message — creates a new branch and streams the assistant response. */
   const editMessage = useCallback(async (sessionKey: string, messageId: string, newContent: string): Promise<boolean> => {
@@ -1233,8 +1232,8 @@ export function useChat() {
       // We do this to get the updated thread with the new branch
       const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
       const chatMessages: ChatMessage[] = historyResponse.messages
-        .filter((msg: any) => !isContextMessage(msg.content))
-        .map((msg: any) => ({
+        .filter(msg => !isContextMessage(msg.content))
+        .map(msg => ({
           ...msg,
           id: msg.id || generateMessageId(),
           content: cleanInvisibleMarkers(msg.content || ''),
@@ -1257,8 +1256,6 @@ export function useChat() {
       }
       const decoder = new TextDecoder();
       let buffer = '';
-      let currentContent = '';
-      let currentThinking = '';
       let isInThinking = false;
 
       // Add a placeholder partial assistant message
@@ -1295,8 +1292,8 @@ export function useChat() {
                 if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
                 if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
                 if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
-                if (isInThinking) { currentThinking += chunk; thinkingBatch += chunk; }
-                else if (chunk) { currentContent += chunk; contentBatch += chunk; }
+                if (isInThinking) { thinkingBatch += chunk; }
+                else if (chunk) { contentBatch += chunk; }
               }
             } catch {}
           }
@@ -1336,9 +1333,9 @@ export function useChat() {
       setError(null);
       const response = await chatApi.switchBranch(messageId, branchIndex);
 
-      const chatMessages: ChatMessage[] = response.messages
-        .filter((msg: any) => !isContextMessage(msg.content))
-        .map((msg: any) => ({
+      const chatMessages: ChatMessage[] = (response.messages as HistoryMessage[])
+        .filter((msg) => !isContextMessage(msg.content))
+        .map((msg) => ({
           ...msg,
           id: msg.id || generateMessageId(),
           content: cleanInvisibleMarkers(msg.content || ''),
@@ -1453,7 +1450,7 @@ export function useChat() {
       // Clear any "queued" error banner now that we've processed the queue
       setError(prev => (prev?.includes('queued') ? null : prev));
     }
-  }, []);
+  }, [messagesRef]);
 
   const retryExpired = useCallback(async (item: QueuedMessage) => {
     setExpiredMessages(prev => prev.filter(m => m !== item));

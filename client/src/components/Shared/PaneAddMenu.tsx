@@ -197,7 +197,7 @@ export function PaneAddMenuItems({
   // (any future PaneType not in this list) appear at the end in their
   // declared order so adding a new addableScopes entry still surfaces
   // it without a code change here.
-  const SORTED_AVAILABLE: PaneType[] = ['terminal', 'browser', 'git', 'files', 'board-memory'];
+  const SORTED_AVAILABLE: PaneType[] = ['terminal', 'browser', 'git', 'files'];
   const orderedTypes = availableTypes
     ? [
         ...SORTED_AVAILABLE.filter((t) => availableTypes.includes(t)),
@@ -468,8 +468,8 @@ export function PaneAddMenu({
             ref={menuRef}
             className={
               isMobile
-                ? 'fixed bottom-0 left-0 right-0 bg-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-                : 'fixed bg-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'
+                ? 'fixed bottom-0 left-0 right-0 glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
+                : 'fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'
             }
             style={
               isMobile

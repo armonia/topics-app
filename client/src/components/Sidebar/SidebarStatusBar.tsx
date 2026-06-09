@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
+import type { ConnectionStatus } from '@/types';
 
 declare const __BUILD_TIME__: string;
 
@@ -120,7 +121,7 @@ function useFps() {
   return fps;
 }
 
-export function SidebarStatusBar() {
+export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: ConnectionStatus; dataNotice?: string | null } = {}) {
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
   const openclawAvailable = useOpenClawAvailable();
@@ -180,7 +181,7 @@ export function SidebarStatusBar() {
 
   return (
     <>
-      <div className="flex items-center gap-2 h-7 px-3 border-t border-app-border flex-shrink-0 bg-app-bg">
+      <div className="flex items-center gap-2 min-h-7 px-3 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -221,6 +222,40 @@ export function SidebarStatusBar() {
           )}
         </button>
 
+        {/* WebSocket connection status — moved here from the sidebar header.
+            Only visible when not connected; offline = red, connecting/
+            reconnecting = amber. The dot pulses; the label stays steady. */}
+        {wsStatus && wsStatus !== 'connected' && (
+          <span
+            data-testid="ws-connection-status"
+            className={`flex items-center gap-1.5 text-[11px] min-w-0 overflow-hidden ${
+              wsStatus === 'offline' ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'
+            }`}
+            title="Stato connessione realtime al server Topics"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse ${
+              wsStatus === 'offline' ? 'bg-red-500' : 'bg-amber-500'
+            }`} />
+            <span className="truncate">
+              {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
+            </span>
+          </span>
+        )}
+
+        {/* Data-fetch notice (e.g. "Using cached data — server unreachable")
+            moved here from the red sidebar banner. Shown only when the WS IS
+            connected — otherwise the WS status above already says it all. */}
+        {wsStatus === 'connected' && dataNotice && (
+          <span
+            data-testid="data-notice"
+            className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 min-w-0 overflow-hidden"
+            title={dataNotice}
+          >
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-500" />
+            <span className="truncate">{dataNotice}</span>
+          </span>
+        )}
+
         <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' ago' : 'dev'}`}>
           {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
           <button
@@ -234,13 +269,16 @@ export function SidebarStatusBar() {
         </span>
       </div>
 
+      {/* eslint-disable-next-line react-hooks/refs -- portal is positioned against the status button's live geometry; the rect must be read at render time and re-renders alongside this component so the placement stays in sync */}
       {showStatusDropdown && statusBtnRef.current && createPortal(
         <div
           ref={statusDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[320px]"
+          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[320px]"
           style={{
             position: 'fixed',
+            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect against the live button node positions the fixed dropdown above it
             bottom: window.innerHeight - statusBtnRef.current.getBoundingClientRect().top + 4,
+            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read for horizontal placement
             left: statusBtnRef.current.getBoundingClientRect().left,
             zIndex: 9999,
           }}

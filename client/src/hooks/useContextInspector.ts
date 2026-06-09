@@ -69,6 +69,7 @@ export function useMultiContextPercent(
       }),
     );
     setPercents(results);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the stable serialization of paneToTopicId; depending on the object directly would re-create fetchAll on every render even when contents are unchanged
   }, [key]);
 
   useEffect(() => {
@@ -89,6 +90,7 @@ export function useMultiContextPercent(
       }
     });
     return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the stable serialization of paneToTopicId; the topicIds Set is rebuilt from it inside, so depending on the object directly would only churn the subscription needlessly
   }, [onMessage, key, fetchAll]);
 
   return percents;

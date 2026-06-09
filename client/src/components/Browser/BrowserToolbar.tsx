@@ -54,6 +54,7 @@ export function BrowserToolbar({
   const [faviconError, setFaviconError] = useState(false);
 
   // Reset favicon error state when URL changes (new favicon may load).
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local error flag to the faviconUrl prop; resets to a constant so it converges immediately and can't loop (faviconUrl is not derived from this state)
   useEffect(() => { setFaviconError(false); }, [faviconUrl]);
 
   // Phase 30.1 polish — register focus-bar callback so Cmd+L can focus
@@ -217,7 +218,7 @@ export function BrowserToolbar({
           </button>
           {historyOpen && (
             <div
-              className="absolute top-full right-0 mt-1 z-50 min-w-[260px] max-w-[480px] bg-surface dark:bg-elevated border border-app-border rounded-md shadow-xl py-1"
+              className="absolute top-full right-0 mt-1 z-50 min-w-[260px] max-w-[480px] glass-surface border border-app-border rounded-md shadow-xl py-1"
               data-testid="browser-history-menu"
             >
               {history.slice(0, 10).map((entry) => (

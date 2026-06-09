@@ -109,7 +109,6 @@ describe("MCP stdio server (subprocess)", () => {
     expect(names).toEqual([
       "open_browser_pane", "run_script", "list_processes",
       "read_process_output", "stop_process", "list_tasks", "update_task",
-      "list_sessions", "read_session", "write_session", "close_session",
     ]);
   });
 

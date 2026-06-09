@@ -93,11 +93,6 @@ export function getProvidersSnapshotState(): SnapshotState {
   return { snapshot, error: lastError };
 }
 
-/** @deprecated prefer `getProvidersSnapshotState` so callers can react to errors. */
-export function getProvidersSnapshot(): ProvidersSnapshot | null {
-  return snapshot;
-}
-
 export function subscribeProvidersSnapshot(cb: Listener): () => void {
   ensureWired();
   listeners.add(cb);

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, AlertCircle } from 'lucide-react';
-import type { CreateTopicRequest, TopicTemplate, Project, Worktree, WSMessage } from '../../types';
+import type { CreateTopicRequest, TopicTemplate, Topic, Project, Worktree, WSMessage } from '../../types';
 import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
+import { MODAL_BACKDROP } from '../../lib/modalStyles';
 import { projectsApi, worktreesApi } from '../../lib/api';
 import { useWorktrees } from '../../hooks/useWorktrees';
 
@@ -48,7 +49,7 @@ type WorktreeMode = 'default' | 'pick-existing' | 'create-new';
 interface NewTopicModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (data: CreateTopicRequest) => Promise<any>;
+  onCreate: (data: CreateTopicRequest) => Promise<Topic | null>;
   projectPath?: string;
   /**
    * Pass `useWebSocket().onMessage` for live worktree status updates.
@@ -177,8 +178,9 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
       };
       const topic = await onCreate(data);
       if (topic) onClose();
-    } catch (err: any) {
-      setSubmitError(err?.message ?? 'Failed to create topic');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create topic';
+      setSubmitError(message);
     } finally {
       setSubmitting(false);
     }
@@ -197,12 +199,12 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose} role="presentation">
-      <div className="absolute inset-0 bg-black/40 dark:bg-black/60" aria-hidden="true" />
+      <div className={`absolute ${MODAL_BACKDROP}`} aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-topic-title"
-        className="relative w-full max-w-md mx-4 bg-surface rounded-xl shadow-2xl border border-app-border-light overflow-hidden max-h-[90vh] overflow-y-auto"
+        className="relative w-full max-w-md mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden max-h-[90vh] overflow-y-auto command-palette-enter"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import type { PanelGridRow, PanelGridCellStack } from '../../types';
 import { soloCellsFromFlat, flattenSoloCells } from './soloCells';
 
@@ -134,8 +134,10 @@ export interface PanelGridPersistence {
 export function usePanelGridPersistence(): PanelGridPersistence {
   // Read localStorage once per mount instead of three times (one per useState
   // initializer). JSON.parse on a non-trivial payload isn't free, and the
-  // three reads are always consistent anyway — they write together.
-  const initial = useRef<PanelGridPersistedData>(readPersisted()).current;
+  // three reads are always consistent anyway — they write together. Holding it
+  // in lazy `useState` (not a ref) keeps the read out of render on re-renders
+  // while staying readable inside the sibling state initializers.
+  const [initial] = useState<PanelGridPersistedData>(readPersisted);
   const [gridRows, setGridRows] = useState<PanelGridRow[]>(
     () => initial.gridRows ?? [],
   );

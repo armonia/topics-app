@@ -30,6 +30,7 @@ interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | null>(null);
 
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Context hook colocated with its ToastProvider/ToastOutlet components; splitting it out would fragment the toast module for no runtime benefit
 export function useToast(): ToastContextType {
   const ctx = useContext(ToastContext);
   if (!ctx) {

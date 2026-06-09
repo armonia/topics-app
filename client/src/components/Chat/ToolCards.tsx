@@ -13,26 +13,7 @@
  * `JSON.stringify` everything.
  */
 
-import { Terminal as TerminalIcon, FileText, FilePen, FilePlus, Search, Globe, ListChecks, Bot, Brain, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
 import type { ToolCallDetail } from '../../types';
-
-// ── Icon map keyed on detail.type ───────────────────────────────────────────
-
-export function iconForDetail(detail: ToolCallDetail): LucideIcon {
-  switch (detail.type) {
-    case 'shell': return TerminalIcon;
-    case 'read': return FileText;
-    case 'edit': return FilePen;
-    case 'write': return FilePlus;
-    case 'search': return Search;
-    case 'fetch': return Globe;
-    case 'todo': return ListChecks;
-    case 'sub_agent': return Bot;
-    case 'plan': return Brain;
-    case 'mcp': return Sparkles;
-    case 'unknown': return Wrench;
-  }
-}
 
 // ── Shell ───────────────────────────────────────────────────────────────────
 

@@ -118,6 +118,7 @@ function useBackToSpawner(
 
 function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useRemoteBrowser(contextId);
+  const { imgRef } = browser;
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
@@ -152,7 +153,22 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- depend on the specific stable members used (enter/exit/selectMode), not the whole `browser` object which is a fresh identity each render and would re-subscribe the listener every render
   }, [browser.enterSelectMode, browser.exitSelectMode, browser.selectMode]);
+
+  // Click ripple — 500ms lifetime keyed on the click timestamp so each click
+  // re-triggers the CSS animation. Driven by an effect (not `Date.now()`
+  // during render, which is impure and never schedules the auto-hide): a new
+  // click timestamp shows the ripple and arms a timer to clear it after 500ms.
+  // Declared before the early-return below to keep hook order stable.
+  const [showRipple, setShowRipple] = useState(false);
+  const clickT = browser.lastClickPos?.t;
+  useEffect(() => {
+    if (clickT == null) return;
+    setShowRipple(true);
+    const id = setTimeout(() => setShowRipple(false), 500);
+    return () => clearTimeout(id);
+  }, [clickT]);
 
   // localhost iframe fallback — early-return path with full toolbar.
   const isLocalhost = browser.url && LOCAL_HOST_RX.test(browser.url);
@@ -208,9 +224,6 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
     browser.connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
     'bg-red-500';
 
-  // Click ripple — 500ms lifetime keyed on click timestamp so each click
-  // remounts the element and re-triggers the CSS animation.
-  const showRipple = !!browser.lastClickPos && (Date.now() - browser.lastClickPos.t < 500);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -256,7 +269,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
 
         {browser.screenshotSrc && !(browser.connected && (!browser.url || browser.url === 'about:blank')) ? (
           <img
-            ref={browser.imgRef}
+            ref={imgRef}
             src={browser.screenshotSrc}
             alt={browser.title || 'Browser page'}
             className="w-full h-full object-contain cursor-default select-none"
@@ -345,7 +358,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
         <SelectElementOverlay
           contextId={contextId}
           active={browser.selectMode}
-          imgRef={browser.imgRef}
+          imgRef={imgRef}
           pageScaleFactor={browser.pageScaleFactor}
           onPick={(el) => {
             // SelectElementOverlay also dispatches the chat:insert-text custom
@@ -393,6 +406,7 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
     if (!findOpen) return;
     if (!findText) {
       browser.stopFind();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing find-result counters when the query empties; resets to constant zero state synced to findText, cannot loop (findText is not derived from findResult)
       setFindResult({ activeMatchOrdinal: 0, matches: 0 });
       return;
     }

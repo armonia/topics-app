@@ -48,7 +48,12 @@ export function useSpeechToText() {
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
 
   useEffect(() => {
-    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const win = window as Window & {
+      SpeechRecognition?: { new (): SpeechRecognitionType };
+      webkitSpeechRecognition?: { new (): SpeechRecognitionType };
+    };
+    const SpeechRecognitionClass = win.SpeechRecognition || win.webkitSpeechRecognition;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot init syncing an external capability (Web Speech API availability) into state on mount; runs once, no cascade
     setIsSupported(!!SpeechRecognitionClass);
     
     if (SpeechRecognitionClass) {
@@ -328,6 +333,7 @@ export function useVoiceCall(
         speakAndResume(lastMsg.content);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- speakAndResume is declared below and stable enough; the lastProcessedMsgRef guard prevents re-speaking the same message, so omitting it avoids re-running on every speakAndResume identity change
   }, [currentMessages, isStreaming, isCallActive, callStatus]);
 
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);

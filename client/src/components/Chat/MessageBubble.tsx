@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useRef } from 'react';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
-import type { Topic, ChatMessage } from '../../types';
+import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageContent } from '../MessageContent';
 
 // Detect touch-only devices (no fine pointer / no hover capability)
@@ -8,15 +8,20 @@ const isTouchDevice = typeof window !== 'undefined' && (
   'ontouchstart' in window || window.matchMedia('(hover: none)').matches
 );
 
-// Detect emoji-only messages (1-5 emojis/symbols with no other text)
+// Detect emoji-only messages (1-5 emojis/symbols with no other text).
+// ZWJ (\u200d) and VS16 (\ufe0f) are intentional allow-listed *filler*
+// codepoints so emoji ZWJ sequences (\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67) and variation-selector emoji (\u270c\ufe0f)
+// still pass \u2014 they are matched per-codepoint inside the quantified class, not
+// as a single grapheme. The lint flag is a false positive for this usage.
+// eslint-disable-next-line no-misleading-character-class
 const EMOJI_REGEX = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\ufe0f\u2713\u2714\u2715\u2716\u2718\u2022\s]{1,10}$/u;
-export const isEmojiOnly = (content: string): boolean => {
+const isEmojiOnly = (content: string): boolean => {
   const trimmed = content.trim();
   if (trimmed.length === 0 || trimmed.length > 20) return false;
   return EMOJI_REGEX.test(trimmed) && !/[a-zA-Z0-9]/.test(trimmed);
 };
 
-export const formatTimestamp = (ts: string): string => {
+const formatTimestamp = (ts: string): string => {
   try {
     const date = new Date(ts);
     const now = new Date();
@@ -32,7 +37,7 @@ export const formatTimestamp = (ts: string): string => {
   }
 };
 
-export const getDateSeparator = (ts: string, prevTs?: string): string | null => {
+const getDateSeparator = (ts: string, prevTs?: string): string | null => {
   try {
     const date = new Date(ts);
     const now = new Date();
@@ -72,7 +77,7 @@ interface MessageBubbleProps {
   onEdit?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
 }
 

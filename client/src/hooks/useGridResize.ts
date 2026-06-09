@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { equalizeWidths } from '../components/Layout/gridWidths';
 import { MIN_PANE_FRACTION } from '../components/Layout/constants';
+import { useRefMirror } from './useRefMirror';
 
 interface ResizeCallbacks {
   onHorizontalResize: (rowIdx: number, divIdx: number, newWidths: number[]) => void;
@@ -25,11 +26,11 @@ export function useGridResize(
   callbacks: ResizeCallbacks,
   options?: ResizeOptions,
 ) {
-  const callbacksRef = useRef(callbacks);
-  callbacksRef.current = callbacks;
-
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
+  // useRefMirror is the canonical state→ref bridge: it keeps the latest
+  // callbacks/options readable inside the stable window mouse handlers
+  // without re-subscribing them on every render.
+  const callbacksRef = useRefMirror(callbacks);
+  const optionsRef = useRefMirror(options);
 
   const hResizing = useRef<{
     rowIdx: number;
@@ -75,7 +76,7 @@ export function useGridResize(
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
     },
-    [],
+    [containerRef, optionsRef],
   );
 
   const startVerticalResize = useCallback(
@@ -93,7 +94,7 @@ export function useGridResize(
       document.body.style.cursor = 'row-resize';
       document.body.style.userSelect = 'none';
     },
-    [],
+    [containerRef, optionsRef],
   );
 
   // Double-click a divider → reset the whole row/column band to equal sizes
@@ -107,7 +108,7 @@ export function useGridResize(
       if (count <= 1) return;
       callbacksRef.current.onHorizontalResize(rowIdx, 0, equalizeWidths(count));
     },
-    [],
+    [callbacksRef],
   );
 
   const equalizeVertical = useCallback(
@@ -115,7 +116,7 @@ export function useGridResize(
       if (count <= 1) return;
       callbacksRef.current.onVerticalResize(0, equalizeWidths(count));
     },
-    [],
+    [callbacksRef],
   );
 
   useEffect(() => {
@@ -259,7 +260,7 @@ export function useGridResize(
         dragChrome.current = null;
       }
     };
-  }, [containerRef]);
+  }, [containerRef, callbacksRef]);
 
   return { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical };
 }

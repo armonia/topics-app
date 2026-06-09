@@ -2,27 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check, Crown, Sparkles, RefreshCw, Repeat } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished } from '../../state/signals';
-import { useTerminalSessions } from '../../contexts/TopicsContext';
-import { masterApi } from '../../lib/api';
-
-// Starter prompts for the Master pane. They are TYPED into the PTY (no
-// trailing newline) so the user reviews + presses Enter — stays on the
-// subscription (human-driven). interactive-claude-primitive.
-const MASTER_STARTERS: { label: string; prompt: string }[] = [
-  { label: 'Valuta sessioni', prompt: 'Elenca le mie sessioni attive (usa list_sessions) e per ognuna dimmi cosa conviene fare, chiudendo col blocco ## Next.' },
-  { label: "Cos'è in sospeso", prompt: 'Quali sessioni hanno qualcosa in sospeso che richiede una mia azione? Elencale nel blocco ## Next.' },
-  { label: 'Chiudi concluse', prompt: 'Quali sessioni risultano concluse e si possono chiudere? Proponile con COMPLETA nel blocco ## Next.' },
-];
-
-// Recurring auto-pilot via Claude Code's native /loop (interactive bucket →
-// stays on the Max subscription, unlike headless `-p`). Prefilled with an
-// interval; the user reviews and presses Enter to arm it.
-const MASTER_LOOP_PROMPT =
-  '/loop 10m Rivaluta le mie sessioni attive (list_sessions): chiudi (close_session) quelle palesemente concluse e inattive, e riassumimi nel blocco ## Next solo quelle che richiedono una mia azione. Se non c’è nulla di sicuro da fare, fermati e aspettami.';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -125,14 +108,6 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   }, [isActive, finished, sessionId]);
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
-
-  // Master pane chrome — identity + starter prompts + proposal refresh.
-  // Detected by the session name ('Master', set at creation). Self-contained
-  // so no parent threading. interactive-claude-primitive.
-  const terminalSessions = useTerminalSessions();
-  const isMaster = terminalSessions.some((s) => s.id === sessionId && s.name === 'Master');
-  const [ingesting, setIngesting] = useState(false);
-  const [ingestMsg, setIngestMsg] = useState<string | null>(null);
 
   // Track dark/light theme
   useEffect(() => {
@@ -281,12 +256,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       if (!s) return false;
       const stripped = s
         // OSC: ESC ] ... BEL  or  ESC ] ... ESC \
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
         // CSI / SGR / private modes: ESC [ params? final
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
         // 2-byte ESC sequences (e.g. ESC =, ESC >)
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b[\x20-\x2f]*[\x30-\x7e]/g, '')
         // Bare C0 controls that aren't TAB/LF/CR
+        // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
       return /\S/.test(stripped);
     }
@@ -391,9 +370,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     });
 
     term.onResize(({ cols, rows }) => {
-      // Only send resize when this window has focus — prevents background windows
-      // from overriding the PTY size for the active window (e.g., browser vs Electron).
-      if (!document.hasFocus()) return;
+      // Only an ACTIVE window drives the shared PTY size so background windows
+      // (browser vs Electron) don't fight over it. On desktop "active" = focused.
+      // BUT on touch devices `document.hasFocus()` is unreliable — iOS PWAs
+      // frequently report false even while in the foreground — so the mobile
+      // client never resized the shared PTY: it stayed sized for some other
+      // (desktop) client and the mobile xterm rendered the TUI with a big band
+      // of empty rows below it (the "spazio sotto" on the phone). A VISIBLE
+      // touch client therefore counts as active too.
+      const active = document.hasFocus() || (isTouchDevice && document.visibilityState === 'visible');
+      if (!active) return;
       fetch(`/api/terminal/sessions/${sessionId}/resize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -447,6 +433,54 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     return () => window.removeEventListener('focus', handleFocus);
   }, [sessionId]);
 
+  // When this pane becomes the ACTIVE/visible tab, re-fit and force-send the
+  // current size to the shared PTY. Switching tabs inside an already-focused
+  // window fires NEITHER `window.focus` (the window never lost focus) NOR
+  // `document.visibilitychange` (the document stayed visible), and the
+  // ResizeObserver is a no-op when the container size didn't change — so if the
+  // shared PTY was resized by another tab/window/client while this tab was
+  // `display:none`, a full-screen TUI like Claude Code stays drawn at that stale
+  // geometry (clipped / overflowing) until you manually resize the window. This
+  // is the "ogni tanto si perde la finestra e devo resizarla" bug. Force-sending
+  // the size triggers a SIGWINCH → the TUI repaints at the right size, and
+  // `refresh()` repaints xterm's own viewport immediately. The rAF lets the
+  // just-shown element settle its layout before `fit()` measures it.
+  useEffect(() => {
+    if (!isActive) return;
+    const raf = requestAnimationFrame(() => {
+      const ref = termRef.current;
+      if (!ref) return;
+      try { ref.fit.fit(); } catch {}
+      try { ref.term.refresh(0, ref.term.rows - 1); } catch {}
+      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
+      }).catch(() => {});
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isActive, sessionId]);
+
+  // Touch devices: when the PWA returns to the foreground, re-fit and force-send
+  // dimensions. `document.hasFocus()` can't be relied on here (see onResize), so
+  // visibility is the trigger that the user is actually looking at this terminal.
+  useEffect(() => {
+    if (!isTouchDevice) return;
+    const handleVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const ref = termRef.current;
+      if (!ref) return;
+      try { ref.fit.fit(); } catch {}
+      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
+      }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => document.removeEventListener('visibilitychange', handleVisible);
+  }, [sessionId]);
+
   const handleCopyOutput = () => {
     const term = termRef.current?.term;
     if (!term) return;
@@ -473,79 +507,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
   };
 
-  // Type a starter prompt into the PTY without submitting — the user reviews
-  // and presses Enter (human-driven → subscription). Then focus the terminal.
-  const insertStarter = (prompt: string) => {
-    sendToTerminal(prompt);
-    termRef.current?.term.focus();
-  };
-
-  const refreshProposals = async () => {
-    if (ingesting) return;
-    setIngesting(true);
-    setIngestMsg(null);
-    try {
-      const r = await masterApi.ingestFromTerminal(sessionId);
-      setIngestMsg(r.proposals > 0 ? `${r.proposals} proposte → kanban` : 'Nessuna proposta trovata');
-    } catch {
-      setIngestMsg('Errore');
-    } finally {
-      setIngesting(false);
-      setTimeout(() => setIngestMsg(null), 4000);
-    }
-  };
-
   return (
     <div data-testid="single-terminal-pane" className="flex-1 min-h-0 flex flex-col">
-      {/* Master pane chrome — identity + starter prompts + proposal refresh.
-          interactive-claude-primitive. Only on the global Master terminal. */}
-      {isMaster && !stale && (
-        <div className="flex-shrink-0 flex items-center gap-2 px-2.5 py-1.5 border-b border-purple-500/30 bg-purple-500/10 overflow-x-auto select-none">
-          <span className="flex items-center gap-1.5 flex-shrink-0 text-purple-300 font-medium text-[12px]">
-            <Crown size={13} className="text-purple-400" />
-            Master · Orchestratore
-          </span>
-          <span className="w-px h-4 bg-purple-500/30 flex-shrink-0" />
-          {MASTER_STARTERS.map((s) => (
-            <button
-              key={s.label}
-              type="button"
-              data-testid={`master-starter-${s.label}`}
-              onClick={() => insertStarter(s.prompt)}
-              title={s.prompt}
-              className="flex-shrink-0 px-2 py-[3px] rounded text-[11px] bg-purple-500/15 text-purple-200 hover:bg-purple-500/30 hover:text-purple-100 transition-colors"
-            >
-              {s.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            data-testid="master-starter-loop"
-            onClick={() => insertStarter(MASTER_LOOP_PROMPT)}
-            title="Auto-pilota: pre-riempie /loop (Claude rivaluta ogni 10m e agisce sul sicuro). Premi Invio per armarlo. Gira sul tuo abbonamento Max (bucket interattivo)."
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded text-[11px] bg-amber-500/15 text-amber-200 hover:bg-amber-500/30 hover:text-amber-100 transition-colors"
-          >
-            <Repeat size={11} />
-            <span>Auto-pilota</span>
-          </button>
-          <div className="flex-1 min-w-[8px]" />
-          {ingestMsg && (
-            <span className="flex-shrink-0 text-[11px] text-purple-200/80 tabular-nums">{ingestMsg}</span>
-          )}
-          <button
-            type="button"
-            data-testid="master-refresh-proposals"
-            onClick={refreshProposals}
-            disabled={ingesting}
-            title="Leggi l'ultimo blocco ## Next dal terminale e crea le card nel kanban"
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded text-[11px] bg-purple-500/20 text-purple-100 hover:bg-purple-500/35 transition-colors disabled:opacity-50"
-          >
-            {ingesting ? <RefreshCw size={11} className="animate-spin" /> : <Sparkles size={11} />}
-            <span>Aggiorna proposte</span>
-          </button>
-        </div>
-      )}
-
       {/* Virtual key toolbar — touch devices only */}
       {isTouchDevice && !stale && (
         <div className="flex-shrink-0 flex items-center gap-1 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">

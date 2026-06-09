@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, RefreshCw, ChevronLeft, FileText, FolderOpen, Upload, Trash2 } from 'lucide-react';
-import type { Topic, UpdateTopicRequest } from '../../types';
+import type { Topic, UpdateTopicRequest, WSMessage } from '../../types';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useOpenClawContext } from '../../hooks/useOpenClawContext';
 import { useMemory } from '../../hooks/useMemory';
@@ -15,13 +15,18 @@ interface ContextInspectorProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onOpenFile?: (path: string) => void;
 }
 
 export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMessage, onOpenFile }: ContextInspectorProps) {
+  // Keep the latest topic in a ref so stable callbacks (handleToggleSource) read
+  // current values without listing `topic` in their deps. Synced in an effect to
+  // avoid mutating a ref during render.
   const topicRef = useRef(topic);
-  topicRef.current = topic;
+  useEffect(() => {
+    topicRef.current = topic;
+  }, [topic]);
 
   const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id, onMessage);
   const { data: openclawData } = useOpenClawContext();
@@ -224,18 +229,16 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             )}
 
             {/* Memory */}
-            {(memorySources.length > 0 || true) && (
-              <div>
-                <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
-                  Memory
-                </div>
-                {memorySources.length > 0 ? (
-                  renderSourceGroup(memorySources)
-                ) : (
-                  <div className="px-4 py-2 text-[11px] text-app-text-muted italic">No memory content yet</div>
-                )}
+            <div>
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2">
+                Memory
               </div>
-            )}
+              {memorySources.length > 0 ? (
+                renderSourceGroup(memorySources)
+              ) : (
+                <div className="px-4 py-2 text-[11px] text-app-text-muted italic">No memory content yet</div>
+              )}
+            </div>
 
             {/* System Prompt */}
             <div>

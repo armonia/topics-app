@@ -18,6 +18,7 @@ import {
   reapStaleSession,
   markPtyCrash,
   markDormant,
+  reviveOnPtyActivity,
   makeInitialState,
   isActivePhase,
   parseJsonlLine,
@@ -59,6 +60,14 @@ export interface ClaudeSessionTrackerOptions {
    * shorter ones.
    */
   reaperConfig?: ReaperConfig;
+  /**
+   * How long (ms) a terminal session's PTY has been idle, by claudeSessionId,
+   * or null when unknown. The reaper consults this to tell a genuinely-stuck
+   * `running` session (PTY silent for a long time → demote to dormant) from a
+   * long-but-live turn (PTY still busy → leave it). Injected by the server from
+   * the terminal route's activity tracker; omitted in tests → reaper sees null.
+   */
+  ptyIdleMs?: (claudeSessionId: string) => number | null;
 }
 
 interface DedupEntry {
@@ -90,6 +99,13 @@ export interface ClaudeSessionTracker {
    * Mark a session as dormant (PTY exited cleanly, resumable).
    */
   noteDormant(claudeSessionId: string, now?: number): boolean;
+  /**
+   * Note live PTY output for a session. Revives a `dormant` session (one the
+   * reaper demoted while it was merely silent) back to `running` so the loading
+   * dots return; no-op for any other phase. Called by the terminal route on
+   * each non-cosmetic frame.
+   */
+  notePtyActivity(claudeSessionId: string, now?: number): boolean;
   /**
    * Register a topic-less terminal claude session so its hooks resolve. These
    * have no `claude_code_sessions` row (the table's PK is a topic session_key
@@ -139,6 +155,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
   const rateLimitPerSec = opts.rateLimitPerSec ?? 50;
   const coalesceWindowMs = opts.coalesceWindowMs ?? 50;
   const reaperConfig = opts.reaperConfig ?? DEFAULT_REAPER_CONFIG;
+  const ptyIdleMs = opts.ptyIdleMs;
 
   // Dedup map: claudeSessionId|event → DedupEntry
   const dedupMap = new Map<string, DedupEntry>();
@@ -276,6 +293,15 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return false;
   }
 
+  function notePtyActivity(claudeSessionId: string, overrideNow?: number): boolean {
+    const t = overrideNow ?? now();
+    const dbPrev = repo.loadByClaudeSessionId(claudeSessionId);
+    if (dbPrev) return commit(dbPrev, reviveOnPtyActivity(dbPrev, t)).changed;
+    const memPrev = terminalStates.get(claudeSessionId);
+    if (memPrev) return commitTerminal(memPrev, reviveOnPtyActivity(memPrev, t)).changed;
+    return false;
+  }
+
   function registerTerminalSession(claudeSessionId: string, overrideNow?: number): void {
     // A topic session owns this id — leave it to the DB-backed path.
     if (repo.loadByClaudeSessionId(claudeSessionId)) return;
@@ -309,7 +335,8 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     // that's not a failed launch, so we must not mark it errored.
     for (const prev of terminalStates.values()) {
       if (prev.phase === 'starting') continue;
-      const next = reapStaleSession(prev, t, reaperConfig);
+      const idle = ptyIdleMs?.(prev.claudeSessionId) ?? null;
+      const next = reapStaleSession(prev, t, reaperConfig, idle);
       if (next !== prev) {
         commitTerminal(prev, next);
         changed += 1;
@@ -386,6 +413,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     ingestHook,
     notePtyCrash,
     noteDormant,
+    notePtyActivity,
     registerTerminalSession,
     dropTerminalSession,
     reapOnce,

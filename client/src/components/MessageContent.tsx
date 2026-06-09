@@ -1,7 +1,7 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
@@ -14,7 +14,8 @@ import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
-import { isPlanResponse, PlanView } from './Chat/PlanView';
+import { PlanView } from './Chat/PlanView';
+import { isPlanResponse } from './Chat/planDetection';
 import { AgentSpawnCard } from './Chat/AgentSpawnCard';
 
 /**
@@ -25,6 +26,7 @@ import { AgentSpawnCard } from './Chat/AgentSpawnCard';
  * markdown has no on-disk "home" — in that case relative srcs fall through
  * to the existing plain-<img> fallback (preserving current behavior).
  */
+// eslint-disable-next-line react-refresh/only-export-components -- context is consumed by markdownComponents.img in THIS file (idiomatic Provider+consumer colocation); splitting it out would orphan that coupling for dev-only HMR
 export const MarkdownBaseDirContext = createContext<string | null>(null);
 
 /**
@@ -248,8 +250,12 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
     const onMeta = () => { if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration); };
     const onTime = () => {
       setCurrentTime(audio.currentTime);
-      // Safari sometimes only reports duration after playback starts
-      if (audio.duration && isFinite(audio.duration) && duration === 0) setDuration(audio.duration);
+      // Safari sometimes only reports duration after playback starts. Read the
+      // current value via the functional updater (not the closed-over `duration`)
+      // so this mount-once effect needn't depend on it / rebind listeners.
+      if (audio.duration && isFinite(audio.duration)) {
+        setDuration(prev => (prev === 0 ? audio.duration : prev));
+      }
     };
     const onEnded = () => { setPlaying(false); setCurrentTime(0); };
     const onError = (e: Event) => console.error('Audio error:', (e.target as HTMLAudioElement)?.error);
@@ -380,7 +386,8 @@ function getTextContent(node: React.ReactNode): string {
   if (typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(getTextContent).join('');
   if (node && typeof node === 'object' && 'props' in node) {
-    return getTextContent((node as any).props.children);
+    const props = (node as { props?: { children?: React.ReactNode } }).props;
+    return getTextContent(props?.children);
   }
   return '';
 }
@@ -497,16 +504,20 @@ function highlightMentionsInChildren(children: React.ReactNode): React.ReactNode
   return children;
 }
 
-export const markdownComponents = {
-  p: ({ children }: any) => (
+// eslint-disable-next-line react-refresh/only-export-components -- a react-markdown Components map of inline renderers tightly coupled to this file's helpers (highlightMentionsInChildren, MarkdownBaseDirContext, getMediaUrl); not a standalone constant — extracting it is a large, risky refactor for dev-only HMR
+export const markdownComponents: Components = {
+  p: ({ children }) => (
     <p>{highlightMentionsInChildren(children)}</p>
   ),
-  li: ({ children, ...rest }: any) => (
+  li: ({ children, node: _node, ...rest }) => (
     <li {...rest}>{highlightMentionsInChildren(children)}</li>
   ),
-  img: ({ src, alt }: any) => {
+  img: ({ src, alt }) => {
+    // react-markdown invokes this override as a real component, so useContext
+    // is valid here; the rule misfires only because the key is lowercase `img`.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const baseDir = useContext(MarkdownBaseDirContext);
-    if (!src) return null;
+    if (!src || typeof src !== 'string') return null;
 
     // Pass-through for data/blob/http(s) — no rewriting, no MediaImage.
     if (/^(data|blob|https?):/i.test(src)) {
@@ -535,14 +546,16 @@ export const markdownComponents = {
     if (isMediaPath) return <MediaImage path={normalizedSrc} />;
     return <img src={normalizedSrc} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
   },
-  a: ({ href, children }: any) => (
+  a: ({ href, children }) => (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-500 hover:text-blue-600 underline"
       onClick={(e) => {
-        const electron = (window as any).electronAPI;
+        const electron = (window as unknown as {
+          electronAPI?: { openExternal?: (url: string) => void };
+        }).electronAPI;
         if (electron?.openExternal && href) {
           e.preventDefault();
           electron.openExternal(href);
@@ -550,27 +563,27 @@ export const markdownComponents = {
       }}
     >{children}</a>
   ),
-  pre: ({ children }: any) => {
+  pre: ({ children }) => {
     if (children && typeof children === 'object' && 'props' in children) {
-      const codeProps = children.props;
+      const codeProps = (children as { props: { className?: string; children?: React.ReactNode } }).props;
       return <CodeBlock className={codeProps.className}>{codeProps.children}</CodeBlock>;
     }
     return <CodeBlock>{children}</CodeBlock>;
   },
-  code: ({ children, className }: any) => {
+  code: ({ children, className }) => {
     const isBlock = className?.includes('language-');
     if (isBlock) return <code className="text-[12.5px]">{children}</code>;
     return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-[12.5px] font-mono">{children}</code>;
   },
-  table: ({ children }: any) => (
+  table: ({ children }) => (
     <div className="overflow-x-auto my-2">
       <table className="min-w-full border-collapse border border-app-border-light text-sm">{children}</table>
     </div>
   ),
-  th: ({ children }: any) => (
+  th: ({ children }) => (
     <th className="border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
   ),
-  td: ({ children }: any) => (
+  td: ({ children }) => (
     <td className="border border-app-border-light px-3 py-1.5">{children}</td>
   ),
 };
@@ -706,7 +719,7 @@ function highlightMentions(text: string): (string | React.JSX.Element)[] {
 function renderContentWithInlineTools(
   cleanText: string,
   toolCalls: ToolCall[],
-  markdownComponents: any
+  markdownComponents: Components
 ): React.ReactNode[] {
   // Separate tool calls with contentOffset (inline) from those without (legacy)
   const inlineTools = toolCalls
@@ -827,7 +840,7 @@ interface MessageContentProps {
    */
   sessionKey?: string;
   // WebSocket message subscription (for AgentSpawnCard real-time updates)
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
@@ -910,10 +923,11 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // Group consecutive tool blocks so we can render them as a single
     // vertical timeline (connected by a left border line) instead of N
     // unrelated rows. Visually lighter, easier to scan.
+    type ToolBlock = Extract<import('../types').ContentBlock, { kind: 'tool' }>;
     type Group =
       | { kind: 'thinking'; idx: number; text: string }
       | { kind: 'text'; idx: number; text: string }
-      | { kind: 'tools'; startIdx: number; tools: typeof blocks };
+      | { kind: 'tools'; startIdx: number; tools: ToolBlock[] };
     const groups: Group[] = [];
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
@@ -950,8 +964,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               >
                 {g.tools.map((b, j) => (
                   <ToolCallRow
-                    key={`b-${g.startIdx + j}-${(b as any).toolCall.id}`}
-                    toolCall={(b as any).toolCall}
+                    key={`b-${g.startIdx + j}-${b.toolCall.id}`}
+                    toolCall={b.toolCall}
                     sessionKey={sessionKey}
                   />
                 ))}

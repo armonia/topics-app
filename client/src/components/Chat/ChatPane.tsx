@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ArrowLeft, Crown } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
@@ -25,6 +25,16 @@ const SLASH_COMMANDS_HELP = [
   '/assign @name task — Create and assign a task to an agent',
   '/help — Show available commands',
 ];
+
+/** Extract a human-readable message from an unknown thrown value. */
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return String(err);
+}
 
 export interface ChatPaneProps {
   topic: Topic;
@@ -57,14 +67,6 @@ export interface ChatPaneProps {
    *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
    *  the board strip so it stays visible while typing. */
   aboveInputSlot?: React.ReactNode;
-  /** When provided AND different from this pane's topic.id, the pane shows a
-   *  "← Master" pill in the top-right corner that focuses the Master pane on
-   *  click. Wired up by both StandaloneChatGroup → ChatPanel → ChatPane and
-   *  ProjectWindow → ChatPane so the back-to-master shortcut works regardless
-   *  of where a session lives. */
-  masterPaneId?: string | null;
-  /** Called with `masterPaneId` when the back-to-master pill is clicked. */
-  onFocusPanel?: (id: string) => void;
 }
 
 export function ChatPane({
@@ -74,7 +76,6 @@ export function ChatPane({
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, switchBranch, onOpenSessionViewer,
   aboveInputSlot,
-  masterPaneId, onFocusPanel,
 }: ChatPaneProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
@@ -192,7 +193,6 @@ export function ChatPane({
       },
     );
     return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneId]);
   const handleScrollOffsetChange = useCallback((top: number) => {
     usePaneStore.getState().setPaneScrollOffset(paneId, top);
@@ -338,11 +338,11 @@ export function ChatPane({
 
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
-    if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
-    if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
-    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } return true; }
+    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 
     // /project — info / create <name> / open <path-or-name>
     if (cmd === '/project' || cmd.startsWith('/project ')) {
@@ -357,8 +357,8 @@ export function ChatPane({
       try {
         const r = await commandApi.project(topic.sessionKey, sub, value || undefined);
         setCommandResult({ type: 'success', message: r.output || 'Done' });
-      } catch (e: any) {
-        setCommandResult({ type: 'error', message: e.message });
+      } catch (e) {
+        setCommandResult({ type: 'error', message: errMessage(e) });
       } finally { setCommandLoading(false); }
       return true;
     }
@@ -512,7 +512,7 @@ export function ChatPane({
 
     // Instant auto-name: set title from first message text immediately
     if (finalMessage && currentMessages.length === 0 && (topic.name === 'New Chat' || topic.name.startsWith('New '))) {
-      const raw = message.trim().replace(/https?:\/\/\S+/g, '').replace(/[#*_`~\[\]()]/g, '').replace(/\s+/g, ' ').trim();
+      const raw = message.trim().replace(/https?:\/\/\S+/g, '').replace(/[#*_`~[\]()]/g, '').replace(/\s+/g, ' ').trim();
       if (raw.length > 0) {
         const words = raw.split(' ').filter(w => w.length > 0);
         let autoTitle = words.slice(0, 5).join(' ');
@@ -544,7 +544,7 @@ export function ChatPane({
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items); const imgs: File[] = [], others: File[] = [];
-    for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) { f.type.startsWith('image/') ? imgs.push(f) : others.push(f); } } }
+    for (const item of items) { if (item.kind === 'file') { const f = item.getAsFile(); if (f) { if (f.type.startsWith('image/')) { imgs.push(f); } else { others.push(f); } } } }
     if (imgs.length > 0) { e.preventDefault(); Promise.all(imgs.map(f => resizeImageToBase64(f))).then(r => setPendingImages(prev => [...prev, ...r])).catch(() => {}); }
     if (others.length > 0) { e.preventDefault(); setPendingFiles(prev => [...prev, ...others]); }
   }, [resizeImageToBase64]);
@@ -560,23 +560,6 @@ export function ChatPane({
 
   return (
     <div className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">
-      {/* Back-to-Master pill — shown when this pane isn't the Master and a
-          Master pane exists somewhere. Wired up here (not only in ChatPanel)
-          so sessions opened inside a ProjectWindow get the shortcut too. */}
-      {masterPaneId && masterPaneId !== topic.id && onFocusPanel && (
-        <button
-          type="button"
-          data-testid="back-to-master"
-          onClick={(e) => { e.stopPropagation(); onFocusPanel(masterPaneId); }}
-          className="absolute top-2 right-2 z-30 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-purple-500/20 hover:bg-purple-500/35 text-purple-100 border border-purple-400/35 backdrop-blur-sm shadow-sm transition-colors"
-          title="Torna al Master (Shift+Cmd+M)"
-          aria-label="Torna al Master"
-        >
-          <ArrowLeft size={11} />
-          <Crown size={11} className="text-purple-300" />
-          <span>Master</span>
-        </button>
-      )}
       {commandResult && (
         <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
@@ -587,6 +570,9 @@ export function ChatPane({
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      {/* The composer docks at the bottom with only its natural margin — no
+          home-indicator reservation (the user wants minimal bottom space), so it
+          reaches the bottom edge and the OS indicator simply overlays it. */}
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />

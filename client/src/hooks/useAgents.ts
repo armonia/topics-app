@@ -71,17 +71,24 @@ export function useAgents({ activeMinutes = 120, enabled = true, onMessage }: Us
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const fetched: AgentSession[] = data.sessions || [];
-      // Only apply poll results if no newer WS update arrived
       setSessions(prev => {
+        // Drop this poll only if a WS update landed AFTER we issued it — in that
+        // window the WS path is the fresher source (lastUpdateRef tracks it).
         if (lastUpdateRef.current > fetchTime) return prev;
-        // Clean up stale sessions: only keep sessions present in the latest fetch
-        // Merge with existing data, keeping the most recent updatedAt
-        const merged = fetched.map(s => {
+        // Otherwise the server snapshot's STATUS is authoritative: it overlays
+        // the live, auto-expiring activeStreams registry onto sessions.json
+        // recency, so a session the server reports `idle` really is idle. We
+        // spread the fetched session OVER the existing one (`{...existing,
+        // ...s}`) so the server's status/updatedAt win — which is what lets a
+        // DROPPED `stream:end` self-heal (previously a stale client-side
+        // `active` with a newer updatedAt was kept indefinitely, pinning the
+        // agents spinner ON forever) — WHILE preserving richer optional fields
+        // (model, token counts, sessionId, …) that a lightweight activeStreams
+        // REST entry may omit but a prior WS broadcast had.
+        return fetched.map(s => {
           const existing = prev.find(p => p.key === s.key);
-          if (existing && existing.updatedAt > s.updatedAt) return existing;
-          return s;
+          return existing ? { ...existing, ...s } : s;
         });
-        return merged;
       });
       lastUpdateRef.current = fetchTime;
       setCachedSessions(fetched);

@@ -16,7 +16,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createUsageRouter } from "./server/routes/usage";
@@ -36,9 +36,7 @@ import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
 import { JournalCollector } from "./server/journal-collector";
 import { createJournalRouter } from "./server/routes/journal";
-import { createBoardsRouter } from "./server/routes/boards";
 import { createTagsRouter } from "./server/routes/tags";
-import { createApprovalsRouter } from "./server/routes/approvals";
 import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
@@ -243,7 +241,7 @@ rebuildSummary();
 // terminal sessions are tracked in-memory). Created before the terminal router
 // so the latter can register its sessions with it. See
 // openspec/changes/claude-session-tracker.
-const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll });
+const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
 
 // Create route handlers
 const topicsRouter = createTopicsRouter(ctx, browserService);
@@ -263,9 +261,7 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 // Independent of which provider is the default — every provider benefits
 // from the canonical envelope inspector (change `topic-context-canonical`).
 const contextPreviewRouter = createContextPreviewRouter(ctx);
-const boardsRouter = createBoardsRouter(ctx);
 const tagsRouter = createTagsRouter(ctx);
-const approvalsRouter = createApprovalsRouter(ctx);
 const agentProfilesRouter = createAgentProfilesRouter(ctx);
 const webhooksRouter = createWebhooksRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
@@ -615,8 +611,6 @@ const server = Bun.serve<WSData>({
         || await spacesRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
-        || await boardsRouter(req, url, pathname, method)
-        || await approvalsRouter(req, url, pathname, method)
         || await tagsRouter(req, url, pathname, method)
         || await agentProfilesRouter(req, url, pathname, method)
         || await webhooksRouter(req, url, pathname, method)

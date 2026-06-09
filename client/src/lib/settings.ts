@@ -11,8 +11,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   notificationsSound: true,
   notifyEvenWhenFocused: false,
-  showBoard: true,
-  showMaster: true,
+  // Paid feature — OFF by default. New chats hit a paid provider turn, so the
+  // "New Chat" affordances stay hidden until the user opts in from Settings.
+  enableNewChat: false,
 };
 
 export function loadSettings(): AppSettings {
@@ -41,20 +42,4 @@ export function saveSettings(settings: AppSettings) {
       body: JSON.stringify(settings),
     }).catch(() => {});
   }, 1000);
-}
-
-/** Load settings from server (call once at app init, merges with localStorage) */
-export async function loadSettingsFromServer(): Promise<AppSettings | null> {
-  try {
-    // PANE-01-ALLOWED: non-pane ui-state key (app settings). Read-only GET for initial hydration.
-    const res = await fetch('/api/ui-state/settings'); // PANE-01-ALLOWED
-    if (!res.ok) return null;
-    const serverSettings = await res.json();
-    if (!serverSettings) return null;
-    const merged = { ...DEFAULT_SETTINGS, ...serverSettings };
-    localStorage.setItem('app-settings', JSON.stringify(merged));
-    return merged;
-  } catch {
-    return null;
-  }
 }

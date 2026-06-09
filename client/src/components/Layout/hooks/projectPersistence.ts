@@ -22,6 +22,7 @@ import {
   createPaneId,
   saveProjectLayout,
   loadProjectLayout,
+  unsubscribeProjectLayout,
   saveProjectLayoutLocalOnly,
   projectPanesLocalKey,
   projectLayoutLocalKey,
@@ -103,6 +104,13 @@ export function subscribeToProjectLayout(
       // shape remains the only legitimate hydration source.
     },
   );
+}
+
+/** Tear down the cross-device subscription registered by
+ *  `subscribeToProjectLayout`. Call from the load hook's effect cleanup so a
+ *  closed/switched project stops holding a live callback + WS fan-out slot. */
+export function unsubscribeFromProjectLayout(projectPath: string): void {
+  unsubscribeProjectLayout(storageKey(projectPath));
 }
 
 /**

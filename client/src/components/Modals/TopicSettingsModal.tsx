@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
 import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
+import { MODAL_BACKDROP } from '../../lib/modalStyles';
 import { worktreesApi } from '../../lib/api';
 
 interface TopicSettingsModalProps {
@@ -30,7 +31,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);
@@ -40,6 +40,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   // exactly the same UI as before this change.
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- external-data sync: clear stale worktree before the async re-fetch on (re)open
     setWorktree(null);
     if (!isOpen || !topic.worktreeId) return;
     worktreesApi.get(topic.worktreeId)
@@ -49,6 +50,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   }, [isOpen, topic.worktreeId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync of controlled form fields from the topic prop on open / topic change
     setProjectPath(topic.projectPath || '');
     setAutonomyLevel(topic.autonomyLevel || 'ask');
     setTopicName(topic.name);
@@ -59,7 +61,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setNewContextFile('');
     setProvider(topic.provider ?? null);
     setSaved(false);
-    setIsDirty(false);
   }, [topic, isOpen]);
 
   // Fetch available providers
@@ -71,19 +72,17 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       .catch(() => setProviders([]));
   }, [isOpen]);
 
-  // Track dirty state
-  useEffect(() => {
-    if (!isOpen) return;
-    const pathChanged = projectPath !== (topic.projectPath || '');
-    const autonomyChanged = autonomyLevel !== (topic.autonomyLevel || 'ask');
-    const nameChanged = topicName !== topic.name;
-    const iconChanged = topicIcon !== topic.icon;
-    const colorChanged = topicColor !== topic.color;
-    const promptChanged = systemPrompt !== (topic.systemPrompt || '');
-    const filesChanged = JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []);
-    const providerChanged = provider !== (topic.provider ?? null);
-    setIsDirty(pathChanged || autonomyChanged || nameChanged || iconChanged || colorChanged || promptChanged || filesChanged || providerChanged);
-  }, [projectPath, autonomyLevel, topicName, topicIcon, topicColor, systemPrompt, contextFilesList, provider, topic, isOpen]);
+  // Dirty state is pure derived data (current form vs. the topic prop), so we
+  // compute it during render instead of mirroring it into state via an effect.
+  const isDirty =
+    projectPath !== (topic.projectPath || '') ||
+    autonomyLevel !== (topic.autonomyLevel || 'ask') ||
+    topicName !== topic.name ||
+    topicIcon !== topic.icon ||
+    topicColor !== topic.color ||
+    systemPrompt !== (topic.systemPrompt || '') ||
+    JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
+    provider !== (topic.provider ?? null);
 
   const handleClose = () => {
     if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) {
@@ -135,11 +134,11 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={handleClose} role="dialog" aria-modal="true" aria-label={`${topic.name} Settings`}>
-      <div className="absolute inset-0 bg-black/40 dark:bg-black/60" />
+      <div className={`absolute ${MODAL_BACKDROP}`} />
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="relative w-full max-w-xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border-light overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col focus:outline-none"
+        className="relative w-full max-w-xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col focus:outline-none command-palette-enter"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

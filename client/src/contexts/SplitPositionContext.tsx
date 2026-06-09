@@ -35,12 +35,14 @@ export function SplitPositionProvider({ children }: { children: ReactNode }) {
 }
 
 /** Descriptor for a topic's pane position, or undefined when not in a split. */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useSplitPosition(topicId: string | undefined | null): SplitMapDescriptor | undefined {
   const map = useContext(MapCtx);
   return topicId ? map.get(topicId) : undefined;
 }
 
 /** Setter used by the grid to publish the latest topic→position map. */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function usePublishSplitPositions(): (m: PositionMap) => void {
   return useContext(PublishCtx);
 }

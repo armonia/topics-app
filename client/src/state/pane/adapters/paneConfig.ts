@@ -49,10 +49,7 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   activity:      { icon: 'Activity',      label: 'Activity',     color: '#06b6d4', singleton: true },
   journal:       { icon: 'BookOpen',      label: 'Journal',      color: '#f97316', singleton: true },
   agents:        { icon: 'Cpu',           label: 'Agents',       color: '#8b5cf6', singleton: true },
-  board:         { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true },
-  'board-memory':{ icon: 'Brain',         label: 'Board Memory', color: '#10b981', singleton: true, addableScopes: ['project'] },
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
-  'all-boards':  { icon: 'LayoutGrid',   label: 'Board',         color: '#10b981', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },
   'session-viewer': { icon: 'Eye',          label: 'Session',       color: '#8b5cf6' },
@@ -102,11 +99,6 @@ export function createPaneId(type: PaneType, key?: string): string {
   // older webviews) still get a valid UUID — raw crypto.randomUUID is
   // unavailable there and would throw.
   return `${type}:${generateUUID()}`;
-}
-
-export function parsePaneId(id: string): { type: PaneType; key: string } {
-  const [type, ...rest] = id.split(':');
-  return { type: type as PaneType, key: rest.join(':') };
 }
 
 export function isProjectPaneId(id: string): boolean {

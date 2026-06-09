@@ -58,10 +58,7 @@ export const KNOWN_PANE_TYPES = [
   'activity',
   'journal',
   'agents',
-  'board',
-  'board-memory',
   'dashboard',
-  'all-boards',
   'project',
   'process-log',
   'session-viewer',
@@ -144,7 +141,6 @@ function sanitizeGroup(raw: unknown): Group | null {
   // value. Helps spot a buggy server/cross-tab payload that would otherwise
   // look fine post-sanitize. Production bundles strip import.meta.env.DEV.
   if (!splitAxisIsValid && raw.splitAxis !== undefined && import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
     console.warn(
       '[sanitizeSnapshot] group.splitAxis coerced to "horizontal":',
       raw.splitAxis,

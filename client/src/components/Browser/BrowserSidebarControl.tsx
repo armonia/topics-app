@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Globe, X } from 'lucide-react';
+import type { WSMessage } from '../../types';
 
 interface BrowserContext {
   id: string;
@@ -14,7 +15,7 @@ interface BrowserSidebarControlProps {
   onOpenBrowser?: (contextId: string) => void;
   openBrowserContextIds?: string[];
   focusedBrowserContextId?: string | null;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 const POLL_INTERVAL_FALLBACK = 30_000; // 30s fallback
@@ -31,7 +32,7 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
         // Only apply if no newer WS-triggered fetch arrived
         if (lastUpdateRef.current > fetchTime) return;
         lastUpdateRef.current = fetchTime;
-        const data = await resp.json();
+        const data = await resp.json() as { details?: BrowserContext[] };
         const details = data.details || [];
         setContexts(details);
         onContextCount?.(details.length);
@@ -45,13 +46,14 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
   // Initial fetch
   useEffect(() => {
     if (!enabled) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot fetch syncing external API state into local store; setState runs in an async callback after the response, not a synchronous cascading render
     loadContexts();
   }, [enabled, loadContexts]);
 
   // WS subscription — trigger re-fetch on browser navigation events
   useEffect(() => {
     if (!enabled || !onMessage) return;
-    const unsub = onMessage((msg: any) => {
+    const unsub = onMessage((msg: WSMessage) => {
       try {
         if (msg.type === 'browser:navigate') {
           const now = Date.now();

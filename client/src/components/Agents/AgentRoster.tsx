@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { AgentProfileCard } from './AgentProfileCard';
 import { AgentProfileEditor } from './AgentProfileEditor';
 import { AgentAssignPanel } from './AgentAssignPanel';
@@ -25,8 +26,8 @@ export function AgentRoster() {
       const data = await agentProfilesApi.list();
       setProfiles(data);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load profiles');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load profiles');
     } finally {
       setLoading(false);
     }
@@ -167,8 +168,8 @@ export function AgentRoster() {
 
       {/* Topic selector before opening assign panel */}
       {assigningProfile && !assignTopicId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-surface border border-app-border rounded-lg shadow-xl w-[320px] flex flex-col">
+        <div className={MODAL_OVERLAY}>
+          <div className={`w-[320px] flex flex-col ${MODAL_PANEL}`}>
             <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
               <span className="text-lg">{assigningProfile.avatarEmoji}</span>
               <span className="text-[13px] font-semibold text-app-text flex-1">Assign {assigningProfile.name}</span>
@@ -212,8 +213,8 @@ export function AgentRoster() {
 
       {/* Session history modal */}
       {viewingSessions && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-surface border border-app-border rounded-lg shadow-xl w-[400px] max-h-[70vh] flex flex-col">
+        <div className={MODAL_OVERLAY}>
+          <div className={`w-[400px] max-h-[70vh] flex flex-col ${MODAL_PANEL}`}>
             <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
               <span className="text-lg">{viewingSessions.avatarEmoji}</span>
               <span className="text-[13px] font-semibold text-app-text flex-1">{viewingSessions.name}</span>

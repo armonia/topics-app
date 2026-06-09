@@ -5,7 +5,8 @@ import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
-import { ContextPills, useContextFileTokens } from './ContextPills';
+import { ContextPills } from './ContextPills';
+import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
@@ -71,7 +72,7 @@ function OverflowMenu({
         <MoreHorizontal size={16} />
       </button>
       {open && (
-        <div className="absolute bottom-full right-0 mb-1 bg-surface border border-app-border-light rounded-xl shadow-xl z-50 py-1.5 min-w-[220px]">
+        <div className="absolute bottom-full right-0 mb-1 glass-surface border border-app-border-light rounded-xl shadow-xl z-50 py-1.5 min-w-[220px]">
           {/* Slash commands */}
           {SLASH_COMMANDS.map((cmd) => {
             const Icon = cmd.icon;
@@ -169,6 +170,7 @@ function MessageQueueBadge({
   // Close the popover when the queue empties (last message dispatched while
   // open). Without this the panel lingers as an empty box until clicked away.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- guarded converging close: only runs when the queue is empty AND the popover is open, sets open=false once and then the guard prevents re-firing
     if (count === 0 && open) setOpen(false);
   }, [count, open]);
 
@@ -196,7 +198,7 @@ function MessageQueueBadge({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 bg-surface dark:bg-app-panel border border-app-border-light rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
+        <div className="absolute bottom-full left-3 right-3 mb-1 glass-surface border border-app-border-light rounded-xl shadow-xl z-50 max-h-[60vh] overflow-y-auto">
           <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
             <span className="text-[11px] font-medium text-app-text">
               Queued message{count > 1 ? 's' : ''} ({count})
@@ -477,12 +479,15 @@ export function ChatInput({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording]);
 
-  // Sync transcript to message input
+  // Sync transcript to message input. `message`/`setMessage` are intentionally
+  // read as a snapshot only when a new `transcript` arrives — the guard plus
+  // the immediate clearTranscript() make message-change re-runs a safe no-op.
   useEffect(() => {
     if (transcript) {
       setMessage(message + ' ' + transcript);
       clearTranscript();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when a new transcript arrives; including `message` would re-fire on every keystroke (no-op due to the transcript guard, but pointless), and `setMessage` is a stable parent setter
   }, [transcript, clearTranscript]);
 
   // Auto-TTS for new assistant messages
@@ -530,7 +535,7 @@ export function ChatInput({
     setMentionFilter('');
     setMentionStartPos(-1);
     textareaRef.current?.focus();
-  }, [mentionStartPos, message, mentionedFiles, setMessage, textareaRef]);
+  }, [mentionStartPos, message, mentionedFiles, setMessage, setMentionedFiles, textareaRef]);
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -1018,7 +1023,7 @@ export function ChatInput({
 
             {/* Popover menus (anchored to form) */}
             {showSlashMenu && filteredSlashCommands.length > 0 && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface dark:bg-app-panel border border-app-border-input rounded-xl shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto">
+              <div className="absolute bottom-full left-0 right-0 mb-1 glass-surface border border-app-border-input rounded-xl shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto">
                 {filteredSlashCommands.map((cmd, idx) => (
                   <button
                     key={cmd.cmd}

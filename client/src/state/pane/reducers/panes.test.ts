@@ -64,19 +64,19 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
       type: "chat",
       title: "A",
       topicId: "ta",
-    } as any;
+    };
     state.panes["b"] = {
       id: "b",
       type: "chat",
       title: "B",
       topicId: "tb",
-    } as any;
+    };
     state.panes["c"] = {
       id: "c",
       type: "chat",
       title: "C",
       topicId: "tc",
-    } as any;
+    };
     state.groupOrder = ["g1"];
     state.focusedPaneId = "b";
 
@@ -190,7 +190,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
         id: `p${i}`,
         type: "chat",
         title: `P${i}`,
-      } as any;
+      };
       state.groups["g1"].paneIds.push(`p${i}`);
     }
     for (let i = 0; i < CLOSED_STACK_MAX; i++) {
@@ -215,7 +215,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
       splitRatio: 0.5,
       splitAxis: "horizontal",
     };
-    state.panes["pNew"] = { id: "pNew", type: "chat", title: "N" } as any;
+    state.panes["pNew"] = { id: "pNew", type: "chat", title: "N" };
     state.groups["g1"].paneIds.push("pNew");
     paneReducer(state, {
       type: "CLOSE_PANE",
@@ -235,7 +235,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     };
     for (let i = 0; i < CLOSED_STACK_MAX + 5; i++) {
       const id = `q${i}`;
-      state.panes[id] = { id, type: "chat", title: id } as any;
+      state.panes[id] = { id, type: "chat", title: id };
       state.groups["g1"].paneIds.push(id);
     }
     for (let i = 0; i < CLOSED_STACK_MAX + 5; i++) {
@@ -367,7 +367,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
         type: "chat",
         title: "B",
         scrollOffset: 999, // nested legacy value
-      } as any,
+      },
       groupId: "g1",
       groupIndex: 1,
       level: "app",
@@ -450,7 +450,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
         type: "chat",
         title: `P${i}`,
         topicId: `t${i}`,
-      } as any;
+      };
       state.groups["g1"].paneIds.push(`p${i}`);
     }
     for (let i = 0; i < 55; i++) {

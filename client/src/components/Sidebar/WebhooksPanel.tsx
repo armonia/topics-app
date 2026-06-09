@@ -194,7 +194,7 @@ function WebhookRow({ webhook, onToggle, onEdit, onDelete }: WebhookRowProps) {
       const data = await res.json();
       setTestResult(data);
       setTimeout(() => setTestResult(null), 3000);
-    } catch (err) {
+    } catch {
       setTestResult({ status: 'failed' });
       setTimeout(() => setTestResult(null), 3000);
     }

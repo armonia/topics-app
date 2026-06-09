@@ -135,7 +135,6 @@ export function PendingActionProvider({
         .then(() => committed!.commit())
         .catch((err) => {
           // Soft-destructive — never crash the app on commit failure.
-          // eslint-disable-next-line no-console
           console.warn('[PendingAction] commit failed:', err);
         });
     }
@@ -183,6 +182,7 @@ export function PendingActionProvider({
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function usePendingActions(): PendingActionContextValue {
   const ctx = useContext(Ctx);
   if (!ctx) {
@@ -191,14 +191,6 @@ export function usePendingActions(): PendingActionContextValue {
     );
   }
   return ctx;
-}
-
-/** Convenience helper that returns whether a given key has a pending entry
- *  (whether ticked or not). Useful for hiding the original action button. */
-export function useHasPendingAction(key: string | null | undefined): boolean {
-  const { entries } = usePendingActions();
-  if (!key) return false;
-  return entries.some((e) => e.key === key);
 }
 
 /** Returns the live status of a pending action by key, or null if no entry
@@ -214,6 +206,7 @@ export interface PendingActionStatus {
   cancel: () => void;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function usePendingActionStatus(key: string | null | undefined): PendingActionStatus | null {
   const { entries, cancel, countdownMs } = usePendingActions();
   if (!key) return null;
@@ -247,6 +240,7 @@ export function usePendingActionStatus(key: string | null | undefined): PendingA
  * TopicItem uses this so a topbar-initiated close also shows the row
  * progress overlay.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useTopicPendingStatus(
   topicId: string,
   options: { isArchived?: boolean } = {},
@@ -269,6 +263,7 @@ export function useTopicPendingStatus(
  * Returns the pending countdown affecting this terminal session, whether
  * triggered from the sidebar terminal row or the topbar tab close.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useTerminalPendingStatus(sessionId: string): PendingActionStatus | null {
   const { entries, cancel, countdownMs } = usePendingActions();
   const candidates = [
@@ -286,6 +281,7 @@ export function useTerminalPendingStatus(sessionId: string): PendingActionStatus
  * Returns the pending countdown affecting this browser context, whether
  * triggered from the sidebar browser row or the topbar tab close.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useBrowserPendingStatus(contextId: string): PendingActionStatus | null {
   const { entries, cancel, countdownMs } = usePendingActions();
   const candidates = [
@@ -311,6 +307,7 @@ export function useBrowserPendingStatus(contextId: string): PendingActionStatus 
  *   - `browser:<contextId>`
  *   - `project:<encodedPath>`, `session-viewer:<sessionKey>`, etc.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function usePanePendingStatus(paneId: string | null | undefined): PendingActionStatus | null {
   const { entries, cancel, countdownMs } = usePendingActions();
   if (!paneId) return null;
@@ -352,7 +349,6 @@ function withApi<K extends keyof PendingActionApi>(
 ): PendingActionApi[K] {
   return ((...args: Parameters<PendingActionApi[K]>) => {
     if (!apiSingleton) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[PendingAction] ${fnName} called before <PendingActionProvider> mounted; ignoring.`,
       );
@@ -364,8 +360,8 @@ function withApi<K extends keyof PendingActionApi>(
 }
 
 /** Imperative: register a pending action. Mirrors `enqueue` from the hook. */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
 export const enqueuePendingAction = withApi('enqueue');
-/** Imperative: cancel a pending action by key. */
-export const cancelPendingAction = withApi('cancel');
 /** Imperative: programmatically tick (rarely needed; usually the user does it). */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
 export const tickPendingAction = withApi('tick');

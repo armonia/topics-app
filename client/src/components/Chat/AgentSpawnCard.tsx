@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, memo } from 'react';
 import { Loader2, Check, X, ExternalLink } from 'lucide-react';
+import type { WSMessage } from '../../types';
 
 interface AgentSpawnCardProps {
   sessionKey: string;
   label: string;
   onOpenInPane?: (sessionKey: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 interface SessionInfo {
@@ -44,7 +45,7 @@ export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, 
       if (!res.ok) return;
       const data = await res.json();
       const sessions: Array<{ key: string; status: string; totalTokens?: number; updatedAt?: number }> = data.sessions || [];
-      const match = sessions.find((s: any) => s.key === sessionKey);
+      const match = sessions.find((s) => s.key === sessionKey);
       if (match) {
         // Only apply if no newer WS update arrived
         if (lastUpdateRef.current > fetchTime) return;
@@ -68,16 +69,19 @@ export const AgentSpawnCard = memo(function AgentSpawnCard({ sessionKey, label, 
   // WS subscription — primary data source when available
   useEffect(() => {
     if (!onMessage) return;
-    const unsub = onMessage((msg: any) => {
+    const unsub = onMessage((msg: WSMessage) => {
       try {
         if (msg.type === 'agents:sessions' && Array.isArray(msg.sessions)) {
-          const match = msg.sessions.find((s: any) => s.key === sessionKey);
+          const match = msg.sessions.find((s) => s.key === sessionKey);
           if (match) {
             const now = Date.now();
             lastUpdateRef.current = now;
+            // `totalTokens` is sent at runtime (full AgentSession payload) but
+            // the WS session type narrows to a smaller shape; read it safely.
+            const totalTokens = (match as { totalTokens?: number }).totalTokens || 0;
             setInfo(prev => ({
               status: (match.status as SessionInfo['status']) || 'active',
-              totalTokens: match.totalTokens || 0,
+              totalTokens,
               startedAt: prev.startedAt || new Date().toISOString(),
             }));
           }

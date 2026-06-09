@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType } from '../../types';
 import { LazyPane } from './LazyPane';
 import { useTopics } from '../../contexts/TopicsContext';
-import { ProjectHeader, getProjectName } from './ProjectHeader';
+import { ProjectHeader } from './ProjectHeader';
+import { getProjectName } from './projectColors';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
@@ -32,8 +33,6 @@ const ActivityPane = lazy(() => import('../Sidebar/ActivityPane').then(m => ({ d
 const JournalPane = lazy(() => import('../Journal/JournalPane').then(m => ({ default: m.JournalPane })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
-const KanbanBoard = lazy(() => import('../Board/KanbanBoard').then(m => ({ default: m.KanbanBoard })));
-const BoardMemoryPanel = lazy(() => import('../Board/BoardMemoryPanel').then(m => ({ default: m.BoardMemoryPanel })));
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => ({ default: m.ProcessLogPane })));
 
@@ -72,9 +71,6 @@ export interface ProjectWindowPaneProps {
   onActiveTopicChange?: (topicId: string | null) => void;
   // Report all open pane IDs inside this project (for sidebar filtering)
   onOpenPanesChange?: (paneIds: string[]) => void;
-  /** Master topic id — passed down to inner ChatPanes so they can render the
-   *  back-to-Master pill regardless of whether they live inside a project. */
-  masterPaneId?: string | null;
 }
 
 export function ProjectWindowPane({
@@ -85,7 +81,6 @@ export function ProjectWindowPane({
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange,
-  masterPaneId,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
@@ -259,8 +254,8 @@ export function ProjectWindowPane({
     return () => window.removeEventListener('global-tab:focus-inner', handler);
   }, [projectPath, groups, handleActivatePane]);
 
-  // Persist tab identity to server (cross-device sync) and layout to
-  // localStorage only. Owns the userEditedRef flag-flip via mountedRef.
+  // Persist tab identity to the server (cross-device sync) and layout to
+  // localStorage only, on every layout/chat change.
   useProjectPersistenceSave({
     projectPath,
     panes,
@@ -270,7 +265,6 @@ export function ProjectWindowPane({
     sidebarCollapsed,
     activeChatTopicId: activeTopicId ?? undefined,
     focusedGroupId,
-    gateRefs: loaded.gateRefs,
     onOpenPanesChange,
   });
 
@@ -282,8 +276,6 @@ export function ProjectWindowPane({
     onNewChat?.(groupId);
   }, [onNewChat]);
 
-
-  const primaryTopicId = chatSync.topicIds[0];
 
   const renderPane = useCallback((pane: Pane, isFocused: boolean, isVisible: boolean) => {
     switch (pane.type) {
@@ -313,8 +305,6 @@ export function ProjectWindowPane({
             onWSMessage={onWSMessage}
             onUpdateTopic={onUpdateTopic}
             onOpenFile={handleOpenFile}
-            masterPaneId={masterPaneId}
-            onFocusPanel={onFocusPanel}
           />
         );
       }
@@ -392,23 +382,6 @@ export function ProjectWindowPane({
             <AgentsPane onNavigateToTopic={(topicId) => onFocusPanel(topicId)} onMessage={onWSMessage} />
           </LazyPane>
         );
-      case 'board':
-        return (
-          <LazyPane>
-            <KanbanBoard
-              projectId={encodeURIComponent(projectPath)}
-              topicId={primaryTopicId}
-              onWSMessage={onWSMessage}
-              onJumpToTopic={(topicId) => onFocusPanel(topicId)}
-            />
-          </LazyPane>
-        );
-      case 'board-memory':
-        return (
-          <LazyPane>
-            <BoardMemoryPanel projectId={encodeURIComponent(projectPath)} onWSMessage={onWSMessage} />
-          </LazyPane>
-        );
       case 'dashboard':
         return (
           <LazyPane>
@@ -425,10 +398,10 @@ export function ProjectWindowPane({
         return null;
     }
   }, [
-    topics, focusedPanelId, projectPath,
-    getSessionMessages, isSessionLoading, isSessionStreaming,
-    sendMessage, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-    handleOpenFile, pinPaneById,
+    topics, focusedPanelId, projectPath, wrapperPaneId,
+    getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
+    sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+    handleOpenFile, pinPaneById, onFocusPanel, browserNavigateUrl,
   ]);
 
   return (
@@ -436,21 +409,11 @@ export function ProjectWindowPane({
       <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
         <ProjectSidebar
           projectPath={projectPath}
-          topicId={primaryTopicId}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
           onOpenFile={handleOpenFile}
           onWSMessage={onWSMessage}
           onOpenProcessLog={handleOpenProcessLog}
-          onOpenBoard={() => {
-            const targetGroupId = focusedGroupId || groups[0]?.id;
-            if (targetGroupId) {
-              handleAddPaneToGroup(targetGroupId, 'board');
-            } else {
-              // No groups exist yet -- use handleAddPaneWhenEmpty to create one
-              handleAddPaneWhenEmpty('board');
-            }
-          }}
         />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
           <GroupLayout
@@ -544,7 +507,6 @@ interface ProjectWindowProps {
   onPendingPaneConsumed?: () => void;
   onNewChat?: () => void;
   onAcceptTopicDrop?: (topicId: string) => void;
-  masterPaneId?: string | null;
 }
 
 export function ProjectWindow({
@@ -552,7 +514,7 @@ export function ProjectWindow({
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat, masterPaneId,
+  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
   onAcceptTopicDrop,
 }: ProjectWindowProps) {
   // Cross-panel-type drop: accept standalone chat drops
@@ -624,7 +586,6 @@ export function ProjectWindow({
         pendingPane={pendingPane}
         onPendingPaneConsumed={onPendingPaneConsumed}
         onNewChat={onNewChat}
-        masterPaneId={masterPaneId}
       />
       <ToastOutlet />
     </div>
