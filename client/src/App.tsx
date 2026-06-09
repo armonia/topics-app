@@ -600,11 +600,11 @@ function App() {
               onClick={() => setShowSearch(true)}
               className={`flex-1 min-w-0 flex items-center gap-2 pl-2.5 pr-2 ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-placeholder hover:border-primary/50 hover:text-app-text-muted transition-colors cursor-pointer app-no-drag`}
               style={{ pointerEvents: 'auto' }}
-              title="Cerca (⌘K)"
-              aria-label="Cerca — apri command palette"
+              title="Search (⌘K)"
+              aria-label="Search — open the command palette"
             >
               <Search size={14} className="text-app-text-tertiary flex-shrink-0" aria-hidden="true" />
-              <span className="flex-1 text-left truncate">Cerca…</span>
+              <span className="flex-1 text-left truncate">Search…</span>
               <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
             </button>
             {/* Connection + loading status live in the bottom SidebarStatusBar
