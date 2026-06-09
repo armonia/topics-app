@@ -4,9 +4,14 @@ name: Release
 #   git tag v1.0.0 && git push origin v1.0.0
 # The tag MUST match electron-app/package.json "version" or electron-updater
 # (which compares against the published latest*.yml) will mismatch.
+#
+# Bumping the version on main also releases automatically: auto-tag.yml
+# creates the matching tag and dispatches this workflow on it (tags pushed
+# with GITHUB_TOKEN don't fire on:push:tags, so the dispatch is explicit).
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write   # lets GITHUB_TOKEN create the GitHub Release
