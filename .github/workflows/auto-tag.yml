@@ -1,0 +1,46 @@
+name: Auto Tag
+
+# Push a version bump to main and the release cuts itself: when
+# electron-app/package.json "version" has no matching v<version> tag yet,
+# this creates the tag at the pushed commit and dispatches the Release
+# workflow on it. Tags created with GITHUB_TOKEN don't trigger
+# on:push:tags workflows (docs: only workflow_dispatch/repository_dispatch
+# are exempt), hence the explicit `gh workflow run`.
+#
+# Manual tagging (CONTRIBUTING.md) keeps working unchanged — if the tag
+# already exists this is a no-op.
+
+on:
+  push:
+    branches: [main]
+    paths: ['electron-app/package.json']
+
+permissions:
+  contents: write   # create + push the tag
+  actions: write    # dispatch the Release workflow
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: v
+        run: echo "version=$(node -p "require('./electron-app/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Tag & dispatch release (skip if tag exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.v.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists — nothing to release."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          gh workflow run release.yml --ref "$TAG"
+          echo "Created $TAG and dispatched the Release workflow."
