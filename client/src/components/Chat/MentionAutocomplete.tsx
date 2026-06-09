@@ -42,6 +42,7 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
 
   // Reset selection when results change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset interactive highlight to top when the query changes; selectedIndex is user-controllable (arrow keys) so it can't be pure-derived, and the reset converges (no loop)
     setSelectedIndex(0);
   }, [query]);
 
@@ -90,7 +91,7 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
+      className="fixed z-[9999] glass-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
       style={{
         top: position.top,
         left: position.left,

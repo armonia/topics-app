@@ -26,6 +26,7 @@ import {
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
 import { findPreviewInList, replaceInList } from '../../../lib/previewTabs';
+import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
 import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
@@ -168,12 +169,15 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       if (isProjectPaneId(id) || isUtilityPanelId(id) || isBrowserPaneId(id) || isTerminalPaneId(id) || isSessionViewerPaneId(id) || isDraftPaneId(id)) s.add(id);
     }
     const prev = prevEffectivePinnedRef.current;
+    // eslint-disable-next-line react-hooks/refs -- intentional contents-equality cache: read the previous Set to return a stable reference when contents are unchanged (avoids downstream memo churn); the read happens only inside this memo's compute
     if (s.size === prev.size && [...s].every(id => prev.has(id))) {
       return prev;
     }
+    // eslint-disable-next-line react-hooks/refs -- intentional contents-equality cache: store the freshly-computed Set so the next compute can compare against it; mutation is idempotent w.r.t. render output
     prevEffectivePinnedRef.current = s;
     return s;
   }, [pinnedIds, validatedOrderedIds]);
+  // eslint-disable-next-line react-hooks/refs -- useRef only reads this initial value on the first render to seed the mirror ref; subsequent syncs happen in the effect below (the value is ref-derived via the contents-equality cache, hence the transitive flag)
   const pinnedIdsRef = useRef(effectivePinnedIds);
   useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
 
@@ -240,18 +244,32 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   const lastLocalActiveRef = useRef<string | null>(
     persistOrder ? readStandaloneActivePane() : null,
   );
+  // Render-phase reconciliation of the "last locally-active" memory. This is a
+  // deliberate render-time ref write (not state) because the value must be
+  // available synchronously to the `activePaneId` memo below on the SAME render
+  // — an effect would land one frame late and the group would flash its first
+  // tab. The writes are idempotent (they only ever set focusedPanelId or null),
+  // so they don't affect this render's output beyond the memo that reads them.
   if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) {
+    // eslint-disable-next-line react-hooks/refs -- intentional render-phase write: remember the focused tab so an inactive split group keeps showing it; idempotent, see block comment above
     lastLocalActiveRef.current = focusedPanelId;
-  } else if (lastLocalActiveRef.current && !validatedOrderedIds.includes(lastLocalActiveRef.current)) {
-    // The remembered tab was closed/moved out of this group — drop it so we
-    // don't keep pointing at a stale id.
-    lastLocalActiveRef.current = null;
+  } else {
+    // eslint-disable-next-line react-hooks/refs -- intentional render-phase read: detect a remembered tab that left this group; idempotent guard, see block comment above
+    const remembered = lastLocalActiveRef.current;
+    if (remembered && !validatedOrderedIds.includes(remembered)) {
+      // The remembered tab was closed/moved out of this group — drop it so we
+      // don't keep pointing at a stale id.
+      // eslint-disable-next-line react-hooks/refs -- intentional render-phase write: clear the stale remembered tab, see block comment above
+      lastLocalActiveRef.current = null;
+    }
   }
   const activePaneId = useMemo<string | null>(
     () => {
       if (focusedPanelId && validatedOrderedIds.includes(focusedPanelId)) return focusedPanelId;
-      if (lastLocalActiveRef.current && validatedOrderedIds.includes(lastLocalActiveRef.current)) {
-        return lastLocalActiveRef.current;
+      // eslint-disable-next-line react-hooks/refs -- intentional read of the render-phase memory computed just above; the memo recomputes whenever its deps change so the value is current
+      const remembered = lastLocalActiveRef.current;
+      if (remembered && validatedOrderedIds.includes(remembered)) {
+        return remembered;
       }
       return validatedOrderedIds[0] || null;
     },
@@ -288,9 +306,13 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
   // 8. WS browser:navigate listener. Lives in this hook (B5 option (a)).
   useEffect(() => {
-    const unsub = onWSMessage((msg: any) => {
+    const unsub = onWSMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate' && msg.url) {
         if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
+        // The server attaches a `topicId` to this broadcast for spawner
+        // tracking; it isn't part of the typed WSBrowserNavigateMessage shape,
+        // so read it defensively without widening the message type.
+        const navTopicId = (msg as { topicId?: string }).topicId;
         // Rewrite localhost URLs to use the current hostname (Tailscale / remote).
         let navigateUrl: string = msg.url;
         try {
@@ -303,8 +325,8 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         } catch { /* not a valid URL, leave as-is */ }
         onBrowserNavigateUrl(navigateUrl);
         setOrderedIds(prev => {
-          // Today's extra guard: msg.topicId must already be open in this group.
-          if (msg.topicId && !prev.includes(msg.topicId)) return prev;
+          // Today's extra guard: navTopicId must already be open in this group.
+          if (navTopicId && !prev.includes(navTopicId)) return prev;
           const { next, resolvedId } = browserSingletonReducer(prev);
           if (resolvedId) {
             queueMicrotask(() => onFocusPanel(resolvedId));
@@ -313,7 +335,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
             // header surface a jump-to-browser button and the browser
             // toolbar surface a jump-back-to-chat button.
             const ctx = getBrowserContextFromPaneId(resolvedId);
-            if (ctx && msg.topicId) setBrowserSpawner(ctx, msg.topicId);
+            if (ctx && navTopicId) setBrowserSpawner(ctx, navTopicId);
           }
           return next;
         });
@@ -450,8 +472,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     setOrderedIds(prev => prev.filter(id => !drop.has(id)));
   }, []);
 
+  // eslint-disable-next-line react-hooks/refs -- this hook intentionally returns pinnedIdsRef (read by consumers in effects/handlers, never in their render) as part of its stable public API
   return {
     state: { orderedIds, pinnedIds },
+    // eslint-disable-next-line react-hooks/refs -- effectivePinnedIds is the contents-equality-cached value (transitively ref-derived); returning it as derived state is the point — its stable reference keeps the parent's downstream memos from churning
     derived: { validatedOrderedIds, effectivePinnedIds, activePaneId },
     refs: { pinnedIdsRef },
     ops: { reorder, pin, ensureBrowserPane, openSessionViewerPane, removeLocalPane, removeLocalPanes },

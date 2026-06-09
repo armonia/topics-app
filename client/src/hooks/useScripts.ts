@@ -10,7 +10,7 @@ const POLL_BACKGROUND = 15000;
 // All consumers share the same poll interval and data, preventing duplicate fetches.
 
 let scripts: ScriptProcessInfo[] = [];
-let listeners = new Set<() => void>();
+const listeners = new Set<() => void>();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let subscriberCount = 0;
 let fetchingNow = false;

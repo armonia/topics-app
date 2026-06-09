@@ -50,9 +50,11 @@ export function useTopics() {
       }
       // Cache to localStorage
       try { localStorage.setItem('topics-cache', JSON.stringify(data.topics)); } catch {}
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load topics:', err);
-      const isTimeout = err?.name === 'AbortError';
+      // Narrow the opaque caught value to the Error-ish fields we read.
+      const errLike = (err ?? {}) as { name?: unknown; message?: unknown };
+      const isTimeout = errLike.name === 'AbortError';
       setTopics(prev => {
         const hasCachedData = Object.keys(prev).length > 0;
         if (hasCachedData) {
@@ -63,7 +65,8 @@ export function useTopics() {
         return prev;
       });
       // Auto-retry once after timeout or network error
-      const isNetworkError = err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError');
+      const message = typeof errLike.message === 'string' ? errLike.message : '';
+      const isNetworkError = message.includes('Failed to fetch') || message.includes('NetworkError');
       if (isTimeout || isNetworkError) {
         setTimeout(() => loadTopics(), 3000);
       }

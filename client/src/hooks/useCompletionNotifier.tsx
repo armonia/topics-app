@@ -1,7 +1,9 @@
-import { useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useToast } from '../components/Shared/Toast';
-import type { AppSettings, ClaudeSessionPhase, Topic, WSMessage } from '../types';
+import type { AppSettings, ClaudeSessionPhase, TerminalSessionInfo, Topic, WSMessage } from '../types';
 import { useWSSubscription } from './useWSSubscription';
+import { useRefMirror } from './useRefMirror';
+import { useSignalsStore } from '../state/signals';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -16,6 +18,9 @@ interface CompletionNotifierProps {
    *  Used to suppress the toast for the topic the user is already looking
    *  at, unless `notifyEvenWhenFocused` is on. */
   focusedPanelId: string | null;
+  /** Live terminal roster — lets the pty-`finished` notifier resolve a
+   *  terminal id → its claudeSessionId (cross-path cooldown dedup) + name. */
+  terminalSessions: TerminalSessionInfo[];
 }
 
 /**
@@ -63,6 +68,40 @@ function playCompletionTone(): void {
   }
 }
 
+/**
+ * Fire a NATIVE OS notification — the macOS/Windows banner the user sees even
+ * when the Topics window is in the background. This is the "notifiche di
+ * sistema" layer: the in-app toast only covers the in-window case, and the
+ * Electron main process only desktop-notifies chat replies (message:new) +
+ * error/approval — terminal Claude Code sessions (which store no message) got
+ * no system banner at all. The Web Notification API works in BOTH the Electron
+ * renderer (the main window's default session grants it) and a plain browser
+ * tab, and is hot-reloadable (no Electron rebuild/restart needed).
+ *
+ * The toast message is "Label: status"; we split it so the banner gets a real
+ * title + body. Never throws — a denied permission or locked-down env just
+ * means no banner, and the toast still shows.
+ *
+ * Returns true iff a banner was actually posted, so the caller can drop the
+ * redundant in-app toast (the OS notification already covers the "done" cue).
+ */
+function emitSystemNotification(message: string): boolean {
+  try {
+    if (typeof Notification === 'undefined') return false;
+    if (Notification.permission !== 'granted') return false;
+    const sep = message.indexOf(': ');
+    const title = sep > 0 ? message.slice(0, sep) : 'Topics';
+    const body = sep > 0 ? message.slice(sep + 2) : message;
+    // silent: we play our own WebAudio tone when the sound toggle is on, so the
+    // OS banner stays quiet to avoid a double chime.
+    new Notification(title, { body, silent: true });
+    return true;
+  } catch {
+    /* never propagate notification errors — they're cosmetic */
+    return false;
+  }
+}
+
 /** Pull the topic id out of a panel id like `chat:abc-123`. Returns null
  *  for non-chat panels (agents pane, terminal, etc.) since those aren't
  *  bound to a specific topic. */
@@ -89,13 +128,60 @@ function topicIdFromPanel(panelId: string | null): string | null {
  * complementary: the toast covers the in-window case, the desktop notif
  * covers the "app in the background" case.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- hook colocated with its renderless bridge component (CompletionNotifierBridge); idiomatic and the bridge is the sole consumer
 export function useCompletionNotifier({
   onWSMessage,
   settings,
   topics,
   focusedPanelId,
+  terminalSessions,
 }: CompletionNotifierProps): void {
   const { success, warning } = useToast();
+
+  // Prime OS-notification permission once on mount. In the Electron main window
+  // the default session already reports 'granted'; in a browser tab this raises
+  // the one-time prompt so later completions can surface a system banner.
+  useEffect(() => {
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    } catch { /* ignore — notifications simply won't show */ }
+  }, []);
+
+  // Electron desktop? The MAIN process (electron-app/main.ts) is the established
+  // owner of native OS banners for the streams it already handles, so the
+  // renderer must not duplicate them there — see `fire` / the `osBanner` gate.
+  const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
+
+  // Single fan-out for every completion/attention cue: native OS banner (the
+  // primary channel, fires even when backgrounded) + in-app toast + optional
+  // sound. Keeps the notifier paths below from drifting in how they surface an
+  // event.
+  //
+  // De-dup against the OS banner: a green "done" toast is pure FYI, so when the
+  // banner actually fired (granted permission — always the case in the Electron
+  // desktop app) we DON'T also pop the in-app toast — the system notification
+  // already covers it. The in-app toast remains the FALLBACK for a browser tab
+  // with notifications denied. Warnings (approval/error) are actionable, so they
+  // always toast in-window too — the redundancy is worth it for the cue you must
+  // act on.
+  //
+  // `osBanner` (default true) lets a caller SUPPRESS the renderer's native
+  // banner for a channel the Electron main process already banners — namely
+  // agents:sessions, session:state(error/approval), and chat replies via
+  // message:new. Without this the Electron desktop build (the primary prod
+  // target) fired TWO banners per event: one from main, one from here. When
+  // suppressed the renderer still shows the in-app toast (its in-window
+  // complement). The pty `terminal:activity` path is genuinely uncovered by
+  // main, so it keeps osBanner=true; in a plain browser tab there is no main
+  // process, so everything banners (osBanner stays true everywhere).
+  const fire = useCallback((level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true) => {
+    const banner = osBanner ? emitSystemNotification(message) : false;
+    if (level === 'warn') warning(message);
+    else if (!banner) success(message);
+    if (sound) playCompletionTone();
+  }, [success, warning]);
 
   // Per-session previous status, keyed by `session.key`. We diff frames
   // here — the server publishes the full session list on every frame, so
@@ -105,13 +191,11 @@ export function useCompletionNotifier({
 
   // Refs let us read the latest values inside the WS handler without
   // re-subscribing on every settings change (which would drop in-flight
-  // status diffs).
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
-  const topicsRef = useRef(topics);
-  topicsRef.current = topics;
-  const focusedRef = useRef(focusedPanelId);
-  focusedRef.current = focusedPanelId;
+  // status diffs). useRefMirror is the canonical state→ref bridge.
+  const settingsRef = useRefMirror(settings);
+  const topicsRef = useRefMirror(topics);
+  const focusedRef = useRefMirror(focusedPanelId);
+  const terminalSessionsRef = useRefMirror(terminalSessions);
 
   // Per-topic cooldown (10s) so two completions in quick succession on
   // the same topic don't double-toast. Mirrors the cooldown in
@@ -153,21 +237,13 @@ export function useCompletionNotifier({
 
               const topic = topicsRef.current[topicId];
               const label = topic?.name ?? 'Topic';
-              if (justErrored) {
-                warning(`${label}: agent error`);
-              } else {
-                success(`${label}: agent done`);
-              }
-              if (cfg.notificationsSound) {
-                playCompletionTone();
-              }
+              // osBanner off in Electron — main.ts already banners agents:sessions.
+              fire(justErrored ? 'warn' : 'ok', `${label}: ${justErrored ? 'agent error' : 'agent done'}`, cfg.notificationsSound, !isElectron);
             }
           } else if (shouldShow && !topicId) {
             // Session without a topic id — still surface it, but without
             // cooldown keying since we have nothing to key on.
-            if (justErrored) warning('Agent error');
-            else success('Agent done');
-            if (cfg.notificationsSound) playCompletionTone();
+            fire(justErrored ? 'warn' : 'ok', justErrored ? 'Agent error' : 'Agent done', cfg.notificationsSound, !isElectron);
           }
         }
 
@@ -229,44 +305,88 @@ export function useCompletionNotifier({
       const isFocused = topicId !== null && topicId === focusedTopicId;
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
 
-      // 10s cooldown — keyed by sessionKey so two terminals don't collide.
+      // 10s cooldown. Key by topicId FIRST so this phase notification and the
+      // agents:sessions completion (which keys by topicId) collapse into ONE
+      // toast for the same chat instead of double-firing. Fall back to
+      // claudeSessionId / sessionKey when no topic resolved. (This handler only
+      // runs for chats — it early-returns on a null sessionKey above — so the
+      // pty `terminal:activity` path never collides here.)
+      const cooldownKey = topicId || state.claudeSessionId || sessionKey;
       const now = Date.now();
-      const last = cooldownRef.current.get(sessionKey) ?? 0;
+      const last = cooldownRef.current.get(cooldownKey) ?? 0;
       if (now - last < 10_000) return;
-      cooldownRef.current.set(sessionKey, now);
+      cooldownRef.current.set(cooldownKey, now);
 
+      // osBanner off in Electron — main.ts already banners chat replies
+      // (message:new) and session:state error/approval; firing here too doubles.
       switch (phase) {
         case 'awaiting-user':
-          success(`${label}: in attesa di te`);
+          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound, !isElectron);
           break;
         case 'awaiting-approval':
-          warning(`${label}: serve un'approvazione`);
+          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound, !isElectron);
           break;
         case 'completed':
-          success(`${label}: lavoro completato`);
+          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound, !isElectron);
           break;
         case 'error':
-          warning(`${label}: errore — interventi richiesti`);
+          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound, !isElectron);
           break;
       }
-      if (cfg.notificationsSound) playCompletionTone();
   });
 
-  // ── Master attention digest ────────────────────────────────────────────
-  // The (user-enabled) session monitor broadcasts `master:digest` every few
-  // minutes when sessions need attention — free, model-less. Surface it as a
-  // single info toast. Same notifications master switch; 30s cooldown (fixed
-  // key) so digests don't stack.
-  useWSSubscription(onWSMessage, 'master:digest', (msg) => {
+  // ── pty-`finished` notifier (the safety net) ───────────────────────────
+  // The authoritative completion cue is the `session:state` awaiting-user /
+  // completed path above, driven by Claude Code's hooks. This pty path is ONLY
+  // a fallback for genuinely hook-less sessions: the server emits a pty-derived
+  // `terminal:activity { finished:true, kind:'claude-code' }` after ~1.5s of
+  // output silence, which is a CRUDE proxy — a session pauses mid-turn many
+  // times (a sub-agent running quietly, the model thinking), and each lull used
+  // to fire a false "lavoro completato" (the Japan-with-shells symptom).
+  //
+  // Guard: trust the phase machine. If it currently classes this session as
+  // actively working (running/tool-running), the pty going quiet is a MID-TURN
+  // pause — suppress. Only when the phase is NOT active (hook-less session stuck
+  // at `starting`, or already resting) do we let the pty signal through. Dedup
+  // is keyed by claudeSessionId, the SAME key the phase path uses, so a hooked
+  // session that emits BOTH only notifies once.
+  useWSSubscription(onWSMessage, 'terminal:activity', (msg) => {
+      if (!msg.finished) return;
+      if (msg.kind !== 'claude-code' && msg.kind !== 'claude-code-team') return;
+
       const cfg = settingsRef.current;
       if (!cfg.notificationsEnabled) return;
-      if (!msg.summary || msg.count <= 0) return;
+
+      // Trust the phase machine whenever it has an authoritative opinion on this
+      // session — the pty path is ONLY for genuinely hook-less sessions.
+      //   - active (running/tool-running): the pty quieting is a mid-turn lull
+      //     (sub-agent / thinking), NOT a finished turn — the `Stop` hook drives
+      //     the real notification via session:state. Suppress.
+      //   - resting (awaiting-user/completed/paused/error/dormant): the turn
+      //     already ended and session:state already notified (or it's a plain
+      //     idle repaint) — a pty blip here is the "Japan fires a second random
+      //     toast" symptom. Suppress.
+      // Only a session in NEITHER set (no phase signal at all / stuck at
+      // `starting`) falls through to this crude pty fallback.
+      const sig = useSignalsStore.getState();
+      if (sig.claudePhaseActiveTermIds.has(msg.id) || sig.claudePhaseRestingTermIds.has(msg.id)) return;
+
+      const ts = terminalSessionsRef.current.find((t) => t.id === msg.id);
+      // Focus suppression: the focused panel id for a terminal contains its id
+      // (`terminal:<id>`); skip the toast if the user is staring at it already.
+      const focused = focusedRef.current;
+      const isFocused = !!focused && focused.includes(msg.id);
+      if (isFocused && !cfg.notifyEvenWhenFocused) return;
+
+      const cooldownKey = ts?.claudeSessionId || `terminal:${msg.id}`;
       const now = Date.now();
-      const last = cooldownRef.current.get('master:digest') ?? 0;
-      if (now - last < 30_000) return;
-      cooldownRef.current.set('master:digest', now);
-      success(msg.summary);
-      if (cfg.notificationsSound) playCompletionTone();
+      const last = cooldownRef.current.get(cooldownKey) ?? 0;
+      if (now - last < 10_000) return;
+      cooldownRef.current.set(cooldownKey, now);
+
+      const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
+      const label = ts?.name || topicName || 'Claude Code';
+      fire('ok', `${label}: lavoro completato`, cfg.notificationsSound);
   });
 }
 

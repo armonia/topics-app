@@ -8,7 +8,6 @@ import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
 import { useWebSocket } from './hooks/useWebSocket';
 import { TabNotificationProvider } from './hooks/useTabNotifications';
-import { GlobalTabIndexProvider } from './contexts/GlobalTabIndexContext';
 import { useTheme } from './hooks/useTheme';
 import { useClaudeSessionState } from './hooks/useClaudeSessionState';
 import { TopicsProvider } from './contexts/TopicsContext';
@@ -37,7 +36,6 @@ import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
-import { loadSettings } from './lib/settings';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
@@ -57,48 +55,6 @@ const TOPICS_MENU_PAGES = [
 // middleware. Component reads/writes happen via the panel-lifecycle hook
 // (`usePanelLifecycle`); App-level helpers were inlined into that hook
 // during the Commit 5 refactor.
-
-export function _SafeAreaFill() {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 'env(safe-area-inset-bottom, 0px)',
-        background: 'var(--bg-surface)',
-        zIndex: 99998,
-        pointerEvents: 'none',
-      }}
-    />
-  );
-}
-
-export function _SafeAreaDebug() {
-  const [info, setInfo] = useState({ safe: '...', bodyBg: '...', appBg: '...' });
-  useEffect(() => {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:fixed;bottom:0;left:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;';
-    document.body.appendChild(probe);
-    requestAnimationFrame(() => {
-      const safe = probe.offsetHeight;
-      const bodyBg = getComputedStyle(document.body).backgroundColor;
-      const appEl = document.getElementById('root')?.firstElementChild as HTMLElement;
-      const appBg = appEl ? getComputedStyle(appEl).backgroundColor : '?';
-      document.body.removeChild(probe);
-      setInfo({ safe: safe + 'px', bodyBg, appBg });
-    });
-  }, []);
-  return (
-    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 99999, pointerEvents: 'none', padding: '2px 6px', background: 'rgba(200,0,0,0.9)', color: 'white', fontSize: '10px', fontFamily: 'monospace', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-      <span>safe: {info.safe}</span>
-      <span>body: {info.bodyBg}</span>
-      <span>app: {info.appBg}</span>
-      <span>dvh: {window.innerHeight}px</span>
-    </div>
-  );
-}
 
 /**
  * App — root component.
@@ -149,7 +105,6 @@ function App() {
     sidebarWidth,
     sidebarCollapsed,
     isMobile,
-    isPWA,
     viewportHeight,
     isElectron,
     windowId,
@@ -169,8 +124,6 @@ function App() {
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
-  // Inline live search that drives the existing sidebar tree filter (searchQuery).
-  const [topicSearch, setTopicSearch] = useState('');
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -326,14 +279,13 @@ function App() {
     pendingProjectFocus, projectActiveTopics, projectOpenPanes,
     pendingProjectPane, panelInitialTab, contextMenu, expandedProjects,
     externalDragTopicId, pendingBrowserPane, pendingSoloPanelId,
-    boardTaskCounts,
   } = panelLifecycle.state;
   const { focusedProjectPath } = panelLifecycle.derived;
   const {
     handleTopicClick, handleTopicDoubleClick, handleClosePanel,
     handleProjectClick, handleFocusPanel, handleReorderPanels,
     handleOpenPanelAt, handleOpenAsProject, handleAddProjectPane,
-    handleOpenProjectBoard, handleArchiveProject, handleTopicContextMenu,
+    handleArchiveProject, handleTopicContextMenu,
     handleQuickCreateTopic, handleCreateTopic, promoteDraft,
     handleQuickCreateTerminal, handleCloseTerminal, handleTerminalClick,
     handleOpenAsPage, handleExternalDrop, handleReopenClosedTab,
@@ -360,23 +312,6 @@ function App() {
     window.addEventListener('topics:open-project-picker', handler);
     return () => window.removeEventListener('topics:open-project-picker', handler);
   }, [handleOpenProjectPicker]);
-
-  // Open the Master as an interactive `claude` PTY tab (subscription, human-
-  // driven) — NOT a chat topic. Single entry point reused by the sidebar
-  // shortcut, the ⇧⌘M shortcut, and the board buttons via the 'open-master'
-  // event, so no path can fall back to the old layout-breaking chat-master.
-  // interactive-claude-primitive.
-  const openMasterTerminal = useCallback(() => {
-    void handleQuickCreateTerminal('claude-code', true, { role: 'master', name: 'Master' });
-  }, [handleQuickCreateTerminal]);
-
-  useEffect(() => {
-    // No-op when Master is disabled in Settings. Read via loadSettings() to
-    // avoid a stale closure on this minimal-deps effect.
-    const handler = () => { if (loadSettings().showMaster) openMasterTerminal(); };
-    window.addEventListener('open-master', handler);
-    return () => window.removeEventListener('open-master', handler);
-  }, [openMasterTerminal]);
 
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -534,6 +469,7 @@ function App() {
     showNewTopic,
     showShortcuts,
     showFileSearch,
+    enableNewChat: appSettings.enableNewChat,
     handleClosePanel,
     handleQuickCreateTopic,
     toggleSidebar,
@@ -545,14 +481,11 @@ function App() {
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
-    showBoard: appSettings.showBoard,
-    showMaster: appSettings.showMaster,
   });
 
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
-    <GlobalTabIndexProvider openPanels={openPanels} projectOpenPanes={projectOpenPanes}>
     <SplitPositionProvider>
     <ToastProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
@@ -565,6 +498,7 @@ function App() {
       settings={appSettings}
       topics={topics}
       focusedPanelId={focusedPanelId}
+      terminalSessions={terminalSessions}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original
@@ -613,16 +547,22 @@ function App() {
         style={{
           width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
           transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
-          paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined,
+          // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
+          // there's no inset (desktop, non-notched), so gating it on isPWA was
+          // the bug that left content clipped under the notch when the app is
+          // opened in a plain mobile browser tab (e.g. over Tailscale, where
+          // display-mode is 'browser', not 'standalone'). The mobile sidebar is
+          // `position: fixed inset-y-0`, so it escapes the root and needs its own.
+          paddingTop: 'env(safe-area-inset-top, 0px)',
         }}
       >
 
         
         {/* Header - draggable for window move */}
         <div
-          className={`flex items-center justify-between px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
+          className={`flex items-center justify-between gap-2 px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Close button on mobile */}
             {isMobile && (
               <button
@@ -654,42 +594,21 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* Inline live search — drives the existing sidebar filter via searchQuery. */}
-            <div className="relative flex-1 min-w-0 app-no-drag" style={{ pointerEvents: 'auto' }}>
-              <Search
-                size={14}
-                className="absolute left-2 top-1/2 -translate-y-1/2 text-app-text-tertiary pointer-events-none"
-                aria-hidden="true"
-              />
-              <input
-                value={topicSearch}
-                onChange={(e) => setTopicSearch(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setTopicSearch(''); } }}
-                placeholder="Cerca…"
-                aria-label="Cerca nei topic"
-                className={`w-full pl-7 ${topicSearch ? 'pr-7' : 'pr-2'} ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-text placeholder:text-app-placeholder focus:outline-none focus:border-primary/50 transition-colors app-no-drag`}
-                style={{ pointerEvents: 'auto' }}
-              />
-              {topicSearch && (
-                <button
-                  onClick={() => setTopicSearch('')}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-app-text-tertiary hover:text-app-text rounded app-no-drag"
-                  aria-label="Cancella ricerca"
-                  style={{ pointerEvents: 'auto' }}
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-            {wsStatus !== 'connected' && (
-              <span className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 animate-pulse">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-                {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
-              </span>
-            )}
-            {wsStatus === 'connected' && topicsLoading && (
-              <div className="w-3 h-3 border border-gray-300 dark:border-gray-600 border-t-transparent rounded-full animate-spin" aria-hidden />
-            )}
+            {/* Search launcher — opens the ⌘K command palette (no inline tree
+                filtering; ⌘K is the canonical search). */}
+            <button
+              onClick={() => setShowSearch(true)}
+              className={`flex-1 min-w-0 flex items-center gap-2 pl-2.5 pr-2 ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-placeholder hover:border-primary/50 hover:text-app-text-muted transition-colors cursor-pointer app-no-drag`}
+              style={{ pointerEvents: 'auto' }}
+              title="Cerca (⌘K)"
+              aria-label="Cerca — apri command palette"
+            >
+              <Search size={14} className="text-app-text-tertiary flex-shrink-0" aria-hidden="true" />
+              <span className="flex-1 text-left truncate">Cerca…</span>
+              <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
+            </button>
+            {/* Connection + loading status live in the bottom SidebarStatusBar
+                and the tree skeleton — no stray spinner next to the search. */}
           </div>
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
             {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
@@ -702,7 +621,7 @@ function App() {
                 (6×6 with `bg-surface` plate) so all three "+" buttons
                 across the app look identical. */}
             <PaneAddMenu
-              onNewChat={() => handleQuickCreateTopic()}
+              onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
               onAddPane={(type, subType) => {
                 if (type === 'terminal') {
                   handleQuickCreateTerminal(
@@ -724,7 +643,8 @@ function App() {
         {/* SidebarControls removed: search is now the inline header input,
             view-mode + archived toggles live in the Topics ▾ menu, and ⌘K
             (CommandPalette) remains via setShowSearch / the keyboard shortcut. */}
-        {topicsError && <div className="px-2 text-red-500 text-[11px]">{topicsError}</div>}
+        {/* topicsError ("Using cached data — server unreachable") moved to the
+            bottom SidebarStatusBar — see <SidebarStatusBar dataNotice={…} />. */}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
           <ErrorBoundary fallbackMessage="Sidebar error">
@@ -734,7 +654,7 @@ function App() {
           <TopicTree
             topics={topics}
             workspaceProjects={workspaceProjects}
-            searchQuery={topicSearch}
+            searchQuery=""
             expandedNodes={sidebar.expandedNodes}
             onToggleNode={sidebar.toggleNode}
             focusedTopicId={focusedPanelId}
@@ -747,16 +667,11 @@ function App() {
             unreadData={unreadData}
             onArchiveTopic={handleArchiveTopicDeferred}
             onArchiveProject={handleArchiveProjectDeferred}
-            onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
+            onNewTopicInProject={appSettings.enableNewChat ? (projectPath) => handleQuickCreateTopic(projectPath) : undefined}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
-            onOpenProjectBoard={handleOpenProjectBoard}
-            onOpenMaster={openMasterTerminal}
-            showBoard={appSettings.showBoard}
-            showMaster={appSettings.showMaster}
-            boardTaskCounts={boardTaskCounts}
-            onNewChat={() => handleQuickCreateTopic()}
+            onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
             onNewBrowser={() => openBrowserPane(`new-${Date.now()}`)}
             terminalSessions={terminalSessions}
             browserContexts={browserCtx.contexts}
@@ -781,7 +696,7 @@ function App() {
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar />
+        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
         </ErrorBoundary>
       </div>
 
@@ -800,7 +715,7 @@ function App() {
       {sidebarCollapsed && openPanels.length === 0 && (
         <div
           className="absolute left-2 z-30 flex items-center gap-1"
-          style={{ top: isMobile && isPWA ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
+          style={{ top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
         >
           <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="bg-surface border border-app-border-light rounded-lg shadow-sm" />
         </div>
@@ -811,7 +726,9 @@ function App() {
         <button
           onClick={() => {
             // Use native bridge if available (macOS app), fallback to window.close()
-            const webkit = (window as any).webkit;
+            const webkit = (window as Window & {
+              webkit?: { messageHandlers?: { closeWindow?: { postMessage: (msg: unknown) => void } } };
+            }).webkit;
             if (webkit?.messageHandlers?.closeWindow) {
               webkit.messageHandlers.closeWindow.postMessage(null);
             } else {
@@ -828,7 +745,7 @@ function App() {
 
       {/* Main Content */}
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ contain: 'layout style', paddingTop: (isPWA || isElectron) ? 'env(safe-area-inset-top, 0px)' : undefined }}
+        style={{ contain: 'layout style', paddingTop: 'env(safe-area-inset-top, 0px)' }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
@@ -836,7 +753,6 @@ function App() {
         <PanelGrid
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
-          masterPaneId={Object.values(topics).find((t) => !t.archived && t.agentTeamRole === 'lead')?.id ?? null}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
           onClosePanelImmediate={handleClosePanel}
@@ -867,8 +783,8 @@ function App() {
           onPanelInitialTabConsumed={(topicId) => setPanelInitialTab((prev: typeof panelInitialTab) => { const n = { ...prev }; delete n[topicId]; return n; })}
           pendingProjectPane={pendingProjectPane}
           onPendingProjectPaneConsumed={() => setPendingProjectPane(null)}
-          onNewChatInProject={(projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId)}
-          onNewChat={() => handleQuickCreateTopic()}
+          onNewChatInProject={appSettings.enableNewChat ? (projectPath, groupId) => handleQuickCreateTopic(projectPath, groupId) : undefined}
+          onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
           pendingProjectFocus={pendingProjectFocus}
           onPendingProjectFocusConsumed={() => setPendingProjectFocus(null)}
           onProjectActiveTopicChange={handleProjectActiveTopicChange}
@@ -888,7 +804,7 @@ function App() {
       {showTopicsMenu && createPortal(
         <div
           ref={topicsDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
+          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
           style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
         >
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
@@ -971,7 +887,7 @@ function App() {
       {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
           ref={remoteAccessDropdownRef}
-          className="bg-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
+          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
           style={{
             position: 'fixed',
             // Anchored to the Topics ▾ menu (its trigger is now the menu item),
@@ -998,7 +914,6 @@ function App() {
           onUpdate={updateTopic}
           onDelete={archiveTopic}
           onAssignAgents={(topicId, topicName) => setAssignAgentsTarget({ topicId, topicName })}
-          onOpenBoard={handleOpenProjectBoard}
         />
       )}
 
@@ -1050,6 +965,7 @@ function App() {
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
+            enableNewChat={appSettings.enableNewChat}
             onNewProject={isElectron ? handleOpenProjectPicker : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
@@ -1120,7 +1036,6 @@ function App() {
     </PendingActionProvider>
     </ToastProvider>
     </SplitPositionProvider>
-    </GlobalTabIndexProvider>
     </TabNotificationProvider>
     </TopicsProvider>
   );

@@ -16,6 +16,7 @@ import { useRef, type MutableRefObject } from 'react';
  */
 export function useRefMirror<T>(value: T): MutableRefObject<T> {
   const ref = useRef(value);
+  // eslint-disable-next-line react-hooks/refs -- intentional state→ref mirror: assignment during render is the documented purpose of this hook so event handlers read the latest committed value synchronously
   ref.current = value;
   return ref;
 }

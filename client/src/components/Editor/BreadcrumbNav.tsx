@@ -15,17 +15,17 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
   openFile: (path: string, name: string) => void;
 }) {
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [items, setItems] = useState<FileNode[] | null>(null);
-
-  // Reset cached items when directory changes so next dropdown open re-fetches
-  useEffect(() => {
-    setItems(null);
-  }, [parentDir]);
+  // Cache the listing together with the dir it was fetched for, so a directory
+  // change invalidates it during render (no clearing effect / setState-in-effect).
+  const [cache, setCache] = useState<{ dir: string; nodes: FileNode[] } | null>(null);
+  const items = cache && cache.dir === parentDir ? cache.nodes : null;
 
   useEffect(() => {
     if (!isOpen) return;
     if (items) return;
-    filesApi.list(parentDir, 1).then(setItems).catch(() => setItems([]));
+    filesApi.list(parentDir, 1)
+      .then(nodes => setCache({ dir: parentDir, nodes }))
+      .catch(() => setCache({ dir: parentDir, nodes: [] }));
   }, [isOpen, parentDir, items]);
 
   const sorted = items

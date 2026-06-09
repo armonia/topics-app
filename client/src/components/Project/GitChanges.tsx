@@ -17,6 +17,10 @@ interface GitChangesProps {
   onToggle?: () => void;
 }
 
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function statusLabel(status: string): { text: string; color: string; bg: string } {
   switch (status) {
     case 'M': return { text: 'M', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
@@ -58,7 +62,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged' } | null>(null);
   const lastClickedRef = useRef<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const commitInputRef = useRef<HTMLTextAreaElement>(null);
+  const commitInputRef = useRef<HTMLInputElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const branchBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -108,7 +112,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       await gitApi.init(projectPath);
       await loadStatus();
       await loadRemotes();
-    } catch (err: any) {
+    } catch {
       // error state is handled by useGitStatus
     } finally {
       setInitializing(false);
@@ -126,21 +130,21 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setNewRemoteUrl('');
       setShowAddRemote(false);
       await loadRemotes();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     } finally {
       setAddingRemote(false);
     }
-  }, [projectPath, newRemoteName, newRemoteUrl, loadRemotes]);
+  }, [projectPath, newRemoteName, newRemoteUrl, loadRemotes, toast]);
 
   const handleRemoveRemote = useCallback(async (name: string) => {
     try {
       await gitApi.removeRemote(projectPath, name);
       await loadRemotes();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
-  }, [projectPath, loadRemotes]);
+  }, [projectPath, loadRemotes, toast]);
 
   // Load remotes when we have a valid git status
   useEffect(() => {
@@ -168,9 +172,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       }
       setOriginalContent(original);
       setModifiedContent(modified);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setOriginalContent('');
-      setModifiedContent('Error loading diff: ' + err.message);
+      setModifiedContent('Error loading diff: ' + errMessage(err));
     } finally {
       setLoadingDiff(false);
     }
@@ -181,41 +185,41 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.stage(projectPath, filePath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleUnstage = useCallback(async (filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await gitApi.unstage(projectPath, filePath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleStageAll = useCallback(async () => {
     try {
       setStagingAll(true);
       await gitApi.stageAll(projectPath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     } finally {
       setStagingAll(false);
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleUnstageAll = useCallback(async () => {
     try {
       await gitApi.unstageAll(projectPath);
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handleDiscard = useCallback((filePath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -230,11 +234,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         await gitApi.discardFiles(projectPath, files);
       }
       await loadStatus();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     }
     setDiscardConfirm(null);
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   // --- Multi-select helpers ---
   const getFileList = useCallback((group: 'staged' | 'unstaged') => {
@@ -323,8 +327,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.stageFiles(projectPath, files);
       await loadStatus();
-    } catch (err: any) { toast.error(err.message); }
-  }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
+    } catch (err: unknown) { toast.error(errMessage(err)); }
+  }, [selectedFiles, projectPath, loadStatus, closeContextMenu, toast]);
 
   const handleBatchUnstage = useCallback(async () => {
     const files = [...selectedFiles];
@@ -332,8 +336,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     try {
       await gitApi.unstageFiles(projectPath, files);
       await loadStatus();
-    } catch (err: any) { toast.error(err.message); }
-  }, [selectedFiles, projectPath, loadStatus, closeContextMenu]);
+    } catch (err: unknown) { toast.error(errMessage(err)); }
+  }, [selectedFiles, projectPath, loadStatus, closeContextMenu, toast]);
 
   const handleBatchDiscard = useCallback(() => {
     const files = [...selectedFiles];
@@ -359,12 +363,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         const result = await gitApi.diffSummary(projectPath);
         setCommitMessage(result.message);
       }
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(errMessage(err));
     } finally {
       setGeneratingMsg(false);
     }
-  }, [projectPath]);
+  }, [projectPath, toast]);
 
   const handleCommit = useCallback(async () => {
     if (!commitMessage.trim()) return;
@@ -374,12 +378,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       setCommitMessage('');
       await loadStatus();
       toast.success('Committed!');
-    } catch (err: any) {
-      toast.error(`Commit failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Commit failed: ${errMessage(err)}`);
     } finally {
       setCommitting(false);
     }
-  }, [commitMessage, projectPath, loadStatus]);
+  }, [commitMessage, projectPath, loadStatus, toast]);
 
   const handlePull = useCallback(async () => {
     try {
@@ -387,12 +391,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       const result = await gitApi.pull(projectPath);
       toast.success(result.output || 'Pull complete');
       await loadStatus();
-    } catch (err: any) {
-      toast.error(`Pull failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Pull failed: ${errMessage(err)}`);
     } finally {
       setPulling(false);
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   const handlePush = useCallback(async () => {
     try {
@@ -400,12 +404,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       const result = await gitApi.push(projectPath);
       toast.success(result.output || 'Push complete');
       await loadStatus();
-    } catch (err: any) {
-      toast.error(`Push failed: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`Push failed: ${errMessage(err)}`);
     } finally {
       setPushing(false);
     }
-  }, [projectPath, loadStatus]);
+  }, [projectPath, loadStatus, toast]);
 
   // --- Context menu portal ---
   const renderContextMenu = () => {
@@ -423,7 +427,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return createPortal(
       <div
         ref={contextMenuRef}
-        className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
+        className="fixed glass-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
         style={{ left: x, top: y }}
       >
         <div className="px-3 py-1 text-[11px] text-app-text-muted truncate border-b border-app-border mb-0.5">
@@ -661,7 +665,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   {/* Inline commit row — input + AI + commit all in one line */}
                   <div className="border-t border-app-border px-3 py-1 flex items-center gap-1 flex-shrink-0">
                     <input
-                      ref={commitInputRef as any}
+                      ref={commitInputRef}
                       type="text"
                       value={commitMessage}
                       onChange={e => setCommitMessage(e.target.value)}
@@ -780,7 +784,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {showBranches && branchBtnRef.current && createPortal(
           <div
             ref={branchDropdownRef}
-            className="fixed w-52 max-h-[220px] overflow-y-auto bg-surface dark:bg-app-panel border border-app-border rounded-md shadow-lg z-[9999]"
+            className="fixed w-52 max-h-[220px] overflow-y-auto glass-surface border border-app-border rounded-md shadow-lg z-[9999]"
             style={{
               top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
               left: branchBtnRef.current.getBoundingClientRect().left,
@@ -1103,7 +1107,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && branchBtnRef.current && createPortal(
         <div
           ref={branchDropdownRef}
-          className="fixed w-56 max-h-[320px] overflow-y-auto bg-surface dark:bg-app-panel border border-app-border rounded-md shadow-lg z-[9999]"
+          className="fixed w-56 max-h-[320px] overflow-y-auto glass-surface border border-app-border rounded-md shadow-lg z-[9999]"
           style={{
             top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
             left: branchBtnRef.current.getBoundingClientRect().left,

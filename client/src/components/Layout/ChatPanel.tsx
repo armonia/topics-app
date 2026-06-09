@@ -13,9 +13,13 @@ import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
 import { useContextInspector } from '../../hooks/useContextInspector';
 
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
+const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
 
 const CONTEXT_INSPECTOR_KEY = 'topics-context-inspector-open';
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 interface ChatPanelProps {
   topic: Topic; isFocused: boolean; onFocus: () => void; onClose: () => void;
@@ -51,10 +55,6 @@ interface ChatPanelProps {
    *  project-scoped topics too, unlike a bare sendFocusTopic which is
    *  presence-only). */
   onFocusPanel?: (topicId: string) => void;
-  /** Id of the open Master pane (if any). Used to render a "← Master"
-   *  back affordance in non-Master panes so the user can return with
-   *  one click after jumping out from the Master strip. */
-  masterPaneId?: string | null;
   /** Skip the header entirely — used when StandaloneChatGroup renders a
    *  single shared header above a keep-alive ladder of pane bodies. The
    *  body still renders banners, ChatPane, and the context inspector
@@ -73,7 +73,6 @@ export function ChatPanel({
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
   onOpenSessionViewer,
   onFocusPanel,
-  masterPaneId,
   bodyOnly = false,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -86,9 +85,16 @@ export function ChatPanel({
   });
   // Use external state if provided, otherwise internal
   const showContext = externalContextOpen !== undefined ? externalContextOpen : showContextInternal;
-  const setShowContext = externalToggleContext
-    ? (_v: boolean | ((prev: boolean) => boolean)) => externalToggleContext()
-    : setShowContextInternal;
+  // Memoized so its identity is stable across renders — otherwise the effects
+  // depending on it (persist + toggle-context listener) would re-subscribe
+  // every render.
+  const setShowContext = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
+    (v) => {
+      if (externalToggleContext) externalToggleContext();
+      else setShowContextInternal(v);
+    },
+    [externalToggleContext],
+  );
   // Persist context inspector state
   useEffect(() => {
     try { localStorage.setItem(CONTEXT_INSPECTOR_KEY, String(showContext)); } catch {}
@@ -131,10 +137,10 @@ export function ChatPanel({
   useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, isDraft, topic.id, sendWS]);
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
-  const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
-  const handleCommandClear = useCallback(async () => { if (!window.confirm('Clear conversation? A backup will be saved.')) return; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, loadHistory]);
-  const handleCommandModel = useCallback(async (model: string) => { setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, model); addSystemMessage(`Model set to: ${model}`); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
-  const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: any) { setCommandResult({ type: 'error', message: e.message }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
+  const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
+  const handleCommandClear = useCallback(async () => { if (!window.confirm('Clear conversation? A backup will be saved.')) return; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, loadHistory]);
+  const handleCommandModel = useCallback(async (model: string) => { setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, model); addSystemMessage(`Model set to: ${model}`); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
+  const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
@@ -208,7 +214,7 @@ export function ChatPanel({
               <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
               {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
-              {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; isNativeApp ? window.open(url, `topic-${topic.id}`, 'width=900,height=700') : window.open(url, `topic-${topic.id}`); onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={14} /></button>}
+              {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; if (isNativeApp) { window.open(url, `topic-${topic.id}`, 'width=900,height=700'); } else { window.open(url, `topic-${topic.id}`); } onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={14} /></button>}
             </>
           )}
           {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
@@ -249,8 +255,6 @@ export function ChatPanel({
                 onWSMessage={onWSMessage}
                 onUpdateTopic={onUpdateTopic}
                 onOpenSessionViewer={onOpenSessionViewer}
-                masterPaneId={masterPaneId}
-                onFocusPanel={onFocusPanel}
               />
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
+import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 
 interface AgentProfileEditorProps {
@@ -52,16 +53,16 @@ export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEdi
         ? await agentProfilesApi.update(profile!.id, body)
         : await agentProfilesApi.create(body);
       onSave(result);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-surface border border-app-border rounded-lg shadow-xl w-[380px] max-h-[80vh] flex flex-col">
+    <div className={MODAL_OVERLAY}>
+      <div className={`w-[380px] max-h-[80vh] flex flex-col ${MODAL_PANEL}`}>
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
           <span className="text-[13px] font-semibold text-app-text flex-1">

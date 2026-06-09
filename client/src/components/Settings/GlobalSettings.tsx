@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, MessageSquarePlus } from 'lucide-react';
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
+import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 
@@ -14,11 +15,12 @@ interface GlobalSettingsProps {
   onThemeChange?: (mode: ThemeMode) => void;
 }
 
-type SectionId = 'appearance' | 'notifications' | 'providers' | 'shortcuts';
+type SectionId = 'appearance' | 'notifications' | 'features' | 'providers' | 'shortcuts';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'features', label: 'Features', icon: Sparkles },
   { id: 'providers', label: 'AI Providers', icon: Cpu },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
 ];
@@ -31,7 +33,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
     setLocalSettings(settings);
   }, [settings]);
 
-  const handleChange = (key: keyof AppSettings, value: any) => {
+  const handleChange = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
     onSettingsChange(newSettings);
@@ -41,10 +43,10 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div className={MODAL_OVERLAY} onClick={onClose}>
       <div
         data-testid="settings-panel"
-        className="w-full max-w-[760px] mx-4 h-[80vh] max-h-[640px] bg-surface rounded-xl shadow-xl border border-app-border overflow-hidden flex flex-col"
+        className={`w-full max-w-[760px] mx-4 h-[80vh] max-h-[640px] flex flex-col ${MODAL_PANEL}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -91,8 +93,11 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             {section === 'notifications' && (
               <NotificationsSection settings={localSettings} onChange={handleChange} />
             )}
+            {section === 'features' && (
+              <FeaturesSection settings={localSettings} onChange={handleChange} />
+            )}
             {section === 'providers' && <AIProvidersSection />}
-            {section === 'shortcuts' && <ShortcutsSection />}
+            {section === 'shortcuts' && <ShortcutsSection settings={localSettings} />}
           </div>
         </div>
       </div>
@@ -104,7 +109,7 @@ interface AppearanceSectionProps {
   settings: AppSettings;
   themeMode: ThemeMode;
   onThemeChange?: (mode: ThemeMode) => void;
-  onChange: (key: keyof AppSettings, value: any) => void;
+  onChange: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
 }
 
 function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: AppearanceSectionProps) {
@@ -228,36 +233,19 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
         </div>
       </div>
 
-      {/* Sidebar shortcuts */}
-      <div>
-        <label className="text-[13px] font-medium text-app-text mb-1 block">Scorciatoie sidebar</label>
-        <div className="bg-app-hover rounded-lg px-3 border border-app-border">
-          <ToggleRow
-            label="Mostra Board"
-            description="Mostra la scorciatoia Board nella sidebar e abilita ⇧⌘M / scorciatoie correlate."
-            value={settings.showBoard}
-            onChange={(v) => onChange('showBoard', v)}
-          />
-          <ToggleRow
-            label="Mostra Master"
-            description="Mostra la scorciatoia Master nella sidebar e nelle board, e abilita ⇧⌘M."
-            value={settings.showMaster}
-            onChange={(v) => onChange('showMaster', v)}
-          />
-        </div>
-      </div>
     </div>
   );
 }
 
-function ShortcutsSection() {
+function ShortcutsSection({ settings }: { settings: AppSettings }) {
   return (
     <div>
       <label className="text-[13px] font-medium text-app-text mb-3 block">Keyboard Shortcuts</label>
       <div className="space-y-1.5 text-[12px]">
         {[
           ['⌘K', 'Search'],
-          ['⌘N', 'New topic'],
+          // ⌘N is only live when the paid New Chat feature is enabled.
+          ...(settings.enableNewChat ? [['⌘N', 'New chat']] : []),
           ['⌘W', 'Close panel'],
           ['⌘B', 'Toggle sidebar'],
           ['⌘1-9', 'Switch panels'],
@@ -269,6 +257,45 @@ function ShortcutsSection() {
             </kbd>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+interface FeaturesSectionProps {
+  settings: AppSettings;
+  onChange: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
+}
+
+/**
+ * Features — opt-in capabilities that carry a cost. Right now this is the
+ * "New Chat" gate: creating a fresh chat drives a paid provider turn (the
+ * subscription only works through an interactive PTY), so it ships OFF and the
+ * user enables it deliberately, fully aware it's billable.
+ */
+function FeaturesSection({ settings, onChange }: FeaturesSectionProps) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <MessageSquarePlus size={14} />
+          New Chat
+          <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            Paid
+          </span>
+        </label>
+        <p className="text-[12px] text-app-text-muted mb-3">
+          Allow creating new chats (the “New Chat” button, ⌘N, and the ⌘K
+          palette). Each new chat starts a billable provider turn, so this is
+          off by default — enable it only if you have a paid plan.
+        </p>
+
+        <ToggleRow
+          label="Enable New Chat"
+          description="Show the New Chat entry points and activate ⌘N."
+          value={settings.enableNewChat}
+          onChange={(v) => onChange('enableNewChat', v)}
+        />
       </div>
     </div>
   );
@@ -334,6 +361,7 @@ function AIProvidersSection() {
     const message = ok
       ? `Connected${entry.models.length ? ` · ${entry.models.length} models` : ''}${entry.version ? ` · v${entry.version}` : ''}`
       : entry.lastError ?? STATUS_LABELS[entry.status];
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- converging external-store sync: derives the test result from a freshly-arrived WS snapshot and clears `testing`, which guards against re-runs (no cascade)
     setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
     testTriggeredAt.current.delete(testing);
     setTesting(null);
@@ -678,7 +706,7 @@ function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | '
 
 interface NotificationsSectionProps {
   settings: AppSettings;
-  onChange: (key: keyof AppSettings, value: any) => void;
+  onChange: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
 }
 
 /**

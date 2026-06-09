@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Crown } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -13,13 +13,12 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
-import { useGlobalTabIndex } from '../../contexts/GlobalTabIndexContext';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
-import { useTopics } from '../../contexts/TopicsContext';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
@@ -122,6 +121,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // icon). Without this, every chat tab fell back to a generic MessageSquare
   // while the sidebar row showed the real icon — a jarring inconsistency.
   const topics = useTopics();
+  // Authoritative claude-code detection: a terminal pane is a Claude Code
+  // session if its persisted `terminalType` says so OR the live terminal
+  // roster reports that session id as claude-code. The persisted field can be
+  // absent on panes created before it was tracked (or not yet rehydrated),
+  // which used to make a "Claude Code" tab fall through to the generic
+  // Terminal glyph — i.e. Claude Code shown without its own icon. The sidebar
+  // already keys off the roster `type`; the tab bar now matches it.
+  const terminalSessions = useTerminalSessions();
+  const claudeCodeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of terminalSessions) {
+      if (s.type === 'claude-code' || s.type === 'claude-code-team') ids.add(s.id);
+    }
+    return ids;
+  }, [terminalSessions]);
   // Add-pane menu (button + portal + items + Electron overlay path) is
   // entirely owned by <PaneAddMenu>. PaneTabBar used to inline the
   // button + click handler + portal + outside-click effect — all of that
@@ -495,6 +509,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {panes.map((pane, paneIdx) => {
         const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
+        // Claude Code = persisted terminalType OR live roster says so (see memo above).
+        const termSid = pane.type === 'terminal' ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id)) : null;
+        const isClaudeCodeTab = pane.type === 'terminal' && (pane.terminalType === 'claude-code' || (!!termSid && claudeCodeSessionIds.has(termSid)));
         // Selection reads in the SAME visual language as the sidebar (shared
         // SELECTED_SURFACE): the focused tab is a clearly raised NEUTRAL card,
         // every other split group still shows ITS active tab one step softer,
@@ -511,7 +528,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // Streaming spinner: chat panes pulse during an LLM stream;
         // Loading affordance is owned by the canonical widgets below —
         // each reads from StreamingContext, no upstream prop needed.
-        const badgeCount = !isSelected && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
+        // Suppress the badge for the tab you're looking at — EXCEPT a project
+        // tab. A project badge is a ROLLUP of its children (chats / terminals in
+        // inner groups you may not be viewing), so selecting the project tab
+        // doesn't mean you've seen them. Zeroing it here also made the project
+        // tab disagree with the sidebar project row (which never suppresses the
+        // rollup): same project, two different numbers. Keep the rollup visible
+        // on the selected project tab so the two surfaces always match.
+        const suppressOnSelect = isSelected && pane.type !== 'project';
+        const badgeCount = !suppressOnSelect && tabNotifications ? (tabNotifications.get(pane.id) || 0) : 0;
 
         return (
           <div
@@ -558,12 +583,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 don't re-render every other tab. It self-guards on a null
                 pending status, so it's safe to mount for every pane type. */}
             <PaneTabPendingOverlay paneId={pane.id} />
+            {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
+                in a fixed 14×14 box so labels line up across tabs. The project
+                branch deliberately does NOT: a project without a shipped
+                favicon renders nothing (fallback=null) and must reserve NO
+                empty box — otherwise every generic project tab showed a blank
+                gap where an icon would be. Claude Code uses the authoritative
+                `isClaudeCodeTab` so its tab never falls through to the generic
+                Terminal glyph. */}
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
-            ) : pane.type === 'terminal' && pane.title === 'Master' ? (
-              <Crown size={14} className="flex-shrink-0 text-purple-400" />
-            ) : pane.type === 'terminal' && pane.terminalType === 'claude-code' ? (
-              <ClaudeIcon size={14} className="flex-shrink-0 text-[#D97757]" />
+            ) : isClaudeCodeTab ? (
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                <ClaudeIcon size={14} className="text-[#D97757]" />
+              </span>
             ) : pane.type === 'chat' && pane.topicId && topics[pane.topicId] ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <TopicIcon name={topics[pane.topicId].icon} color={topics[pane.topicId].color || undefined} size={14} />
@@ -571,21 +604,30 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             ) : pane.type === 'project' && pane.projectPath ? (
               // Same real project favicon the sidebar shows (GET /api/projects/icon),
               // with the SAME "no fake folder glyph" convention: projects WITHOUT a
-              // shipped favicon/manifest icon render nothing (fallback=null), exactly
-              // like the sidebar row. Only real icons appear.
-              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
-                <ProjectFavicon path={pane.projectPath} size={14} fallback={null} />
-              </span>
+              // shipped favicon/manifest icon render nothing (fallback=null) and
+              // reserve no space — no fixed-size wrapper here so the slot collapses.
+              <ProjectFavicon path={pane.projectPath} size={14} fallback={null} className="flex-shrink-0" />
             ) : Icon ? (
-              <Icon size={14} className="flex-shrink-0" />
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                <Icon size={14} />
+              </span>
             ) : null}
-            <span className={`truncate flex-1 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            <span className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}>{label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed
                 files / ahead-behind / running processes) — the sidebar project row
                 dropped them (cryptic numbers) and the two surfaces must read the
                 same: icon + name + notification badge + loading spinner. Git /
                 process status lives in the git & terminal panes where it's
                 actionable. */}
+            {/* Close / ⌘N affordance sits BEFORE the loading + status widgets so
+                the spinner and notification badge are the trailing-most things on
+                the tab ("loading e stato a fine tab"). The close X is revealed on
+                hover in this slot; idle it shows the ⌘N index (Electron). */}
+            <PaneCloseButton
+              paneId={pane.id}
+              onClose={onClose}
+              isTouch={isTouch}
+            />
             {/* Loading spinner — one canonical widget per pane kind.
                 All three read from StreamingContext; rendering only when
                 the corresponding signal is on. Chat is interruptible
@@ -609,17 +651,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
             {pane.type === 'agents' && <AgentStreamingSpinner />}
-            {/* The split position mini-map lives on the SIDEBAR cards, not on
-                the tab bar (user preference) — see TopicItem / SplitMiniMap. */}
+            {/* The split position mini-map lives on the SIDEBAR topic cards
+                only (user preference), NOT on the top tab bar — see
+                Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally
+                ignored here. */}
             <NotificationBadge count={badgeCount} className="ml-0.5" />
-            <PaneCloseButton
-              paneId={pane.id}
-              onClose={onClose}
-              isElectron={isElectron}
-              isTouch={isTouch}
-              isAppFocused={isAppFocused}
-              isMac={isMac}
-            />
             {showRightIndicator && (
               <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
             )}
@@ -667,7 +703,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {ctxMenu && createPortal(
         <div
           ref={ctxMenuRef}
-          className="fixed bg-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
+          className="fixed glass-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
         >
           {/* Right-click "Close" is the explicit-confirmation path — bypass
@@ -792,23 +828,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 }
 
 /**
- * Per-tab close button. Shows the global ⌘N badge (sourced from
- * GlobalTabIndexContext) when idle and an X on hover. Pulled out of the main
- * render loop so each tab can call `useGlobalTabIndex` — calling hooks inside
- * `panes.map(...)` is forbidden.
+ * Per-tab close button: empty on idle, the soft-close ring (X) revealed on
+ * hover. The grey ⌘N keyboard-index badge that used to occupy this slot when
+ * idle was removed — it read as a cryptic indicator on the first nine tabs and
+ * earned its keep nowhere; the Cmd/Ctrl+1-9 shortcut still works (owned by
+ * useKeyboardShortcuts). Pulled out of the main render loop because it calls
+ * `usePanePendingStatus` — hooks can't run inside `panes.map(...)`.
  */
 function PaneCloseButton({
-  paneId, onClose, isElectron, isTouch, isAppFocused, isMac,
+  paneId, onClose, isTouch,
 }: {
   paneId: string;
   onClose: (id: string) => void;
-  isElectron: boolean;
   isTouch: boolean;
-  isAppFocused: boolean;
-  isMac: boolean;
 }) {
-  const globalIdx = useGlobalTabIndex(paneId);
-  const showBadge = isElectron && !isTouch && isAppFocused && globalIdx >= 0 && globalIdx < 9;
   // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
   // sidebar-side keys (`archive-topic:<id>` for chat panes,
   // `close-terminal:<id>` / `close-browser:<id>`) so the topbar tab shows
@@ -829,17 +862,12 @@ function PaneCloseButton({
     );
   }
 
-  // Idle, soft-destructive: empty "todo" circle on hover. Click triggers
-  // the deferred close (auto-tick → 3 s countdown).
+  // Idle, soft-destructive: empty "todo" circle on hover (always shown on
+  // touch). Click triggers the deferred close (auto-tick → 3 s countdown).
   return (
     <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 relative z-10">
-      {showBadge ? (
-        <kbd className="kbd text-app-text-muted/50 group-hover:hidden">
-          {isMac ? '⌘' : '⌃'}{globalIdx + 1}
-        </kbd>
-      ) : null}
       <span className={`absolute inset-0 flex items-center justify-center ${
-        showBadge ? 'opacity-0 group-hover:opacity-100' : (isTouch ? '' : 'opacity-0 group-hover:opacity-100')
+        isTouch ? '' : 'opacity-0 group-hover:opacity-100'
       } transition-opacity`}>
         <PendingActionRing
           status={null}

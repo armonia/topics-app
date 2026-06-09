@@ -976,17 +976,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ─── Phase G · animation set ────────────────────────────────────────────
- * Three keyframes from the reference desktop client we studied:
- *   · `dot-pulse`           — three-dot "thinking" indicator
+ * Keyframes from the reference desktop client we studied:
  *   · `timeline-blur-in`    — content swap entry (24px blur → 0 in 120ms)
  *   · `timeline-blur-out`   — exit (faster, 80ms)
+ * (the "working now" cue is `grid-lit` below, defined with GridLoader.)
  * Plus three Material easing curves.
  */
-@keyframes dot-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
-
 @keyframes timeline-blur-in {
   0% { opacity: 0; filter: blur(24px); transform: scale(0.97); }
   100% { opacity: 1; filter: blur(0); transform: scale(1); }
@@ -997,9 +992,25 @@ input[type="range"]::-webkit-slider-thumb {
   100% { opacity: 0; filter: blur(24px); transform: scale(0.97); }
 }
 
-.animate-dot-pulse { animation: dot-pulse 1.2s ease-in-out infinite; }
 .animate-timeline-in { animation: timeline-blur-in 120ms cubic-bezier(0, 0, 0.2, 1) both; }
 .animate-timeline-out { animation: timeline-blur-out 80ms cubic-bezier(0.4, 0, 1, 1) both; }
+
+/* Grid loader — the canonical "working now" cue (GridLoader in
+ * StreamingIndicator). A vertical 2-column × 3-row matrix of tiny squares where
+ * ONE cell lights up at a time and the lit cell TRAVELS column-by-column,
+ * top→bottom (the per-cell animation-delay sets the order). This drives the LIT
+ * OVERLAY only: each cell has a permanent neutral base frame (the SplitMiniMap
+ * "deactivated pane" wash) and a blue gradient overlay on top. The overlay pops
+ * to full opacity, then snaps to 0 — a hard cut, NOT a soft fade — fully
+ * revealing the neutral base, so it reads as cells activating one by one (the
+ * metaphor: discrete computation steps) over an always-visible frame. The
+ * on-window (~17%) ≈ one slot (1/6), so exactly one cell is lit through the
+ * cycle. Opacity only → no layout reflow when it mounts. */
+@keyframes grid-lit {
+  0%, 17%      { opacity: 1; }
+  17.01%, 100% { opacity: 0; }
+}
+.animate-grid-lit { animation: grid-lit 1.1s linear infinite; }
 
 /* Material easing curves as CSS custom properties so components can opt in
  * without re-deriving them. */
@@ -1087,6 +1098,31 @@ html.electron-mac:not(.dark) .chrome-glass {
  * shared base frost. */
 html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
+}
+
+/* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
+ * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
+ * In dark mode `--bg-surface` is #181a20 (a blue-tinted grey); rendered opaque
+ * over the translucent chrome it stood out as a lighter "blue" panel. Unlike the
+ * chrome — whose blur comes from native window vibrancy — a popover floats over
+ * OPAQUE content panes, so it carries its OWN `backdrop-filter: blur()` to frost
+ * whatever is behind it (content or desktop). Slightly more opaque than the
+ * chrome (≈0.72 vs 0.55) so menu text stays crisp over busy content. On the web
+ * (no `.electron-mac`) the base rule keeps the opaque `--bg-surface` fallback. */
+.glass-surface { background-color: var(--bg-surface); }
+/* Use Tailwind's backdrop utilities via @apply rather than a raw
+ * `backdrop-filter` declaration: the minifier (Lightning CSS) collapsed the raw
+ * pair to ONLY `-webkit-backdrop-filter`, which Chromium/Electron ignores
+ * (Blink ships the property UNPREFIXED), so the blur silently did nothing.
+ * Tailwind emits the var-chain with BOTH the prefixed and unprefixed property,
+ * which is exactly the form that works here (same as `backdrop-blur-*`). */
+html.electron-mac.dark .glass-surface {
+  background-color: hsl(224 26% 6% / 0.72);
+  @apply backdrop-blur-xl backdrop-saturate-150;
+}
+html.electron-mac:not(.dark) .glass-surface {
+  background-color: hsl(220 20% 94% / 0.72);
+  @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
 /* Terminal panes ride the vibrancy like the project sidebar. Their roots carry

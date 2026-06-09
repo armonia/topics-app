@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
 interface MobileState {
   isMobile: boolean;           // Screen width < 768px
@@ -66,7 +66,8 @@ function getInitialState(): MobileState {
   const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const isMobile = window.innerWidth < 768 || (isTouch && window.innerWidth < 1024);
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as any).standalone === true;
+    // `navigator.standalone` is a non-standard iOS Safari flag (PWA installed to home screen).
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
   // Get safe area insets from CSS env()
   const computedStyle = getComputedStyle(document.documentElement);
@@ -91,52 +92,6 @@ function getInitialState(): MobileState {
   };
 }
 
-// Swipe detection hook
-interface SwipeHandlers {
-  onSwipeLeft?: () => void;
-  onSwipeRight?: () => void;
-  onSwipeUp?: () => void;
-  onSwipeDown?: () => void;
-}
-
-export function useSwipe(handlers: SwipeHandlers, threshold = 50) {
-  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    setTouchStart({
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-    });
-  }, []);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (!touchStart) return;
-
-    const deltaX = e.changedTouches[0].clientX - touchStart.x;
-    const deltaY = e.changedTouches[0].clientY - touchStart.y;
-
-    if (Math.abs(deltaX) > Math.abs(deltaY)) {
-      // Horizontal swipe
-      if (deltaX > threshold && handlers.onSwipeRight) {
-        handlers.onSwipeRight();
-      } else if (deltaX < -threshold && handlers.onSwipeLeft) {
-        handlers.onSwipeLeft();
-      }
-    } else {
-      // Vertical swipe
-      if (deltaY > threshold && handlers.onSwipeDown) {
-        handlers.onSwipeDown();
-      } else if (deltaY < -threshold && handlers.onSwipeUp) {
-        handlers.onSwipeUp();
-      }
-    }
-
-    setTouchStart(null);
-  }, [touchStart, handlers, threshold]);
-
-  return { handleTouchStart, handleTouchEnd };
-}
-
 // Haptic feedback (iOS/Android)
 export function haptic(type: 'light' | 'medium' | 'heavy' = 'light') {
   if ('vibrate' in navigator) {
@@ -145,48 +100,3 @@ export function haptic(type: 'light' | 'medium' | 'heavy' = 'light') {
   }
 }
 
-// Pull to refresh hook
-export function usePullToRefresh(onRefresh: () => Promise<void>, threshold = 80) {
-  const [pulling, setPulling] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-  const [startY, setStartY] = useState(0);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    // Only trigger if at top of scroll
-    const target = e.currentTarget as HTMLElement;
-    if (target.scrollTop === 0) {
-      setStartY(e.touches[0].clientY);
-      setPulling(true);
-    }
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!pulling) return;
-    const currentY = e.touches[0].clientY;
-    const distance = Math.max(0, currentY - startY);
-    setPullDistance(Math.min(distance, threshold * 1.5));
-  }, [pulling, startY, threshold]);
-
-  const handleTouchEnd = useCallback(async () => {
-    if (pullDistance >= threshold && !refreshing) {
-      setRefreshing(true);
-      haptic('medium');
-      await onRefresh();
-      setRefreshing(false);
-    }
-    setPulling(false);
-    setPullDistance(0);
-  }, [pullDistance, threshold, refreshing, onRefresh]);
-
-  return {
-    pulling,
-    pullDistance,
-    refreshing,
-    handlers: {
-      onTouchStart: handleTouchStart,
-      onTouchMove: handleTouchMove,
-      onTouchEnd: handleTouchEnd,
-    },
-  };
-}

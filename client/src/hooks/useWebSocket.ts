@@ -29,6 +29,12 @@ export function useWebSocket(): UseWebSocketReturn {
   const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<Set<(msg: WSMessage) => void>>(new Set());
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Self-reference for reconnection: `connect` schedules a reconnect that must
+  // call `connect` again. Referencing the `connect` const directly inside its
+  // own body reads it before initialization (react-hooks/immutability) and
+  // pins the first closure; routing through a ref always invokes the latest
+  // `connect` and removes the use-before-declare.
+  const connectRef = useRef<() => void>(() => {});
 
   const clearOfflineTimer = useCallback(() => {
     if (offlineTimerRef.current) {
@@ -149,7 +155,7 @@ export function useWebSocket(): UseWebSocketReturn {
       reconnectAttemptRef.current++;
 
       reconnectTimerRef.current = setTimeout(() => {
-        connect();
+        connectRef.current();
       }, delay);
     };
 
@@ -159,6 +165,9 @@ export function useWebSocket(): UseWebSocketReturn {
   }, [clearOfflineTimer, startOfflineTimer]);
 
   useEffect(() => {
+    // Keep the self-reference current so scheduled reconnects invoke the
+    // latest `connect` closure (deps below re-run this when `connect` changes).
+    connectRef.current = connect;
     connect();
 
     return () => {
@@ -237,6 +246,7 @@ export function useWebSocket(): UseWebSocketReturn {
   useEffect(() => {
     if (status === 'connected') {
       if (connectingGraceRef.current) { clearTimeout(connectingGraceRef.current); connectingGraceRef.current = null; }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- debounce sync: mirrors the WS `status` into the flicker-suppressed `displayStatus`; the 'connected' branch surfaces immediately, the else branch defers via timer. setDisplayStatus never feeds back into `status`, so this converges and cannot loop
       setDisplayStatus('connected');
     } else {
       if (!connectingGraceRef.current) {

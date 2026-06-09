@@ -8,6 +8,7 @@ import type {
   HistoryRequest,
   HistoryResponse,
   HistoryMessage,
+  ToolCall,
   UploadResponse,
   SearchResult,
   UnreadData,
@@ -26,8 +27,8 @@ import type {
 const API_BASE = '/api';
 
 export class ApiError extends Error {
-  [key: string]: any;
-  constructor(public status: number, message: string, extra?: Record<string, any>) {
+  [key: string]: unknown;
+  constructor(public status: number, message: string, extra?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiError';
     if (extra) Object.assign(this, extra);
@@ -46,12 +47,15 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (!response.ok) {
     const text = await response.text();
     let message = text || response.statusText;
-    let extra: Record<string, any> | undefined;
+    let extra: Record<string, unknown> | undefined;
     try {
-      const parsed = JSON.parse(text);
-      if (parsed.error) message = parsed.error;
-      const { error: _, ...rest } = parsed;
-      if (Object.keys(rest).length) extra = rest;
+      const parsed: unknown = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        if (typeof obj.error === 'string') message = obj.error;
+        const { error: _, ...rest } = obj;
+        if (Object.keys(rest).length) extra = rest;
+      }
     } catch {}
     throw new ApiError(response.status, message, extra);
   }
@@ -193,8 +197,8 @@ export const chatApi = {
     return response.body;
   },
 
-  async switchBranch(messageId: string, branchIndex: number): Promise<{ messages: any[] }> {
-    return request<{ messages: any[] }>(`/messages/${encodeURIComponent(messageId)}/switch-branch`, {
+  async switchBranch(messageId: string, branchIndex: number): Promise<{ messages: HistoryMessage[] }> {
+    return request<{ messages: HistoryMessage[] }>(`/messages/${encodeURIComponent(messageId)}/switch-branch`, {
       method: 'POST',
       body: JSON.stringify({ branchIndex }),
     });
@@ -890,7 +894,7 @@ export interface CommandResult {
 }
 
 export const commandApi = {
-  async execute(sessionKey: string, command: string, args?: Record<string, any>): Promise<CommandResult> {
+  async execute(sessionKey: string, command: string, args?: Record<string, unknown>): Promise<CommandResult> {
     return request<CommandResult>('/command', {
       method: 'POST',
       body: JSON.stringify({ sessionKey, command, args }),
@@ -1252,7 +1256,7 @@ export interface TopicMessagesResponse {
     content: string;
     timestamp: string;
     thinking?: string;
-    toolCalls?: any[];
+    toolCalls?: ToolCall[];
     media?: string[];
   }>;
   total: number;
@@ -1268,7 +1272,7 @@ export const topicMessagesApi = {
 export interface TimelineEvent {
   type: 'session_start' | 'session_end' | 'heartbeat' | 'action';
   timestamp: string;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 export interface SessionTimelineResponse {
@@ -1437,7 +1441,7 @@ export interface AgentActionLog {
   actionType: string;
   entityType: string | null;
   entityId: string | null;
-  detail: any;
+  detail: unknown;
   createdAt: string;
 }
 
@@ -1542,21 +1546,21 @@ export const providersApi = {
   },
 
   async configureClaude(apiKey: string, model?: string, maxTokens?: number) {
-    return request<{ ok: boolean; provider: any }>('/providers/claude/configure', {
+    return request<{ ok: boolean; provider: unknown }>('/providers/claude/configure', {
       method: 'POST',
       body: JSON.stringify({ apiKey, model, maxTokens }),
     });
   },
 
   async configureOpenAI(apiKey: string, model?: string, maxTokens?: number) {
-    return request<{ ok: boolean; provider: any }>('/providers/openai/configure', {
+    return request<{ ok: boolean; provider: unknown }>('/providers/openai/configure', {
       method: 'POST',
       body: JSON.stringify({ apiKey, model, maxTokens }),
     });
   },
 
   async configureClaudeCode(model: string) {
-    return request<{ ok: boolean; provider: any }>('/providers/claude-code/configure', {
+    return request<{ ok: boolean; provider: unknown }>('/providers/claude-code/configure', {
       method: 'POST',
       body: JSON.stringify({ model }),
     });
@@ -1574,66 +1578,6 @@ export const globalBoardApi = {
     if (filters?.status) params.set('status', filters.status);
     const qs = params.toString();
     return request<{ tasks: BoardTask[] }>(`/boards/tasks${qs ? '?' + qs : ''}`);
-  },
-};
-
-// Master orchestrator API — per-session state for the Master Topic UI.
-// Mirrors the snapshot the lead receives, so the strip and the AI see the
-// same picture.
-export type MasterSessionState = 'empty' | 'streaming' | 'update' | 'waiting' | 'idle';
-export interface MasterSession {
-  topicId: string;
-  /** Discriminator: 'topic' is a regular chat topic; 'claude-code-terminal'
-   *  is a Claude Code CLI terminal session (lives in terminal_sessions,
-   *  pane id prefixed `terminal:`). Optional for backwards-compat with
-   *  older server builds. */
-  sessionType?: 'topic' | 'claude-code-terminal';
-  name: string;
-  role: 'lead' | 'teammate' | null;
-  projectPath: string | null;
-  color: string;
-  icon: string;
-  state: MasterSessionState;
-  lastRole: 'user' | 'assistant' | null;
-  lastAt: string | null;
-  lastPreview: string;
-  unread: number;
-  msgCount: number;
-  updatedAt: string;
-}
-export const masterApi = {
-  async getSessions(): Promise<{ sessions: MasterSession[] }> {
-    return request<{ sessions: MasterSession[] }>(`/topics/master/sessions`);
-  },
-  /** refactor-master-into-kanban (AD-3) — parse the lead's latest `## Next`
-   *  block and upsert its proposals as kanban cards. Idempotent. Call when the
-   *  Master reply finishes. `topicId` defaults to the single global lead. */
-  async ingest(topicId?: string): Promise<{ proposals: number; upserted: unknown[] }> {
-    return request<{ proposals: number; upserted: unknown[] }>(`/topics/master/ingest`, {
-      method: 'POST',
-      body: JSON.stringify(topicId ? { topicId } : {}),
-    });
-  },
-  /** interactive-claude-primitive (AD-2) — scrape the Master TERMINAL's buffer
-   *  for the latest `## Next` block and upsert proposals as kanban cards. Free:
-   *  reads on-screen text, no model call. Call from the Master pane button. */
-  async ingestFromTerminal(terminalId: string): Promise<{ proposals: number; upserted: unknown[] }> {
-    return request<{ proposals: number; upserted: unknown[] }>(`/topics/master/ingest`, {
-      method: 'POST',
-      body: JSON.stringify({ terminalId }),
-    });
-  },
-  /** Read whether the periodic attention monitor is running. */
-  async getMonitor(): Promise<{ enabled: boolean }> {
-    return request<{ enabled: boolean }>(`/master/monitor`);
-  },
-  /** Turn the periodic attention monitor on/off. OFF by default, never
-   *  auto-starts — the user controls it. interactive-claude-primitive. */
-  async setMonitor(enabled: boolean): Promise<{ enabled: boolean }> {
-    return request<{ enabled: boolean }>(`/master/monitor`, {
-      method: 'POST',
-      body: JSON.stringify({ enabled }),
-    });
   },
 };
 

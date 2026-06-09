@@ -4,16 +4,6 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
-export function formatContent(text: string): string {
-  if (!text) return '';
-  
-  // Simple implementation for now
-  return text
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>');
-}
-
 export function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
   func: T,
   wait: number
@@ -25,24 +15,11 @@ export function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
   };
 }
 
-export function generateSessionKey(topicId: string): string {
-  return `topic:${topicId.slice(0, 8)}`;
-}
-
 export function scrollToBottom(element: HTMLElement | null) {
   if (!element) return;
   setTimeout(() => {
     element.scrollTop = element.scrollHeight;
   }, 0);
-}
-
-export function getRandomColor(): string {
-  const colors = [
-    '#0066cc', '#059669', '#dc2626', '#7c3aed', 
-    '#ea580c', '#0891b2', '#be185d', '#4338ca',
-    '#16a34a', '#c2410c', '#7c2d12', '#1e40af'
-  ];
-  return colors[Math.floor(Math.random() * colors.length)];
 }
 
 export { getRandomTopicIcon } from './topicIcons';

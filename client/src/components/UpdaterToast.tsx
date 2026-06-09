@@ -37,12 +37,23 @@ interface ElectronUpdater {
   onStatus: (cb: (s: UpdaterStatus) => void) => () => void;
 }
 
+/**
+ * Read the Electron updater bridge off `window`. The global `electronAPI`
+ * type doesn't lock down `updater` (it's exposed via the preload's ad-hoc
+ * index signature), so we narrow it locally to `ElectronUpdater` rather than
+ * widening the whole window object. Returns `undefined` in web mode.
+ */
+function getUpdaterApi(): ElectronUpdater | undefined {
+  const api = window.electronAPI as { updater?: ElectronUpdater } | undefined;
+  return api?.updater;
+}
+
 export function UpdaterToast() {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState<boolean>(false);
 
   useEffect(() => {
-    const api = (window as any).electronAPI?.updater as ElectronUpdater | undefined;
+    const api = getUpdaterApi();
     if (!api) return;
     api.status().then(setStatus).catch(() => {});
     return api.onStatus((s) => {
@@ -80,7 +91,7 @@ export function UpdaterToast() {
               <div className="font-medium">An update is available</div>
               <button
                 onClick={async () => {
-                  const api = (window as any).electronAPI?.updater as ElectronUpdater | undefined;
+                  const api = getUpdaterApi();
                   if (api?.downloadUpdate) {
                     await api.downloadUpdate();
                   } else {
@@ -105,7 +116,7 @@ export function UpdaterToast() {
               <div className="font-medium">A new version of Topics is ready</div>
               <button
                 onClick={async () => {
-                  const api = (window as any).electronAPI?.updater as ElectronUpdater | undefined;
+                  const api = getUpdaterApi();
                   if (api) await api.quitAndInstall();
                 }}
                 className="mt-1 text-emerald-700 dark:text-emerald-300 underline underline-offset-2 hover:no-underline"

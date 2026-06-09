@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack } from '../../types';
-import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { useTopics } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
+import { getProjectPathFromPaneId } from '../../state/pane/adapters';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
@@ -60,7 +61,7 @@ function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
 
 
 // Check if running in native macOS app (has webkit message handlers)
-const isNativeApp = typeof window !== 'undefined' && !!(window as any).webkit?.messageHandlers;
+const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
 
 /**
  * Compute the drop zone under the cursor at the exact moment of drop.
@@ -86,10 +87,6 @@ interface GridItem {
 interface PanelGridProps {
   openPanels: string[];
   focusedPanelId: string | null;
-  /** Topic id of the active Master · Global / Master · Project pane, if
-   *  any. Threaded down so non-Master panes can render a quick "←
-   *  Master" affordance to jump back. */
-  masterPaneId?: string | null;
   onFocusPanel: (topicId: string) => void;
   /** Default close — typically deferred via the PendingAction countdown. */
   onClosePanel: (topicId: string) => void;
@@ -160,7 +157,6 @@ interface PanelGridProps {
 export function PanelGrid({
   openPanels,
   focusedPanelId,
-  masterPaneId,
   onFocusPanel,
   onClosePanel,
   onClosePanelImmediate,
@@ -209,7 +205,6 @@ export function PanelGrid({
   // drilled here as props. Single read at the top so the rest of the
   // function reads them by name as before.
   const topics = useTopics();
-  const terminalSessions = useTerminalSessions();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Mobile detection for single-column layout
@@ -336,7 +331,7 @@ export function PanelGrid({
         ...prev.slice(1),
       ];
     });
-  }, [naturalGridItems, isServerHydrated]);
+  }, [naturalGridItems, isServerHydrated, naturalGridItemsRef, setGridRows]);
 
   // Deferred pruning: run after a tick so any pending setGridRows updaters
   // (from user handlers like handleSplitPane) have fully committed and
@@ -400,7 +395,7 @@ export function PanelGrid({
       });
     }, 0);
     return () => clearTimeout(handle);
-  }, [naturalGridItems, isServerHydrated]);
+  }, [naturalGridItems, isServerHydrated, naturalGridItemsRef, setGridRows]);
 
   // Sync row heights when row count changes. Same hydrate gate as above —
   // before hydrate, `gridRows` may be the persisted shape and we don't want
@@ -421,7 +416,8 @@ export function PanelGrid({
       // count-keyed effect, so fall back to an equal split.
       return gridRows.map(() => 1 / Math.max(1, gridRows.length));
     });
-  }, [gridRows.length, isServerHydrated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- full `gridRows` omitted on purpose: this effect must re-run only on row-COUNT change (dep `gridRows.length`), not on every width edit, else heights reset on each column resize; setGridRowHeights is a stable setter
+  }, [gridRows.length, isServerHydrated, setGridRowHeights]);
 
   // Phase 30 PANE-01: direct server fetches for grid layout have been removed.
   // Server persistence of pane layout flows through state/pane/middleware/syncServer.ts
@@ -439,7 +435,7 @@ export function PanelGrid({
     onVerticalResize: (_divIdx: number, newHeights: number[]) => {
       setGridRowHeights(newHeights);
     },
-  }), []);
+  }), [setGridRows, setGridRowHeights]);
 
   // Data-attribute resolvers: dividers and cells use data-panel-* attributes for safe DOM resolution
   // Item wrappers have transition-all (for drag opacity) which must be disabled during resize
@@ -489,6 +485,7 @@ export function PanelGrid({
   useEffect(() => {
     return () => {
       // Cleanup any ghost elements still in the DOM on unmount
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional unmount-time read: activeGhostsRef holds one stable Set (never reassigned, only mutated); cleanup must drain whatever ghosts are live AT unmount, so reading .current here (not a mount snapshot) is correct
       for (const ghost of activeGhostsRef.current) {
         if (ghost.parentElement) {
           ghost.parentElement.removeChild(ghost);
@@ -733,12 +730,12 @@ export function PanelGrid({
 
     // Focus the split-out panel so the source group falls back to its first remaining tab
     onFocusPanel(topicId);
-  }, [onFocusPanel, openPanels, soloTopicIds, onNewChat]);
+  }, [onFocusPanel, openPanels, soloTopicIds, onNewChat, gridRowsRef, naturalGridItemsRef, setGridRows, setSoloCells]);
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
   const handleUnsoloTopic = useCallback((topicId: string) => {
     setSoloCells(prev => removeTopicFromCells(prev, topicId));
-  }, []);
+  }, [setSoloCells]);
 
   /* ---- Merge a tab INTO an existing split cell (multi-tab column).
          Dropping a tab onto another split cell's bar lands it there as the
@@ -746,7 +743,7 @@ export function PanelGrid({
   const handleMergeIntoCell = useCallback((topicId: string, targetPrimary: string) => {
     setSoloCells(prev => moveTopicToCell(prev, topicId, targetPrimary));
     onFocusPanel(topicId);
-  }, [onFocusPanel]);
+  }, [onFocusPanel, setSoloCells]);
 
   /* ---- Auto-solo: a newly created utility pane (terminal/browser) created via
          quick-create should land in its own grid cell rather than join the
@@ -764,7 +761,7 @@ export function PanelGrid({
       setSoloCells(prev => addSoloCell(prev, id));
     }
     onPendingSoloPanelIdConsumed?.();
-  }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed]);
+  }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed, setSoloCells]);
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -938,13 +935,13 @@ export function PanelGrid({
     const target = { rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag };
     setGridDropTarget(target);
     gridDropTargetRef.current = target; // sync update for immediate drop access
-  }, []);
+  }, [gridDropTargetRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
     setGridDropTarget(null);
     gridDropTargetRef.current = null;
-  }, []);
+  }, [gridDropTargetRef]);
 
   // Belt-and-suspenders: a cross-cell move unmounts the dragged item inside its
   // drop handler, so the browser may never fire `dragend` on the now-detached
@@ -983,8 +980,8 @@ export function PanelGrid({
     explicitTarget?: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right' },
   ) => {
     // Read from ref for synchronous access (state may lag behind after dragover)
-    const dropTarget = explicitTarget ?? gridDropTargetRef.current;
-    if (!dropTarget) return;
+    const rawDropTarget = explicitTarget ?? gridDropTargetRef.current;
+    if (!rawDropTarget) return;
 
     // Re-verify drop zone from actual mouse position at drop time — but only
     // for cell drops. Divider drops pass `explicitTarget`; recomputing from
@@ -997,6 +994,12 @@ export function PanelGrid({
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceTopicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
 
+    // Build a corrected drop target immutably rather than mutating the ref
+    // object (gridDropTargetRef.current must not be reassigned in place —
+    // react-hooks/immutability). The corrected zone/centerSide flow into the
+    // destructures below; rowIdx/colIdx pass through unchanged.
+    let dropTarget = rawDropTarget;
+
     // PANE_TAB drops: edge zones create split + move tab, center lets tab bar handle reorder.
     if (!effectiveKey && sourcePaneTab) {
       // Use actual zone at drop time, not the stale dragover zone
@@ -1004,19 +1007,21 @@ export function PanelGrid({
       if (actualZone === 'top') return;
       if (!sourceTopicId) return;
       // Update dropTarget zone to match actual position
-      dropTarget.zone = actualZone;
+      dropTarget = { ...dropTarget, zone: actualZone };
     } else if (effectiveKey) {
       // GRID_ITEM drops suffer the same dragover-lag risk: fast edge-to-edge
       // drags can leave dropTarget.zone one frame behind the cursor. Sync
       // both zone and centerSide from the actual pointer position so the
       // reorder/split below acts on where the mouse actually is at drop —
       // unless the caller explicitly told us where to land (divider drops).
-      dropTarget.zone = actualZone;
+      dropTarget = { ...dropTarget, zone: actualZone };
       if (!explicitTarget && actualZone === 'center') {
         const cell = e.currentTarget as HTMLElement;
         const rect = cell.getBoundingClientRect();
-        dropTarget.centerSide =
-          e.clientX - rect.left < rect.width / 2 ? 'left' : 'right';
+        dropTarget = {
+          ...dropTarget,
+          centerSide: e.clientX - rect.left < rect.width / 2 ? 'left' : 'right',
+        };
       }
     }
 
@@ -1200,7 +1205,7 @@ export function PanelGrid({
     setDraggingGridKey(null);
     setGridDropTarget(null);
     gridDropTargetRef.current = null;
-  }, [itemMap]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, setGridRows, setSoloCells]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
@@ -1318,8 +1323,16 @@ export function PanelGrid({
     const assign = (key: string, rowIdx: number, colIdx: number) => {
       const item = itemMap.get(key);
       if (!item) return;
-      for (const topicId of item.panelIds) {
-        out.set(topicId, { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] });
+      const desc: SplitMapDescriptor = { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] };
+      for (const paneId of item.panelIds) {
+        // Key by the chat topic id (sidebar chat rows read this) AND, for a
+        // project pane, by its project path — so the sidebar PROJECT row can
+        // show where that project window sits in the tiled top-level split
+        // ("posizione della finestra"). Topic ids are UUIDs and project paths
+        // are filesystem paths, so the two key spaces never collide.
+        out.set(paneId, desc);
+        const projectPath = getProjectPathFromPaneId(paneId);
+        if (projectPath) out.set(projectPath, desc);
       }
     };
     gridRows.forEach((row, rowIdx) => {
@@ -1342,7 +1355,6 @@ export function PanelGrid({
         splitMap={hasGridSplit ? { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] } : undefined}
         topicIds={item.panelIds}
         focusedPanelId={focusedPanelId}
-        masterPaneId={masterPaneId}
         onFocusPanel={onFocusPanel}
         onClosePanel={onClosePanel}
         onClosePanelImmediate={onClosePanelImmediate}
@@ -1387,18 +1399,19 @@ export function PanelGrid({
       />
     ),
     [
-      topics, focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
+      focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
       handleGridItemDragStart, getSessionMessages, isSessionLoading,
       isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
       onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,
       pendingProjectPane, onPendingProjectPaneConsumed, onNewChatInProject,
       pendingProjectFocus, onPendingProjectFocusConsumed,
-      onProjectActiveTopicChange, onProjectOpenPanesChange, terminalSessions,
+      onProjectActiveTopicChange, onProjectOpenPanesChange,
       onCreateTerminal, handleStandaloneUtilityChange, pendingBrowserPane,
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
       draftMeta, handleSplitPane, handleUnsoloTopic,
       hasGridSplit, splitRowWidths, gridRowHeights,
+      handleMergeIntoCell, onClosePanelImmediate,
     ],
   );
 

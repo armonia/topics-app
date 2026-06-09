@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { MODAL_BACKDROP } from '../../lib/modalStyles';
 
 interface Shortcut {
   keys: string;
@@ -57,7 +58,7 @@ export function KeyboardShortcuts({ isOpen, onClose, isElectron }: KeyboardShort
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={onClose}>
-      <div className="fixed inset-0 bg-black/30 dark:bg-black/50" />
+      <div className={MODAL_BACKDROP} />
       <div
         className="relative w-full max-w-md mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter"
         onClick={e => e.stopPropagation()}

@@ -100,10 +100,6 @@ function usage(): string {
 
 Commands:
   open [path]            Create a new topic for <path> (default: cwd)
-  master --project <path>
-                         Create or resume a Master Topic (Agent Teams mode)
-                         for <path>. Spawns claude with experimental teams
-                         flag enabled and opens the browser at /master/<id>.
   auth status            Show daemon reachability + token state
   auth login             Open the dashboard for browser-based sign-in
   auth logout            Clear the local CLI cache
@@ -133,54 +129,6 @@ async function cmdOpen(args: string[]) {
     process.exit(1);
   }
   console.log(body.id);
-}
-
-async function cmdMaster(args: string[]) {
-  // Parse --project flag
-  let projectPath: string | undefined;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--project") {
-      projectPath = args[i + 1];
-      i++;
-    } else if (args[i].startsWith("--project=")) {
-      projectPath = args[i].slice("--project=".length);
-    } else if (!projectPath && !args[i].startsWith("-")) {
-      // Positional fallback: `topics master <path>`
-      projectPath = args[i];
-    }
-  }
-  projectPath = resolve(projectPath || process.cwd());
-  if (!existsSync(projectPath)) {
-    console.error(`error: project path does not exist: ${projectPath}`);
-    process.exit(1);
-  }
-
-  // Create-or-resume Master Topic. Server is idempotent on (projectPath, role='lead').
-  const name = `Master · ${projectPath.split("/").pop() || projectPath}`;
-  const { status, body } = await apiRequest<{
-    id: string;
-    sessionKey?: string;
-    resumed?: boolean;
-  }>("/api/topics/master", "POST", { name, projectPath });
-
-  if (status !== 200 && status !== 201) {
-    console.error(`error: server returned ${status}`);
-    if (body) console.error(JSON.stringify(body));
-    process.exit(1);
-  }
-  if (!body?.id) {
-    console.error(`error: missing topic id in server response`);
-    process.exit(1);
-  }
-
-  const url = `${process.env.TOPICS_DASHBOARD_URL || "http://localhost:3333"}/master/${body.id}`;
-  console.log(body.resumed ? `resumed ${body.id}` : `created ${body.id}`);
-  console.log(`opening ${url}`);
-
-  const opener = process.platform === "darwin" ? "/usr/bin/open" :
-                 process.platform === "win32" ? "cmd" : "/usr/bin/xdg-open";
-  const openerArgs = process.platform === "win32" ? ["/c", "start", url] : [url];
-  spawn(opener, openerArgs, { detached: true, stdio: "ignore" }).unref();
 }
 
 async function cmdAuth(sub: string) {
@@ -284,8 +232,6 @@ async function main() {
   switch (cmd) {
     case "open":
       return cmdOpen(rest);
-    case "master":
-      return cmdMaster(rest);
     case "auth":
       return cmdAuth(rest[0] ?? "status");
     case "daemon":

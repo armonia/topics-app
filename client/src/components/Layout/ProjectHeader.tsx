@@ -1,4 +1,5 @@
 import { FolderOpen, ExternalLink, X } from 'lucide-react';
+import { hashToColor, hashToColorLight, hashToColorDark } from './projectColors';
 
 interface ProjectHeaderProps {
   projectPath: string;
@@ -6,38 +7,6 @@ interface ProjectHeaderProps {
   color?: string;
   onOpenInFinder?: () => void;
   onClose?: () => void;
-}
-
-// Generate a color from a string (project path → HSL)
-export function hashToColor(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  // Use hue from hash, fixed saturation/lightness for good contrast
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 65%, 50%)`;
-}
-
-export function hashToColorLight(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    hash = hash & hash;
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 60%, 95%)`;
-}
-
-export function hashToColorDark(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    hash = hash & hash;
-  }
-  const hue = Math.abs(hash % 360);
-  return `hsl(${hue}, 40%, 15%)`;
 }
 
 export function ProjectHeader({ projectPath, projectName, onOpenInFinder, onClose }: ProjectHeaderProps) {
@@ -102,10 +71,4 @@ export function ProjectHeader({ projectPath, projectName, onOpenInFinder, onClos
       )}
     </div>
   );
-}
-
-// Helper to extract project name from path
-export function getProjectName(projectPath: string): string {
-  const parts = projectPath.split('/').filter(Boolean);
-  return parts[parts.length - 1] || projectPath;
 }

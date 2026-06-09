@@ -3,6 +3,7 @@ import type { UnreadData, WSMessage } from '../types';
 import { useAttentionSignals, rollupProjectAttention, topicAttentionCount, terminalAttentionCount } from '../state/signals';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
+import { useRefMirror } from './useRefMirror';
 
 interface TabNotificationContextValue {
   /** Get badge count for a pane. Chat panes use unreadData[topicId], others use extraCounts. */
@@ -27,7 +28,6 @@ const TabNotificationContext = createContext<TabNotificationContextValue | null>
  *  Both are valid in `openPanels` depending on which surface created the
  *  pane, so every badge rule needs to cover both spellings. */
 const AGENTS_PREFIXES = ['__agents__', 'agents:', 'agents', 'session-viewer:'] as const;
-const BOARD_PREFIXES = ['__all-boards__', '__board__', 'board:', 'all-boards'] as const;
 
 export function TabNotificationProvider({
   children,
@@ -46,8 +46,6 @@ export function TabNotificationProvider({
   const [extraCounts, setExtraCounts] = useState<Map<string, number>>(() => new Map());
   // Timestamps for sidebar sort ordering
   const [lastNotifiedAt, setLastNotifiedAt] = useState<Map<string, number>>(() => new Map());
-  const unreadRef = useRef(unreadData);
-  unreadRef.current = unreadData;
   // Attention signals (Claude needs-you + claude-code finished) — subscribed
   // here so getBadgeCount's identity changes when they shift, re-running the
   // badge maps downstream. Topics/terminals power the project rollup.
@@ -80,11 +78,12 @@ export function TabNotificationProvider({
     });
   }, []);
 
-  // WS handlers for agent completion, approval requests, and chat unread updates
-  const openPanelsRef = useRef(openPanels);
-  openPanelsRef.current = openPanels;
-  const focusedRef = useRef(focusedPanelId);
-  focusedRef.current = focusedPanelId;
+  // WS handlers for agent completion, approval requests, and chat unread updates.
+  // Mirror open-panels + focus into refs so the long-lived WS handler closure
+  // (registered once in the effect below) always reads the latest values
+  // without re-subscribing on every render.
+  const openPanelsRef = useRefMirror(openPanels);
+  const focusedRef = useRefMirror(focusedPanelId);
   // Track previous session statuses to detect active→idle transitions (= session completed)
   const prevSessionStatusRef = useRef<Map<string, string>>(new Map());
 
@@ -101,7 +100,10 @@ export function TabNotificationProvider({
         }
       }
     }
-  }, [notifyPane]);
+    // openPanelsRef + focusedRef are stable ref objects (from useRefMirror);
+    // listing them keeps badgePrefixes' identity stable while satisfying
+    // exhaustive-deps. notifyPane is the only behavioural dependency.
+  }, [notifyPane, openPanelsRef, focusedRef]);
 
   useEffect(() => {
     return onWSMessage((msg) => {
@@ -135,11 +137,6 @@ export function TabNotificationProvider({
           badgePrefixes(AGENTS_PREFIXES);
         }
       }
-      // Approval request → badge on agents + board panes (board surfaces
-      // approval-needing tasks too)
-      if (msg.type === 'approval:created') {
-        badgePrefixes([...AGENTS_PREFIXES, ...BOARD_PREFIXES]);
-      }
       // Stream ended (Claude finished responding) → badge on agents + session-viewer
       if (msg.type === 'stream:end' && msg.sessionKey) {
         badgePrefixes(AGENTS_PREFIXES);
@@ -147,17 +144,9 @@ export function TabNotificationProvider({
           touchTopic(msg.topicId);
         }
       }
-      // Agent explicitly asking for human help → badge agents + board panes
+      // Agent explicitly asking for human help → badge agents panes
       if (msg.type === 'agent:escalation' || msg.type === 'agent:nudge') {
-        badgePrefixes([...AGENTS_PREFIXES, ...BOARD_PREFIXES]);
-      }
-      // Board activity from autonomous workers → badge board tabs
-      if (msg.type === 'task:created' || msg.type === 'task:moved' || msg.type === 'task:unarchived') {
-        badgePrefixes(BOARD_PREFIXES);
-      }
-      // Board memory updates → badge board-memory tabs
-      if (msg.type === 'board-memory:created' || msg.type === 'board:memory_added') {
-        badgePrefixes([...BOARD_PREFIXES, 'board-memory:']);
+        badgePrefixes(AGENTS_PREFIXES);
       }
       // New terminal session spawned externally → badge terminal panes
       // (edge-triggered: server broadcasts on session create/exit, not poll)
@@ -217,6 +206,7 @@ export function TabNotificationProvider({
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Context Provider + consumer-hook colocation; splitting the hook out would break the single-source-of-truth pairing and gains nothing at runtime
 export function useTabNotifications(): TabNotificationContextValue {
   const ctx = useContext(TabNotificationContext);
   if (!ctx) {

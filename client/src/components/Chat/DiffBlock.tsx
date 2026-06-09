@@ -38,9 +38,9 @@ export const DiffBlock = memo(forwardRef<DiffBlockHandle, DiffBlockProps>(functi
         setErrorMsg(result.error || 'Failed to apply edit');
         return false;
       }
-    } catch (err: any) {
+    } catch (err) {
       setState('error');
-      setErrorMsg(err.message || 'Network error');
+      setErrorMsg(err instanceof Error ? err.message : 'Network error');
       return false;
     }
   }, [edit]);
@@ -70,9 +70,9 @@ export const DiffBlock = memo(forwardRef<DiffBlockHandle, DiffBlockProps>(functi
         setState('error');
         setErrorMsg(result.error || 'Failed to undo');
       }
-    } catch (err: any) {
+    } catch (err) {
       setState('error');
-      setErrorMsg(err.message || 'Network error');
+      setErrorMsg(err instanceof Error ? err.message : 'Network error');
     }
   }, [edit.filePath, contentAtApply]);
 

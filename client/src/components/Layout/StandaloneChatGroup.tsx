@@ -27,7 +27,7 @@ import {
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
-import { getProjectName, hashToColor } from './ProjectHeader';
+import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
@@ -41,7 +41,6 @@ const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then
 const JournalPanel = lazy(() => import('../Journal/JournalPanel').then(m => ({ default: m.JournalPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
-const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
 const SessionViewerPane = lazy(() => import('../Agents/SessionViewerPane').then(m => ({ default: m.SessionViewerPane })));
 
 
@@ -49,9 +48,6 @@ interface StandaloneChatGroupProps {
   topicIds: string[];
   focusedPanelId: string | null;
   onFocusPanel: (topicId: string) => void;
-  /** Master pane id (if open). Threaded so non-Master ChatPanels can
-   *  render a "← Master" back affordance. */
-  masterPaneId?: string | null;
   onClosePanel: (topicId: string, onCommit?: () => void) => void;
   /** Optional bypass-the-countdown close, plumbed to PaneTabBar's
    *  right-click "Close now" entry. Falls back to onClosePanel. */
@@ -126,7 +122,7 @@ interface StandaloneChatGroupProps {
 
 export function StandaloneChatGroup({
   topicIds, focusedPanelId,
-  onFocusPanel, masterPaneId, onClosePanel, onClosePanelImmediate, onDragStart,
+  onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
@@ -320,6 +316,7 @@ export function StandaloneChatGroup({
     return initial;
   });
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep-alive set syncs against the live pane list (external-ish derived state); the updater returns `prev` unchanged when nothing changed, so it converges and never cascades
     setVisitedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;
@@ -629,7 +626,6 @@ export function StandaloneChatGroup({
           onPendingFocusConsumed={onPendingProjectFocusConsumed}
           onActiveTopicChange={onProjectActiveTopicChange ? (topicId) => onProjectActiveTopicChange(projectPath, topicId) : undefined}
           onOpenPanesChange={onProjectOpenPanesChange ? (paneIds) => onProjectOpenPanesChange(projectPath, paneIds) : undefined}
-          masterPaneId={masterPaneId}
         />
       );
     }
@@ -647,7 +643,6 @@ export function StandaloneChatGroup({
             />
           )}
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
-          {utilityType === 'all-boards' && <AllBoardsPane onMessage={onWSMessage} onJumpToTopic={(topicId) => onFocusPanel(topicId)} />}
         </LazyPane>
       );
     }
@@ -698,7 +693,6 @@ export function StandaloneChatGroup({
         onInitialTabConsumed={onPanelInitialTabConsumed ? () => onPanelInitialTabConsumed(paneId) : undefined}
         onOpenSessionViewer={handleOpenSessionViewer}
         onFocusPanel={onFocusPanel}
-        masterPaneId={masterPaneId}
       />
     );
   };

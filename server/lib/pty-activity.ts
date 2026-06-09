@@ -66,3 +66,58 @@ export function classifyFrame(prevSig: string | undefined, data: string): FrameC
   if (sig === prevSig) return { cosmetic: true, sig };
   return { cosmetic: false, sig };
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Input-echo suppression
+// ───────────────────────────────────────────────────────────────────────────
+//
+// classifyFrame stops an ANIMATED statusline from pinning a session busy, but
+// it cannot tell a frame produced by the PROCESS (Claude streaming a token)
+// from a frame produced by the USER typing — both change the visible text. When
+// you type into a Claude Code prompt, the TUI echoes/redraws the input line,
+// which classifyFrame sees as "real activity", so the loading spinner lights up
+// for nothing — and worse, a typed char can revive a `dormant` session back to
+// `running` (reviveOnPtyActivity fires on every non-cosmetic frame). That's the
+// "basta che scrivo nell'input e parte il loading" bug.
+//
+// The missing bit of information is: did the user just send input to this pty?
+// The server forwards every keystroke to the bridge as a `write`, so it can
+// stamp the time of the last input per session. An output frame that arrives
+// within a short window of that input is overwhelmingly that input's echo — or
+// an input-triggered redraw (an autocomplete / file-mention menu, prompt
+// reflow) — NOT the process doing work, so it must not mark the session busy or
+// revive it.
+//
+// Why a time window and not a content match: Claude Code redraws the WHOLE
+// input line on each keystroke (cursor moves + the line's glyphs), so the echo
+// frame's visible text is "> hello", not the bare typed char — a byte-for-byte
+// content match would miss it, and would also miss menus/reflow. Arrival time
+// relative to the keystroke is the robust, content-agnostic signal.
+//
+// The window is comfortably larger than keystroke→echo latency (a few tens of
+// ms on localhost, with headroom for a loaded event loop) yet small enough that
+// genuine streamed output — which lasts seconds — is at most marginally
+// delayed, never hidden: only a response that both STARTS and FINISHES within
+// the window is missed, i.e. a sub-150ms burst (a trivial instant shell
+// command; a real LLM turn's first-token latency always exceeds it). For hooked
+// Claude Code sessions the phase machine (UserPromptSubmit→running on Enter) is
+// the authoritative "working" signal and drives the spinner regardless of this
+// gate, so suppressing the first frames after input hides no real work there.
+// Kept tight (not larger) so typing WHILE a bare session streams suppresses as
+// few real frames as possible.
+export const INPUT_ECHO_WINDOW_MS = 150;
+
+/**
+ * True when an output frame should be treated as the echo of — or a redraw
+ * triggered by — the user's own recent input, rather than process activity.
+ *
+ * @param msSinceInput elapsed ms since this session's last keystroke, or null
+ *        when the session has no recorded input (then it is never echo).
+ * @param windowMs the echo window; defaults to INPUT_ECHO_WINDOW_MS.
+ */
+export function isInputEcho(
+  msSinceInput: number | null,
+  windowMs: number = INPUT_ECHO_WINDOW_MS,
+): boolean {
+  return msSinceInput !== null && msSinceInput >= 0 && msSinceInput < windowMs;
+}

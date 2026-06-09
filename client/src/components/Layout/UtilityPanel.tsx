@@ -1,24 +1,27 @@
 import { lazy, Suspense } from 'react';
-import { X, Activity, Cpu, BarChart3, LayoutGrid, BookOpen, Timer } from 'lucide-react';
+import { X, Activity, Cpu, BarChart3, BookOpen, Timer } from 'lucide-react';
+import type { WSMessage } from '../../types';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
-const AllBoardsPane = lazy(() => import('../Board/AllBoardsPane').then(m => ({ default: m.AllBoardsPane })));
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
 
-export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'all-boards' | 'journal' | 'cron';
+export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'journal' | 'cron';
 
 export const UTILITY_PREFIX = '__';
 
+// eslint-disable-next-line react-refresh/only-export-components -- pure id-adapter helper shared across StandaloneChatGroup + pane hooks; colocated with the UtilityPanel component it describes, moving it would force edits to non-local importer files
 export function isUtilityPanelId(id: string): boolean {
   return id.startsWith(UTILITY_PREFIX) && id.endsWith('__');
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- pure id-adapter helper shared across usePanelLifecycle; colocated with the UtilityPanel component it describes
 export function utilityPanelId(type: UtilityPanelType): string {
   return `${UTILITY_PREFIX}${type}__`;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- pure id-adapter helper shared across StandaloneChatGroup + useActivePaneState; colocated with the UtilityPanel component it describes
 export function parseUtilityPanelType(id: string): UtilityPanelType | null {
   if (!isUtilityPanelId(id)) return null;
   return id.slice(UTILITY_PREFIX.length, -2) as UtilityPanelType;
@@ -28,7 +31,6 @@ const CONFIG: Record<UtilityPanelType, { icon: typeof Activity; label: string; c
   activity:      { icon: Activity,   label: 'Activity',    color: '#06b6d4' },
   agents:        { icon: Cpu,        label: 'Agents',      color: '#8b5cf6' },
   dashboard:     { icon: BarChart3,  label: 'Statistics',   color: '#10b981' },
-  'all-boards':  { icon: LayoutGrid, label: 'Board',       color: '#10b981' },
   journal:       { icon: BookOpen,   label: 'Journal',     color: '#f59e0b' },
   cron:          { icon: Timer,      label: 'Cron Jobs',   color: '#6366f1' },
 };
@@ -41,7 +43,7 @@ interface UtilityPanelProps {
   onFocus: () => void;
   onClose: () => void;
   onNavigateToTopic?: (topicId: string) => void;
-  onMessage?: (handler: (msg: any) => void) => () => void;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTopic, onMessage }: UtilityPanelProps) {
@@ -76,7 +78,6 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
           {type === 'activity' && <ActivityFeedPanel enabled />}
           {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
           {type === 'dashboard' && <DashboardPane onMessage={onMessage} />}
-          {type === 'all-boards' && <AllBoardsPane onMessage={onMessage} onJumpToTopic={onNavigateToTopic} />}
           {type === 'cron' && <CronJobsPanel />}
         </Suspense>
       </div>

@@ -41,9 +41,6 @@ export async function redo(): Promise<boolean> {
 
 export function canUndo(): boolean { return undoStack.length > 0; }
 export function canRedo(): boolean { return redoStack.length > 0; }
-export function lastActionDescription(): string | null {
-  return undoStack.length > 0 ? undoStack[undoStack.length - 1].description : null;
-}
 
 /**
  * Check if an element is a text input where Cmd+Z should be handled

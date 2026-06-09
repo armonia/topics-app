@@ -399,7 +399,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         syncTerminals(m.sessions as { id: string; cwd: string; name: string; type: string }[]);
       }
     });
-  }, [onWSMessage, projectPath]);
+  }, [onWSMessage, projectPath, topicsRef]);
 
   // --- Browser-navigate listener (parity with StandaloneChatGroup) -----------
   //
@@ -613,7 +613,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       return updated;
     });
-  }, [panes]);
+  }, [panes, focusedGroupIdRef]);
 
   // --- Sync rows/heights with groups ---
   // Restore-active-chat is owned by `useProjectChatSync` via
@@ -938,6 +938,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           .filter(g => g.paneIds.length > 0);
       });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClosePane is declared AFTER this callback (forward const, TDZ); it is only invoked inside the redo handler at undo-stack-replay time, where it re-enters the full deferred-close pipeline and re-reads live state, so a stale closure is benign
     [panes, groups, projectPath, pushClosedTab, removeClosedTab],
   );
 
@@ -1065,7 +1066,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     };
     window.addEventListener('close-focused-pane', handler);
     return () => window.removeEventListener('close-focused-pane', handler);
-  }, [wrapperPaneId]);
+  }, [wrapperPaneId, focusedGroupIdRef, groupsRef]);
 
   const handleAddPaneToGroup = useCallback(
     async (groupId: string, type: PaneType, subType?: string) => {
@@ -1501,7 +1502,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     };
     window.addEventListener('open-file', handler);
     return () => window.removeEventListener('open-file', handler);
-  }, [handleOpenFile, wrapperPaneId]);
+  }, [handleOpenFile, wrapperPaneId, focusedPanelIdRef]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1525,6 +1526,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   }, []);
 
   // --- Close replaced preview pane ---
+  // Intentionally NO dependency array: this must run AFTER EVERY COMMIT to drain
+  // the `pendingPreviewCloseRef` flag that the orphan-sync effect sets during a
+  // preview-replace. The set-then-clear guard makes it a no-op on renders where
+  // the flag is null, so there's no update loop. `[]` (the lint suggestion)
+  // would run it only once at mount and miss every later replace.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate run-every-commit drain of pendingPreviewCloseRef; guarded by the null check so it doesn't loop
   useEffect(() => {
     if (pendingPreviewCloseRef.current) {
       const id = pendingPreviewCloseRef.current;
@@ -1560,9 +1567,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const pane = panes.find(p => p.id === paneId);
       if (!pane?.topicId) return;
       const url = `${window.location.origin}?topic=${pane.topicId}`;
-      isNativeApp
-        ? window.open(url, `topic-${pane.topicId}`, 'width=900,height=700')
-        : window.open(url, `topic-${pane.topicId}`);
+      if (isNativeApp) {
+        window.open(url, `topic-${pane.topicId}`, 'width=900,height=700');
+      } else {
+        window.open(url, `topic-${pane.topicId}`);
+      }
       setPanes(prev => prev.filter(p => p.id !== paneId));
     },
     [panes],
@@ -1705,7 +1714,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       setFocusedGroupId(newGroupId);
     },
-    [panes, groups],
+    [panes, groups, rowsRef],
   );
 
   const handleReorderRows = useCallback((newRowOrder: number[]) => {
@@ -1775,7 +1784,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const curValid = !!cur && groupsRef.current.some(g => g.id === cur);
       if (!curValid) setFocusedGroupId(groupId);
     }
-  }, []);
+  }, [focusedGroupIdRef, groupsRef]);
 
   // --- reopenChatPane: add stub + place in group via fallback chain ---
   // Used by `useProjectChatSync.reopenTopic` in Commit 4. Unused this commit.
@@ -1925,7 +1934,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       });
       setFocusedGroupId(newGroupId);
     },
-    [],
+    [groupsRef, focusedGroupIdRef, panesRef],
   );
 
   // Pin the latest reopenChatPane into the forward-declared ref so the

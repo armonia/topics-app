@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { BrowserContextInfo } from '@/lib/buildSidebarItems';
+import type { WSMessage } from '../types';
 
 const POLL_INTERVAL_FALLBACK = 30_000; // 30s fallback
 
 export function useBrowserContexts(
   enabled: boolean,
-  onMessage?: (handler: (msg: any) => void) => () => void
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void
 ): {
   contexts: BrowserContextInfo[];
   closeContext: (id: string) => Promise<void>;
@@ -31,13 +32,14 @@ export function useBrowserContexts(
   // Initial fetch
   useEffect(() => {
     if (!enabled) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loadContexts is async: setContexts only runs after the awaited /api/browser/status fetch resolves (a microtask, not synchronous), and is a one-shot fetch-on-enable, not derived render state.
     loadContexts();
   }, [enabled, loadContexts]);
 
   // WS subscription
   useEffect(() => {
     if (!enabled || !onMessage) return;
-    return onMessage((msg: any) => {
+    return onMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate') {
         lastUpdateRef.current = Date.now();
         loadContexts();

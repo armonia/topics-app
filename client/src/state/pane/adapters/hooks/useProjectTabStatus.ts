@@ -106,6 +106,7 @@ export function useProjectTabStatus(
       return changed ? next : prev;
     });
     // pathsKey listed as dep so callers see refresh restart on path list change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: pathsKey is the stable content-hash of projectPaths; depending on the array itself would re-create `refresh` on every render (callers pass a fresh array each time), while pathsKey changes exactly when the path list content changes
   }, [pathsKey]);
 
   useEffect(() => {

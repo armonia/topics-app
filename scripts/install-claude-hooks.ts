@@ -30,15 +30,19 @@ const WRAPPER_NAME = "post-hook.sh";
 const WRAPPER_SRC = join(__dirname, "claude-hooks", WRAPPER_NAME);
 const WRAPPER_DEST = join(HOOKS_DEST_DIR, WRAPPER_NAME);
 
+// Minimal load-bearing set for the phase machine. We deliberately do NOT
+// register PreToolUse/PostToolUse (highest-frequency events — one POST per
+// tool call — that only toggle running↔tool-running, which the client renders
+// identically: ACTIVE_CLAUDE_PHASES collapses both into a single spinner and
+// `lastTool` is never displayed) or SubagentStop (a no-op in applyHook —
+// returns the state unchanged). Dropping them eliminates the per-tool POST
+// flood for zero observable UX loss.
 const HOOK_EVENTS = [
   "SessionStart",
   "SessionEnd",
   "UserPromptSubmit",
-  "PreToolUse",
-  "PostToolUse",
   "Notification",
   "Stop",
-  "SubagentStop",
 ] as const;
 
 interface HookEntry {

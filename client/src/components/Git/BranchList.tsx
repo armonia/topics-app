@@ -11,6 +11,16 @@ interface Branch {
   behind?: number;
 }
 
+/** Extract a human-readable message from an unknown thrown value. */
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return String(err);
+}
+
 interface BranchListProps {
   projectPath: string;
   onBranchSwitch?: () => void;
@@ -39,11 +49,12 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       setLoading(true);
       const result = await gitApi.branches(projectPath);
       setBranches(result);
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errMessage(err));
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `toast` is used only in the catch path; the ToastProvider's context value isn't memoized, so including it would give loadBranches a new identity on every toast and re-trigger the load effect (re-fetching branches whenever any toast appears)
   }, [projectPath]);
 
   useEffect(() => {
@@ -62,8 +73,8 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       await gitApi.checkout(projectPath, branchName);
       await loadBranches();
       onBranchSwitch?.();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errMessage(err));
     } finally {
       setSwitching(null);
     }
@@ -79,8 +90,8 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       setShowNewInput(false);
       await loadBranches();
       onBranchSwitch?.();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      toast.error(errMessage(err));
     } finally {
       setCreating(false);
     }
@@ -92,13 +103,13 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       setDeleting(name);
       await gitApi.deleteBranch(projectPath, name);
       await loadBranches();
-    } catch (err: any) {
+    } catch {
       // If normal delete fails, try force
       try {
         await gitApi.deleteBranch(projectPath, name, true);
         await loadBranches();
-      } catch (err2: any) {
-        toast.error(err2.message);
+      } catch (err2) {
+        toast.error(errMessage(err2));
       }
     } finally {
       setDeleting(null);
@@ -116,8 +127,8 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       setNewRemoteUrl('');
       setShowRemoteInput(false);
       toast.success(`Remote "${name}" added`);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add remote');
+    } catch (err) {
+      toast.error(errMessage(err) || 'Failed to add remote');
     } finally {
       setAddingRemote(false);
     }
@@ -315,8 +326,8 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                     try {
                       await onRemoveRemote(r.name);
                       toast.success(`Remote "${r.name}" removed`);
-                    } catch (err: any) {
-                      toast.error(err.message || 'Failed to remove remote');
+                    } catch (err) {
+                      toast.error(errMessage(err) || 'Failed to remove remote');
                     }
                   }}
                   className="ml-auto p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-app-text-muted hover:text-red-500 transition-all opacity-0 group-hover/remote:opacity-100 flex-shrink-0"
