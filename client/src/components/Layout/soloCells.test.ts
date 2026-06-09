@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   soloCellKey, flattenSoloCells, removeTopicFromCells, addSoloCell, extractToOwnCell,
-  moveTopicToCell, pruneSoloCells, soloCellsFromFlat,
+  moveTopicToCell, pruneSoloCells, soloCellsFromFlat, primaryFromSoloCellKey,
 } from './soloCells';
 
 describe('soloCells — model primitives', () => {
@@ -56,5 +56,29 @@ describe('soloCells — model primitives', () => {
     expect(pruneSoloCells([['B', 'A'], ['C']], new Set(['B', 'C']))).toEqual([['B'], ['C']]);
     const stable = [['A'], ['B']];
     expect(pruneSoloCells(stable, new Set(['A', 'B']))).toBe(stable);
+  });
+});
+
+describe('soloCells — "+" add-tab routing (the cell that owns the clicked tab bar)', () => {
+  test('primaryFromSoloCellKey is the inverse of soloCellKey', () => {
+    expect(primaryFromSoloCellKey('solo:A')).toBe('A');
+    expect(primaryFromSoloCellKey(soloCellKey(['B', 'A']))).toBe('B');
+  });
+
+  test('the main pool is never a merge target', () => {
+    expect(primaryFromSoloCellKey('standalone')).toBe(null);
+    expect(primaryFromSoloCellKey('solo:')).toBe(null); // malformed key
+  });
+
+  test('THE BUG: a pane created from a split cell\'s "+" lands in THAT cell, not the pool', () => {
+    // Layout: main pool + split cell [A]. The user clicks "+" → Shell on
+    // cell A's tab bar (gridItemKey 'solo:A'); the new terminal pane must
+    // become A's next tab — NOT a regular pool pane in the other tab bar.
+    const target = primaryFromSoloCellKey('solo:A');
+    expect(target).toBe('A');
+    const cells = moveTopicToCell([['A']], 'terminal:t1', target!);
+    expect(cells).toEqual([['A', 'terminal:t1']]);
+    // Solo membership is what keeps it OUT of the standalone pool's panes.
+    expect(flattenSoloCells(cells)).toContain('terminal:t1');
   });
 });

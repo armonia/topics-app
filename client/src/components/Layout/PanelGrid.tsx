@@ -137,7 +137,7 @@ interface PanelGridProps {
   // Report all open pane IDs inside each project (for sidebar filtering)
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Create a new terminal (delegates to App)
-  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
+  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void | Promise<string | null>;
   // Pending browser pane request (from sidebar) — contextId or null
   pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;

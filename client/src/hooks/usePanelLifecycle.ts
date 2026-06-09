@@ -204,7 +204,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
     promoteDraft: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
-    handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<void>;
+    handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
     handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
@@ -1125,7 +1125,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     await sendMessage(topic.sessionKey, firstMessage, options);
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
-  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true) => {
+  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true): Promise<string | null> => {
     try {
       const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
       const body: Record<string, unknown> = { type: termType, name };
@@ -1135,7 +1135,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const data = await res.json();
       const paneId = createPaneId('terminal', data.id);
       terminalOps.markRecentlyCreated(data.id);
@@ -1171,7 +1171,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // mirroring the project tab bar behaviour. The user can manually split
       // it into its own cell via the existing split affordances.
       if (isMobile) setSidebarCollapsed(true);
-    } catch {}
+      // Return the new pane id so the caller can re-target it — a "+" clicked
+      // on a SPLIT cell's tab bar merges the pane into that cell (see
+      // usePaneLifecycle.handleAddPane), otherwise it stays in the pool.
+      return paneId;
+    } catch { return null; }
   }, [isMobile, terminalOps, setSidebarCollapsed]);
 
   const handleCloseTerminal = useCallback(async (sessionId: string) => {
