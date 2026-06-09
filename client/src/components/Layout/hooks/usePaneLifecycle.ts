@@ -20,6 +20,7 @@ import {
   getTerminalSessionFromPaneId,
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
+import { primaryFromSoloCellKey } from '../soloCells';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 
 const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
@@ -79,7 +80,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     topics, gridItemKey,
     onClosePanel, onFocusPanel, onCloseMultiplePanels,
     onSplitPane, onUnsolo,
-    onCreateTerminal, claudeSkipPermissions,
+    onCreateTerminal, onMergeIntoCell, claudeSkipPermissions,
     stopSession,
   } = args;
   const { validatedOrderedIds } = ordering.derived;
@@ -98,12 +99,22 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handleAddPane = useCallback(async (type: PaneType, subType?: string) => {
     if (type === 'browser') {
+      // Group-local singleton — already lands in THIS group's tab bar.
       ordering.ops.ensureBrowserPane();
     } else if (type === 'terminal') {
       const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
-      onCreateTerminal?.(termType, claudeSkipPermissions);
+      // App-level creation appends the pane to openPanels, which PanelGrid
+      // places in the main 'standalone' cell. When the "+" that was clicked
+      // belongs to a SPLIT cell ('solo:<primary>'), re-target the new pane
+      // into that cell — otherwise the tab visibly opens in the OTHER split
+      // group's tab bar.
+      const paneId = await onCreateTerminal?.(termType, claudeSkipPermissions);
+      const targetPrimary = primaryFromSoloCellKey(gridItemKey);
+      if (paneId && targetPrimary && onMergeIntoCell) {
+        onMergeIntoCell(paneId, targetPrimary);
+      }
     }
-  }, [ordering.ops, claudeSkipPermissions, onCreateTerminal]);
+  }, [ordering.ops, claudeSkipPermissions, onCreateTerminal, gridItemKey, onMergeIntoCell]);
 
   const handleClosePane = useCallback((paneId: string) => {
     // PANE_KIND_HANDLERS centralises the side effects + local-vs-store

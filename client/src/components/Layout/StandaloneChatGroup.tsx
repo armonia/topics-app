@@ -86,8 +86,9 @@ interface StandaloneChatGroupProps {
   onProjectActiveTopicChange?: (projectPath: string, topicId: string | null) => void;
   // Report all open pane IDs inside each project (for sidebar filtering)
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
-  // Create a new terminal (delegates to App)
-  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
+  // Create a new terminal (delegates to App). Returns the new pane id so the
+  // "+" on a split cell's tab bar can re-target the pane into that cell.
+  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void | Promise<string | null>;
   // Report whether this group has utility panes (browser/terminal)
   onUtilityPaneChange?: (has: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
@@ -351,12 +352,14 @@ export function StandaloneChatGroup({
   );
 
   // Hook 2: action handlers (browser singleton, close, split, settings, etc.)
+  // `onMergeIntoCell` lets handleAddPane route a pane created from THIS split
+  // cell's "+" into the cell itself instead of the main standalone pool.
   const lifecycle = usePaneLifecycle({
     ordering, active,
     topics, topicIds, gridItemKey,
     onClosePanel, onFocusPanel, onCloseMultiplePanels,
     onSplitPane, onUnsolo,
-    onCreateTerminal, claudeSkipPermissions,
+    onCreateTerminal, onMergeIntoCell, claudeSkipPermissions,
     stopSession,
   });
   const { settingsTopicId, setSettingsTopicId } = lifecycle;

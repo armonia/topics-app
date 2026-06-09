@@ -25,6 +25,16 @@ export function soloCellKey(cell: readonly string[]): string {
   return `solo:${cell[0]}`;
 }
 
+/** Inverse of `soloCellKey`: the cell primary encoded in a grid item key, or
+ *  null when the key isn't a solo cell (the main 'standalone' pool). Used to
+ *  route a pane created from a split cell's "+" into THAT cell — without this
+ *  the new pane always landed in the standalone pool's tab bar. */
+export function primaryFromSoloCellKey(gridItemKey: string): string | null {
+  if (!gridItemKey.startsWith('solo:')) return null;
+  const primary = gridItemKey.slice('solo:'.length);
+  return primary.length > 0 ? primary : null;
+}
+
 /** All solo topic ids across every cell (the flat set the old code used). */
 export function flattenSoloCells(cells: SoloCells): string[] {
   return cells.flat();
