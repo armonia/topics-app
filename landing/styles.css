@@ -18,6 +18,8 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+/* anchored sections must clear the sticky nav */
+[id]{scroll-margin-top:76px}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6;letter-spacing:-.011em;overflow-x:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:inherit;text-decoration:none}
@@ -99,14 +101,11 @@ a{color:inherit;text-decoration:none}
 /* ───────── product window (real-app recreation, 16:10) ───────── */
 .showcase{position:relative;max-width:1200px;margin:62px auto 0;padding:0 4px}
 .showcase__glow{position:absolute;inset:-6% 4% 16%;z-index:-1;border-radius:50%;background:var(--grad);filter:blur(96px);opacity:.45}
-.window{aspect-ratio:16/10;display:flex;flex-direction:column;border-radius:15px;overflow:hidden;border:1px solid var(--border-2);background:hsl(222 45% 7% / .82);-webkit-backdrop-filter:blur(22px) saturate(150%);backdrop-filter:blur(22px) saturate(150%);box-shadow:var(--shadow-lg),0 0 0 1px hsl(0 0% 100% / .04) inset;transform:perspective(1900px) rotateX(6deg) scale(.99);transform-origin:50% 100%;transition:transform .6s var(--ease)}
-.showcase:hover .window{transform:perspective(2600px) rotateX(1.5deg) scale(1)}
-/* real screenshot framing — NB: .window-real is now the IFRAME. It must NOT
-   carry its own transform or a :hover transform: those overrode the iframe's
-   scale(.70) on hover (specificity 0,3,0 > iframe.window-real 0,1,1) → the demo
-   zoomed + cropped on mouseover. The visible box/tilt lives on .showcase__frame. */
+/* NB: .window-real is the demo IFRAME. It must NOT carry its own transform or
+   a :hover transform: those overrode the iframe's scale(.70) on hover
+   (specificity 0,3,0 > iframe.window-real 0,1,1) → the demo zoomed + cropped
+   on mouseover. The visible box/tilt lives on .showcase__frame. */
 .window-real{position:relative;margin:0;border-radius:14px;overflow:hidden}
-.window-real img{display:block;width:100%;height:auto}
 /* Bigger-screen feel: the frame is the visible box (clips + tilts); the iframe
    inside renders at a LARGER logical viewport (1/scale) and is scaled back down,
    so the app looks like it's on a roomier monitor without shrinking the hero.
@@ -117,50 +116,6 @@ a{color:inherit;text-decoration:none}
    hover feedback is a brightening glow/shadow only, zero geometry change. */
 .showcase:hover .showcase__frame{box-shadow:var(--shadow-lg),0 0 0 1px hsl(225 100% 80% / .18) inset,0 0 60px -10px hsl(225 100% 70% / .35)}
 iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-scale));height:calc(100% / var(--demo-scale));transform:scale(var(--demo-scale));transform-origin:top left;border:0;display:block;background:#06080f;color-scheme:dark}
-.window-real__gloss{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,hsl(0 0% 100% / .06),transparent 12%),radial-gradient(120% 60% at 50% -10%,hsl(225 100% 80% / .1),transparent 60%)}
-.window__bar{display:flex;align-items:center;gap:12px;padding:9px 13px;background:hsl(222 40% 9.5% / .85);border-bottom:1px solid var(--border);flex:none}
-.traffic{display:flex;gap:7px;flex:none}.traffic i{width:11px;height:11px;border-radius:50%}
-.traffic i:nth-child(1){background:#ff5f57}.traffic i:nth-child(2){background:#febc2e}.traffic i:nth-child(3){background:#28c840}
-.tabs{display:flex;gap:5px;overflow:hidden}
-.tab{font-family:var(--mono);font-size:.72rem;color:var(--text-faint);padding:5px 11px;border-radius:7px 7px 0 0;white-space:nowrap;display:flex;align-items:center;gap:6px}
-.tab--active{background:hsl(222 42% 6% / .9);color:var(--text);box-shadow:inset 0 -2px 0 var(--blue)}
-.tab__live{width:6px;height:6px}
-.tab--add{color:var(--text-faint)}
-.window__body{display:grid;grid-template-columns:186px 192px 1fr;flex:1;min-height:0;background:hsl(222 42% 5.5% / .65)}
-.pane{overflow:hidden;min-height:0}
-.pane--sidebar{padding:12px 10px;border-right:1px solid var(--border);display:flex;flex-direction:column}
-.side__search{font-family:var(--mono);font-size:.7rem;color:var(--text-faint);background:hsl(222 40% 12% / .6);border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:12px;display:flex;gap:8px}
-.side__search span{opacity:.7}
-.side__row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:8px;font-size:.82rem;color:var(--text-dim)}
-.side__row .ic{color:var(--violet)}
-.side__count{margin-left:auto;font-size:.66rem;background:hsl(258 70% 65% / .25);color:var(--violet);border-radius:6px;padding:1px 6px}
-.side__head{font-family:var(--mono);font-size:.62rem;letter-spacing:.13em;color:var(--text-faint);margin:14px 0 7px 4px}
-.topics{list-style:none;display:flex;flex-direction:column;gap:2px}
-.topic{display:flex;align-items:center;gap:9px;padding:6px 9px;border-radius:8px;font-size:.8rem;color:var(--text-dim)}
-.topic--active{background:hsl(225 70% 60% / .15);color:var(--text);box-shadow:0 0 0 1px var(--border-2)}
-.topic__dot{width:7px;height:7px;border-radius:50%;flex:none}
-.t-blue{background:var(--blue)}.t-teal{background:var(--teal)}.t-violet{background:var(--violet)}.t-amber{background:var(--amber)}
-.topic__sub{margin-left:auto;font-family:var(--mono);font-size:.62rem;color:var(--text-faint)}
-.topic__badge{margin-left:auto;font-size:.62rem;background:hsl(225 70% 60% / .25);color:var(--blue-2);border-radius:6px;padding:1px 6px}
-.side__foot{margin-top:auto;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.64rem;color:var(--text-faint);padding-top:10px}
-.pane--files{padding:12px 10px;border-right:1px solid var(--border);display:flex;flex-direction:column}
-.files__head{font-family:var(--mono);font-size:.62rem;letter-spacing:.13em;color:var(--text-faint);margin-bottom:8px;display:flex;justify-content:space-between}
-.filetree{list-style:none;font-family:var(--mono);font-size:.72rem;display:flex;flex-direction:column;gap:3px;overflow:hidden}
-.filetree li{display:flex;justify-content:space-between;padding:2px 4px;border-radius:5px;color:var(--text-dim)}
-.filetree .dir{color:var(--blue-2)}
-.filetree .sub{padding-left:16px;color:var(--text-faint)}
-.filetree span{color:var(--text-faint);opacity:.6;font-size:.66rem}
-.files__git{margin-top:auto;font-family:var(--mono);font-size:.66rem;color:var(--green);padding-top:10px}
-.pane--term{background:hsl(222 45% 4.5% / .55);display:flex;flex-direction:column;min-width:0}
-.pane__tab{font-family:var(--mono);font-size:.7rem;color:var(--text-dim);padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
-.term{font-family:var(--mono);font-size:.76rem;line-height:1.75;color:#b8c6e8;padding:12px 16px;white-space:pre-wrap;overflow:hidden;flex:1;min-height:0}
-.term .c-prompt{color:var(--teal)}.term .c-cmd{color:#fff}.term .c-ok{color:var(--green)}.term .c-dim{color:var(--text-faint)}.term .c-blue{color:var(--blue-2)}.term .c-violet{color:var(--violet)}
-.term .caret{display:inline-block;width:8px;height:1.05em;vertical-align:text-bottom;background:var(--teal);animation:blink 1.1s steps(1) infinite}
-@keyframes blink{50%{opacity:0}}
-.term__status{display:flex;gap:14px;font-family:var(--mono);font-size:.64rem;color:var(--text-faint);padding:7px 16px;border-top:1px solid var(--border);background:hsl(222 45% 6% / .6)}
-.term__hint{margin-left:auto}
-.window__foot{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:.66rem;color:var(--text-faint);padding:7px 14px;border-top:1px solid var(--border);background:hsl(222 40% 8% / .85);flex:none}
-.foot__right{margin-left:auto}
 
 /* ───────── works-with strip ───────── */
 .strip{max-width:var(--maxw);margin:96px auto 0;padding:0 24px;text-align:center}
@@ -235,16 +190,21 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── responsive ───────── */
 @media (max-width:900px){
   .nav__links{display:none}
-  .bento,.dl-grid{grid-template-columns:1fr 1fr}.card--wide{grid-column:span 2}
-  .window{aspect-ratio:auto}.window__body{grid-template-columns:160px 1fr}.pane--files{display:none}
+  .bento,.dl-grid{grid-template-columns:1fr 1fr}
+  /* 3 wide + 3 normal cards (9 col-units) can't tile a 2-col grid — drop the
+     wide spans so the six cards make a clean 3×2. */
+  .card--wide{grid-column:span 1}
+  /* 3 download cards on a 2-col grid would leave one dangling — let the
+     detected-OS card span the full first row instead: 1 + 2 stays balanced. */
+  .dl-card.is-primary{grid-column:span 2}
 }
 @media (max-width:600px){
   .hero{padding-top:44px}.bento,.dl-grid{grid-template-columns:1fr}.card--wide{grid-column:span 1}
-  .window__body{grid-template-columns:1fr}.pane--sidebar{display:none}.pane--term{min-height:300px}
-  .tabs .tab:nth-child(n+3){display:none}
-  .footer__inner{flex-direction:column;align-items:flex-start}.dl-card.is-primary::after{display:none}
+  .dl-card.is-primary{grid-column:span 1}
+  .footer__inner{flex-direction:column;align-items:flex-start}
+  .dl-card.is-primary .dl-card__icon::after{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
-  .reveal{opacity:1;transform:none}.window{transform:none}.aurora .orb{animation:none}
+  .reveal{opacity:1;transform:none}.aurora .orb{animation:none}
 }

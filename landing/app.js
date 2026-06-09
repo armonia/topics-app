@@ -36,37 +36,6 @@
     reveals.forEach((el) => io.observe(el));
   } else { reveals.forEach((el) => el.classList.add('in')); }
 
-  /* terminal "agent" typing (Claude Code style, demo) */
-  const term = $('#term');
-  const lines = [
-    '<span class="c-prompt">~/topics-app</span> <span class="c-cmd">claude</span> <span class="c-dim">"ship the v1.1 release"</span>',
-    '<span class="c-violet">✻ Claude Code</span> <span class="c-dim">v2.1 · Opus 4.8 (1M context)</span>',
-    '<span class="c-dim">● Reading project context…</span>',
-    '<span class="c-blue">✱ Plan</span> <span class="c-dim">4 steps: bump version, tag, build, publish</span>',
-    '<span class="c-dim">  → electron-app/package.json  v1.1.0</span>',
-    '<span class="c-dim">  → git tag v1.1.0 &amp;&amp; git push origin v1.1.0</span>',
-    '<span class="c-ok">✓ Release workflow triggered</span> <span class="c-dim">macOS · Windows · Linux</span>',
-    '<span class="c-ok">✓ Done</span> <span class="c-dim">3 files changed · pushed to main</span>',
-  ];
-  const delays = [90, 520, 560, 620, 360, 360, 660, 420];
-  function renderTerminal() {
-    if (!term) return;
-    if (reduceMotion) { term.innerHTML = lines.join('\n') + '\n<span class="c-prompt">~/topics-app</span> <span class="caret"></span>'; return; }
-    let i = 0;
-    const step = () => {
-      if (i >= lines.length) { term.insertAdjacentHTML('beforeend', '\n<span class="c-prompt">~/topics-app</span> <span class="caret"></span>'); return; }
-      term.insertAdjacentHTML('beforeend', (i ? '\n' : '') + lines[i]);
-      const d = delays[i] || 400; i++; setTimeout(step, d);
-    };
-    setTimeout(step, 600);
-  }
-  if (term) {
-    if ('IntersectionObserver' in window && !reduceMotion) {
-      const tio = new IntersectionObserver((e) => { if (e[0].isIntersecting) { tio.disconnect(); renderTerminal(); } }, { threshold: 0.25 });
-      tio.observe(term);
-    } else { renderTerminal(); }
-  }
-
   /* OS detection -> suggest current OS first */
   function detectOS() {
     const ua = (navigator.userAgent || '').toLowerCase();
@@ -79,13 +48,13 @@
   const OS_LABEL = { mac: 'macOS', win: 'Windows', linux: 'Linux' }[OS];
 
   const ASSET = {
-    'mac-arm':  (n) => /arm64.*\.dmg$/i.test(n),
-    'mac-intel':(n) => /\.dmg$/i.test(n) && !/arm64/i.test(n),
+    // ONE universal macOS dmg (Apple Silicon + Intel) since v1.0.3.
+    'mac':      (n) => /\.dmg$/i.test(n),
     'win':      (n) => /\.exe$/i.test(n),
     'appimage': (n) => /\.appimage$/i.test(n),
     'deb':      (n) => /\.deb$/i.test(n),
   };
-  const PRIMARY_ASSET = { mac: 'mac-arm', win: 'win', linux: 'appimage' };
+  const PRIMARY_ASSET = { mac: 'mac', win: 'win', linux: 'appimage' };
 
   // current OS card first (CSS uses .is-primary -> order:1) + labelled CTA
   const label = `Download for ${OS_LABEL}`;
@@ -109,6 +78,7 @@
       const pUrl = url(PRIMARY_ASSET[OS]);
       if (dlBtn && pUrl) { dlBtn.href = pUrl; dlBtn.removeAttribute('target'); }
       const tag = $('#latestTag'); if (tag && rel.tag_name) tag.textContent = `· latest: ${rel.tag_name}`;
+      const pill = $('#pillRelease'); if (pill && rel.tag_name) pill.textContent = `${rel.tag_name} is out · macOS, Windows & Linux`;
     } catch (_) { /* keep fallback links to releases page */ }
   }
   resolveDownloads();
@@ -120,7 +90,8 @@
       if (!r.ok) return;
       const j = await r.json();
       const n = j.stargazers_count;
-      if (typeof n === 'number') { const el = $('#starCount'); if (el) el.textContent = n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
+      // 0 is worse social proof than no number — only show a real count.
+      if (typeof n === 'number' && n > 0) { const el = $('#starCount'); if (el) el.textContent = n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n); }
     } catch (_) {}
   })();
 })();

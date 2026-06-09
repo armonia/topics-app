@@ -3,8 +3,8 @@
  *
  * Makes the REAL Topics client run with NO backend, purely client-side:
  *   1. Seeds localStorage so the app boots straight into a dark-theme view:
- *      a single PROJECT window whose inner layout is a split —
- *      terminal (left) | Browser / Git / Process / Board tabs (right).
+ *      three PROJECT windows; the main one is a split —
+ *      Claude Code terminals (left) | browser preview (right).
  *   2. Monkeypatches window.fetch to answer every /api/* call with generic
  *      mock data (endpoint URLs + shapes mirror client/src/lib/api.ts).
  *   3. Monkeypatches window.WebSocket with a stub that feeds canned frames:
@@ -34,7 +34,7 @@
   // Inner project panes (ids unique across the app). Each project's star is a
   // Claude Code agent session (the paid core value); no standalone git pane.
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
-      BROW = "browser:c1", BOARD = "board:b1";
+      BROW = "browser:c1";
 
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
@@ -127,14 +127,7 @@
 
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
-  // Board + Master are opt-out in the latest UI — the demo reflects the cleaner
-  // surface (no Board/Master in the sidebar, no Board tab in the project window).
-  set("app-settings", JSON.stringify({ sidebarCollapsed: false, showBoard: false, showMaster: false }));
-  // Collapse the project sidebar's Tasks board (kanban still 1 click away via the
-  // Board tab) so the tall task list stops pushing Files/Git/Processes off-screen
-  // → the running Processes become visible, which is the project context Attilio
-  // wants to see.
-  set("topics-taskboard-collapsed", "true");
+  set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
   // Expand all three projects so their Claude Code sessions are visible at a
   // glance (sidebar item id == "project:<path>", unencoded — see buildSidebarItems).
   set("topics-sidebar-state", JSON.stringify({
@@ -144,6 +137,15 @@
     showProjectsArchived: false, showChatsArchived: false, browserExpanded: false,
   }));
   document.documentElement.classList.add("dark");
+
+  /* The PWA service worker is pointless inside the demo iframe — and its
+   * absolute /sw.js path 404s on the landing origin (console noise). Neuter
+   * registration with a forever-pending promise: no fetch, no catch-warn. */
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.register) {
+      navigator.serviceWorker.register = function () { return new Promise(function () {}); };
+    }
+  } catch (e) {}
 
   /* ---- 1d. vibrancy emulation ------------------------------------------- *
    * The real app is an Electron window with native macOS vibrancy: html/body/
@@ -310,11 +312,20 @@
   ];
 
   /* Claude Code TUI transcripts (ANSI). \x1b = ESC; xterm needs CRLF (added at
-   * emit time). Generic acme-web work — no real project/user data. */
+   * emit time). Generic acme-web work — no real project/user data.
+   *
+   * The mascot is drawn with the BACKGROUND color (48;2 truecolor #D97757)
+   * over plain spaces: the background paints the WHOLE cell, so the face is
+   * seam-free in any font at any line-height (block glyphs like █ depend on
+   * glyph metrics and leave hairline gaps between rows). Eyes are default-bg
+   * holes. 8 cells wide × 3 rows ≈ a chunky 4:3 face. */
+  var CC_O = "\x1b[48;2;217;119;87m", CC_R = "\x1b[49m";
+  var FACE_TOP = " " + CC_O + "        " + CC_R;
+  var FACE_EYE = " " + CC_O + " " + CC_R + "  " + CC_O + "  " + CC_R + "  " + CC_O + " " + CC_R;
   var CLAUDE_CC1 = [
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-web · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-web · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Wire up release signing for v1.1 and run the smoke test\n",
     "\n",
@@ -335,9 +346,9 @@
     "\x1b[36m✻\x1b[0m \x1b[2mWorking…  (esc to interrupt · ⏵⏵ bypass permissions on)\x1b[0m\n",
   ];
   var CLAUDE_CC2 = [
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-web · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-web · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Add empty states to the dashboard lists\n",
     "\n",
@@ -350,9 +361,9 @@
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
   var CLAUDE_CC3 = [
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-api · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-api · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Add a token-bucket rate limiter to the public API\n",
     "\n",
@@ -369,9 +380,9 @@
   ];
   // A COMPLETED turn — agent finished, prompt is idle again (no "Working…").
   var CLAUDE_CC4 = [
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;2;217;119;87m █ ██ █ \x1b[0m   \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;2;217;119;87m ██████ \x1b[0m   \x1b[2macme-mobile · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-mobile · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Fix the offline-sync race in the upload queue\n",
     "\n",
@@ -438,7 +449,6 @@
         if (/\/ui-state\b/.test(u)) return Promise.resolve(J({ data: {}, meta: {} }));
 
         if (/\/system\/status\b/.test(u)) return Promise.resolve(J(SYSTEM_STATUS));
-        if (/\/topics\/master\/sessions/.test(u)) return Promise.resolve(J({ sessions: [] }));
         if (/\/topics\/[^/]+\/messages/.test(u)) return Promise.resolve(J({ messages: [], total: 0, topicName: "" }));
         if (/\/topics\b/.test(u) && !/\/topics\//.test(u)) return Promise.resolve(J({ topics: TOPICS, workspaceProjects: [PROJECT, P2, P3] }));
         if (/\/unread\b/.test(u)) return Promise.resolve(J(UNREAD));
@@ -488,7 +498,6 @@
         if (/\/usage\//.test(u)) return Promise.resolve(J({ records: [], summary: {} }));
         if (/\/history\//.test(u)) return Promise.resolve(J({ messages: [] }));
         if (/\/openclaw\/context\b/.test(u)) return Promise.resolve(J({ soul: null, memory: null, agents: null, tools: null, identity: null, user: null, memoryIndex: [], memoryTokens: 0, totalTokens: 0, workspacePath: PROJECT }));
-        if (/\/master\/monitor\b/.test(u)) return Promise.resolve(J({ enabled: false }));
 
         if (/snapshot|settings|status|state|kpis|summary|monitor|count|config/i.test(u)) return Promise.resolve(J({}));
         return Promise.resolve(J([]));

@@ -6,8 +6,8 @@
  *
  * Makes the REAL Topics client run with NO backend, purely client-side:
  *   1. Seeds localStorage so the app boots straight into a dark-theme view:
- *      a single PROJECT window whose inner layout is a split —
- *      terminal (left) | Browser / Git / Process / Board tabs (right).
+ *      three PROJECT windows; the main one is a split —
+ *      Claude Code terminals (left) | browser preview (right).
  *   2. Monkeypatches window.fetch to answer every /api/* call with generic
  *      mock data (endpoint URLs + shapes mirror client/src/lib/api.ts).
  *   3. Monkeypatches window.WebSocket with a stub that feeds canned frames:
@@ -37,7 +37,7 @@
   // Inner project panes (ids unique across the app). Each project's star is a
   // Claude Code agent session (the paid core value); no standalone git pane.
   var CC1 = "terminal:cc1", CC2 = "terminal:cc2", CC3 = "terminal:cc3", CC4 = "terminal:cc4",
-      BROW = "browser:c1", BOARD = "board:b1";
+      BROW = "browser:c1";
 
   /* djb2-style hash — MUST match projectHash() in
    * state/pane/adapters/projectLayoutSync.ts so the project-layout keys line up. */
@@ -103,11 +103,10 @@
     { id: CC1,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc1", terminalType: "claude-code" },
     { id: CC2,   type: "terminal", title: "Claude Code", projectPath: PROJECT, terminalSessionId: "cc2", terminalType: "claude-code" },
     { id: BROW,  type: "browser",  title: "Preview",     projectPath: PROJECT },
-    { id: BOARD, type: "board",    title: "Board",       projectPath: PROJECT },
   ], {
     groups: [
       { id: "pgA-l", paneIds: [CC1, CC2],     activePaneId: CC1,  type: "utility" },
-      { id: "pgA-r", paneIds: [BROW, BOARD],  activePaneId: BROW, type: "utility" },
+      { id: "pgA-r", paneIds: [BROW],         activePaneId: BROW, type: "utility" },
     ],
     rows: [{ groupIds: ["pgA-l", "pgA-r"], widths: [0.54, 0.46] }],
     rowHeights: [1], sidebarCollapsed: false, focusedGroupId: "pgA-l",
@@ -132,11 +131,6 @@
   /* ---- 1c. theme + misc ------------------------------------------------- */
   set("theme", JSON.stringify("dark"));
   set("app-settings", JSON.stringify({ sidebarCollapsed: false }));
-  // Collapse the project sidebar's Tasks board (kanban still 1 click away via the
-  // Board tab) so the tall task list stops pushing Files/Git/Processes off-screen
-  // → the running Processes become visible, which is the project context Attilio
-  // wants to see.
-  set("topics-taskboard-collapsed", "true");
   // Expand all three projects so their Claude Code sessions are visible at a
   // glance (sidebar item id == "project:<path>", unencoded — see buildSidebarItems).
   set("topics-sidebar-state", JSON.stringify({
@@ -146,6 +140,15 @@
     showProjectsArchived: false, showChatsArchived: false, browserExpanded: false,
   }));
   document.documentElement.classList.add("dark");
+
+  /* The PWA service worker is pointless inside the demo iframe — and its
+   * absolute /sw.js path 404s on the landing origin (console noise). Neuter
+   * registration with a forever-pending promise: no fetch, no catch-warn. */
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.register) {
+      navigator.serviceWorker.register = function () { return new Promise(function () {}); };
+    }
+  } catch (e) {}
 
   /* ---- 1d. vibrancy emulation ------------------------------------------- *
    * The real app is an Electron window with native macOS vibrancy: html/body/
@@ -312,77 +315,86 @@
   ];
 
   /* Claude Code TUI transcripts (ANSI). \x1b = ESC; xterm needs CRLF (added at
-   * emit time). Generic acme-web work — no real project/user data. */
+   * emit time). Generic acme-web work — no real project/user data.
+   *
+   * The mascot is drawn with the BACKGROUND color (48;2 truecolor #D97757)
+   * over plain spaces: the background paints the WHOLE cell, so the face is
+   * seam-free in any font at any line-height (block glyphs like █ depend on
+   * glyph metrics and leave hairline gaps between rows). Eyes are default-bg
+   * holes. 8 cells wide × 3 rows ≈ a chunky 4:3 face. */
+  var CC_O = "\x1b[48;2;217;119;87m", CC_R = "\x1b[49m";
+  var FACE_TOP = " " + CC_O + "        " + CC_R;
+  var FACE_EYE = " " + CC_O + " " + CC_R + "  " + CC_O + "  " + CC_R + "  " + CC_O + " " + CC_R;
   var CLAUDE_CC1 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-web · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-web · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Wire up release signing for v1.1 and run the smoke test\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m I'll add the signing step to the release script, then verify.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m I'll add the signing step to the release script, then verify.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mRead\x1b[0m(scripts/release.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mRead\x1b[0m(scripts/release.ts)\n",
     "\x1b[2m  ⎿  read 84 lines\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mEdit\x1b[0m(scripts/release.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mEdit\x1b[0m(scripts/release.ts)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m+12\x1b[0m \x1b[31m−2\x1b[0m \x1b[2m· codesign + notarize step\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(npm run build && npm run release:sign)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mBash\x1b[0m(npm run build && npm run release:sign)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m built in 2.3s \x1b[2m· signed acme-web-1.1.0.dmg\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Signing works end-to-end. Running the release smoke test now…\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Signing works end-to-end. Running the release smoke test now…\n",
     "\n",
     "\x1b[2m──────────────────────────────────────────────\x1b[0m\n",
     "\x1b[36m✻\x1b[0m \x1b[2mWorking…  (esc to interrupt · ⏵⏵ bypass permissions on)\x1b[0m\n",
   ];
   var CLAUDE_CC2 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-web · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-web · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Add empty states to the dashboard lists\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Scanning the dashboard route for lists missing an empty state.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Scanning the dashboard route for lists missing an empty state.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mGrep\x1b[0m(\"\\.map(\" in src/routes/dashboard.tsx)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mGrep\x1b[0m(\"\\.map(\" in src/routes/dashboard.tsx)\n",
     "\x1b[2m  ⎿  3 matches\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Adding <EmptyState/> to the channels, sessions and errors lists.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Adding <EmptyState/> to the channels, sessions and errors lists.\n",
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
   var CLAUDE_CC3 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-api · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-api · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Add a token-bucket rate limiter to the public API\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Adding middleware and wiring it into the router.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Adding middleware and wiring it into the router.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mWrite\x1b[0m(src/middleware/rateLimit.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mWrite\x1b[0m(src/middleware/rateLimit.ts)\n",
     "\x1b[2m  ⎿  38 lines\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test rate-limit)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test rate-limit)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m 12 passed \x1b[2m(248ms)\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Limiter live: 100 req/min per key. Verifying the 429 headers…\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Limiter live: 100 req/min per key. Verifying the 429 headers…\n",
     "\x1b[2m   esc to interrupt\x1b[0m\n",
   ];
   // A COMPLETED turn — agent finished, prompt is idle again (no "Working…").
   var CLAUDE_CC4 = [
-    "\x1b[38;5;215m ▐▛███▜▌\x1b[0m   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
-    "\x1b[38;5;215m▝▜█████▛▘\x1b[0m  \x1b[2mOpus 4.8 (1M context)\x1b[0m\n",
-    "\x1b[38;5;215m  ▘▘ ▝▝\x1b[0m    \x1b[2macme-mobile · main\x1b[0m\n",
+    FACE_TOP + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.160\x1b[0m\n",
+    FACE_EYE + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
+    FACE_TOP + "   \x1b[2macme-mobile · main\x1b[0m\n",
     "\n",
     "\x1b[1;36m❯\x1b[0m Fix the offline-sync race in the upload queue\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m Reproduced it — the flush wasn't awaiting the write lock.\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m Reproduced it — the flush wasn't awaiting the write lock.\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mEdit\x1b[0m(src/sync/queue.ts)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mEdit\x1b[0m(src/sync/queue.ts)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m+6\x1b[0m \x1b[31m−3\x1b[0m\n",
     "\n",
-    "\x1b[38;5;215m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test sync)\n",
+    "\x1b[38;2;217;119;87m⏺\x1b[0m \x1b[1mBash\x1b[0m(bun test sync)\n",
     "\x1b[2m  ⎿  \x1b[0m\x1b[32m✓\x1b[0m 28 passed \x1b[2m(1.1s)\x1b[0m\n",
     "\n",
     "\x1b[32m⏺\x1b[0m \x1b[1mDone\x1b[0m — offline sync is race-free and the full suite is green.\n",
@@ -440,7 +452,6 @@
         if (/\/ui-state\b/.test(u)) return Promise.resolve(J({ data: {}, meta: {} }));
 
         if (/\/system\/status\b/.test(u)) return Promise.resolve(J(SYSTEM_STATUS));
-        if (/\/topics\/master\/sessions/.test(u)) return Promise.resolve(J({ sessions: [] }));
         if (/\/topics\/[^/]+\/messages/.test(u)) return Promise.resolve(J({ messages: [], total: 0, topicName: "" }));
         if (/\/topics\b/.test(u) && !/\/topics\//.test(u)) return Promise.resolve(J({ topics: TOPICS, workspaceProjects: [PROJECT, P2, P3] }));
         if (/\/unread\b/.test(u)) return Promise.resolve(J(UNREAD));
@@ -490,7 +501,6 @@
         if (/\/usage\//.test(u)) return Promise.resolve(J({ records: [], summary: {} }));
         if (/\/history\//.test(u)) return Promise.resolve(J({ messages: [] }));
         if (/\/openclaw\/context\b/.test(u)) return Promise.resolve(J({ soul: null, memory: null, agents: null, tools: null, identity: null, user: null, memoryIndex: [], memoryTokens: 0, totalTokens: 0, workspacePath: PROJECT }));
-        if (/\/master\/monitor\b/.test(u)) return Promise.resolve(J({ enabled: false }));
 
         if (/snapshot|settings|status|state|kpis|summary|monitor|count|config/i.test(u)) return Promise.resolve(J({}));
         return Promise.resolve(J([]));
@@ -559,12 +569,19 @@
     <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png" />
     <link rel="apple-touch-icon-precomposed" sizes="180x180" href="./icons/icon-180.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content, viewport-fit=cover" />
-    <meta name="theme-color" content="#1a1a1a" />
+    <meta name="theme-color" content="#f8f9fa" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="apple-touch-icon" sizes="120x120" href="./icons/icon-180.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="./icons/icon-180.png" />
     <link rel="apple-touch-icon" sizes="167x167" href="./icons/icon-180.png" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- `black` (opaque), NOT `black-translucent`: on iOS standalone PWAs,
+         black-translucent makes the webview full-screen at the top (content under
+         the Dynamic Island) but leaves the layout viewport ~topInset px SHORT at
+         the BOTTOM (innerHeight = screen − topInset), so a band of webview
+         background shows below the content and can't be filled from inside the
+         page. `black` insets the viewport BELOW an opaque status bar and fills
+         all the way to the bottom edge. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="./manifest.json" />
     <title>Topics</title>
@@ -578,6 +595,15 @@
         } catch(e) {}
         var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) document.documentElement.classList.add('dark');
+
+        // Keep the iOS/Android status-bar tint in lock-step with the resolved
+        // theme so the safe-area zone reads as one continuous surface (no light
+        // status bar over a dark app, or vice-versa). These hexes MUST match the
+        // `--bg` tokens in index.css (light #f8f9fa / dark hsl(222 16% 8.5%) = #121419).
+        try {
+          var tc = document.querySelector('meta[name="theme-color"]');
+          if (tc) tc.setAttribute('content', dark ? '#121419' : '#f8f9fa');
+        } catch(e) {}
 
         // Electron on macOS: tag <html> so the app can let native window vibrancy
         // (configured in electron-app/main.ts) show through the chrome. Set before
@@ -604,11 +630,11 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-CeHzRUeI.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/icons-ChW6QElv.js">
-    <link rel="modulepreload" crossorigin href="./assets/markdown-CmFLT5EF.js">
-    <link rel="modulepreload" crossorigin href="./assets/react-vendor-JtCpSNks.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-Dxi6dQqG.css">
+    <script type="module" crossorigin src="./assets/index-Cy7O9CA2.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/icons-qYTwN--u.js">
+    <link rel="modulepreload" crossorigin href="./assets/markdown-BSyWqnvk.js">
+    <link rel="modulepreload" crossorigin href="./assets/react-vendor-D25dlSlT.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-Mpljos0b.css">
   </head>
   <body>
     <div id="root"></div>
@@ -632,5 +658,321 @@
         });
       }
     </script>
+    <script>/* ─────────────────────────────────────────────────────────────────────────
+ * Topics landing demo — ghost cursor (classic script, injected at BODY END)
+ *
+ * An animated macOS-style pointer that visibly *uses* the embedded demo:
+ * it switches Claude Code tabs, drags the terminal/preview split, focuses
+ * the acme-api window and resizes the bottom window row — all by driving
+ * the REAL app (synthetic MouseEvents through React's own handlers and the
+ * useGridResize window listeners), never by faking pixels.
+ *
+ * Event contracts it relies on (see the components):
+ *   - PaneTabBar tab activation = onClick on `[data-pane-id]` (bubbles).
+ *   - GroupLayout inner divider  = `[data-divider-row][data-divider-col]`,
+ *     onMouseDown on the divider, then window mousemove / window mouseup
+ *     (useGridResize — plain MouseEvents, NO pointer capture).
+ *   - PanelGrid app-level divider = `[data-panel-divider-row][data-panel-divider-col]`,
+ *     same mousedown→window-move→window-up protocol.
+ *
+ * Hard rules: never opens menus/modals, never navigates, never touches
+ * localStorage. Skips entirely under prefers-reduced-motion; pauses between
+ * steps while the document is hidden. Every step re-queries its target and
+ * silently skips when missing. Defensive try/catch everywhere — the demo
+ * must never break because of the choreography.
+ * ───────────────────────────────────────────────────────────────────────── */
+(function () {
+  "use strict";
+  try {
+    if (window.__landingGhostCursor) return;
+    window.__landingGhostCursor = true;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  } catch (e) { return; }
+
+  var START_AT_MS = 6000;     // ≈3s after the WS transcripts finish streaming
+  var LOOP_PAUSE_MS = 25000;  // long pause between rounds
+  var GLIDE_EASE = "cubic-bezier(.22,.61,.36,1)";
+
+  /* ---- tiny utils -------------------------------------------------------- */
+  function q(sel, root) { try { return (root || document).querySelector(sel); } catch (e) { return null; } }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function whenVisible() {
+    return new Promise(function (resolve) {
+      (function check() {
+        try { if (!document.hidden) return resolve(); } catch (e) { return resolve(); }
+        setTimeout(check, 500);
+      })();
+    });
+  }
+  function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+  function fire(target, type, x, y, buttons) {
+    try {
+      target.dispatchEvent(new MouseEvent(type, {
+        bubbles: true, cancelable: true, composed: true, view: window,
+        clientX: x, clientY: y, screenX: x, screenY: y,
+        button: 0, buttons: buttons || 0, detail: 1,
+      }));
+    } catch (e) { /* never break the app */ }
+  }
+
+  /* ---- cursor overlay ----------------------------------------------------- */
+  var cursor = null, cursorSvg = null;
+  var pos = { x: 0, y: 0 };
+
+  function injectStyleOnce() {
+    if (q("#landing-ghost-cursor-style")) return;
+    var s = document.createElement("style");
+    s.id = "landing-ghost-cursor-style";
+    s.textContent =
+      "@keyframes lgc-ripple{" +
+      "0%{transform:translate(-50%,-50%) scale(.3);opacity:.6}" +
+      "100%{transform:translate(-50%,-50%) scale(1.7);opacity:0}}";
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  function ensureCursor() {
+    if (cursor && cursor.isConnected) return cursor;
+    injectStyleOnce();
+    cursor = document.createElement("div");
+    cursor.id = "landing-ghost-cursor";
+    cursor.setAttribute("aria-hidden", "true");
+    cursor.style.cssText =
+      "position:fixed;left:0;top:0;width:0;height:0;" +
+      "z-index:2147483647;pointer-events:none;opacity:0;will-change:transform;" +
+      "transition:transform 700ms " + GLIDE_EASE + ",opacity 400ms ease;";
+    // macOS-style arrow: near-black fill, white outline, soft drop shadow.
+    // Tip of the arrow sits at viewBox (3,2) → offset so translate3d(x,y)
+    // puts the TIP exactly on the action point.
+    cursor.innerHTML =
+      '<svg width="20" height="20" viewBox="0 0 24 24" ' +
+      'style="display:block;margin-left:-2.5px;margin-top:-1.7px;' +
+      'transform-origin:3px 2px;transition:transform 130ms ease;' +
+      'filter:drop-shadow(0 1.5px 3px rgba(0,0,0,.5));">' +
+      '<path d="M3 2 L3 19.5 L7.6 15.4 L10.2 21.2 L13.4 19.8 L10.8 14.1 L17 14.1 Z" ' +
+      'fill="#1b1b1f" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+    cursorSvg = cursor.firstChild;
+    (document.body || document.documentElement).appendChild(cursor);
+    return cursor;
+  }
+
+  function setTransition(ms) {
+    if (!cursor) return;
+    cursor.style.transition = (ms > 0 ? "transform " + ms + "ms " + GLIDE_EASE + "," : "") + "opacity 400ms ease";
+  }
+  function place(x, y) {
+    pos.x = x; pos.y = y;
+    if (cursor) cursor.style.transform = "translate3d(" + x + "px," + y + "px,0)";
+  }
+  function moveInstant(x, y) { setTransition(0); place(x, y); }
+  function glide(x, y, ms) {
+    ms = ms || 750;
+    return new Promise(function (resolve) {
+      try { setTransition(ms); place(x, y); } catch (e) {}
+      setTimeout(resolve, ms + 60);
+    });
+  }
+  function fadeCursor(on) { if (cursor) cursor.style.opacity = on ? "1" : "0"; }
+
+  function ripple(x, y) {
+    try {
+      var r = document.createElement("div");
+      r.style.cssText =
+        "position:fixed;left:" + x + "px;top:" + y + "px;width:34px;height:34px;" +
+        "border-radius:50%;border:2px solid rgba(255,255,255,.85);" +
+        "background:rgba(255,255,255,.18);pointer-events:none;z-index:2147483646;" +
+        "animation:lgc-ripple 450ms ease-out forwards;";
+      document.body.appendChild(r);
+      setTimeout(function () { try { r.remove(); } catch (e) {} }, 520);
+    } catch (e) {}
+  }
+  function press() {
+    try {
+      if (!cursorSvg) return;
+      cursorSvg.style.transform = "scale(.82)";
+      setTimeout(function () { try { cursorSvg.style.transform = ""; } catch (e) {} }, 140);
+    } catch (e) {}
+  }
+
+  /* ---- interaction primitives -------------------------------------------- */
+  function pointOf(el, fx, fy) {
+    var r = el.getBoundingClientRect();
+    if (!r.width && !r.height) return null;
+    return { x: r.left + r.width * (fx == null ? 0.5 : fx), y: r.top + r.height * (fy == null ? 0.5 : fy) };
+  }
+
+  /** Glide to the element and click it through the real React handlers. */
+  function glideAndClick(el, fx, fy) {
+    var p = pointOf(el, fx, fy);
+    if (!p) return Promise.resolve(false);
+    return glide(p.x, p.y, 800).then(function () {
+      press(); ripple(p.x, p.y);
+      fire(el, "mousedown", p.x, p.y, 1);
+      fire(el, "mouseup", p.x, p.y, 0);
+      fire(el, "click", p.x, p.y, 0);
+      return sleep(220).then(function () { return true; });
+    });
+  }
+
+  /** One eased drag segment: cursor visual + window mousemove stay in sync. */
+  function dragSegment(x0, y0, x1, y1, ms) {
+    return new Promise(function (resolve) {
+      var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+      function step(now) {
+        try {
+          if (now == null) now = Date.now();
+          var t = Math.min(1, (now - t0) / ms);
+          var e2 = easeInOut(t);
+          var x = x0 + (x1 - x0) * e2, y = y0 + (y1 - y0) * e2;
+          moveInstant(x, y);
+          fire(window, "mousemove", x, y, 1);
+          if (t < 1) { requestAnimationFrame(step); } else { resolve({ x: x, y: y }); }
+        } catch (e) { resolve({ x: x1, y: y1 }); }
+      }
+      requestAnimationFrame(step);
+    });
+  }
+
+  /**
+   * Full divider drag: glide onto the divider, mousedown on it, eased
+   * mousemoves on window through each waypoint, mouseup on window.
+   * `waypoints` = [{dx, dy, ms, holdMs}] relative to the grab point.
+   */
+  function glideAndDrag(el, waypoints) {
+    var p = pointOf(el);
+    if (!p) return Promise.resolve(false);
+    return glide(p.x, p.y, 700).then(function () {
+      press();
+      fire(el, "mousedown", p.x, p.y, 1);
+      var chain = Promise.resolve({ x: p.x, y: p.y });
+      waypoints.forEach(function (w) {
+        chain = chain.then(function (cur) {
+          var tx = p.x + (w.dx || 0), ty = p.y + (w.dy || 0);
+          return dragSegment(cur.x, cur.y, tx, ty, w.ms || 700).then(function (end) {
+            return w.holdMs ? sleep(w.holdMs).then(function () { return end; }) : end;
+          });
+        });
+      });
+      return chain.then(function (end) {
+        fire(window, "mouseup", end.x, end.y, 0);
+        return sleep(180).then(function () { return true; });
+      });
+    });
+  }
+
+  /* ---- target lookups (always FRESH — layout may have changed) ------------ */
+  // acme-web's Claude Code tabs: pane ids are seeded by landing-boot.js.
+  function tabCC(n) { return q('[data-pane-id="terminal:cc' + n + '"]'); }
+  // The terminal|preview split divider INSIDE acme-web. Scope through the
+  // cc1 tab's group cell so the (divider-less) acme-api/mobile GroupLayouts
+  // can never be confused for it; fall back to the only inner column divider.
+  function innerDivider() {
+    var tab = tabCC(1) || tabCC(2);
+    var cell = tab && tab.closest ? tab.closest("[data-group-cell]") : null;
+    var row = cell && cell.parentElement;
+    var d = row ? q("[data-divider-row][data-divider-col]", row) : null;
+    return d || q("[data-divider-row][data-divider-col]");
+  }
+  // App-level divider between acme-api and acme-mobile (bottom row, col 0).
+  function appDivider() {
+    return q('[data-panel-divider-row="1"][data-panel-divider-col="0"]') ||
+           q("[data-panel-divider-row][data-panel-divider-col]");
+  }
+
+  /* ---- choreography -------------------------------------------------------- */
+  var round = 0;
+
+  function runRound() {
+    var seq = Promise.resolve();
+    function step(fn) {
+      seq = seq.then(function () {
+        return whenVisible().then(function () {
+          return Promise.resolve().then(fn).catch(function () { /* skip silently */ });
+        });
+      });
+      return seq;
+    }
+
+    // (a) switch to the SECOND Claude Code tab in acme-web
+    step(function () {
+      var el = tabCC(2);
+      if (!el) return;
+      return glideAndClick(el, 0.42, 0.5).then(function () { return sleep(450); });
+    });
+
+    // (b) drag the terminal|preview split inside acme-web (~100px), settle.
+    // Direction alternates per round so the loop doesn't ratchet into the clamp.
+    step(function () {
+      var el = innerDivider();
+      if (!el) return;
+      var dir = (round % 2 === 0) ? -1 : 1;
+      return glideAndDrag(el, [{ dx: dir * 100, ms: 1100 }]).then(function () { return sleep(400); });
+    });
+
+    // (c) focus the acme-api window via its Claude Code tab
+    step(function () {
+      var el = tabCC(3);
+      if (!el) return;
+      return glideAndClick(el, 0.42, 0.5).then(function () { return sleep(400); });
+    });
+
+    // (d) drag the acme-api | acme-mobile divider out ~120px, then settle
+    // back near 50/50 (same grab — the hook tracks delta from mousedown).
+    step(function () {
+      var el = appDivider();
+      if (!el) return;
+      return glideAndDrag(el, [
+        { dx: 120, ms: 900, holdMs: 350 },
+        { dx: 4, ms: 700 },
+      ]).then(function () { return sleep(400); });
+    });
+
+    // (e) back to the FIRST Claude tab, then park + fade out
+    step(function () {
+      var el = tabCC(1);
+      if (!el) return;
+      return glideAndClick(el, 0.42, 0.5);
+    });
+    step(function () {
+      var px = Math.max(40, window.innerWidth - 72);
+      var py = Math.max(40, window.innerHeight - 48);
+      return glide(px, py, 700).then(function () { return sleep(2000); }).then(function () { fadeCursor(false); });
+    });
+
+    return seq;
+  }
+
+  function loop() {
+    whenVisible()
+      .then(function () {
+        ensureCursor();
+        // each round re-enters from a quiet corner and fades in
+        moveInstant(window.innerWidth * 0.46, window.innerHeight * 0.32);
+        return sleep(60);
+      })
+      .then(function () { fadeCursor(true); return sleep(420); })
+      .then(runRound)
+      .catch(function () { /* round must never throw */ })
+      .then(function () {
+        round++;
+        setTimeout(loop, LOOP_PAUSE_MS);
+      });
+  }
+
+  /* ---- boot: wait for the app to mount, start at ≈t+6s --------------------- */
+  var bootT0 = Date.now();
+  (function waitForMount() {
+    try {
+      if (tabCC(2) && tabCC(1)) {
+        ensureCursor(); // exists (hidden) as soon as the UI is up
+        var delay = Math.max(0, START_AT_MS - (Date.now() - bootT0));
+        setTimeout(loop, delay);
+        return;
+      }
+    } catch (e) { /* keep polling */ }
+    if (Date.now() - bootT0 > 20000) return; // give up silently
+    setTimeout(waitForMount, 250);
+  })();
+})();
+</script>
   </body>
 </html>
