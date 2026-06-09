@@ -32,7 +32,7 @@ jobs:
           - { os: ubuntu-latest,  builder_flag: '--linux'      }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -40,7 +40,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Node (electron-builder + node-pty bridge runtime)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
