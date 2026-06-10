@@ -2944,10 +2944,383 @@ function broadcastUpdaterStatus(status: typeof lastUpdaterStatus) {
   }
 }
 
+// ─── Phase E.3 · Unsigned-macOS update path ─────────────────────────────────
+//
+// electron-updater's mac flow hands the downloaded archive to Squirrel.Mac,
+// which refuses to install into an app that isn't Developer-ID signed
+// ("Could not get code signature for running application"). Until Apple
+// signing secrets land in CI our mac builds are ad-hoc signed at best, so on
+// darwin we probe the signature once and, when there's no real Team ID, swap
+// in a self-managed flow behind the SAME updater states + IPC surface:
+//   check   → read latest-mac.yml straight from the GitHub release
+//   download→ stream the universal zip to tmp, verify its sha512 (the
+//             base64 digest electron-builder publishes), ditto-extract
+//             (ditto preserves the symlinks + exec bits a .app needs)
+//   install → detached shell script waits for the app to exit, swaps the
+//             bundle (with rollback), strips quarantine, relaunches
+// Programmatic downloads never set the quarantine xattr (we don't opt into
+// LSFileQuarantineEnabled), so Gatekeeper doesn't re-assess the swapped
+// bundle — the xattr strip is just belt-and-braces. The moment a build IS
+// properly signed, the probe flips and electron-updater takes over again.
+
+const GH_RELEASES = 'https://github.com/armonia/topics-app/releases';
+
+let macCustomActive = false;
+let macUpdateInfo: { version: string; fileName: string; sha512: string; size: number } | null = null;
+let macUpdateAppPath: string | null = null; // extracted .app, ready to swap in
+let macUpdateTmpDir: string | null = null;
+
+function macAppBundlePath(): string {
+  // …/Topics.app/Contents/MacOS/Topics → …/Topics.app
+  return path.resolve(app.getPath('exe'), '..', '..', '..');
+}
+
+/** True only for a real Developer ID signature — ad-hoc ("Signature=adhoc",
+ *  what electron-builder applies on arm64 when no identity is configured)
+ *  still fails Squirrel.Mac, so it counts as unsigned here. */
+function isMacAppProperlySigned(): Promise<boolean> {
+  return new Promise((resolve) => {
+    void import('child_process').then(({ execFile }) => {
+      execFile('/usr/bin/codesign', ['-dvv', macAppBundlePath()], (err, _stdout, stderr) => {
+        if (err) return resolve(false); // not signed at all
+        const out = String(stderr || ''); // codesign prints details on stderr
+        if (/Signature=adhoc/.test(out)) return resolve(false);
+        const team = /^TeamIdentifier=(.+)$/m.exec(out)?.[1]?.trim();
+        resolve(!!team && team !== 'not set');
+      });
+    }).catch(() => resolve(false));
+  });
+}
+
+function fetchTextFollowingRedirects(url: string, redirects = 5): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, (res) => {
+      const loc = res.headers.location;
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && loc) {
+        res.resume();
+        if (redirects <= 0) return reject(new Error('Too many redirects'));
+        return fetchTextFollowingRedirects(loc, redirects - 1).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve(body));
+      res.on('error', reject);
+    }).on('error', reject);
+    // Inactivity watchdog: a half-open socket (sleep/wake, dropped NAT entry)
+    // emits neither 'error' nor 'end' — without this the promise never
+    // settles and the caller's state machine wedges until app restart.
+    req.setTimeout(30_000, () => req.destroy(new Error('Network timeout while checking for updates')));
+  });
+}
+
+function downloadFileWithProgress(url: string, dest: string, expectedSize: number, redirects = 5): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, (res) => {
+      const loc = res.headers.location;
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && loc) {
+        res.resume();
+        if (redirects <= 0) return reject(new Error('Too many redirects'));
+        return downloadFileWithProgress(loc, dest, expectedSize, redirects - 1).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+      }
+      const total = Number(res.headers['content-length']) || expectedSize || 0;
+      let got = 0;
+      let lastPct = -1;
+      const out = fs.createWriteStream(dest);
+      res.on('data', (chunk: Buffer) => {
+        got += chunk.length;
+        if (total > 0) {
+          const pct = Math.floor((got / total) * 100);
+          if (pct !== lastPct) {
+            lastPct = pct;
+            broadcastUpdaterStatus({ state: 'downloading', progress: pct });
+          }
+        }
+      });
+      res.pipe(out);
+      out.on('finish', () => out.close(() => resolve()));
+      out.on('error', (err) => { res.resume(); reject(err); });
+      res.on('error', reject);
+    }).on('error', reject);
+    // Inactivity (not total-duration) watchdog — large archives on slow links
+    // are fine as long as bytes keep flowing; a silent stall rejects so the
+    // download latch is released and the user can retry.
+    req.setTimeout(60_000, () => req.destroy(new Error('Network timeout while downloading the update')));
+  });
+}
+
+async function sha512Base64(filePath: string): Promise<string> {
+  const { createHash } = await import('crypto');
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha512');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (c) => hash.update(c));
+    stream.on('end', () => resolve(hash.digest('base64')));
+    stream.on('error', reject);
+  });
+}
+
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+
+/** Guard against a check racing/clobbering an active download's state. */
+let macDownloadPromise: Promise<void> | null = null;
+/** Version of the .app already staged next to the bundle, ready to install. */
+let macStagedVersion: string | null = null;
+/** Latch: a swap script has been spawned — never spawn a second one. */
+let macInstallStarted = false;
+
+async function macCheckForUpdates(): Promise<{ updateAvailable: boolean; version?: string }> {
+  // Don't clobber 'downloading'/'ready' with 'checking' broadcasts while a
+  // download is in flight or an install is already staged.
+  if (macDownloadPromise || macStagedVersion) {
+    if (macStagedVersion && macUpdateAppPath && fs.existsSync(macUpdateAppPath)) {
+      // Re-assert 'ready' so a check can recover the toast from a sticky
+      // 'error' left by a failed install attempt.
+      broadcastUpdaterStatus({ state: 'ready' });
+    }
+    return { updateAvailable: !!macUpdateInfo, version: macUpdateInfo?.version };
+  }
+  try {
+    broadcastUpdaterStatus({ state: 'checking' });
+    const yml = await fetchTextFollowingRedirects(`${GH_RELEASES}/latest/download/latest-mac.yml`);
+    const version = /^version:\s*(\S+)/m.exec(yml)?.[1];
+    // electron-builder lists every artifact; we want the universal zip entry.
+    const fileRe = /-\s*url:\s*(\S+)\s*\n\s*sha512:\s*(\S+)\s*\n\s*size:\s*(\d+)/g;
+    let zipEntry: { fileName: string; sha512: string; size: number } | null = null;
+    for (let m = fileRe.exec(yml); m; m = fileRe.exec(yml)) {
+      if (m[1].endsWith('.zip')) { zipEntry = { fileName: m[1], sha512: m[2], size: Number(m[3]) }; break; }
+    }
+    if (!version || !zipEntry) throw new Error('Malformed latest-mac.yml in the GitHub release');
+    if (!isNewerVersion(version, app.getVersion())) {
+      macUpdateInfo = null;
+      broadcastUpdaterStatus({ state: 'idle' });
+      return { updateAvailable: false };
+    }
+    macUpdateInfo = { version, ...zipEntry };
+    broadcastUpdaterStatus({ state: 'update-available' });
+    return { updateAvailable: true, version };
+  } catch (err) {
+    // Broadcast here so EVERY caller (boot check, IPC, Help menu) leaves the
+    // renderer in 'error' rather than stuck on a stale 'checking' spinner.
+    broadcastUpdaterStatus({ state: 'error', error: (err as Error)?.message || String(err) });
+    throw err;
+  }
+}
+
+function macDownloadUpdate(): Promise<void> {
+  // Re-entrancy latch: a second invocation (toast double-click, Help-menu
+  // check mid-download) joins the in-flight download instead of rmSync-ing
+  // the tmp dir out from under it.
+  if (macDownloadPromise) return macDownloadPromise;
+  macDownloadPromise = macDownloadUpdateInner().finally(() => { macDownloadPromise = null; });
+  return macDownloadPromise;
+}
+
+async function macDownloadUpdateInner(): Promise<void> {
+  if (!macUpdateInfo) throw new Error('No update available — run a check first');
+  const { version, fileName, sha512, size } = macUpdateInfo;
+  const appBundle = macAppBundlePath();
+  if (macStagedVersion === version && macUpdateAppPath && fs.existsSync(macUpdateAppPath)) {
+    // Already downloaded + staged (user picked "Later" earlier) — go
+    // straight back to the restart prompt.
+    broadcastUpdaterStatus({ state: 'ready' });
+    await macPromptRestartAndInstall(version);
+    return;
+  }
+  const tmpDir = path.join(app.getPath('temp'), `topics-update-${version}`);
+  const stagedPath = `${appBundle}.new-${process.pid}`;
+  try {
+    // Preflight the install constraints BEFORE pulling a ~300 MB archive.
+    // Gatekeeper translocation = we'd be swapping a read-only randomized copy.
+    if (appBundle.includes('/AppTranslocation/')) {
+      throw new Error('Topics is running from a quarantined location. Move Topics.app to /Applications, launch it from there, then update.');
+    }
+    try {
+      fs.accessSync(appBundle, fs.constants.W_OK);
+      fs.accessSync(path.dirname(appBundle), fs.constants.W_OK);
+    } catch {
+      throw new Error(`No write permission for ${appBundle} — move Topics.app somewhere you own (e.g. /Applications) and retry.`);
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const zipPath = path.join(tmpDir, fileName);
+    broadcastUpdaterStatus({ state: 'downloading', progress: 0 });
+    await downloadFileWithProgress(`${GH_RELEASES}/download/v${version}/${fileName}`, zipPath, size);
+    const digest = await sha512Base64(zipPath);
+    if (digest !== sha512) throw new Error('sha512 mismatch — corrupted download');
+    const extractDir = path.join(tmpDir, 'extracted');
+    const { execFile } = await import('child_process');
+    const execFileP = (cmd: string, args: string[]) => new Promise<void>((resolve, reject) => {
+      execFile(cmd, args, (err) => (err ? reject(err) : resolve()));
+    });
+    await execFileP('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir]);
+    const appName = fs.readdirSync(extractDir).find((n) => n.endsWith('.app'));
+    if (!appName) throw new Error('No .app bundle inside the update archive');
+    // The zip is sha512-verified and extracted — drop it now so the peak
+    // disk footprint during staging is 2 copies of the app, not 3.
+    fs.rmSync(zipPath, { force: true });
+    // Stage the verified bundle as a SIBLING of the installed app while we
+    // can still surface errors: tmp may live on a different volume, where
+    // mv degrades to a non-atomic copy (a mid-copy failure during the swap
+    // would leave a half-written Topics.app). Sibling → same device → both
+    // swap mvs are atomic renames. ditto preserves symlinks + exec bits.
+    fs.rmSync(stagedPath, { recursive: true, force: true });
+    await execFileP('/usr/bin/ditto', [path.join(extractDir, appName), stagedPath]);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    macUpdateAppPath = stagedPath;
+    macUpdateTmpDir = null;
+    macStagedVersion = version;
+    broadcastUpdaterStatus({ state: 'ready' });
+  } catch (err) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(stagedPath, { recursive: true, force: true });
+    macUpdateAppPath = null;
+    macUpdateTmpDir = null;
+    macStagedVersion = null;
+    broadcastUpdaterStatus({ state: 'error', error: (err as Error)?.message || String(err) });
+    throw err;
+  }
+  await macPromptRestartAndInstall(version);
+}
+
+/** Mirror of the electron-updater 'update-downloaded' native prompt. */
+async function macPromptRestartAndInstall(version: string): Promise<void> {
+  const { dialog } = await import('electron');
+  const { response } = await dialog.showMessageBox({
+    type: 'info',
+    buttons: ['Restart & Install', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+    message: 'A new version of Topics is ready',
+    detail: `Version ${version} has been downloaded. Restart to install it now?`,
+  });
+  if (response === 0) {
+    const res = await macQuitAndInstall();
+    if (!res.ok && res.reason) {
+      await dialog.showMessageBox({
+        type: 'warning',
+        message: 'Could not install the update',
+        detail: res.reason,
+      });
+    }
+  }
+}
+
+async function macQuitAndInstall(): Promise<{ ok: boolean; reason?: string }> {
+  // Idempotent: the native prompt and the renderer toast are both live in
+  // the 'ready' state — a second click must not spawn a second swap script
+  // racing the first over the same bundle.
+  if (macInstallStarted) return { ok: true };
+  const fail = (reason: string): { ok: false; reason: string } => {
+    // The toast discards quitAndInstall's return value — broadcast so the
+    // failure is visible on that path too.
+    broadcastUpdaterStatus({ state: 'error', error: reason });
+    return { ok: false, reason };
+  };
+  if (!macUpdateAppPath || !fs.existsSync(macUpdateAppPath)) return fail('No downloaded update — download it again.');
+  const appBundle = macAppBundlePath();
+  if (appBundle.includes('/AppTranslocation/')) {
+    return fail('Move Topics.app to /Applications first, then update again.');
+  }
+  // Fail BEFORE quitting if we can't actually replace the bundle.
+  try {
+    fs.accessSync(appBundle, fs.constants.W_OK);
+    fs.accessSync(path.dirname(appBundle), fs.constants.W_OK);
+  } catch {
+    return fail(`No write permission for ${appBundle}`);
+  }
+  // Set the latch BEFORE the awaits below — a second click (dialog + toast
+  // are both live) must not reach the spawn while this call is in flight.
+  macInstallStarted = true;
+  const oldBundle = `${appBundle}.old-${process.pid}`;
+  const swapScript = path.join(app.getPath('temp'), `topics-swap-${process.pid}.sh`);
+  // The swap MUST happen after this process exits (the bundle's binary is
+  // running), hence the detached script. Paths travel as ARGV — never
+  // interpolated into the script body, where a quote/backtick/$ in a folder
+  // name would re-tokenize the commands (or execute them). Both mvs are
+  // same-device renames (the new bundle was staged as a sibling), so a
+  // failure can't leave a half-copied bundle; on failure the old bundle is
+  // restored and relaunched, so the user is never left app-less.
+  try {
+    fs.writeFileSync(swapScript, `#!/bin/bash
+# $1 = installed .app   $2 = backup path   $3 = staged new .app   $4 = app pid
+while /bin/kill -0 "$4" 2>/dev/null; do /bin/sleep 0.2; done
+/bin/mv "$1" "$2" || { /usr/bin/open -n "$1"; exit 1; }
+if ! /bin/mv "$3" "$1"; then
+  /bin/rm -rf "$1"
+  /bin/mv "$2" "$1"
+  /usr/bin/open -n "$1"
+  exit 1
+fi
+/usr/bin/xattr -dr com.apple.quarantine "$1" 2>/dev/null
+/usr/bin/open -n "$1"
+/bin/rm -rf "$2" "$3"
+/bin/rm -f -- "$0"
+`, { mode: 0o755 });
+    const { spawn } = await import('child_process');
+    spawn('/bin/bash', [swapScript, appBundle, oldBundle, macUpdateAppPath, String(process.pid)],
+      { detached: true, stdio: 'ignore' }).unref();
+  } catch (err) {
+    macInstallStarted = false; // nothing spawned — allow a retry
+    return fail((err as Error)?.message || String(err));
+  }
+  (app as unknown as { isQuitting: boolean }).isQuitting = true;
+  app.quit();
+  return { ok: true };
+}
+
+/** Sweep leftovers from interrupted/"Later"-abandoned updates: stale
+ *  `Topics.app.new-<pid>` / `.old-<pid>` siblings from previous runs. */
+function macSweepUpdateLeftovers(): void {
+  try {
+    const appBundle = macAppBundlePath();
+    const dir = path.dirname(appBundle);
+    const base = path.basename(appBundle); // "Topics.app"
+    const leftover = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(new|old)-\\d+$`);
+    for (const name of fs.readdirSync(dir)) {
+      if (leftover.test(name)) {
+        fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+      }
+    }
+  } catch { /* best-effort */ }
+}
+
 async function setupAutoUpdater() {
   if (!app.isPackaged) {
     // electron-updater is a no-op in dev builds; we keep the IPC surface
     // alive so the renderer can still call it without crashing.
+    return;
+  }
+  // Sweep regardless of signing: once builds graduate to Developer ID +
+  // electron-updater, stale .new-/.old- siblings from the unsigned era
+  // still deserve cleanup.
+  if (process.platform === 'darwin') macSweepUpdateLeftovers();
+  if (process.platform === 'darwin' && !(await isMacAppProperlySigned())) {
+    // Unsigned/ad-hoc build → Squirrel.Mac would hard-fail; use the custom
+    // path. Same opt-in shape: one silent metadata check after a 30 s grace,
+    // everything else user-initiated through the same IPC handlers.
+    macCustomActive = true;
+    updaterReady = true;
+    console.log('[Updater] mac build not Developer-ID signed — using self-managed update flow');
+    setTimeout(() => {
+      macCheckForUpdates().catch((err) =>
+        broadcastUpdaterStatus({ state: 'error', error: (err as Error)?.message || String(err) }));
+    }, 30_000);
     return;
   }
   try {
@@ -2999,6 +3372,10 @@ setupAutoUpdater();
 ipcMain.handle('updater:check-for-updates', async () => {
   if (!updaterReady) return { ok: false, reason: 'not-ready' };
   try {
+    if (macCustomActive) {
+      await macCheckForUpdates();
+      return { ok: true };
+    }
     const { autoUpdater } = await import('electron-updater');
     await autoUpdater.checkForUpdates();
     return { ok: true };
@@ -3015,6 +3392,10 @@ ipcMain.handle('updater:status', async () => lastUpdaterStatus);
 ipcMain.handle('updater:download-update', async () => {
   if (!updaterReady) return { ok: false, reason: 'not-ready' };
   try {
+    if (macCustomActive) {
+      await macDownloadUpdate();
+      return { ok: true };
+    }
     const { autoUpdater } = await import('electron-updater');
     await autoUpdater.downloadUpdate();
     return { ok: true };
@@ -3026,6 +3407,7 @@ ipcMain.handle('updater:download-update', async () => {
 ipcMain.handle('updater:quit-and-install', async () => {
   if (!updaterReady) return { ok: false, reason: 'not-ready' };
   try {
+    if (macCustomActive) return await macQuitAndInstall();
     const { autoUpdater } = await import('electron-updater');
     autoUpdater.quitAndInstall(false /* isSilent */, true /* isForceRunAfter */);
     return { ok: true };
@@ -3052,10 +3434,16 @@ async function checkForUpdatesManual(): Promise<void> {
     return;
   }
   try {
-    const { autoUpdater } = await import('electron-updater');
-    const result = await autoUpdater.checkForUpdates();
     const current = app.getVersion();
-    const latest = result?.updateInfo?.version;
+    let latest: string | undefined;
+    if (macCustomActive) {
+      const res = await macCheckForUpdates();
+      latest = res.updateAvailable ? res.version : undefined;
+    } else {
+      const { autoUpdater } = await import('electron-updater');
+      const result = await autoUpdater.checkForUpdates();
+      latest = result?.updateInfo?.version;
+    }
     if (!latest || latest === current) {
       await dialog.showMessageBox({
         type: 'info',
@@ -3072,7 +3460,14 @@ async function checkForUpdatesManual(): Promise<void> {
       message: `Topics ${latest} is available`,
       detail: `You are on ${current}. Download it now? You'll be asked to restart once it's ready.`,
     });
-    if (response === 0) await autoUpdater.downloadUpdate();
+    if (response === 0) {
+      if (macCustomActive) {
+        await macDownloadUpdate(); // shows its own restart prompt when ready
+      } else {
+        const { autoUpdater } = await import('electron-updater');
+        await autoUpdater.downloadUpdate();
+      }
+    }
   } catch (err: any) {
     await dialog.showMessageBox({
       type: 'error',
