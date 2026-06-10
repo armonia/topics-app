@@ -246,9 +246,9 @@ function ShortcutsSection({ settings }: { settings: AppSettings }) {
           ['⌘K', 'Search'],
           ['⌘F', 'Find project'],
           ['⌘P', 'Quick-open file'],
-          ['⌘J', 'New… (add menu)'],
-          // ⌘N is only live when the paid New Chat feature is enabled.
-          ...(settings.enableNewChat ? [['⌘N', 'New chat']] : []),
+          ['⌘N', 'New… (add menu)'],
+          // ⌘⇧N is only live when the paid New Chat feature is enabled.
+          ...(settings.enableNewChat ? [['⌘⇧N', 'New chat']] : []),
           ['⌘W', 'Close panel'],
           ['⌘B', 'Toggle sidebar'],
           ['⌘1-9', 'Switch panels'],
@@ -288,14 +288,14 @@ function FeaturesSection({ settings, onChange }: FeaturesSectionProps) {
           </span>
         </label>
         <p className="text-[12px] text-app-text-muted mb-3">
-          Allow creating new chats (the “New Chat” button, ⌘N, and the ⌘K
+          Allow creating new chats (the “New Chat” button, ⌘⇧N, and the ⌘K
           palette). Each new chat starts a billable provider turn, so this is
           off by default — enable it only if you have a paid plan.
         </p>
 
         <ToggleRow
           label="Enable New Chat"
-          description="Show the New Chat entry points and activate ⌘N."
+          description="Show the New Chat entry points and activate ⌘⇧N."
           value={settings.enableNewChat}
           onChange={(v) => onChange('enableNewChat', v)}
         />

@@ -491,7 +491,6 @@ function App() {
     showFileSearch,
     enableNewChat: appSettings.enableNewChat,
     handleClosePanel,
-    handleQuickCreateTopic,
     toggleSidebar,
     handleOpenAsPage,
     setFocusedPanelId: handleFocusPanel,
@@ -615,30 +614,31 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* Search launcher — a real, compact button (RESTING_SURFACE: the
-                same card grammar as inactive tabs) that opens the ⌘K command
+            {/* Connection + loading status live in the bottom SidebarStatusBar
+                and the tree skeleton — no stray spinner in the header. The
+                middle of the header stays empty (drag region on Electron). */}
+          </div>
+          <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
+            {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
+                the header right side is the Search launcher + the canonical
+                "+" add menu — two icon-only RESTING_SURFACE twins. */}
+            {/* Search launcher — icon-only (the magnifier + kbd hint say it
+                all; a "Search…" label was redundant). Opens the ⌘K command
                 palette in 'all' scope. No inline tree filtering; ⌘K is the
                 canonical search. */}
             <button
               onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-              className={`flex-1 min-w-0 flex items-center gap-2 px-2 rounded-md ${isMobile ? 'h-9 text-[15px]' : 'h-7 text-[12px]'} ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors cursor-pointer app-no-drag`}
+              className={`${isMobile ? 'h-9 px-2.5' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`}
               style={{ pointerEvents: 'auto' }}
               title="Search (⌘K)"
               aria-label="Search — open the command palette"
             >
-              <Search size={14} className="flex-shrink-0" aria-hidden="true" />
-              <span className="flex-1 text-left truncate">Search…</span>
-              <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
+              <Search size={isMobile ? 18 : 14} className="flex-shrink-0" aria-hidden="true" />
+              {!isMobile && <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>}
             </button>
-            {/* Connection + loading status live in the bottom SidebarStatusBar
-                and the tree skeleton — no stray spinner next to the search. */}
-          </div>
-          <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
-            {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
-                the header right side is now just the canonical "+" add menu. */}
             {/* The canonical <PaneAddMenu>, STANDALONE variant, rendered as a
                 centered ⌘K-style palette (presentation="palette") instead of a
-                local dropdown — ⌘J opens the same surface. The trigger is the
+                local dropdown — ⌘N opens the same surface. The trigger is the
                 'header' variant: a compact RESTING_SURFACE button with an
                 inline kbd hint, the visual twin of the Search button next to
                 it. Items/order/icons are identical to the standalone tab
@@ -658,9 +658,9 @@ function App() {
                 }
               }}
               showShortcuts
-              triggerTitle="New (⌘J)"
+              triggerTitle="New (⌘N)"
               triggerVariant="header"
-              triggerKbd="⌘J"
+              triggerKbd="⌘N"
             />
           </div>
         </div>
@@ -905,7 +905,7 @@ function App() {
 
       {/* The "New" sidebar header menu used to live here as a hand-rolled
           DropdownPortal + 4 hard-coded items. It now renders inline above
-          via <PaneAddMenu scope="standalone" presentation="palette" /> (⌘J),
+          via <PaneAddMenu scope="standalone" presentation="palette" /> (⌘N),
           so the trigger button AND the centered palette are the canonical
           components — no third menu implementation. */}
 
