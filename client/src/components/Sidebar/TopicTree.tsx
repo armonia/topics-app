@@ -22,7 +22,7 @@ import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useAttentionSignals, signalsActions } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -340,7 +340,13 @@ export function TopicTree({
       <div key={item.id}>
         {/* Project header */}
         <div
-          className={`group/proj flex items-center h-11 md:h-8 px-2 select-none ${
+          // `pl-1 pr-2` (not the shared `px-2`): the accordion chevron is the
+          // leading control, and a full 8px left pad + the chevron button's own
+          // centring pushed it ~12px in from the card edge — too much dead space
+          // before the arrow. Tighten the LEFT only; the RIGHT keeps `pr-2`
+          // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
+          // child rows.
+          className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
             sidebarRowCard({ focused: folderFilled })
           }`}
           onContextMenu={(e) => {
@@ -401,8 +407,13 @@ export function TopicTree({
                 (PaneTabBar): a spinner while any child is producing output.
                 "Needs you" (Claude awaiting, finished turns) is NOT a separate
                 dot anymore — it rolls up into the notification badge below, so
-                the sidebar row and the project tab show one consistent count. */}
-            <ProjectStreamingSpinner projectPath={pp} className="mr-1.5" />
+                the sidebar row and the project tab show one consistent count.
+                `ml-0.5` (NOT `mr-1.5`): the trailing margin pushed this loader
+                6px in from the row edge, so the PROJECT row's spinner sat left of
+                the CHILD (terminal/browser) rows' spinners, which are flush. With
+                no right margin every sidebar loader lands at the same trailing
+                offset — the row's loaders line up in one column. */}
+            <ProjectStreamingSpinner projectPath={pp} className="ml-0.5" />
             {/* Numeric status indicators (git changed-files / ahead-behind /
                 running processes / open-chat count) were removed from the
                 sidebar project header — they read as cryptic numbers. Only the
@@ -410,7 +421,7 @@ export function TopicTree({
                 and process status live where they're actionable (git/terminal
                 panes + the project tab). */}
             {item.notificationCount > 0 && (
-              <NotificationBadge count={item.notificationCount} className={isTouch ? '' : 'group-hover/proj:hidden'} />
+              <NotificationBadge count={item.notificationCount} className={`ml-0.5 ${isTouch ? '' : 'group-hover/proj:hidden'}`} />
             )}
             {/* Action buttons on hover */}
             {!isTouch && (
@@ -637,10 +648,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
       className={[
-        'group/terminal flex items-center h-11 md:h-8 px-2',
+        `group/terminal flex items-center h-11 md:h-8 ${ROW_PX}`,
         sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
-      style={{ marginLeft: 8 + depth * 16 }}
+      style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <button
@@ -659,15 +670,15 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             {projectName}
           </span>
         )}
-        {s.clients > 0 && (
-          <span className="text-[11px] text-app-text-tertiary mr-1" title={`${s.clients} connected`}>
-            {s.clients}
-          </span>
-        )}
+        {/* Connected-client count removed from the sidebar — it was almost
+            always "1" (one viewer per session) and read as a cryptic grey
+            number, same noise we already stripped from the project header
+            (see the comment near the project row). The live socket count is
+            still available server-side if a surface ever genuinely needs it. */}
         {/* Loading spinner + status pinned to the END of the row (after the cwd
-            / client-count metadata) so "what's working" reads at the trailing
-            edge, mirroring the tab bar. A finished turn surfaces as the
-            notification badge, not a separate dot. */}
+            metadata) so "what's working" reads at the trailing edge, mirroring
+            the tab bar. A finished turn surfaces as the notification badge, not
+            a separate dot. */}
         <TerminalStreamingSpinner sessionId={s.id} className="ml-0.5" />
         <NotificationBadge count={notificationCount} className="ml-0.5" />
       </button>
@@ -908,10 +919,10 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
   return (
     <div
       className={[
-        'group flex items-center h-11 md:h-8 cursor-pointer text-[14px] md:text-[13px] px-2',
+        `group flex items-center h-11 md:h-8 cursor-pointer text-[14px] md:text-[13px] ${ROW_PX}`,
         sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
-      style={{ marginLeft: 8 + depth * 16 }}
+      style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
       onClick={() => onOpenBrowser?.(bc.id)}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}

@@ -36,6 +36,34 @@ export const RESTING_SURFACE =
   'bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]';
 
 /**
+ * Canonical horizontal padding for a "row of content" — a tab-bar tab AND a
+ * sidebar row — so the content inset reads identically on both surfaces. Tabs
+ * used to be `px-2.5` (10px) while every sidebar row is `px-2` (8px), which made
+ * the tabs look roomier on the left and right than the rows beneath them. One
+ * shared value keeps them in lockstep; change it here and both surfaces move
+ * together. (The sidebar PROJECT header is the one intentional exception — it
+ * tightens its LEFT padding so the accordion chevron sits closer to the edge,
+ * but keeps this value on the right so the trailing loaders stay aligned.)
+ */
+export const ROW_PX = 'px-2';
+
+/**
+ * The single horizontal inset (px) of a list of tabs/rows from its panel edge —
+ * SHARED by the sidebar AND the tab bar so the two lists line up at the sides
+ * AND so a list item's side gap equals a tab's TOP/BOTTOM gap (the spacing reads
+ * the same horizontally and vertically). 6px = the vertical breathing room
+ * around a tab in the tab bar: the chrome row is 40px tall, a tab is 28px, so
+ * (40 − 28) / 2 = 6px above and below each tab. Matching that exactly is why it
+ * is 6 and not the old 4 (`py-1`, which is only part of that gap) or 8.
+ * Used as: the sidebar card's edge margin (the `mx-1.5` class in `sidebarRowCard`
+ * is its class-equivalent), the depth-0 base for sidebar row indentation, and
+ * the tab strip's left/right padding (PaneTabBar). Keep them all in step here.
+ */
+export const ROW_INSET = 6;
+/** Indent added per nesting level for sidebar child rows (px). */
+export const SIDEBAR_INDENT_STEP = 16;
+
+/**
  * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
  * project folders) so the sidebar reads as a column of tab-like cards — the
  * same visual language as the tab bar — instead of a flat list separated by
@@ -51,10 +79,12 @@ export function sidebarRowCard({ focused, open }: { focused?: boolean; open?: bo
   // color system — background only when selected (SELECTED_SURFACE) or on hover.
   // At rest the card is transparent, so the sidebar stays calm and only the
   // current/hovered row reads as a filled tab.
-  // Horizontal inset (mx-2 = 8px) keeps the card off the sidebar edges; the
+  // Horizontal inset (mx-1.5 = 6px = ROW_INSET) keeps the card off the
+  // sidebar edges by the SAME amount as a tab's top/bottom gap in the tab bar
+  // ((40 − 28)/2), so the side gap reads identical to the vertical one. The
   // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
   // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
-  const base = 'mx-2 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
+  const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
   if (focused) return `${base} ${SELECTED_SURFACE}`;
   if (open) return `${base} text-app-text hover:bg-app-hover`;
   return `${base} text-app-text-secondary hover:bg-app-hover hover:text-app-text`;

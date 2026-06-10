@@ -16,7 +16,7 @@ import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -421,12 +421,29 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
-    <div className={className ?? "flex-shrink-0 pt-1 pb-1 pl-1 pr-0 min-w-0 app-drag-region"} data-testid="panel-tab-bar" data-group-id={groupId ?? ''} style={{ position: 'relative' }}>
+    // `flex-initial` (flex: 0 1 auto), NOT `flex-shrink-0`: as a flex child the
+    // root must be allowed to SHRINK below its content width, otherwise the
+    // inner `overflow-x-auto` strip never gets a constrained width and the tabs
+    // just overflow (and get clipped by the parent's `overflow-hidden`) instead
+    // of scrolling. This is the bug where narrowing a split INSIDE a project
+    // (GroupLayout, which uses this default className) left the overflowing tabs
+    // unreachable — no horizontal scroll. With grow:0 it still sits at content
+    // width when there's room, so the trailing add-menu doesn't move; `min-w-0`
+    // lets it collapse far enough for the scroll strip to take over. The
+    // standalone tab bar already passes its own `flex-1 … min-w-0` and scrolled
+    // fine — this brings the project-group default in line.
+    <div className={className ?? "flex-initial py-1 pr-0 min-w-0 app-drag-region"} data-testid="panel-tab-bar" data-group-id={groupId ?? ''} style={{ position: 'relative' }}>
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
         className="flex items-center gap-0.5 min-w-0 min-h-7 overflow-x-auto scrollbar-topbar"
-        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', padding: '1px 0 1px 1px', paddingLeft: hasLeftOverlay ? 30 : 5, paddingRight: hasMenuItems ? 30 : 0 }}
+        // Left/right inset = ROW_INSET (4px), the SAME edge inset the sidebar
+        // rows use, so the tab list and the sidebar list line up at the sides
+        // (was 5px left + a stray 4px root `pl-1` = 9px on project group bars).
+        // The 30px overrides stay: left when a floating sidebar-toggle overlays
+        // the leftmost bar, right when the add-menu needs clearance for scrolled
+        // tabs.
+        style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x', padding: '1px 0 1px 1px', paddingLeft: hasLeftOverlay ? 30 : ROW_INSET, paddingRight: hasMenuItems ? 30 : ROW_INSET }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
           // Scope guard: ignore drags from another window/project entirely (no
@@ -557,7 +574,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // status + spinner + notification badge + close) would otherwise
             // sum past the fixed 150px and spill into the next tab. The label
             // already truncates; this guarantees the rest can't escape either.
-            className={`group flex items-center gap-1.5 px-2.5 ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
+            className={`group flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
               isFullyActive
                 ? SELECTED_SURFACE
                 : isActiveDimmed
