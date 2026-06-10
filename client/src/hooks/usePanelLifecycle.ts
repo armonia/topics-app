@@ -52,6 +52,8 @@ import {
   reopenClosedTab,
   type ClosedTabRecord,
   getProjectPathFromPaneId,
+  projectPanesLocalKey,
+  projectLayoutLocalKey,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import {
@@ -207,7 +209,9 @@ export interface UsePanelLifecycleReturn {
     handleAddProjectPane: (projectPath: string, type: PaneType, subType?: string) => void;
     handleArchiveProject: (projectPath: string, archive: boolean) => Promise<boolean>;
     handleTopicContextMenu: (e: React.MouseEvent, topic: Topic) => void;
-    handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | null>;
+    // Returns the created Topic (project-level) or the new DRAFT pane id
+    // (app-level, string) so split-cell "+ New Chat" can re-target the pane.
+    handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | string | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
     promoteDraft: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
     handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
@@ -890,7 +894,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       panelIndex = prev.indexOf(topicId);
       const next = prev.filter(id => id !== topicId);
       if (focusedPanelIdRef.current === topicId) {
-        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
+        // Same-index (clamped) — the tab that slides into the closed tab's
+        // slot inherits focus, matching the project groups' rule and the
+        // pre-shift in App.handleClosePanelDeferred. `next[next.length - 1]`
+        // could snap focus to an unrelated split cell appended last.
+        setFocusedPanelId(next.length > 0 ? next[Math.min(panelIndex, next.length - 1)] : null);
       }
       return next;
     });
@@ -1068,7 +1076,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [createTopic, openPanel]);
 
   // FLAG-V1: MUST be useCallback'd — keyboard hook depends on stable identity.
-  const handleQuickCreateTopic = useCallback(async (projectPath?: string, targetGroupId?: string): Promise<Topic | null> => {
+  // App-level quick-create returns the new DRAFT pane id (string) so the
+  // caller — e.g. a split cell's "+ New Chat" — can re-target the pane into
+  // its own cell; project-level returns the created Topic.
+  const handleQuickCreateTopic = useCallback(async (projectPath?: string, targetGroupId?: string): Promise<Topic | string | null> => {
     if (projectPath) {
       const topic = await createTopic({
         name: 'New Chat',
@@ -1091,7 +1102,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const draftId = createDraftPaneId();
     setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
     openPanel(draftId, 'permanent', true);
-    return null;
+    return draftId;
   }, [createTopic, openPanel]);
 
   const promoteDraft = useCallback(async (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => {
@@ -1117,6 +1128,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           updates: { topicId: topic.id, title: topic.name },
         },
       });
+      // PANE_ID_REMAP bails silently on collision (a pane with topic.id
+      // already exists). Proceeding would delete the draft meta + content
+      // below while the store still holds the draft pane — Effect B's
+      // REORDER re-append then resurrects it as a ghost tab with no backing
+      // content. Keep the draft (and the user's text) intact instead.
+      if (usePaneStore.getState().panes[draftId]) {
+        console.warn('promoteDraft: id collision, keeping draft', draftId, '→', topic.id);
+        return;
+      }
     }
     setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
     if (focusedPanelIdRef.current === draftId) {
@@ -1279,6 +1299,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const success = await archiveProject(projectPath, archive);
     if (success && archive) {
       handleCloseProject(projectPath);
+      // Prune the project's per-path persistence keys — nothing else ever
+      // removes them, so archived projects' layout/tab records accumulate
+      // in localStorage forever. Un-archiving starts from a clean layout,
+      // which matches the 2-state model (closed ⟺ archived).
+      try {
+        localStorage.removeItem(projectPanesLocalKey(projectPath));
+        localStorage.removeItem(projectLayoutLocalKey(projectPath));
+      } catch { /* private mode — ignore */ }
     }
     return success;
   }, [archiveProject, handleCloseProject]);
