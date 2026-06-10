@@ -140,20 +140,22 @@ export function useProjectChatSync(
     const currentSet = new Set(topicIds);
     const curPanes = panesRef.current;
 
-    // Guard: if topicIds is transiently empty but we already have chat panes,
-    // skip removal — an empty topicIds for a project with open chats is almost
-    // certainly a re-render transient (topics state temporarily cleared).
-    // We still mark the chat-sync gate as complete so the persistence-save
-    // effect is unblocked: otherwise a project whose topics are slow to load
-    // (or never load) keeps suppressing every save, and tab closures don't
-    // stick across reloads.
+    // Empty topicIds with chat panes still open: mark the chat-sync gate as
+    // complete so the persistence-save effect is unblocked (a project whose
+    // topics are slow to load — or never load — must not suppress every
+    // save, or tab closures don't stick across reloads). This branch used to
+    // ALSO early-return, skipping the removal pass — but the transient it
+    // feared (topics state temporarily cleared) is already covered per-pane
+    // below (`!topics[p.topicId]` → keep), and the blanket skip made
+    // archiving a project's ONLY topic leave a ghost chat pane for the rest
+    // of the session: the KNOWN-archived topic could never be removed while
+    // currentSet stayed empty.
     const existingChatPanes = curPanes.filter(p => p.type === 'chat');
     if (currentSet.size === 0 && existingChatPanes.length > 0) {
       if (!gateRefs.initialChatsSyncedRef.current) {
         gateRefs.initialChatsSyncedRef.current = true;
         markChatSyncDone();
       }
-      return;
     }
 
     // Remove chat panes whose topic no longer belongs in the project — but ONLY

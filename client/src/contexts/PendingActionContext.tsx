@@ -365,3 +365,8 @@ export const enqueuePendingAction = withApi('enqueue');
 /** Imperative: programmatically tick (rarely needed; usually the user does it). */
 // eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
 export const tickPendingAction = withApi('tick');
+/** Imperative: drop a queued action WITHOUT running its commit. Needed by
+ *  flows that bypass the countdown (e.g. "Close now"), which must defuse the
+ *  pending commit or it double-fires at T+3s with a stale closure. */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
+export const cancelPendingAction = withApi('cancel');

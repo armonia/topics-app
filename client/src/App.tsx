@@ -29,7 +29,7 @@ import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
-import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from './contexts/PendingActionContext';
+import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction } from './contexts/PendingActionContext';
 import { flushPaneStoreNow } from './state/pane/middleware';
 import { useSignalsSync } from './state/useSignalsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
@@ -339,18 +339,32 @@ function App() {
     tickPendingAction(args.key);
   }, []);
 
+  // Immediate close ("Close now"): defuse a deferred close still counting
+  // down before closing — otherwise the pending commit re-fires
+  // handleClosePanel at T+3s (double pushUndo + re-run archive side effects).
+  // Mirrors the project-level guard in useProjectLayout.handleClosePaneNow.
+  // Memoized so renderGroupForKey in PanelGrid doesn't regenerate per render.
+  const handleClosePanelImmediate = useCallback((topicId: string) => {
+    cancelPendingAction(`close-tab:${topicId}`);
+    handleClosePanel(topicId);
+  }, [handleClosePanel]);
+
   const handleClosePanelDeferred = useCallback((topicId: string, onCommit?: () => void) => {
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
     // Pre-shift focus to the tab that WILL receive focus on commit, so the
     // user already sees the destination while the 3s progress runs (the
-    // commit path uses the same "last remaining pane" rule). Only relevant
-    // when this pane was the focused one — closing a background tab must
-    // not steal focus from where the user is currently looking.
+    // commit path in usePanelLifecycle uses the same same-index-clamped
+    // rule). Only relevant when this pane was the focused one — closing a
+    // background tab must not steal focus from where the user is currently
+    // looking. Same-index (clamped) matches the project groups' rule: focus
+    // the tab that slides into the closed tab's slot, not the last pane in
+    // openPanels — which can be an unrelated split cell appended later.
     let focusBeforeClose: string | null = null;
     if (focusedPanelId === topicId) {
+      const idx = openPanels.indexOf(topicId);
       const remaining = openPanels.filter(id => id !== topicId);
-      const nextFocus = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+      const nextFocus = remaining.length > 0 ? remaining[Math.min(idx, remaining.length - 1)] : null;
       if (nextFocus) {
         focusBeforeClose = topicId;
         handleFocusPanel(nextFocus);
@@ -766,7 +780,7 @@ function App() {
           focusedPanelId={focusedPanelId}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
-          onClosePanelImmediate={handleClosePanel}
+          onClosePanelImmediate={handleClosePanelImmediate}
           onReorderPanels={handleReorderPanels}
           onOpenPanelAt={handleOpenPanelAt}
           nextPanelMode={nextPanelMode}

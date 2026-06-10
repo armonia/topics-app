@@ -51,7 +51,7 @@ import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClos
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 import { pushUndo } from '../../../contexts/UndoContext';
-import { enqueuePendingAction, tickPendingAction } from '../../../contexts/PendingActionContext';
+import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
 import { splitColumnWidths, appendColumnWidths, keepColumnWidths } from '../gridWidths';
@@ -232,7 +232,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // from `topics` (still loading or deleted), keep it — useProjectChatSync
       // will handle reconciliation once topics are populated.
       const t = topics[topicId];
-      if (t && t.projectPath !== projectPath) continue;
+      // Archived ⟺ closed (2-state model): an archived topic must not be
+      // re-seeded as an open chat pane on reload. Without this, archiving the
+      // project's only topic left a permanent ghost pane — the chat-sync
+      // transient-empty guard (useProjectChatSync) skips the removal pass
+      // when topicIds is empty, so nothing ever cleaned it up.
+      if (t && (t.projectPath !== projectPath || t.archived)) continue;
       const id = createPaneId('chat', topicId);
       if (seenIds.has(id)) continue;
       seenIds.add(id);
@@ -656,11 +661,25 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (newRows.length === 0) {
         newRows = [{ groupIds: newGroupIds, widths: newGroupIds.map(() => 1 / newGroupIds.length) }];
       } else {
+        // Respect MAX_COLS_PER_ROW (handleSplitGroup enforces it; this
+        // additive path must not bypass it): fill the first row up to the
+        // cap, overflow into a fresh row below.
         const firstRow = newRows[0];
-        const all = [...firstRow.groupIds, ...newGroupIds];
-        // Give the newly-appeared groups a fair share but keep the first row's
-        // existing columns in proportion (was `1/n` — reset on every add).
-        newRows = [{ groupIds: all, widths: appendColumnWidths(firstRow.widths, newGroupIds.length) }, ...newRows.slice(1)];
+        const slots = Math.max(0, MAX_COLS_PER_ROW - firstRow.groupIds.length);
+        const toFirst = newGroupIds.slice(0, slots);
+        const overflow = newGroupIds.slice(slots);
+        let rebuilt = newRows;
+        if (toFirst.length > 0) {
+          const all = [...firstRow.groupIds, ...toFirst];
+          // Give the newly-appeared groups a fair share but keep the first
+          // row's existing columns in proportion (was `1/n` — reset on every
+          // add).
+          rebuilt = [{ groupIds: all, widths: appendColumnWidths(firstRow.widths, toFirst.length) }, ...rebuilt.slice(1)];
+        }
+        if (overflow.length > 0) {
+          rebuilt = [...rebuilt, { groupIds: overflow, widths: overflow.map(() => 1 / overflow.length) }];
+        }
+        newRows = rebuilt;
       }
     }
 
@@ -829,6 +848,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // after the 3 s pending-action countdown elapses without cancellation.
   const handleClosePaneNow = useCallback(
     (groupId: string, paneId: string) => {
+      // Defuse any deferred close still counting down for this pane —
+      // "Close now" during the 3s window would otherwise close immediately
+      // AND re-fire at T+3s via the enqueue-time commit closure, whose stale
+      // captured state re-runs the whole close against a different layout.
+      cancelPendingAction(`close-tab:${paneId}`);
       const pane = panes.find(p => p.id === paneId);
       const group = groups.find(g => g.id === groupId);
       const groupIndex = group ? group.paneIds.indexOf(paneId) : 0;
@@ -877,7 +901,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // ProjectWindow.tsx). No tombstone is needed because the pane
           // is only re-created via an explicit user action or a new
           // server-driven `browser:navigate` broadcast.
-          fetch(`/api/browsers/${encodeURIComponent(projectPath)}`, { method: 'DELETE' }).catch(() => {});
+          //
+          // The context is SHARED by every browser pane in this project
+          // (all mount with contextId={projectPath}) — only tear it down
+          // when the LAST one closes, or closing one of two browser panes
+          // kills the page under the survivor.
+          const hasOtherBrowserPane = panes.some(p => p.type === 'browser' && p.id !== paneId);
+          if (!hasOtherBrowserPane) {
+            fetch(`/api/browsers/${encodeURIComponent(projectPath)}`, { method: 'DELETE' }).catch(() => {});
+          }
         }
 
         pushClosedTab(record);
@@ -898,8 +930,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           description: `Close ${pane.title || pane.type}`,
           undo: async () => {
             const restored = await reopenClosedTab(capturedRecord);
-            setPanes(prev => [...prev, restored]);
+            // Id-dedup guard (same pattern as reopenChatPane /
+            // handleAddPaneToGroup): the pane may have been reopened via the
+            // sidebar between close and ⌘Z — re-adding would duplicate the
+            // id in panes[] and group.paneIds (React key collision).
+            setPanes(prev => (prev.some(p => p.id === restored.id) ? prev : [...prev, restored]));
             setGroups(prev => {
+              if (prev.some(g => g.paneIds.includes(restored.id))) return prev;
               const target = prev.find(g => g.id === capturedRecord.groupId) || prev[0];
               if (!target) return prev;
               const idx = Math.min(capturedRecord.groupIndex, target.paneIds.length);
@@ -1685,27 +1722,38 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         return [...updated, newGroup];
       });
 
-      setRows(prev => {
-        if (edge === 'left' || edge === 'right') {
-          return prev.map(row => {
-            const targetIdx = row.groupIds.indexOf(targetGroupId);
-            if (targetIdx === -1) return row;
-            const newGroupIds = [...row.groupIds];
-            const insertAt = edge === 'left' ? targetIdx : targetIdx + 1;
-            newGroupIds.splice(insertAt, 0, newGroupId);
-            // Split the TARGET column's width with the new group; leave every
-            // other column's width untouched. (Was `1/n` — flattened a manual
-            // resize on every split. See gridWidths.ts.)
-            const newWidths = splitColumnWidths(row.widths, targetIdx, insertAt);
-            return { groupIds: newGroupIds, widths: newWidths };
-          });
-        } else {
-          const targetRowIdx = prev.findIndex(row => row.groupIds.includes(targetGroupId));
-          if (targetRowIdx === -1) return prev;
-          const newRow = { groupIds: [newGroupId], widths: [1] };
-          const newRows = [...prev];
+      if (edge === 'left' || edge === 'right') {
+        setRows(prev => prev.map(row => {
+          const targetIdx = row.groupIds.indexOf(targetGroupId);
+          if (targetIdx === -1) return row;
+          const newGroupIds = [...row.groupIds];
+          const insertAt = edge === 'left' ? targetIdx : targetIdx + 1;
+          newGroupIds.splice(insertAt, 0, newGroupId);
+          // Split the TARGET column's width with the new group; leave every
+          // other column's width untouched. (Was `1/n` — flattened a manual
+          // resize on every split. See gridWidths.ts.)
+          const newWidths = splitColumnWidths(row.widths, targetIdx, insertAt);
+          return { groupIds: newGroupIds, widths: newWidths };
+        }));
+      } else {
+        // Compute the indices OUTSIDE the updaters and queue setRows +
+        // setRowHeights as siblings (handleReorderRows pattern). The old
+        // shape called setRowHeights inside the setRows updater — updaters
+        // must be pure, and StrictMode's double-invocation queued the height
+        // split twice, corrupting rowHeights (rows/heights length mismatch
+        // that the rows-sync effect only repairs when a group is removed).
+        const rowsNow = rowsRef.current;
+        const targetRowIdx = rowsNow.findIndex(row => row.groupIds.includes(targetGroupId));
+        if (targetRowIdx !== -1) {
           const insertAt = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
-          newRows.splice(insertAt, 0, newRow);
+          setRows(prev => {
+            const idx = prev.findIndex(row => row.groupIds.includes(targetGroupId));
+            if (idx === -1) return prev;
+            const at = edge === 'top' ? idx : idx + 1;
+            const newRows = [...prev];
+            newRows.splice(at, 0, { groupIds: [newGroupId], widths: [1] });
+            return newRows;
+          });
           setRowHeights(prevH => {
             const newHeights = [...prevH];
             const halfHeight = (newHeights[targetRowIdx] || 1 / prevH.length) / 2;
@@ -1713,9 +1761,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             newHeights.splice(insertAt, 0, halfHeight);
             return newHeights;
           });
-          return newRows;
         }
-      });
+      }
 
       setFocusedGroupId(newGroupId);
     },
@@ -1943,6 +1990,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           return [{ groupIds: [newGroupId], widths: [1] }];
         }
         const firstRow = prev[0];
+        // Respect MAX_COLS_PER_ROW (handleSplitGroup enforces it; this
+        // fallback must not bypass it) — overflow into a fresh row.
+        if (firstRow.groupIds.length >= MAX_COLS_PER_ROW) {
+          return [...prev, { groupIds: [newGroupId], widths: [1] }];
+        }
         const all = [...firstRow.groupIds, newGroupId];
         return [
           // Keep the first row's existing columns in proportion; the reopened
