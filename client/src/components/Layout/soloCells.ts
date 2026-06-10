@@ -69,20 +69,27 @@ export function extractToOwnCell(cells: SoloCells, topicId: string): SoloCells {
 }
 
 /**
- * Move `topicId` INTO the cell whose primary is `targetPrimary`, appended as
- * that cell's next tab. Removes it from any cell it was in first (so it's never
- * in two places). If the target cell doesn't exist, the topic still becomes
- * solo as its own cell (defensive — the target should normally exist).
- * Self-merge (topic already the target's primary, alone) is a no-op.
+ * Move `topicId` INTO the cell whose primary is `targetPrimary`, at tab slot
+ * `insertIdx` (omitted/out-of-range → appended). The index is clamped to ≥1:
+ * slot 0 is the primary, and displacing it would re-key the whole cell
+ * (soloCellKey = first topic) mid-drop. Removes the topic from any cell it
+ * was in first (so it's never in two places). If the target cell doesn't
+ * exist, the topic still becomes solo as its own cell (defensive — the target
+ * should normally exist). Self-merge (topic already the target's primary,
+ * alone) is a no-op.
  */
-export function moveTopicToCell(cells: SoloCells, topicId: string, targetPrimary: string): SoloCells {
+export function moveTopicToCell(cells: SoloCells, topicId: string, targetPrimary: string, insertIdx?: number): SoloCells {
   if (topicId === targetPrimary) return cells; // can't merge a cell into itself
   const without = removeTopicFromCells(cells, topicId);
   let landed = false;
   const next = without.map((cell) => {
     if (cell[0] !== targetPrimary) return cell;
     landed = true;
-    return cell.includes(topicId) ? cell : [...cell, topicId];
+    if (cell.includes(topicId)) return cell;
+    const at = typeof insertIdx === 'number'
+      ? Math.min(Math.max(1, insertIdx), cell.length)
+      : cell.length;
+    return [...cell.slice(0, at), topicId, ...cell.slice(at)];
   });
   if (!landed) next.push([topicId]); // target cell gone — fall back to own cell
   return next;

@@ -7,7 +7,6 @@ import { resolveStandaloneCrossGroupDrop as resolve } from './standaloneDrop';
 const base = {
   canAcceptSolo: true,
   canMergeIntoCell: true,
-  canAcceptProjectTopic: true,
 };
 
 describe('resolveStandaloneCrossGroupDrop', () => {
@@ -41,21 +40,26 @@ describe('resolveStandaloneCrossGroupDrop', () => {
     expect(d).toEqual({ kind: 'unsolo-dragged', draggedTopicId: 'A' });
   });
 
-  test('foreign project chat (chat: paneid) routes to project-topic accept', () => {
+  test('foreign project chat (chat: paneid) is a no-op — project tabs never pass the scope guard', () => {
     const d = resolve({ ...base, sourcePaneId: 'chat:Z', sourceGroupId: 'standalone', targetGroupId: 'solo:B', targetTopicIds: ['B'] });
-    expect(d).toEqual({ kind: 'accept-project-topic', topicId: 'Z' });
+    expect(d).toEqual({ kind: 'noop' });
   });
 
   test('a topic already present in the target is a no-op', () => {
-    const d = resolve({ ...base, sourcePaneId: 'chat:B', sourceGroupId: 'standalone', targetGroupId: 'solo:B', targetTopicIds: ['B'] });
+    const d = resolve({ ...base, sourcePaneId: 'B', sourceGroupId: 'standalone', targetGroupId: 'solo:B', targetTopicIds: ['B'] });
     expect(d).toEqual({ kind: 'noop' });
   });
 
   test('missing handlers degrade to no-op', () => {
     const d = resolve({
-      canAcceptSolo: false, canMergeIntoCell: false, canAcceptProjectTopic: false,
+      canAcceptSolo: false, canMergeIntoCell: false,
       sourcePaneId: 'A', sourceGroupId: 'solo:A', targetGroupId: 'solo:B', targetTopicIds: ['B'],
     });
     expect(d).toEqual({ kind: 'noop' });
+  });
+
+  test('insertIdx travels with the merge decision (drop indicators honored)', () => {
+    const d = resolve({ ...base, insertIdx: 1, sourcePaneId: 'A', sourceGroupId: 'solo:A', targetGroupId: 'solo:B', targetTopicIds: ['B', 'C'] });
+    expect(d).toEqual({ kind: 'merge-into-cell', draggedTopicId: 'A', targetPrimary: 'B', insertIdx: 1 });
   });
 });

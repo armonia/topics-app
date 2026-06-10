@@ -32,6 +32,7 @@ import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
+import { primaryFromSoloCellKey } from './soloCells';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -68,12 +69,11 @@ interface StandaloneChatGroupProps {
   onToggleSidebar?: () => void;
   panelInitialTab?: Record<string, PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
-  onNewChat?: () => void;
-  // Grid item drag (for reordering in PanelGrid)
-  onGroupDragStart?: (e: React.DragEvent) => void;
+  // App-level quick-create. May resolve to the new DRAFT pane id (string) —
+  // a split cell uses it to re-target the pane into itself (see the wrapper
+  // around PaneTabBar's onNewChat below).
+  onNewChat?: () => void | Promise<unknown>;
   stopSession: (sessionKey: string) => boolean;
-  // Cross-panel-type: accept topic drops from project windows
-  onAcceptProjectTopicDrop?: (topicId: string) => void;
   // Pending pane request for project tabs
   pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' } | null;
   onPendingProjectPaneConsumed?: () => void;
@@ -111,8 +111,13 @@ interface StandaloneChatGroupProps {
   // Accept a solo topic drop (main group only) — unsolos the dropped topic
   onAcceptSoloDrop?: (topicId: string) => void;
   // Merge a dropped tab INTO this split cell (multi-tab column). `targetPrimary`
-  // is this cell's primary topic id. Enables "drop a tab into a populated cell".
-  onMergeIntoCell?: (topicId: string, targetPrimary: string) => void;
+  // is this cell's primary topic id; `insertIdx` is the tab slot the drop
+  // indicators promised (omitted = append). Enables "drop a tab into a
+  // populated cell".
+  onMergeIntoCell?: (topicId: string, targetPrimary: string, insertIdx?: number) => void;
+  // Persist a tab reorder upstream (main pool only — PanelGrid merges the
+  // pool's order back into App.openPanels so it survives reload).
+  onPersistReorder?: (newPaneIds: string[]) => void;
   // Schematic of the surrounding grid (one square per top-level cell), with
   // this cell lit — forwarded straight to the tab bar. Omitted for single-cell
   // grids where there's nothing to orient against.
@@ -125,7 +130,7 @@ export function StandaloneChatGroup({
   getSessionMessages, isSessionLoading, isSessionStreaming,
   sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
-  onNewChat, onGroupDragStart: _onGroupDragStart, onAcceptProjectTopicDrop, stopSession,
+  onNewChat, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
   onNewChatInProject, pendingProjectFocus, onPendingProjectFocusConsumed,
   onProjectActiveTopicChange, onProjectOpenPanesChange,
@@ -137,7 +142,7 @@ export function StandaloneChatGroup({
   onSplitPane,
   persistOrder = true,
   gridItemKey = 'standalone',
-  onUnsolo, onAcceptSoloDrop, onMergeIntoCell,
+  onUnsolo, onAcceptSoloDrop, onMergeIntoCell, onPersistReorder,
   splitMap,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
@@ -356,7 +361,7 @@ export function StandaloneChatGroup({
     topics, topicIds, gridItemKey,
     onClosePanel, onFocusPanel,
     onSplitPane, onUnsolo,
-    onCreateTerminal, onMergeIntoCell, claudeSkipPermissions,
+    onCreateTerminal, onMergeIntoCell, onPersistReorder, claudeSkipPermissions,
     stopSession,
   });
   const { settingsTopicId, setSettingsTopicId } = lifecycle;
@@ -371,7 +376,7 @@ export function StandaloneChatGroup({
   // When a tab is dropped onto another group's tab bar:
   // - Unsolo the dragged topic (returns to standalone)
   // - If the TARGET is also solo, unsolo it too (both merge into standalone)
-  const handleCrossGroupDrop = useCallback((sourcePaneId: string, sourceGroupId: string, _insertIdx: number) => {
+  const handleCrossGroupDrop = useCallback((sourcePaneId: string, sourceGroupId: string, insertIdx: number) => {
     // All the routing/anti-collapse logic lives in the pure, unit-tested
     // resolver (standaloneDrop.ts). The handler just dispatches its decision.
     const decision = resolveStandaloneCrossGroupDrop({
@@ -381,28 +386,26 @@ export function StandaloneChatGroup({
       targetTopicIds: topicIds,
       canAcceptSolo: !!onAcceptSoloDrop,
       canMergeIntoCell: !!onMergeIntoCell,
-      canAcceptProjectTopic: !!onAcceptProjectTopicDrop,
+      insertIdx,
     });
     switch (decision.kind) {
       case 'noop':
         return;
       case 'merge-into-cell':
-        // The dragged tab joins THIS split cell as its next tab — no collapse.
-        onMergeIntoCell?.(decision.draggedTopicId, decision.targetPrimary);
+        // The dragged tab joins THIS split cell at the indicated tab slot —
+        // no collapse, and the drop indicator's promise is honored.
+        onMergeIntoCell?.(decision.draggedTopicId, decision.targetPrimary, decision.insertIdx);
         return;
       case 'unsolo-dragged':
         // Dropped on the main pool → un-split the dragged tab back into it.
         onAcceptSoloDrop?.(decision.draggedTopicId);
         return;
-      case 'accept-project-topic':
-        onAcceptProjectTopicDrop?.(decision.topicId);
-        return;
     }
-  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
+  }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
-  // Handle drops from project tabs or solo groups (cross-panel-type)
+  // Handle drops from solo groups (cross-panel-type)
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
-    if (!onAcceptProjectTopicDrop && !onAcceptSoloDrop) return;
+    if (!onAcceptSoloDrop && !onMergeIntoCell) return;
     // Accept PANEL_ID drops that also have PANE_TAB (from project tab bars or solo groups)
     if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
@@ -410,7 +413,7 @@ export function StandaloneChatGroup({
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     setPanelDragOver(true);
-  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop]);
+  }, [onAcceptSoloDrop, onMergeIntoCell]);
 
   const handleStandaloneDragLeave = useCallback(() => {
     setPanelDragOver(false);
@@ -434,12 +437,8 @@ export function StandaloneChatGroup({
     }
     if (onAcceptSoloDrop) {
       onAcceptSoloDrop(topicId);
-      return;
     }
-    if (onAcceptProjectTopicDrop) {
-      onAcceptProjectTopicDrop(topicId);
-    }
-  }, [onAcceptProjectTopicDrop, onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
+  }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
   // Build paneId → topicId map for context percent (only for real chat panes, not drafts)
   const paneToTopicMap = useMemo(() => {
@@ -518,10 +517,22 @@ export function StandaloneChatGroup({
       // cells) shares the standalone scope, so tabs reorder/merge freely among
       // them but a project's tabs can't be dropped here (and vice-versa).
       dndScope={STANDALONE_SCOPE}
-      onNewChat={onNewChat}
+      // Split-cell "+ New Chat": app-level creation appends the draft to the
+      // MAIN standalone pool, so when this group is a solo cell re-target the
+      // fresh draft into the cell — same routing as terminals/browsers in
+      // usePaneLifecycle.handleAddPane.
+      onNewChat={onNewChat ? () => {
+        const res = onNewChat();
+        const targetPrimary = primaryFromSoloCellKey(gridItemKey);
+        if (res instanceof Promise && targetPrimary && onMergeIntoCell) {
+          void res.then((created) => {
+            if (typeof created === 'string') onMergeIntoCell(created, targetPrimary);
+          });
+        }
+      } : undefined}
       onReorderPanes={handleReorderPanes}
       splitMap={splitMap}
-      onCrossGroupDrop={(onAcceptProjectTopicDrop || onAcceptSoloDrop) ? handleCrossGroupDrop : undefined}
+      onCrossGroupDrop={onAcceptSoloDrop ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
       // Single-tab splits are allowed: usePaneLifecycle's `isSplittable`
