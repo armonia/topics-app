@@ -81,7 +81,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     topics, gridItemKey,
     onClosePanel, onFocusPanel,
     onSplitPane, onUnsolo,
-    onCreateTerminal, onMergeIntoCell, claudeSkipPermissions,
+    onCreateTerminal, onMergeIntoCell, onPersistReorder, claudeSkipPermissions,
     stopSession,
   } = args;
   const { validatedOrderedIds } = ordering.derived;
@@ -92,7 +92,10 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handleReorderPanes = useCallback((newPaneIds: string[]) => {
     ordering.ops.reorder(newPaneIds);
-  }, [ordering.ops]);
+    // Persist upstream too — the local ordering state alone doesn't survive
+    // a reload (App.openPanels is what the boot path reads back).
+    onPersistReorder?.(newPaneIds);
+  }, [ordering.ops, onPersistReorder]);
 
   const handlePinPane = useCallback((paneId: string) => {
     ordering.ops.pin(paneId);
@@ -100,8 +103,15 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handleAddPane = useCallback(async (type: PaneType, subType?: string) => {
     if (type === 'browser') {
-      // Group-local singleton — already lands in THIS group's tab bar.
-      ordering.ops.ensureBrowserPane();
+      // Group-local singleton — but "this group" is the MAIN standalone pool:
+      // the pane persists to group:default and PanelGrid files it into the
+      // pool's tab bar. When the "+" belongs to a split cell, re-target the
+      // pane into that cell, mirroring the terminal branch below.
+      const paneId = ordering.ops.ensureBrowserPane();
+      const browserTarget = primaryFromSoloCellKey(gridItemKey);
+      if (paneId && browserTarget && onMergeIntoCell) {
+        onMergeIntoCell(paneId, browserTarget);
+      }
     } else if (type === 'terminal') {
       const termType = normalizeTerminalAgent(subType);
       // App-level creation appends the pane to openPanels, which PanelGrid

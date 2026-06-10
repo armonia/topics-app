@@ -120,7 +120,11 @@ export interface UsePaneLifecycleArgs {
   /** Merge a pane into this group's split cell (PanelGrid.handleMergeIntoCell).
    *  Used by handleAddPane when `gridItemKey` is a solo cell — without it a
    *  pane created from a split cell's "+" lands in the main standalone pool. */
-  onMergeIntoCell?: (paneId: string, targetPrimary: string) => void;
+  onMergeIntoCell?: (paneId: string, targetPrimary: string, insertIdx?: number) => void;
+  /** Persist a tab reorder upstream (App.openPanels for the main pool).
+   *  Without it the reorder lives only in usePaneOrdering's local state and
+   *  is silently lost on reload — unlike the identical gesture in projects. */
+  onPersistReorder?: (newPaneIds: string[]) => void;
   claudeSkipPermissions: boolean;
   stopSession: (sessionKey: string) => boolean;
 }

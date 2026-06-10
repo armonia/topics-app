@@ -14,7 +14,7 @@ import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { splitColumnWidths, appendColumnWidths } from './gridWidths';
-import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey } from './soloCells';
+import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 
 /**
@@ -67,6 +67,47 @@ function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
  * re-attach at the destination for a move, or drop it when the additive
  * sync is about to re-home the orphans anyway.
  */
+/** Rename a top-level key in place — slot, width and sub-stack survive.
+ *  Used when a multi-tab cell re-keys (its primary left the cell): pruning
+ *  the old key and re-appending the new one teleported the cell to row 0. */
+function renameKeyInRow(row: PanelGridRow, from: string, to: string): PanelGridRow {
+  const idx = row.itemKeys.indexOf(from);
+  if (idx < 0) return row;
+  const itemKeys = row.itemKeys.map((k, i) => (i === idx ? to : k));
+  const next: PanelGridRow = { itemKeys, widths: row.widths };
+  if (row.cellStacks) {
+    const { [from]: moved, ...rest } = row.cellStacks;
+    const stacks = { ...rest, ...(moved ? { [to]: moved } : {}) };
+    if (Object.keys(stacks).length > 0) next.cellStacks = stacks;
+  }
+  return next;
+}
+
+/** Remove a key from whichever sub-stack contains it (heights renormalized,
+ *  emptied stack entries dropped). Top-level itemKeys are untouched — used
+ *  when the dragged key lives INSIDE a cell's stack, which the top-level
+ *  removeKeyFromRow can't see. */
+function removeKeyFromStacks(row: PanelGridRow, key: string): PanelGridRow {
+  if (!row.cellStacks) return row;
+  let changed = false;
+  const out: Record<string, PanelGridCellStack> = {};
+  for (const [primary, stack] of Object.entries(row.cellStacks)) {
+    const idx = stack.items.indexOf(key);
+    if (idx < 0) { out[primary] = stack; continue; }
+    changed = true;
+    const items = stack.items.filter((_, i) => i !== idx);
+    if (items.length === 0) continue; // stack collapses to just the primary
+    // Heights track [primary, ...items] — drop the removed item's slot.
+    const heights = stack.heights.filter((_, i) => i !== idx + 1);
+    const sum = heights.reduce((s, h) => s + h, 0) || 1;
+    out[primary] = { items, heights: heights.map(h => h / sum) };
+  }
+  if (!changed) return row;
+  const next: PanelGridRow = { itemKeys: row.itemKeys, widths: row.widths };
+  if (Object.keys(out).length > 0) next.cellStacks = out;
+  return next;
+}
+
 function removeKeyFromRow(
   row: PanelGridRow,
   key: string,
@@ -192,7 +233,7 @@ export function PanelGrid({
   onFocusPanel,
   onClosePanel,
   onClosePanelImmediate,
-  onReorderPanels: _onReorderPanels,
+  onReorderPanels,
   onOpenPanelAt,
   nextPanelMode: _nextPanelMode = 'side',
   onPanelModeUsed: _onPanelModeUsed,
@@ -274,6 +315,11 @@ export function PanelGrid({
     () => pruneSoloCells(soloCellsRaw, new Set(openPanels)),
     [soloCellsRaw, openPanels],
   );
+  // Previous render's cell composition — lets the additive sync detect a
+  // RE-KEYED cell (primary closed → next member became primary) and rename
+  // it in place instead of treating it as removed+new. Updated in an effect
+  // placed AFTER the two grid-sync effects so they read the pre-change value.
+  const prevSoloCellsRef = useRef<string[][]>(soloCells);
   // Flat set of solo'd topics — what the rest of the grid checks membership on.
   const soloTopicIds = useMemo(() => flattenSoloCells(soloCells), [soloCells]);
 
@@ -347,20 +393,52 @@ export function PanelGrid({
       const existing = collectAllPresentKeys(prev);
       const newKeys = liveItems.map(i => i.key).filter(k => !existing.has(k));
       if (newKeys.length === 0) return prev;
-      if (prev.length === 0) {
-        return [{ itemKeys: newKeys, widths: appendColumnWidths([], newKeys.length) }];
+      // Re-keyed cells: when a multi-tab cell's PRIMARY closes, the cell
+      // re-keys to its next member (soloCellKey = first topic). To this sync
+      // that looks like "old key gone, brand-new key appeared" — the cell
+      // got pruned from its slot and re-appended to the end of row 0,
+      // losing position and width. Detect the re-key by matching the new
+      // key's topic against the PREVIOUS soloCells composition and rename
+      // in place instead. (Drag-extracting a primary renames at the drop
+      // site — there the old key survives as the extracted cell, which the
+      // liveKeys guard below correctly skips.)
+      const liveKeys = new Set(liveItems.map(i => i.key));
+      const prevCells = prevSoloCellsRef.current;
+      const renames = new Map<string, string>();
+      for (const k of newKeys) {
+        const topic = primaryFromSoloCellKey(k);
+        if (!topic) continue;
+        const oldCell = prevCells.find(c => c.includes(topic));
+        if (!oldCell) continue;
+        const oldKey = soloCellKey(oldCell);
+        if (oldKey === k || liveKeys.has(oldKey) || !existing.has(oldKey)) continue;
+        renames.set(oldKey, k);
       }
-      const first = prev[0];
-      const allKeys = [...first.itemKeys, ...newKeys];
+      let base = prev;
+      if (renames.size > 0) {
+        base = prev.map(row => {
+          let r = row;
+          for (const [from, to] of renames) r = renameKeyInRow(r, from, to);
+          return r;
+        });
+      }
+      const renamedTo = new Set(renames.values());
+      const appendKeys = newKeys.filter(k => !renamedTo.has(k));
+      if (appendKeys.length === 0) return base;
+      if (base.length === 0) {
+        return [{ itemKeys: appendKeys, widths: appendColumnWidths([], appendKeys.length) }];
+      }
+      const first = base[0];
+      const allKeys = [...first.itemKeys, ...appendKeys];
       return [
         {
           itemKeys: allKeys,
           // Give the new keys a fair share but keep the existing columns' manual
           // widths in proportion (was `1/n` — reset the row on every pane add).
-          widths: appendColumnWidths(first.widths, newKeys.length),
+          widths: appendColumnWidths(first.widths, appendKeys.length),
           ...(first.cellStacks ? { cellStacks: first.cellStacks } : {}),
         },
-        ...prev.slice(1),
+        ...base.slice(1),
       ];
     });
   }, [naturalGridItems, isServerHydrated, naturalGridItemsRef, setGridRows]);
@@ -454,6 +532,13 @@ export function PanelGrid({
     }, 0);
     return () => clearTimeout(handle);
   }, [naturalGridItems, isServerHydrated, naturalGridItemsRef, setGridRows]);
+
+  // Record this render's cell composition for the NEXT additive sync's
+  // re-key detection. Placed after both grid-sync effects (effects run in
+  // definition order) so they always read the pre-change composition.
+  useEffect(() => {
+    prevSoloCellsRef.current = soloCells;
+  }, [soloCells]);
 
   // Sync row heights when row count changes. Same hydrate gate as above —
   // before hydrate, `gridRows` may be the persisted shape and we don't want
@@ -795,11 +880,29 @@ export function PanelGrid({
     setSoloCells(prev => removeTopicFromCells(prev, topicId));
   }, [setSoloCells]);
 
+  /* ---- Persist a main-pool tab reorder into App.openPanels.
+         The pool's ordered ids are a SUBSET of openPanels (solo cells and
+         local-managed panes excluded), so the new order must be MERGED:
+         pool members take their new relative order, every other entry keeps
+         its slot. Replacing openPanels with the subset outright would close
+         every split cell. Without this persist the reorder lived only in
+         usePaneOrdering's local state — gone on reload, unlike the identical
+         gesture in project groups. ---- */
+  const handlePersistPoolReorder = useCallback((newOrder: string[]) => {
+    const inPanels = new Set(openPanels);
+    const orderable = newOrder.filter(id => inPanels.has(id));
+    if (orderable.length === 0) return;
+    const poolSet = new Set(orderable);
+    let i = 0;
+    const merged = openPanels.map(id => (poolSet.has(id) ? orderable[i++] : id));
+    onReorderPanels(merged);
+  }, [openPanels, onReorderPanels]);
+
   /* ---- Merge a tab INTO an existing split cell (multi-tab column).
          Dropping a tab onto another split cell's bar lands it there as the
          cell's next tab — coherent with project groups, no collapse. ---- */
-  const handleMergeIntoCell = useCallback((topicId: string, targetPrimary: string) => {
-    setSoloCells(prev => moveTopicToCell(prev, topicId, targetPrimary));
+  const handleMergeIntoCell = useCallback((topicId: string, targetPrimary: string, insertIdx?: number) => {
+    setSoloCells(prev => moveTopicToCell(prev, topicId, targetPrimary, insertIdx));
     onFocusPanel(topicId);
   }, [onFocusPanel, setSoloCells]);
 
@@ -909,31 +1012,11 @@ export function PanelGrid({
   // dragover (the "drop twice to land" class of bug).
   const gridDropTargetRef = useRefMirror(gridDropTarget);
 
-  const handleGridItemDragStart = useCallback((item: GridItem) => (e: React.DragEvent) => {
-    setDraggingGridKey(item.key);
-    e.dataTransfer.setData(DND_TYPES.GRID_ITEM, item.key);
-    e.dataTransfer.effectAllowed = 'move';
-
-    // Ghost image
-    const ghost = document.createElement('div');
-    ghost.style.cssText = `
-      position:fixed;left:-9999px;top:-9999px;
-      display:flex;align-items:center;gap:6px;
-      padding:6px 14px;border-radius:8px;
-      font:500 13px/1 Inter,system-ui,sans-serif;
-      box-shadow:0 4px 12px rgba(0,0,0,0.15);
-      white-space:nowrap;pointer-events:none;
-      background:color-mix(in srgb, var(--primary) 90%, transparent);color:#fff;
-    `;
-    ghost.textContent = `\uD83D\uDCAC Chats`;
-    document.body.appendChild(ghost);
-    activeGhostsRef.current.add(ghost);
-    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => {
-      if (ghost.parentElement) document.body.removeChild(ghost);
-      activeGhostsRef.current.delete(ghost);
-    });
-  }, []);
+  // (A former handleGridItemDragStart \u2014 the GRID_ITEM drag-start with its own
+  // ghost image \u2014 was dead wiring: StandaloneChatGroup received it as
+  // onGroupDragStart and never attached it to any element, so GRID_ITEM data
+  // was never set. Whole-cell movement happens via tab drags, which the
+  // reorder path below handles through `effectiveKey = soloKey`.)
 
   // Capture phase: fires BEFORE children, so we can intercept edge drags
   // even when StandaloneChatGroup/GroupLayout consume bubble-phase events
@@ -1099,18 +1182,51 @@ export function PanelGrid({
         return;
       }
 
-      if (itemMap.has(soloKey)) {
-        // Already a solo item — reorder via the grid path below
+      // Only a SINGLE-topic cell reorders as a whole cell. itemMap keys
+      // cells by their PRIMARY topic, so dragging the primary tab of a
+      // multi-tab cell [A,B] used to match `itemMap.has('solo:A')` and move
+      // the entire cell — extract the tab instead, exactly like dragging a
+      // non-primary member.
+      const sourceCell = soloCells.find(c => c.includes(sourceTopicId));
+      const isPrimaryOfMultiTab =
+        !!sourceCell && sourceCell.length > 1 && sourceCell[0] === sourceTopicId;
+
+      if (itemMap.has(soloKey) && !isPrimaryOfMultiTab) {
+        // Already a standalone solo cell — reorder via the grid path below
         effectiveKey = soloKey;
       } else {
-        // Make it solo
+        // Make it solo (or extract it from the multi-tab cell it shares)
         const { rowIdx: targetRowIdx, colIdx: targetColIdx, zone, centerSide } = dropTarget;
 
-        // Mark as solo first — if grid placement fails, the sync effect will clean up
+        // Enforce grid limits BEFORE mutating soloCells: extracting first
+        // and bailing inside the setGridRows updater left the topic marked
+        // solo with no grid slot, and the additive sync then appended it to
+        // row 0 PAST the column cap (limit bypass).
+        {
+          const rowsNow = gridRowsRef.current;
+          const overLimit =
+            ((zone === 'top' || zone === 'bottom') && rowsNow.length >= MAX_ROWS) ||
+            ((zone === 'left' || zone === 'right' || zone === 'center') &&
+              (rowsNow[targetRowIdx]?.itemKeys.length ?? 0) >= MAX_COLS_PER_ROW);
+          if (overLimit) {
+            setDraggingGridKey(null);
+            setGridDropTarget(null);
+            gridDropTargetRef.current = null;
+            return;
+          }
+        }
+
+        // Extracting the PRIMARY re-keys the remaining cell to its next
+        // member — rename it in place below so the remainder keeps its
+        // slot/width/sub-stack instead of teleporting to row 0 via the
+        // additive sync.
+        const remainderKey = isPrimaryOfMultiTab ? soloCellKey(sourceCell.slice(1)) : null;
+
         setSoloCells(prev => extractToOwnCell(prev, sourceTopicId));
 
         setGridRows(prev => {
-          // Enforce grid limits
+          // Enforce grid limits (kept as in-updater defense — the pre-check
+          // above reads a ref that could lag a concurrent update)
           if ((zone === 'top' || zone === 'bottom') && prev.length >= MAX_ROWS) return prev;
           if ((zone === 'left' || zone === 'right' || zone === 'center') && prev[targetRowIdx]?.itemKeys.length >= MAX_COLS_PER_ROW) return prev;
 
@@ -1120,12 +1236,18 @@ export function PanelGrid({
           // ISSUE 8 FIX: Use immutable operations instead of splice()
           let rows = prev.map(cloneRow);
 
-          // Safety: remove soloKey if already present (immutably). Sibling
-          // cells' sub-stacks survive; soloKey's own stale stack entry is
-          // dropped — the soloCells change above reruns the additive sync,
-          // which re-homes any live orphans (mirrors handleSplitPane).
-          rows = rows.map(row => removeKeyFromRow(row, soloKey).row);
-          rows = rows.filter(r => r.itemKeys.length > 0);
+          if (remainderKey) {
+            // Primary extraction: the source cell survives under its new
+            // key, in place.
+            rows = rows.map(row => renameKeyInRow(row, soloKey, remainderKey));
+          } else {
+            // Safety: remove soloKey if already present (immutably). Sibling
+            // cells' sub-stacks survive; soloKey's own stale stack entry is
+            // dropped — the soloCells change above reruns the additive sync,
+            // which re-homes any live orphans (mirrors handleSplitPane).
+            rows = rows.map(row => removeKeyFromRow(row, soloKey).row);
+            rows = rows.filter(r => r.itemKeys.length > 0);
+          }
 
           let tRow = -1, tCol = -1;
           for (let r = 0; r < rows.length; r++) {
@@ -1174,10 +1296,21 @@ export function PanelGrid({
       // If the target row/column is invalid, fall back to "add to end" behavior.
       const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
 
-      // Find source position
+      // Find source position — top-level itemKeys OR inside a cell's
+      // sub-stack. A pane that was split DOWN lives only in
+      // cellStacks[host].items; searching itemKeys alone made every drag of
+      // a sub-stacked pane a silent no-op (indicators painted, drop did
+      // nothing).
       let srcRow = -1;
+      let srcInStack = false;
       for (let r = 0; r < prev.length; r++) {
         if (prev[r].itemKeys.includes(effectiveKey)) { srcRow = r; break; }
+        const stacks = prev[r].cellStacks;
+        if (stacks && Object.values(stacks).some(s => s.items.includes(effectiveKey))) {
+          srcRow = r;
+          srcInStack = true;
+          break;
+        }
       }
       if (srcRow === -1) return prev;
 
@@ -1186,11 +1319,13 @@ export function PanelGrid({
         if (!targetKey && prev.length > 0) {
           // Move source to end of last row. Its sub-stack travels with it;
           // sibling cells' stacks survive (removeKeyFromRow, not a bare
-          // itemKeys/widths rebuild).
+          // itemKeys/widths rebuild). A sub-stacked source is pulled out of
+          // its host's stack instead (it has no own stack to carry).
           let rows = prev.map(cloneRow);
           let movedStack: PanelGridCellStack | undefined;
           rows = rows.map((r, i) => {
             if (i !== srcRow) return r;
+            if (srcInStack) return removeKeyFromStacks(r, effectiveKey);
             const res = removeKeyFromRow(r, effectiveKey);
             movedStack = res.detachedStack;
             return res.row;
@@ -1218,10 +1353,12 @@ export function PanelGrid({
 
       // Remove source from its row. The moved cell's own sub-stack is
       // detached here and re-attached at the destination below; sibling
-      // cells' stacks are untouched (removeKeyFromRow preserves them).
+      // cells' stacks are untouched (removeKeyFromRow preserves them). A
+      // sub-stacked source is pulled out of its host's stack instead.
       let movedStack: PanelGridCellStack | undefined;
       rows = rows.map((r, i) => {
         if (i !== srcRow) return r;
+        if (srcInStack) return removeKeyFromStacks(r, effectiveKey);
         const res = removeKeyFromRow(r, effectiveKey);
         movedStack = res.detachedStack;
         return res.row;
@@ -1433,7 +1570,6 @@ export function PanelGrid({
         onClosePanel={onClosePanel}
         onClosePanelImmediate={onClosePanelImmediate}
         onDragStart={handleDragStart}
-        onGroupDragStart={handleGridItemDragStart(item)}
         getSessionMessages={getSessionMessages}
         isSessionLoading={isSessionLoading}
         isSessionStreaming={isSessionStreaming}
@@ -1470,11 +1606,12 @@ export function PanelGrid({
         onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
         onAcceptSoloDrop={handleUnsoloTopic}
         onMergeIntoCell={handleMergeIntoCell}
+        onPersistReorder={key === 'standalone' ? handlePersistPoolReorder : undefined}
       />
     ),
     [
       focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
-      handleGridItemDragStart, getSessionMessages, isSessionLoading,
+      getSessionMessages, isSessionLoading,
       isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
       onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,
@@ -1485,7 +1622,7 @@ export function PanelGrid({
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
       draftMeta, handleSplitPane, handleUnsoloTopic,
       hasGridSplit, splitRowWidths, gridRowHeights,
-      handleMergeIntoCell, onClosePanelImmediate,
+      handleMergeIntoCell, handlePersistPoolReorder, onClosePanelImmediate,
     ],
   );
 

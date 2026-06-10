@@ -437,16 +437,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           const isCrossGroupDrag = !draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP);
           if (isCrossGroupDrag) setCrossGroupDragActive(true);
           if (onEdgeSplitDrop && isCrossGroupDrag) {
-            // If this group has a project pane, force split (no move-into project)
-            const hasProjectPane = panes.some(p => p.type === 'project');
-            if (hasProjectPane) {
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              const x = e.clientX - rect.left;
-              setEdgeSplitZone(x < rect.width / 2 ? 'left' : 'right');
-              setDragOverIdx(null);
-              return;
-            }
-            // Non-project groups: edge-only split (EDGE_DROP_PX border zones)
+            // Edge-only split (EDGE_DROP_PX border zones). A former "group
+            // holds a project pane → force whole-bar split" branch was dead
+            // code: onEdgeSplitDrop only exists on project-INNER groups, and
+            // a project wrapper pane can never live inside one (stripped on
+            // hydrate, no addableScope, created standalone-only).
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const x = e.clientX - rect.left;
             if (x < EDGE_DROP_PX) {
@@ -486,17 +481,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // Re-verify the zone from the cursor's ACTUAL position at drop time.
             // A fast drag can leave `edgeSplitZone` set from an earlier edge
             // frame even though the release happened at center — which used to
-            // SPLIT when the user meant to MOVE the tab into this bar. Project
-            // groups always split (a foreign tab can't merge into a project's
-            // bar), so they skip the recheck; non-project groups only split when
-            // the cursor is genuinely in the EDGE_DROP_PX band at release.
-            const hasProjectPane = panes.some(p => p.type === 'project');
-            let doSplit = true;
-            if (!hasProjectPane) {
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              const x = e.clientX - rect.left;
-              doSplit = x < EDGE_DROP_PX || x > rect.width - EDGE_DROP_PX;
-            }
+            // SPLIT when the user meant to MOVE the tab into this bar. Only
+            // split when the cursor is genuinely in the EDGE_DROP_PX band at
+            // release. (The old "project groups always split" carve-out keyed
+            // on a project pane in THIS group — impossible for the
+            // project-inner groups that have onEdgeSplitDrop, see dragover.)
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const doSplit = x < EDGE_DROP_PX || x > rect.width - EDGE_DROP_PX;
             if (doSplit) {
               e.preventDefault();
               const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);

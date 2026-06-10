@@ -14,10 +14,20 @@ export function sanitizeRow(raw: unknown): PanelGridRow | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Partial<PanelGridRow>;
   if (!Array.isArray(r.itemKeys) || !Array.isArray(r.widths)) return null;
-  const itemKeys = r.itemKeys.filter((k): k is string => typeof k === 'string');
+  // Dedupe while filtering (first occurrence wins, keeping ITS width):
+  // duplicate itemKeys in persisted data survive the pruning sync pass
+  // untouched and render duplicate React keys.
+  const seenKeys = new Set<string>();
+  const keptIdx: number[] = [];
+  r.itemKeys.forEach((k, i) => {
+    if (typeof k !== 'string' || seenKeys.has(k)) return;
+    seenKeys.add(k);
+    keptIdx.push(i);
+  });
+  const itemKeys = keptIdx.map(i => r.itemKeys![i] as string);
   if (itemKeys.length === 0) return null;
 
-  const widths = itemKeys.map((_, i) => {
+  const widths = keptIdx.map(i => {
     const w = r.widths![i];
     return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 1 / itemKeys.length;
   });
@@ -29,6 +39,10 @@ export function sanitizeRow(raw: unknown): PanelGridRow | null {
   // cellStacks is optional; absent for the simple case.
   if (r.cellStacks && typeof r.cellStacks === 'object' && !Array.isArray(r.cellStacks)) {
     const itemKeySet = new Set(itemKeys);
+    // Stack items must be unique ACROSS stacks and must not shadow a
+    // top-level itemKey (other than their own primary) — either overlap
+    // renders the same pane twice.
+    const usedStackItems = new Set<string>();
     const sanitized: Record<string, PanelGridCellStack> = {};
     for (const [primary, stackRaw] of Object.entries(r.cellStacks)) {
       // Drop orphan stacks (primary no longer in itemKeys) — they would
@@ -37,7 +51,12 @@ export function sanitizeRow(raw: unknown): PanelGridRow | null {
       if (!stackRaw || typeof stackRaw !== 'object') continue;
       const s = stackRaw as Partial<PanelGridCellStack>;
       if (!Array.isArray(s.items)) continue;
-      const items = s.items.filter((k): k is string => typeof k === 'string');
+      const items: string[] = [];
+      for (const k of s.items) {
+        if (typeof k !== 'string' || itemKeySet.has(k) || usedStackItems.has(k)) continue;
+        usedStackItems.add(k);
+        items.push(k);
+      }
       if (items.length === 0) continue;
       const rawHeights = Array.isArray(s.heights) ? s.heights : [];
       // Heights array tracks `[primary, ...items]` — length items.length + 1.
@@ -81,16 +100,39 @@ interface PanelGridPersistedData {
   soloCells?: string[][];
 }
 
-/** Validate a `soloCells` payload: array of non-empty string arrays. */
+/** Validate a `soloCells` payload: array of non-empty string arrays. A topic
+ *  id may appear in ONE cell only (first occurrence wins) — duplicates across
+ *  or within cells would render the same pane twice. */
 function sanitizeSoloCells(raw: unknown): string[][] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: string[][] = [];
+  const seen = new Set<string>();
   for (const cell of raw) {
     if (!Array.isArray(cell)) continue;
-    const ids = cell.filter((id): id is string => typeof id === 'string');
+    const ids: string[] = [];
+    for (const id of cell) {
+      if (typeof id !== 'string' || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
     if (ids.length > 0) out.push(ids);
   }
   return out;
+}
+
+/** Validate persisted `gridRowHeights`: every entry must be a positive finite
+ *  number (corrupt entries get an equal share), renormalized to sum=1. The
+ *  raw cast let NaN/0/negatives/strings straight into `flex:` styles, where
+ *  the `?? fallback` at render only guards holes, not garbage. */
+function sanitizeRowHeights(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  if (raw.length === 0) return [];
+  const fallback = 1 / raw.length;
+  const heights = raw.map(h =>
+    typeof h === 'number' && Number.isFinite(h) && h > 0 ? h : fallback,
+  );
+  const sum = heights.reduce((s, h) => s + h, 0) || 1;
+  return heights.map(h => h / sum);
 }
 
 function readPersisted(): PanelGridPersistedData {
@@ -112,9 +154,7 @@ function readPersisted(): PanelGridPersistedData {
             .map((r: unknown) => sanitizeRow(r))
             .filter((r: PanelGridRow | null): r is PanelGridRow => r !== null))
         : undefined,
-      gridRowHeights: Array.isArray(parsed.gridRowHeights)
-        ? (parsed.gridRowHeights as number[])
-        : undefined,
+      gridRowHeights: sanitizeRowHeights(parsed.gridRowHeights),
       soloCells,
     };
   } catch {
