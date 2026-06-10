@@ -95,6 +95,25 @@ describe("extractCodexUsage", () => {
     });
   });
 
+  test("accepts the CLI 0.131 field names (reasoning_output_tokens / cached_input_tokens)", () => {
+    // Real payload from `codex exec --json` on codex-cli 0.131.0-alpha.9.
+    const u = extractCodexUsage({
+      type: "turn.completed",
+      usage: {
+        input_tokens: 14521,
+        cached_input_tokens: 7552,
+        output_tokens: 27,
+        reasoning_output_tokens: 19,
+      },
+    });
+    expect(u).toEqual({
+      inputTokens: 14521,
+      outputTokens: 27,
+      reasoningTokens: 19,
+      cacheRead: 7552,
+    });
+  });
+
   test("falls back to camelCase / OpenAI-style aliases", () => {
     expect(extractCodexUsage({ usage: { prompt_tokens: 10, completion_tokens: 22 } })).toEqual({
       inputTokens: 10,
