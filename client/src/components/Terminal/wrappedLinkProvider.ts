@@ -1,4 +1,5 @@
 import type { Terminal, IDisposable, ILink, ILinkProvider } from '@xterm/xterm';
+import { openExternalOnce } from '@/lib/openExternal';
 
 // xterm's WebLinksAddon scans one visible line at a time, so a URL that breaks
 // across rows only becomes clickable on its first row. This provider joins
@@ -148,7 +149,5 @@ export function registerWrappedLinkProvider(
 }
 
 export function openLinkExternally(uri: string): void {
-  const w = window as unknown as { electronAPI?: { openExternal?: (u: string) => void } };
-  if (w.electronAPI?.openExternal) w.electronAPI.openExternal(uri);
-  else window.open(uri, '_blank');
+  openExternalOnce(uri);
 }

@@ -291,9 +291,22 @@ function setupSocketReader(socket: net.Socket) {
     bridgeReady = false;
     bridgeSocket = null;
     console.log("[Terminal] Bridge socket closed, will reconnect on next use");
-    // Auto-reconnect after a short delay
+    // Auto-reconnect after a short delay, then RECONCILE. If the bridge process
+    // itself died (not just a socket blip), `ensureBridge` spawns a FRESH, empty
+    // bridge — its PTYs are gone. Without reconciling, the surviving claude-code
+    // sessions stay in our in-memory/DB map advertised as alive, but the new
+    // bridge has no PTY for them, so every terminal WS connect replays an empty
+    // buffer → permanently blank Claude tabs until a full server restart. Re-
+    // running reconcileSessions re-spawns each survivor with `--resume` (and
+    // parks the unrevivable ones as dormant), exactly like boot does. It is
+    // idempotent: if we reconnected to a bridge that still owns the PTYs, the
+    // bridge's `list` reports them and reconcile only reattaches — no double
+    // spawn. broadcastTerminalSessions afterwards pushes the refreshed list.
     setTimeout(() => {
-      ensureBridge().catch(() => {});
+      ensureBridge()
+        .then(() => reconcileSessions())
+        .then(() => broadcastTerminalSessions())
+        .catch(() => {});
     }, 500);
   });
 
