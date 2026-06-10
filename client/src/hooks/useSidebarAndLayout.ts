@@ -25,6 +25,7 @@ import { useMobile } from './useMobile';
 import { useStorageSync } from './useStorageSync';
 import { loadSettings, saveSettings } from '../lib/settings';
 import { generateUUID } from '../utils/uuid';
+import { DRAG_SLOP_PX } from './useGridResize';
 
 const getWindowId = (): string => {
   let id = sessionStorage.getItem('topics-window-id');
@@ -170,6 +171,10 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   const sidebarStartX = useRef(0);
   const sidebarStartWidth = useRef(0);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  // Full-viewport drag chrome, raised lazily on the first move beyond slop —
+  // same protocol as useGridResize (keeps the pointer out of iframes, lets
+  // native Electron WebContentsView panes hide via pane-resize-start/end).
+  const sidebarDragOverlay = useRef<HTMLDivElement | null>(null);
 
   // Mobile swipe-to-dismiss sidebar
   const touchStartX = useRef<number | null>(null);
@@ -229,9 +234,29 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   }, [appSettings, isDetached]);
 
   useEffect(() => {
+    const dropChrome = () => {
+      if (sidebarDragOverlay.current) {
+        sidebarDragOverlay.current.remove();
+        sidebarDragOverlay.current = null;
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
+      }
+    };
     const onMove = (e: MouseEvent) => {
       if (!sidebarResizing.current) return;
+      // Lost-mouseup recovery: button no longer down — end the drag instead
+      // of leaving the overlay armed and the resize tracking the pointer.
+      if ((e.buttons & 1) === 0) { onUp(e); return; }
       const delta = e.clientX - sidebarStartX.current;
+      // Sub-slop jitter is still a click in progress — raising the overlay
+      // here would retarget the mouseup and kill double-click → collapse.
+      if (!sidebarDragOverlay.current && Math.abs(delta) <= DRAG_SLOP_PX) return;
+      if (!sidebarDragOverlay.current) {
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:col-resize';
+        document.body.appendChild(ov);
+        sidebarDragOverlay.current = ov;
+        window.dispatchEvent(new Event('topics:pane-resize-start'));
+      }
       const newWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
       if (sidebarRef.current) {
         sidebarRef.current.style.width = `${newWidth}px`;
@@ -243,6 +268,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       sidebarResizing.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      dropChrome();
       if (sidebarRef.current) {
         sidebarRef.current.style.transition = '';
       }
@@ -262,6 +288,9 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      // Unmount mid-drag: balance the pane-resize-start already dispatched.
+      sidebarResizing.current = false;
+      dropChrome();
     };
   }, [isDetached]);
 

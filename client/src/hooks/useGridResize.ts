@@ -21,6 +21,12 @@ interface ResizeOptions {
   resolveVertical?: DOMResolveFn;
 }
 
+// Displacement (px) below which a pressed divider is still a "click", not a
+// drag. Trackpads jitter 1-2px while pressed; without slop that jitter raises
+// the drag overlay, the overlay swallows the mouseup, and the divider's
+// double-click → equalize can never fire. Shared with CellSubStack's divider.
+export const DRAG_SLOP_PX = 4;
+
 export function useGridResize(
   containerRef: React.RefObject<HTMLElement | null>,
   callbacks: ResizeCallbacks,
@@ -62,6 +68,9 @@ export function useGridResize(
     (rowIdx: number, divIdx: number, currentWidths: number[]) => (e: React.MouseEvent) => {
       e.preventDefault();
       const resolved = optionsRef.current?.resolveHorizontal?.(e.currentTarget as HTMLElement);
+      // A lost mouseup (released over another app / window) can leave the
+      // opposite axis armed; starting a new drag must own the chrome alone.
+      vResizing.current = null;
       hResizing.current = {
         rowIdx,
         divIdx,
@@ -83,6 +92,7 @@ export function useGridResize(
     (divIdx: number, currentHeights: number[]) => (e: React.MouseEvent) => {
       e.preventDefault();
       const resolved = optionsRef.current?.resolveVertical?.(e.currentTarget as HTMLElement);
+      hResizing.current = null;
       vResizing.current = {
         divIdx,
         startY: e.clientY,
@@ -124,12 +134,28 @@ export function useGridResize(
     let rafId = 0;
 
     const onMove = (e: MouseEvent) => {
+      if (!hResizing.current && !vResizing.current) return;
+
+      // Lost-mouseup recovery: if the primary button is no longer down (the
+      // mouseup landed on another app, a native view, or outside the window),
+      // finish the drag now instead of leaving a full-viewport overlay armed.
+      if ((e.buttons & 1) === 0) {
+        onUp(e);
+        return;
+      }
+
       // First real movement of a drag: raise the chrome. The overlay keeps the
       // pointer out of DOM iframes; the 'pane-resize-start' event lets native
       // Electron WebContentsView panes hide themselves for the duration (an
       // OS-level view sits above the DOM, so neither the overlay nor window
       // mousemove can reach past it otherwise — the drag would stick over it).
-      if ((hResizing.current || vResizing.current) && !dragChrome.current) {
+      if (!dragChrome.current) {
+        // Sub-slop jitter while pressed is still a click in progress — raising
+        // the overlay here would retarget the mouseup and kill double-click.
+        const moved = hResizing.current
+          ? Math.abs(e.clientX - hResizing.current.startX)
+          : Math.abs(e.clientY - vResizing.current!.startY);
+        if (moved <= DRAG_SLOP_PX) return;
         const ov = document.createElement('div');
         const cursor = hResizing.current ? 'col-resize' : 'row-resize';
         ov.style.cssText = `position:fixed;inset:0;z-index:2147483647;cursor:${cursor}`;
@@ -208,11 +234,11 @@ export function useGridResize(
           newW[divIdx] = l;
           newW[divIdx + 1] = sum - l;
         }
-        // A bare click (no movement) leaves widths unchanged — don't emit a
-        // no-op resize that re-renders and re-persists. This also keeps a
-        // double-click (two clicks → equalize) from firing two phantom writes
-        // before the equalize lands.
-        if (e.clientX !== startX) {
+        // A bare click (sub-slop movement) leaves widths unchanged — don't
+        // emit a no-op resize that re-renders and re-persists. This also keeps
+        // a double-click (two clicks → equalize) from firing two phantom
+        // writes before the equalize lands.
+        if (Math.abs(e.clientX - startX) > DRAG_SLOP_PX) {
           callbacksRef.current.onHorizontalResize(rowIdx, divIdx, newW);
         }
         hResizing.current = null;
@@ -231,7 +257,7 @@ export function useGridResize(
           newH[divIdx] = t;
           newH[divIdx + 1] = sum - t;
         }
-        if (e.clientY !== startY) {
+        if (Math.abs(e.clientY - startY) > DRAG_SLOP_PX) {
           callbacksRef.current.onVerticalResize(divIdx, newH);
         }
         vResizing.current = null;
@@ -248,12 +274,31 @@ export function useGridResize(
       }
     };
 
+    // Cmd-tab / focus loss mid-drag: the mouseup will land in another app, so
+    // end the drag without committing (position is unknowable) and balance the
+    // resize-start event. The next mousemove's e.buttons check is the fallback
+    // for cases where blur doesn't fire (e.g. release over a native view).
+    const onBlur = () => {
+      cancelAnimationFrame(rafId);
+      if (hResizing.current) { hResizing.current.cleanupDOM?.(); hResizing.current = null; }
+      if (vResizing.current) { vResizing.current.cleanupDOM?.(); vResizing.current = null; }
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (dragChrome.current) {
+        dragChrome.current.remove();
+        dragChrome.current = null;
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
+      }
+    };
+
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onBlur);
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onBlur);
       hResizing.current = null;
       vResizing.current = null;
       document.body.style.cursor = '';
