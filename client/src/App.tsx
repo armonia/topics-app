@@ -33,7 +33,7 @@ import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelP
 import { flushPaneStoreNow } from './state/pane/middleware';
 import { useSignalsSync } from './state/useSignalsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { RESTING_SURFACE } from './lib/selectionStyles';
+import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
@@ -578,9 +578,12 @@ function App() {
       >
 
         
-        {/* Header - draggable for window move */}
+        {/* Header - draggable for window move. Horizontal inset = ROW_INSET,
+            the same 6px the tab strip, the sidebar cards, and the list's
+            vertical padding use — one inset on every sidebar axis. */}
         <div
-          className={`flex items-center justify-between gap-2 px-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
+          className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
+          style={{ paddingInline: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Close button on mobile */}
