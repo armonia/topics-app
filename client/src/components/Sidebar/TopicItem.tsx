@@ -12,7 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTopicLoading } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { GridLoader } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 
@@ -80,8 +80,9 @@ export const TopicItem = memo(function TopicItem({
 }: TopicItemProps) {
   // Depth indent lives on the LEFT MARGIN, not padding — so a sub-tab's CARD
   // shifts right (leaving an empty gutter) instead of just indenting its text
-  // inside a full-width card. 8px base = the card's own mx-2 inset.
-  const marginLeft = 8 + depth * 16;
+  // inside a full-width card. Base = the card's own inset (ROW_INSET),
+  // so depth-0 children line up with the card edge.
+  const marginLeft = ROW_INSET + depth * SIDEBAR_INDENT_STEP;
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
   const isStreaming = useTopicLoading(topic.id);
@@ -166,7 +167,7 @@ export const TopicItem = memo(function TopicItem({
         // Shared card styling (see sidebarRowCard) — same look for every
         // sidebar row type. No border (hairlines read as dividing lines); a
         // filled inset rounded surface makes each row a tab-like card.
-        'group flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] px-2 cursor-pointer text-[14px] md:text-[13px] font-medium select-none',
+        `group flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
         sidebarRowCard({ focused: isFocused, open: isOpen }),
         // Preview panels show italic name
         isPreview && 'italic',
