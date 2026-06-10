@@ -317,19 +317,23 @@
   /* Claude Code TUI transcripts (ANSI). \x1b = ESC; xterm needs CRLF (added at
    * emit time). Generic acme-web work — no real project/user data.
    *
-   * The mascot is the REAL Claude Code logo (v2.1.x): three rows of block-art
-   * in brand orange (38;2 truecolor #D97757 foreground), the exact glyphs the
-   * CLI paints — full block U+2588, half blocks U+2590/U+258C, quadrant blocks
-   * U+259B–U+259D. JetBrains Mono (loaded above) renders Block-Elements
-   * edge-to-edge, so the mark is seam-free; we resize once the font is ready so
-   * xterm measures cells against it, not the fallback. (This replaces an older
-   * bg-fill rectangle that dodged the fallback-font gap problem but read as a
-   * generic orange box, not the actual logo.) Each row is padded to 9 cells so
-   * the trailing text aligns across all three lines. */
-  var CC_FG = "\x1b[38;2;217;119;87m", CC_RST = "\x1b[0m";
-  var M1 = CC_FG + " ▐▛███▜▌ " + CC_RST; //  ▐▛███▜▌
-  var M2 = CC_FG + "▝▜█████▛▘" + CC_RST; // ▝▜█████▛▘
-  var M3 = CC_FG + "  ▘▘ ▝▝  " + CC_RST; //   ▘▘ ▝▝
+   * The mascot is the Claude Code mark in brand orange (#D97757), drawn as a
+   * full-cell silhouette via the cell BACKGROUND (48;2 truecolor) — NOT via
+   * block glyphs. WHY: xterm runs its DOM renderer here (deliberate, for native
+   * mobile text selection), which paints each cell's glyph from the FONT.
+   * Sub-cell glyphs — the quadrant/half blocks ▛▜▝▘▐▌ the real CLI logo uses —
+   * don't meet at cell edges in a webfont, so they render with hairline seams
+   * between the little blocks (and the Canvas/WebGL renderer that would draw
+   * them seam-free isn't loaded). A cell background is a solid CSS rectangle
+   * that fills the WHOLE cell with zero gaps regardless of font, so a silhouette
+   * built from backgrounds tiles perfectly. We trade the sub-cell rounding of
+   * the literal logo for a clean, seam-free mark — a rounded body with two feet,
+   * the creature's recognizable shape. Eyes/holes are default-bg cells. Each row
+   * is 8 cells wide so the trailing text aligns across all three lines. */
+  var B = "\x1b[48;2;217;119;87m", R = "\x1b[49m"; // bg on / bg off
+  var M1 = " " + B + "      " + R + " ";                       //  ██████
+  var M2 = B + "        " + R;                                 // ████████
+  var M3 = "  " + B + "  " + R + " " + B + "  " + R + " ";     //   ██ ██
   var CLAUDE_CC1 = [
     M1 + "   \x1b[1mClaude Code\x1b[0m \x1b[2mv2.1.172\x1b[0m\n",
     M2 + "   \x1b[2mFable 5 (1M context)\x1b[0m\n",
@@ -635,7 +639,7 @@
       /* Hide sidebar instantly when pre-collapsed to avoid flash */
       html.sidebar-pre-collapsed [role="navigation"][aria-label="Topics sidebar"] { width: 0 !important; overflow: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-DRL9F36l.js"></script>
+    <script type="module" crossorigin src="./assets/index-CBRGNWfE.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/icons-qYTwN--u.js">
     <link rel="modulepreload" crossorigin href="./assets/markdown-BSyWqnvk.js">
     <link rel="modulepreload" crossorigin href="./assets/react-vendor-D25dlSlT.js">
