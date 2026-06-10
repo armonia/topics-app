@@ -29,6 +29,7 @@ import type {
   StreamHandler,
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
+import { resolveCodexBin } from "../lib/codex-bin";
 
 // ============ Config ============
 
@@ -91,8 +92,11 @@ export function extractCodexUsage(event: Record<string, unknown>): ProviderUsage
     const u = raw as Record<string, unknown>;
     const inputTokens = num(u.input_tokens) ?? num(u.prompt_tokens) ?? num(u.inputTokens);
     const outputTokens = num(u.output_tokens) ?? num(u.completion_tokens) ?? num(u.outputTokens);
-    const reasoningTokens = num(u.reasoning_tokens) ?? num(u.reasoningTokens);
-    const cacheRead = num(u.cache_read_input_tokens) ?? num(u.cached_tokens) ?? num(u.cacheRead);
+    // CLI 0.131 renamed these: `reasoning_output_tokens` (was `reasoning_tokens`)
+    // and `cached_input_tokens` (was `cache_read_input_tokens`). Accept both so
+    // usage keeps rendering across CLI versions.
+    const reasoningTokens = num(u.reasoning_output_tokens) ?? num(u.reasoning_tokens) ?? num(u.reasoningTokens);
+    const cacheRead = num(u.cached_input_tokens) ?? num(u.cache_read_input_tokens) ?? num(u.cached_tokens) ?? num(u.cacheRead);
     const cacheCreation = num(u.cache_creation_input_tokens) ?? num(u.cacheCreation);
     if (inputTokens === undefined && outputTokens === undefined) continue;
     const usage: ProviderUsage = {};
@@ -139,25 +143,10 @@ export function extractCodexErrorMessage(event: Record<string, unknown>): string
   return msg;
 }
 
-const MAC_APP_BUNDLE_PATHS = [
-  "/Applications/Codex.app/Contents/Resources/codex",
-  join(process.env.HOME || "", "Applications/Codex.app/Contents/Resources/codex"),
-];
-
-function resolveCodexBinary(): string | null {
-  const envBin = process.env.CODEX_BIN;
-  if (envBin && existsSync(envBin)) return envBin;
-
-  const inPath = Bun.which("codex");
-  if (inPath) return inPath;
-
-  // macOS: Codex.app ships the binary inside the bundle
-  for (const candidate of MAC_APP_BUNDLE_PATHS) {
-    if (existsSync(candidate)) return candidate;
-  }
-
-  return null;
-}
+// Binary resolution lives in the shared `lib/codex-bin` resolver so the chat
+// provider and the interactive PTY route (routes/terminal.ts) agree on where
+// codex is — including the Codex.app bundle, which isn't on PATH.
+const resolveCodexBinary = resolveCodexBin;
 
 function hasActiveSession(): boolean {
   // Heuristic: Codex stores real credentials under $CODEX_HOME (or ~/.codex).

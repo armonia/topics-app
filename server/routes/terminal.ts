@@ -9,6 +9,7 @@ import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
 import { augmentPath } from "../utils/path-env";
+import { resolveCodexBin } from "../lib/codex-bin";
 import { classifyFrame, isInputEcho } from "../lib/pty-activity";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
@@ -792,7 +793,12 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // MCP bridge config, no tracker registration, no skip-permissions flag).
     // Codex sessions carry no claude_session_id, so the dormant sweep treats
     // them like shells (no resumable pointer we track).
-    file = 'codex';
+    //
+    // Resolve the ABSOLUTE path: Codex ships inside Codex.app (not on PATH),
+    // and under launchd the server's PATH excludes both Homebrew and the app
+    // bundle — a bare `codex` ENOENTs silently, leaving a blank pane. The
+    // shared resolver (used by the chat provider too) finds the bundle binary.
+    file = resolveCodexBin() ?? 'codex';
     args = [];
   } else if (command) {
     const parts = command.split(" ");
