@@ -85,6 +85,20 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         projectPath: pane.projectPath,
         topicId: pane.topicId,
         filePath: pane.filePath,
+        // Terminal metadata so reopenClosedTab can recreate the server
+        // session — its recreation branch gates on `record.terminal`, so a
+        // record without this field reopens bound to the OLD (deleted)
+        // session id: a dead terminal. sessionId itself is re-derived from
+        // pane.id at reopen; the POST body consumes cwd/sessionType/name.
+        terminal:
+          pane.type === 'terminal'
+            ? {
+                sessionId: pane.terminalSessionId,
+                cwd: pane.projectPath,
+                sessionType: pane.terminalType,
+                name: pane.title,
+              }
+            : undefined,
         splitRatio: group.splitRatio,
         splitAxis: group.splitAxis,
         focusedAtClose: state.focusedPaneId === id,
@@ -220,6 +234,33 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           if (drafts.length > 0) localDraftsByGroup[gid] = drafts;
         }
       }
+      // Boot-window protection: panes opened locally between the warm-boot
+      // localStorage hydrate and the FIRST server frame don't exist in the
+      // server snapshot yet — the wholesale replace below would erase them
+      // (the user's just-clicked tab vanishes ~500ms after opening). Preserve
+      // them ONLY on the first server hydrate (lastServerSeq still 0):
+      // steady-state hydrates must keep replacing, or a pane closed on
+      // another device would resurrect here forever. Matches the product's
+      // open-tabs-converge-by-UNION model; this tab's next debounced PUT
+      // pushes the union back to the server.
+      const isFirstServerHydrate =
+        clean.panes !== undefined && state.lastServerSeq === 0 && clean.server_seq > 0;
+      const localBootPanes: PaneState['panes'] = {};
+      const localBootByGroup: Record<string, string[]> = {};
+      if (isFirstServerHydrate) {
+        const incomingIds = new Set(Object.keys(clean.panes ?? {}));
+        for (const [id, pane] of Object.entries(state.panes)) {
+          if (!id.startsWith('draft:') && !incomingIds.has(id)) {
+            localBootPanes[id] = pane;
+          }
+        }
+        if (Object.keys(localBootPanes).length > 0) {
+          for (const [gid, group] of Object.entries(state.groups)) {
+            const kept = group.paneIds.filter((id) => localBootPanes[id]);
+            if (kept.length > 0) localBootByGroup[gid] = kept;
+          }
+        }
+      }
       if (clean.panes) state.panes = clean.panes;
       if (clean.groups) state.groups = clean.groups;
       // `clean.projects` is intentionally ignored — see selectors.ts for the
@@ -239,6 +280,22 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         if (!group) continue;
         for (const draftId of drafts) {
           if (!group.paneIds.includes(draftId)) group.paneIds.push(draftId);
+        }
+      }
+      // Re-inject boot-window panes (first server hydrate only — see above).
+      // Unlike drafts we recreate a missing group: these are real panes the
+      // user just opened, and their group (usually group:default) may not be
+      // in a server snapshot written before this device ever PUT.
+      for (const [gid, ids] of Object.entries(localBootByGroup)) {
+        let group = state.groups[gid];
+        if (!group) {
+          group = { id: gid, paneIds: [], splitRatio: 0.5, splitAxis: 'horizontal' };
+          state.groups[gid] = group;
+          if (!state.groupOrder.includes(gid)) state.groupOrder.push(gid);
+        }
+        for (const id of ids) {
+          state.panes[id] = localBootPanes[id];
+          if (!group.paneIds.includes(id)) group.paneIds.push(id);
         }
       }
       // Defense-in-depth — sanitizer also clamps, but a test fixture or legacy

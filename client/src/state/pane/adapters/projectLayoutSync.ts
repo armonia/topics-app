@@ -20,6 +20,12 @@ import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
 // Storage-key derivation (hash of projectPath). Exposed here so call sites
 // don't need to re-implement the hash and so the PANE-01 grep gate passes
 // without leaving the literal `topics-project-*` prefix in consumer files.
+//
+// 32-bit hash: a cross-project collision is possible in principle (~1/4e9
+// per pair — two paths sharing one layout record), but changing the hash
+// now would orphan every existing localStorage AND server `ui_state` key,
+// silently dropping all saved project layouts. Accepted at this scale;
+// keys are pruned on project archive (usePanelLifecycle.handleArchiveProject).
 function projectHash(projectPath: string): string {
   let hash = 0;
   for (let i = 0; i < projectPath.length; i++) {
@@ -183,24 +189,28 @@ function flushSync(key: string): void {
   const value = pendingValues.get(key);
   pendingValues.delete(key);
   if (!value) return;
-  // Never publish a fully-empty record. It carries no tabs to converge, and an
-  // LWW replace of {nonChatPanes:[],openChatTopicIds:[]} would strip a peer's
-  // open tabs from the shared record. "I closed everything in this project" is
-  // a far rarer intent than "don't wipe my other device's open tabs" — and a
-  // genuine cross-device close of a chat still propagates via archive (which
-  // the server purge removes from every record).
-  const nonChat = value.nonChatPanes as unknown[] | undefined;
-  const openChat = value.openChatTopicIds as unknown[] | undefined;
-  if ((nonChat?.length ?? 0) === 0 && (openChat?.length ?? 0) === 0) return;
+  // Fully-empty records DO publish. This used to be skipped to protect peers'
+  // open tabs, but the receive side (onServerHydrate) is strictly ADDITIVE —
+  // an empty record can never remove a pane a peer has open, it only stops
+  // contributing tabs. Skipping the PUT was the real bug: "close every tab in
+  // the project" never reached the server, so the stale record resurrected
+  // all the dead panes on the next reload (GET hydrate union-adds them back).
   const json = JSON.stringify(value);
   if (json === lastSyncedJsonByKey.get(key)) return; // unchanged / echo guard
-  lastSyncedJsonByKey.set(key, json);
   void fetch(`/api/ui-state/${encodeURIComponent(key)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
     body: json,
   })
-    .then((res) => (res.ok ? res.json().catch(() => null) : null))
+    .then((res) => {
+      if (!res.ok) return null;
+      // Commit the dedupe guard only AFTER the server accepted the write.
+      // Setting it before the fetch poisoned the guard on a failed PUT:
+      // every later save of the same state dedupe-skipped its PUT, so the
+      // server (and peers) never converged until reload or WS reconnect.
+      lastSyncedJsonByKey.set(key, json);
+      return res.json().catch(() => null);
+    })
     .then((body: { server_seq?: number } | null) => {
       if (body && typeof body.server_seq === 'number') {
         lastAppliedSeqByKey.set(key, Math.max(lastAppliedSeqByKey.get(key) ?? 0, body.server_seq));

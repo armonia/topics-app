@@ -5,6 +5,13 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   const record = state.closedStack.pop();
   if (!record) return;
 
+  // Stale-record guard (mirrors OPEN_PANE's idempotent early-exit): if the
+  // pane was already re-opened via OPEN_PANE after the close, re-inserting
+  // here would put the same id in paneIds twice — duplicate tabs sharing one
+  // entity and React key collisions. Popping the record IS the right outcome;
+  // there is nothing left to undo.
+  if (state.panes[record.id]) return;
+
   // Re-insert the pane entity. Strip `scrollOffset` defensively — it is a
   // device-local field that CLOSE_PANE no longer copies onto the record
   // (reducers/panes.ts) and sanitizeSnapshot drops on inbound, but a legacy
