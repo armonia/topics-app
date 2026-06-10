@@ -21,6 +21,7 @@ import {
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
 import { primaryFromSoloCellKey } from '../soloCells';
+import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 
 const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
@@ -78,7 +79,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
   const {
     ordering, active,
     topics, gridItemKey,
-    onClosePanel, onFocusPanel, onCloseMultiplePanels,
+    onClosePanel, onFocusPanel,
     onSplitPane, onUnsolo,
     onCreateTerminal, onMergeIntoCell, claudeSkipPermissions,
     stopSession,
@@ -102,7 +103,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       // Group-local singleton — already lands in THIS group's tab bar.
       ordering.ops.ensureBrowserPane();
     } else if (type === 'terminal') {
-      const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
+      const termType = normalizeTerminalAgent(subType);
       // App-level creation appends the pane to openPanels, which PanelGrid
       // places in the main 'standalone' cell. When the "+" that was clicked
       // belongs to a SPLIT cell ('solo:<primary>'), re-target the new pane
@@ -225,40 +226,27 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     };
   }, [onUnsolo]);
 
-  // ISSUE 22 fix: "Close Others" — batch-close multiple panels atomically.
-  // Uses the same PANE_KIND_HANDLERS table as handleClosePane so the
-  // "local vs store-managed" partition is consistent. Side effects from
-  // each kind still fire (server DELETEs for browser + terminal).
+  // "Close Others" — same close path as handleClosePane, applied per pane.
+  // Local panes (browser/session-viewer) are batch-removed from the ordering
+  // store first so the tab bar collapses instantly, but EVERY pane still goes
+  // through onClosePanel: that purges App.openPanels + the persisted store
+  // (otherwise local panes resurrect on reload) and defers each server-side
+  // DELETE into the pending-action commit, keeping the close countdown
+  // cancellable exactly like a single close.
   const handleCloseOthers = useCallback((keepPaneId: string) => {
     const toClose = validatedOrderedIds.filter((id) => id !== keepPaneId);
     if (toClose.length === 0) return;
 
-    // Partition by localManaged. Local panes go through ordering.ops; the
-    // store-managed ones flow through onCloseMultiplePanels (atomic batch
-    // when available) or onClosePanel per id.
-    const localToClose: string[] = [];
-    const parentToClose: string[] = [];
+    const localToClose = toClose.filter((id) => findHandler(id)?.localManaged);
+    if (localToClose.length > 0) ordering.ops.removeLocalPanes(localToClose);
+
     for (const id of toClose) {
       const h = findHandler(id);
-      if (h?.localManaged) localToClose.push(id);
-      else parentToClose.push(id);
-    }
-
-    if (localToClose.length > 0) {
-      ordering.ops.removeLocalPanes(localToClose);
-    }
-    // Fire kind-specific side effects (server DELETEs etc.) regardless of
-    // which partition the pane went into.
-    for (const id of toClose) findHandler(id)?.sideEffect?.(id);
-
-    if (parentToClose.length > 0 && onCloseMultiplePanels) {
-      onCloseMultiplePanels(parentToClose);
-    } else {
-      for (const id of parentToClose) onClosePanel(id);
+      onClosePanel(id, h?.sideEffect ? () => h.sideEffect!(id) : undefined);
     }
 
     onFocusPanel(keepPaneId);
-  }, [validatedOrderedIds, ordering.ops, onCloseMultiplePanels, onClosePanel, onFocusPanel]);
+  }, [validatedOrderedIds, ordering.ops, onClosePanel, onFocusPanel]);
 
   return {
     settingsTopicId,

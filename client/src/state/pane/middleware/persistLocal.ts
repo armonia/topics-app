@@ -31,8 +31,14 @@ let started = false;
 
 function writeSnapshotNow(): void {
   try {
+    const state = usePaneStore.getState();
     const snap = {
-      ...selectLocalSnapshot(usePaneStore.getState()),
+      ...selectLocalSnapshot(state),
+      // LWW key for the warm-boot hydrate and the cross-tab gate: the highest
+      // server-stamped seq this tab has applied. Without it the boot-time
+      // hydrate dispatched seq 0 and the reducer's gate dropped it on every
+      // boot (audit HIGH: warm-hydrate was dead code).
+      server_seq: state.lastServerSeq,
       savedAt: Date.now(),
       // `senderId` is the per-tab UUID from syncCrossTab; receivers drop
       // payloads whose senderId matches their own, preventing self-apply loops.
@@ -60,14 +66,25 @@ export function hydrateFromLocalSnapshot(): void {
   try {
     const raw = localStorage.getItem(LOCAL_KEY);
     if (raw) {
-      const snap = JSON.parse(raw) as Record<string, unknown> & { server_seq?: number };
+      const snap = JSON.parse(raw) as Record<string, unknown> & {
+        server_seq?: number;
+        lastSeq?: number;
+      };
       const seq = typeof snap.server_seq === 'number' ? snap.server_seq : 0;
+      // The reducer's LWW gate compares `server_seq` against lastServerSeq
+      // (0 at boot, with a warm-boot escape for never-synced snapshots), so
+      // this dispatch applies. Restore the persisted lastSeq too so the local
+      // dispatch counter resumes from where the previous session left off.
       usePaneStore.getState().dispatch({
         type: 'HYDRATE_FROM_SNAPSHOT',
         payload: {
           snapshot: {
             ...snap,
-            lastSeq: Math.max(usePaneStore.getState().lastSeq, seq),
+            lastSeq: Math.max(
+              usePaneStore.getState().lastSeq,
+              typeof snap.lastSeq === 'number' ? snap.lastSeq : 0,
+              seq,
+            ),
             server_seq: seq,
             seq,
           },
@@ -75,8 +92,9 @@ export function hydrateFromLocalSnapshot(): void {
       });
     }
     // Focus lives in its own key (sanitizeSnapshot strips it from the main
-    // snapshot). Apply it after the panes hydrate so FOCUS_PANE's existence
-    // check finds the pane.
+    // snapshot). Apply it after the panes hydrate — FOCUS_PANE has no
+    // existence check, so ordering only matters for consumers reading
+    // focusedPaneId + panes together right after boot.
     const focused = localStorage.getItem(LOCAL_FOCUS_KEY);
     if (focused) {
       usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: focused } });

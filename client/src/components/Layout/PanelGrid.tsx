@@ -59,6 +59,38 @@ function collectAllPresentKeys(rows: PanelGridRow[]): Set<string> {
   return out;
 }
 
+/**
+ * Remove a top-level cell `key` from a row, preserving the OTHER cells'
+ * sub-stacks (a bare `{ itemKeys, widths }` rebuild is the exact data loss
+ * cloneRow's contract warns about). If the removed key hosted a sub-stack,
+ * that entry is detached and returned so the caller decides its fate:
+ * re-attach at the destination for a move, or drop it when the additive
+ * sync is about to re-home the orphans anyway.
+ */
+function removeKeyFromRow(
+  row: PanelGridRow,
+  key: string,
+): { row: PanelGridRow; detachedStack?: PanelGridCellStack } {
+  const idx = row.itemKeys.indexOf(key);
+  if (idx < 0) return { row };
+  const itemKeys = row.itemKeys.filter((_, i) => i !== idx);
+  const widths = row.widths.filter((_, i) => i !== idx);
+  const total = widths.reduce((s, w) => s + w, 0);
+  const next: PanelGridRow = {
+    itemKeys,
+    widths: itemKeys.length === 0
+      ? widths
+      : total > 0 ? widths.map(w => w / total) : itemKeys.map(() => 1 / itemKeys.length),
+  };
+  let detachedStack: PanelGridCellStack | undefined;
+  if (row.cellStacks) {
+    const { [key]: detached, ...rest } = row.cellStacks;
+    detachedStack = detached;
+    if (Object.keys(rest).length > 0) next.cellStacks = rest;
+  }
+  return { row: next, detachedStack };
+}
+
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
@@ -123,7 +155,7 @@ interface PanelGridProps {
   panelInitialTab?: Record<string, import('../../types').PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
   // Pending pane request for project windows
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
@@ -137,7 +169,7 @@ interface PanelGridProps {
   // Report all open pane IDs inside each project (for sidebar filtering)
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Create a new terminal (delegates to App)
-  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void | Promise<string | null>;
+  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void | Promise<string | null>;
   // Pending browser pane request (from sidebar) — contextId or null
   pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;
@@ -350,12 +382,17 @@ export function PanelGrid({
         const next = prev.map(row => {
           let stacksMutated = false;
           let nextStacks: Record<string, PanelGridCellStack> | undefined = row.cellStacks;
+          // Dead primary whose stack still has live members → promote the
+          // first survivor to primary in its place. Discarding the whole
+          // stack (the old behavior) silently dropped open panes that were
+          // perfectly valid; the additive sync won't resurrect them because
+          // naturalGridItems didn't change.
+          const promoted = new Map<string, string>();
           if (row.cellStacks) {
             const out: Record<string, PanelGridCellStack> = {};
             for (const [primary, stack] of Object.entries(row.cellStacks)) {
-              if (!currentKeys.has(primary)) { stacksMutated = true; continue; }
               const keptItems: string[] = [];
-              const keptHeights: number[] = [stack.heights[0] ?? 1 / (stack.items.length + 1)];
+              const keptHeights: number[] = [];
               for (let i = 0; i < stack.items.length; i++) {
                 if (currentKeys.has(stack.items[i])) {
                   keptItems.push(stack.items[i]);
@@ -364,23 +401,44 @@ export function PanelGrid({
                   stacksMutated = true;
                 }
               }
+              if (!currentKeys.has(primary)) {
+                stacksMutated = true;
+                if (keptItems.length === 0) continue;
+                const [newPrimary, ...restItems] = keptItems;
+                promoted.set(primary, newPrimary);
+                if (restItems.length > 0) {
+                  const sum = keptHeights.reduce((s, h) => s + h, 0) || 1;
+                  out[newPrimary] = { items: restItems, heights: keptHeights.map(h => h / sum) };
+                }
+                continue;
+              }
               if (keptItems.length === 0) { stacksMutated = true; continue; }
-              const sum = keptHeights.reduce((s, h) => s + h, 0) || 1;
-              out[primary] = { items: keptItems, heights: keptHeights.map(h => h / sum) };
+              const heights = [stack.heights[0] ?? 1 / (stack.items.length + 1), ...keptHeights];
+              const sum = heights.reduce((s, h) => s + h, 0) || 1;
+              out[primary] = { items: keptItems, heights: heights.map(h => h / sum) };
             }
             nextStacks = Object.keys(out).length > 0 ? out : undefined;
           }
 
-          const kept: number[] = [];
+          const newItemKeys: string[] = [];
+          const newWidths: number[] = [];
           for (let i = 0; i < row.itemKeys.length; i++) {
-            if (currentKeys.has(row.itemKeys[i])) kept.push(i);
+            const key = row.itemKeys[i];
+            if (currentKeys.has(key)) {
+              newItemKeys.push(key);
+              newWidths.push(row.widths[i]);
+            } else if (promoted.has(key)) {
+              // Promoted survivor inherits the dead primary's slot + width.
+              newItemKeys.push(promoted.get(key)!);
+              newWidths.push(row.widths[i]);
+            }
           }
-          const itemKeysUnchanged = kept.length === row.itemKeys.length;
+          const itemKeysUnchanged =
+            newItemKeys.length === row.itemKeys.length &&
+            newItemKeys.every((k, i) => k === row.itemKeys[i]);
           if (itemKeysUnchanged && !stacksMutated) return row;
           mutated = true;
-          if (kept.length === 0) return { itemKeys: [] as string[], widths: [] as number[] };
-          const newItemKeys = kept.map(i => row.itemKeys[i]);
-          const newWidths = kept.map(i => row.widths[i]);
+          if (newItemKeys.length === 0) return { itemKeys: [] as string[], widths: [] as number[] };
           const total = newWidths.reduce((s, w) => s + w, 0);
           const nextRow: PanelGridRow = {
             itemKeys: newItemKeys,
@@ -1062,18 +1120,11 @@ export function PanelGrid({
           // ISSUE 8 FIX: Use immutable operations instead of splice()
           let rows = prev.map(cloneRow);
 
-          // Safety: remove soloKey if already present (immutably)
-          rows = rows.map(row => {
-            const idx = row.itemKeys.indexOf(soloKey);
-            if (idx < 0) return row;
-            const newKeys = row.itemKeys.filter((_, i) => i !== idx);
-            const newWidths = row.widths.filter((_, i) => i !== idx);
-            if (newKeys.length > 0) {
-              const total = newWidths.reduce((s, w) => s + w, 0);
-              return { itemKeys: newKeys, widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length) };
-            }
-            return { itemKeys: newKeys, widths: newWidths };
-          });
+          // Safety: remove soloKey if already present (immutably). Sibling
+          // cells' sub-stacks survive; soloKey's own stale stack entry is
+          // dropped — the soloCells change above reruns the additive sync,
+          // which re-homes any live orphans (mirrors handleSplitPane).
+          rows = rows.map(row => removeKeyFromRow(row, soloKey).row);
           rows = rows.filter(r => r.itemKeys.length > 0);
 
           let tRow = -1, tCol = -1;
@@ -1095,7 +1146,13 @@ export function PanelGrid({
             const newKeys = [...row.itemKeys.slice(0, insertAt), soloKey, ...row.itemKeys.slice(insertAt)];
             // Split the target column's width with the new one; siblings keep
             // their manual sizes (was `1/n`, which flattened the whole row).
-            rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: splitColumnWidths(r.widths, tCol, insertAt) } : r);
+            rows = rows.map((r, i) => i === tRow
+              ? {
+                  itemKeys: newKeys,
+                  widths: splitColumnWidths(r.widths, tCol, insertAt),
+                  ...(r.cellStacks ? { cellStacks: r.cellStacks } : {}),
+                }
+              : r);
           }
 
           return rows;
@@ -1118,33 +1175,38 @@ export function PanelGrid({
       const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
 
       // Find source position
-      let srcRow = -1, srcCol = -1;
+      let srcRow = -1;
       for (let r = 0; r < prev.length; r++) {
-        const c = prev[r].itemKeys.indexOf(effectiveKey);
-        if (c >= 0) { srcRow = r; srcCol = c; break; }
+        if (prev[r].itemKeys.includes(effectiveKey)) { srcRow = r; break; }
       }
       if (srcRow === -1) return prev;
 
       if (!targetKey || effectiveKey === targetKey) {
         // ISSUE 18: Invalid target — fall back to "add to end" if target disappeared
         if (!targetKey && prev.length > 0) {
-          // Move source to end of last row
+          // Move source to end of last row. Its sub-stack travels with it;
+          // sibling cells' stacks survive (removeKeyFromRow, not a bare
+          // itemKeys/widths rebuild).
           let rows = prev.map(cloneRow);
-          // Remove source immutably
+          let movedStack: PanelGridCellStack | undefined;
           rows = rows.map((r, i) => {
             if (i !== srcRow) return r;
-            const newKeys = r.itemKeys.filter((_, j) => j !== srcCol);
-            const newWidths = r.widths.filter((_, j) => j !== srcCol);
-            if (newKeys.length > 0) {
-              const total = newWidths.reduce((s, w) => s + w, 0);
-              return { itemKeys: newKeys, widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length) };
-            }
-            return { itemKeys: newKeys, widths: newWidths };
+            const res = removeKeyFromRow(r, effectiveKey);
+            movedStack = res.detachedStack;
+            return res.row;
           }).filter(r => r.itemKeys.length > 0);
           // Append to last row
           const lastRow = rows[rows.length - 1];
           const newKeys = [...lastRow.itemKeys, effectiveKey];
-          rows = rows.map((r, i) => i === rows.length - 1 ? { itemKeys: newKeys, widths: newKeys.map(() => 1 / newKeys.length) } : r);
+          rows = rows.map((r, i) => {
+            if (i !== rows.length - 1) return r;
+            const stacks = { ...(r.cellStacks ?? {}), ...(movedStack ? { [effectiveKey]: movedStack } : {}) };
+            return {
+              itemKeys: newKeys,
+              widths: newKeys.map(() => 1 / newKeys.length),
+              ...(Object.keys(stacks).length > 0 ? { cellStacks: stacks } : {}),
+            };
+          });
           return rows;
         }
         return prev;
@@ -1154,16 +1216,15 @@ export function PanelGrid({
       // Deep copy rows
       let rows = prev.map(cloneRow);
 
-      // Remove source from its row (immutably)
+      // Remove source from its row. The moved cell's own sub-stack is
+      // detached here and re-attached at the destination below; sibling
+      // cells' stacks are untouched (removeKeyFromRow preserves them).
+      let movedStack: PanelGridCellStack | undefined;
       rows = rows.map((r, i) => {
         if (i !== srcRow) return r;
-        const newKeys = r.itemKeys.filter((_, j) => j !== srcCol);
-        const newWidths = r.widths.filter((_, j) => j !== srcCol);
-        if (newKeys.length > 0) {
-          const total = newWidths.reduce((s, w) => s + w, 0);
-          return { itemKeys: newKeys, widths: total > 0 ? newWidths.map(w => w / total) : newKeys.map(() => 1 / newKeys.length) };
-        }
-        return { itemKeys: newKeys, widths: newWidths };
+        const res = removeKeyFromRow(r, effectiveKey);
+        movedStack = res.detachedStack;
+        return res.row;
       });
 
       // Remove empty rows (source row may now be empty)
@@ -1181,10 +1242,15 @@ export function PanelGrid({
       if ((zone === 'top' || zone === 'bottom') && rows.length >= MAX_ROWS) return rows;
       if ((zone === 'left' || zone === 'right' || zone === 'center') && rows[tRow].itemKeys.length >= MAX_COLS_PER_ROW) return rows;
 
-      // Insert source based on zone (immutably)
+      // Insert source based on zone (immutably). The detached sub-stack
+      // re-attaches under the moved key at its new home.
       if (zone === 'top' || zone === 'bottom') {
         // Create new row above/below target
-        const newRow: PanelGridRow = { itemKeys: [effectiveKey], widths: [1] };
+        const newRow: PanelGridRow = {
+          itemKeys: [effectiveKey],
+          widths: [1],
+          ...(movedStack ? { cellStacks: { [effectiveKey]: movedStack } } : {}),
+        };
         const insertIdx = zone === 'top' ? tRow : tRow + 1;
         rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
       } else {
@@ -1196,7 +1262,15 @@ export function PanelGrid({
         const newKeys = [...row.itemKeys.slice(0, insertAt), effectiveKey, ...row.itemKeys.slice(insertAt)];
         // Split the target column's width with the inserted one; leave siblings'
         // manual widths intact (was `1/n`, which reset the whole row).
-        rows = rows.map((r, i) => i === tRow ? { itemKeys: newKeys, widths: splitColumnWidths(r.widths, tCol, insertAt) } : r);
+        rows = rows.map((r, i) => {
+          if (i !== tRow) return r;
+          const stacks = { ...(r.cellStacks ?? {}), ...(movedStack ? { [effectiveKey]: movedStack } : {}) };
+          return {
+            itemKeys: newKeys,
+            widths: splitColumnWidths(r.widths, tCol, insertAt),
+            ...(Object.keys(stacks).length > 0 ? { cellStacks: stacks } : {}),
+          };
+        });
       }
 
       return rows;

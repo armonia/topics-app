@@ -65,7 +65,7 @@ export interface Pane {
   color?: string;
   processId?: string;
   sessionKey?: string;
-  terminalType?: 'shell' | 'claude-code';
+  terminalType?: 'shell' | 'claude-code' | 'codex';
   // Device-local fields (never serialized to server snapshot):
   scrollOffset?: number;
 }
@@ -87,6 +87,21 @@ export interface ProjectLayout {
   lastOpenedAt: number;
 }
 
+/**
+ * Terminal metadata carried on a closed-tab record so `reopenClosedTab` can
+ * recreate the server session. Single shared shape across the reducer's
+ * ClosedPaneRecord and both adapter-level ClosedTabRecord interfaces — all
+ * fields optional so records minted by different sites stay assignable.
+ */
+export interface ClosedTerminalMeta {
+  sessionId?: string;
+  cwd?: string;
+  sessionType?: 'shell' | 'claude-code' | 'codex';
+  name?: string;
+  claudeSessionId?: string;
+  skipPermissions?: boolean;
+}
+
 export interface ClosedPaneRecord {
   id: string;
   closedAt: number;
@@ -95,7 +110,7 @@ export interface ClosedPaneRecord {
   groupIndex: number;
   level: 'project' | 'app';
   projectPath?: string;
-  terminal?: { sessionId?: string; cwd?: string };
+  terminal?: ClosedTerminalMeta;
   topicId?: string;
   filePath?: string;
   // Phase 30 new fields for PANE-03 fidelity:
@@ -115,6 +130,18 @@ export interface PaneState {
   focusedPaneId: string | null; // DEVICE-LOCAL — never in server snapshot
   groupOrder: string[];
   lastSeq: number;
+  /**
+   * Highest server-allocated LWW seq applied this session (0 = none yet).
+   * SEPARATE counter from `lastSeq`: lastSeq is the LOCAL per-dispatch
+   * counter and bumps on every action — including device-local ones like
+   * FOCUS_PANE — so comparing it against an inbound frame's server_seq
+   * silently dropped genuinely-newer remote state whenever local dispatch
+   * activity outpaced server writes. The HYDRATE_FROM_SNAPSHOT LWW gate
+   * compares server seq against THIS field only. Device-local; never in the
+   * server-syncable snapshot (persistLocal persists it as `server_seq` for
+   * the warm-boot hydrate).
+   */
+  lastServerSeq: number;
 }
 
 // Action discriminated union — every action the reducer accepts
@@ -146,6 +173,15 @@ export type PaneAction =
   | { type: 'PANE_ID_REMAP'; payload: { from: string; to: string; updates?: Partial<Pane> } }
   | { type: 'CLEAR_CLOSED_RECORD'; payload: { id: string } }
   | { type: 'CLEAR_CLOSED_STACK' }
+  /**
+   * Push a caller-captured record onto the closedStack VERBATIM, without
+   * requiring the pane/group to exist in this store. CLOSE_PANE can only
+   * mint records for store-resident panes — project-inner panes/groups live
+   * in useProjectLayout React state, so their closes must hand the reducer a
+   * pre-built record or the close is silently lost (no ⌘K "recently closed",
+   * dead ⌘⇧U). The reducer owns the seq assignment and the FIFO bound.
+   */
+  | { type: 'PUSH_CLOSED_RECORD'; payload: { record: ClosedPaneRecord } }
   /**
    * Surgically remove a pane from the store WITHOUT pushing it onto the
    * closedStack. Used by `usePanelLifecycle` Effect 7 when it detects an

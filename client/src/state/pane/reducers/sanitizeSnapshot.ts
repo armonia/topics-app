@@ -29,6 +29,10 @@ export interface SanitizedSnapshot {
   groupOrder?: string[];
   closedStack?: ClosedPaneRecord[];
   lastSeq?: number;
+  /** Server-allocated LWW key — the reducer's HYDRATE gate compares this
+   *  against state.lastServerSeq (server-vs-server, never the local dispatch
+   *  counter). */
+  server_seq?: number;
 }
 
 /**
@@ -199,16 +203,23 @@ function sanitizeProjects(raw: unknown): Record<string, ProjectLayout> | null {
 }
 
 /**
- * Structural sanitizer for `ClosedPaneRecord.terminal`. Accepts only the two
- * documented optional string fields (`sessionId`, `cwd`) and drops everything
- * else — previously we cast the whole object through with a bare
- * `isPlainObject` check, which let arbitrary adversarial fields ride along.
+ * Structural sanitizer for `ClosedPaneRecord.terminal`. Accepts only the
+ * documented ClosedTerminalMeta fields (each individually validated) and
+ * drops everything else — previously we cast the whole object through with a
+ * bare `isPlainObject` check, which let arbitrary adversarial fields ride
+ * along.
  */
 function sanitizeTerminal(raw: unknown): ClosedPaneRecord['terminal'] | undefined {
   if (!isPlainObject(raw)) return undefined;
   const out: NonNullable<ClosedPaneRecord['terminal']> = {};
   if (typeof raw.sessionId === 'string') out.sessionId = raw.sessionId;
   if (typeof raw.cwd === 'string') out.cwd = raw.cwd;
+  if (raw.sessionType === 'shell' || raw.sessionType === 'claude-code' || raw.sessionType === 'codex') {
+    out.sessionType = raw.sessionType;
+  }
+  if (typeof raw.name === 'string') out.name = raw.name;
+  if (typeof raw.claudeSessionId === 'string') out.claudeSessionId = raw.claudeSessionId;
+  if (typeof raw.skipPermissions === 'boolean') out.skipPermissions = raw.skipPermissions;
   return out;
 }
 
@@ -297,6 +308,9 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
   }
   if (typeof raw.lastSeq === 'number' && Number.isFinite(raw.lastSeq)) {
     out.lastSeq = raw.lastSeq;
+  }
+  if (typeof raw.server_seq === 'number' && Number.isFinite(raw.server_seq)) {
+    out.server_seq = raw.server_seq;
   }
   // Top-level `focusedPaneId` is DEVICE-LOCAL — intentionally ignored, not
   // propagated from the server side. Drop it silently.

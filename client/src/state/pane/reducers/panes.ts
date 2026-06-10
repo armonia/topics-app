@@ -113,6 +113,21 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       }
       break;
     }
+    case 'PUSH_CLOSED_RECORD': {
+      // Caller-captured record (project-inner closes — see the PaneAction
+      // docstring). Strip scrollOffset like CLOSE_PANE does (device-local,
+      // must not leak cross-device) and let the reducer own seq + bound.
+      const { record } = action.payload;
+      const { scrollOffset: _srcScroll, ...paneWithoutScroll } = record.pane;
+      state.closedStack.push({
+        ...record,
+        pane: paneWithoutScroll,
+        scrollOffset: undefined,
+        seq: state.lastSeq + 1,
+      });
+      while (state.closedStack.length > CLOSED_STACK_MAX) state.closedStack.shift(); // FIFO
+      break;
+    }
     case 'UNDO_CLOSE': {
       undoReducer(state, action);
       break;
@@ -171,12 +186,23 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // unusable, or a safe subset with scrollOffset/focusedPaneId scrubbed.
       const clean = sanitizeSnapshot(action.payload.snapshot);
       if (!clean) break;
-      // LWW gate — without a numeric lastSeq we can't decide if the snapshot
-      // is newer than local state, so we drop it entirely. Treating `undefined`
-      // as "apply anyway" would let a malformed server/cross-tab payload
-      // overwrite fresh local state with an older shape.
-      if (typeof clean.lastSeq !== 'number') break;
-      if (clean.lastSeq <= state.lastSeq) break;
+      // LWW gate — compare SERVER seq against SERVER seq. Without a numeric
+      // server_seq we can't decide if the snapshot is newer than local state,
+      // so we drop it entirely (a malformed payload must not overwrite fresh
+      // local state). Audit HIGH: this gate previously compared the payload's
+      // lastSeq against state.lastSeq — the LOCAL per-dispatch counter, which
+      // bumps for every action including device-local FOCUS_PANE. Any burst
+      // of local dispatches pushed lastSeq past the server counter and the
+      // next N remote broadcasts were silently dropped (then this tab's own
+      // debounced PUT reverted the other device's change for everyone).
+      if (typeof clean.server_seq !== 'number') break;
+      // Warm-boot escape: the boot-time localStorage hydrate may carry
+      // server_seq 0 (snapshot written before the device ever synced). With
+      // lastServerSeq also 0 the `<=` gate would drop it — but an empty,
+      // never-server-hydrated store has nothing to protect, so let it apply.
+      const isWarmBoot =
+        state.lastServerSeq === 0 && Object.keys(state.panes).length === 0;
+      if (clean.server_seq <= state.lastServerSeq && !isWarmBoot) break;
       // Capture local drafts BEFORE the merge. Drafts are device-local
       // pre-promotion scratch panes (mirror of the outbound stripping in
       // selectSyncableSnapshot) — a remote snapshot that doesn't know about
@@ -223,7 +249,14 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         state.closedStack = state.closedStack.slice(-CLOSED_STACK_MAX);
       }
       // focusedPaneId is DEVICE-LOCAL — sanitizeSnapshot already dropped it.
-      state.lastSeq = clean.lastSeq;
+      // Advance BOTH counters monotonically: lastServerSeq is the LWW key for
+      // future hydrates; lastSeq keeps the local dispatch counter ahead of
+      // everything the store has seen so outbound PUTs stay fresh (store.ts
+      // clamps `_seq` to this after the reducer returns).
+      state.lastServerSeq = Math.max(state.lastServerSeq, clean.server_seq);
+      if (typeof clean.lastSeq === 'number') {
+        state.lastSeq = Math.max(state.lastSeq, clean.lastSeq);
+      }
       break;
     }
     case 'CLEAR_CLOSED_RECORD': {

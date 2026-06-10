@@ -13,7 +13,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from '../../store';
 import type { PaneStore } from '../../store';
 import type { Pane } from '../../../../types';
-import type { ClosedPaneRecord } from '../../types';
+import type { ClosedPaneRecord, ClosedTerminalMeta } from '../../types';
 import { cancelTerminalCleanup } from '../closedTabRecord';
 
 export interface ClosedTabRecord {
@@ -24,6 +24,8 @@ export interface ClosedTabRecord {
   groupIndex: number;
   level: 'project' | 'app';
   projectPath?: string;
+  /** Shared shape with the reducer's ClosedPaneRecord — see ClosedTerminalMeta. */
+  terminal?: ClosedTerminalMeta;
   topicId?: string;
   filePath?: string;
 }
@@ -37,6 +39,7 @@ function projectRecord(rec: ClosedPaneRecord): ClosedTabRecord {
     groupIndex: rec.groupIndex,
     level: rec.level,
     projectPath: rec.projectPath,
+    terminal: rec.terminal,
     topicId: rec.topicId,
     filePath: rec.filePath,
   };
@@ -51,12 +54,21 @@ export function useClosedTabs() {
   );
 
   const pushClosedTab = useCallback((record: ClosedTabRecord) => {
+    // Project-inner panes/groups never exist in the global store, so a
+    // CLOSE_PANE dispatch would silently no-op on its `!pane || !group`
+    // guard and the record would be lost (no ⌘K "recently closed", dead
+    // ⌘⇧U). Push the caller's captured record verbatim instead — the
+    // reducer owns seq assignment and the FIFO bound.
     usePaneStore.getState().dispatch({
-      type: 'CLOSE_PANE',
+      type: 'PUSH_CLOSED_RECORD',
       payload: {
-        id: record.pane.id,
-        groupId: record.groupId,
-        groupIndex: record.groupIndex,
+        record: {
+          ...record,
+          pane: record.pane as unknown as ClosedPaneRecord['pane'],
+          focusedAtClose: false,
+          tabOrderSnapshot: [],
+          seq: 0, // reducer overwrites with lastSeq + 1
+        },
       },
     });
   }, []);
