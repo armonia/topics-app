@@ -10,10 +10,11 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import { createPaneId, getAddableTypesForScope } from '@/state/pane/adapters';
+import { createPaneId } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
+import { CodexIcon } from '@/components/Shared/CodexIcon';
 import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
@@ -76,7 +77,7 @@ export interface TopicTreeProps {
   terminalSessions?: TerminalSessionInfo[];
   browserContexts?: BrowserContextInfo[];
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
-  onNewTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void;
+  onNewTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void;
   onCloseTerminal?: (sessionId: string) => void;
   onOpenAsProject?: (path: string) => void;
   onOpenBrowser?: (contextId: string) => void;
@@ -429,9 +430,9 @@ export function TopicTree({
                         thing the parent customises (hover-revealed here,
                         always-visible in the tab bar). */}
                     <PaneAddMenu
+                      scope="project"
                       onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
                       onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
-                      availableTypes={onAddProjectPane ? getAddableTypesForScope('project') : []}
                       // Cmd+N targets the focused group's New Chat, not
                       // this specific project's — kbd hint would lie.
                       showShortcuts={false}
@@ -649,7 +650,9 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       >
         {s.type === 'claude-code'
           ? <ClaudeIcon size={13} className="flex-shrink-0 text-[#D97757]" />
-          : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
+          : s.type === 'codex'
+            ? <CodexIcon size={13} className="flex-shrink-0" />
+            : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
         <span className="text-[12px] truncate flex-1">{s.name}</span>
         {projectName && (
           <span className="text-[11px] text-app-text-tertiary truncate max-w-[80px] mr-1" title={s.cwd}>
@@ -771,9 +774,9 @@ function TouchProjectMenu({ pp, allArchived, onNewTopicInProject, onAddProjectPa
         {/* Add-pane rows: same shared component as the desktop "+" menu so a
             new pane type added to PANE_CONFIG appears here automatically. */}
         <PaneAddMenuItems
+          scope="project"
           onNewChat={onNewTopicInProject ? () => onNewTopicInProject(pp) : undefined}
           onAddPane={onAddProjectPane ? (type, subType) => onAddProjectPane(pp, type, subType) : undefined}
-          availableTypes={onAddProjectPane ? getAddableTypesForScope('project') : []}
           showShortcuts={false}
           onClose={close}
         />

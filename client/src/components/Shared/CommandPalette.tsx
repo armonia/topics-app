@@ -4,6 +4,7 @@ import {
   Loader2, TerminalSquare, RotateCcw,
 } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
+import { CodexIcon } from './CodexIcon';
 import { ProjectFavicon } from './ProjectFavicon';
 import { basename } from '../../lib/path-utils';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
@@ -43,7 +44,14 @@ function fuzzyMatch(query: string, target: string): boolean {
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Result scope: 'all' (⌘K — topics, messages, files, everything) or
+   *  'projects' (⌘F — find/jump to a project; only project rows render). */
+  scope?: 'all' | 'projects';
   topics: Record<string, Topic>;
+  /** Known workspace project paths (same source the sidebar uses) — merged
+   *  into the Projects list so ⌘F can jump to a project even when none of
+   *  its chats are loaded as topics. */
+  workspaceProjects?: string[];
   onOpenTopic: (id: string) => void;
   onOpenProject?: (projectPath: string) => void;
   onNewTopic: () => void;
@@ -51,6 +59,7 @@ interface CommandPaletteProps {
   enableNewChat?: boolean;
   onNewProject?: () => void;
   onNewClaude?: () => void;
+  onNewCodex?: () => void;
   onNewTerminal?: () => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
@@ -66,13 +75,16 @@ interface CommandPaletteProps {
 export function CommandPalette({
   isOpen,
   onClose,
+  scope = 'all',
   topics,
+  workspaceProjects = [],
   onOpenTopic,
   onOpenProject,
   onNewTopic,
   enableNewChat = false,
   onNewProject,
   onNewClaude,
+  onNewCodex,
   onNewTerminal,
   onToggleTheme,
   onOpenSettings,
@@ -132,14 +144,19 @@ export function CommandPalette({
     return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
   }, [query, onOpenTopic, onClose]);
 
-  // Fetch flat file list when palette opens with a project path
+  // Fetch flat file list when palette opens with a project path. Skipped in
+  // projects scope (⌘F) — only project rows render there. Guard the payload:
+  // a malformed/mocked response without a `files` array must not poison the
+  // searchFileItems memo (`undefined.filter` crashed the whole palette).
   useEffect(() => {
-    if (projectPath && isOpen) {
+    if (projectPath && isOpen && scope !== 'projects') {
       import('../../lib/api').then(({ filesApi }) => {
-        filesApi.flatList(projectPath).then(data => setFileList(data.files)).catch(() => {});
+        filesApi.flatList(projectPath)
+          .then(data => setFileList(Array.isArray(data?.files) ? data.files : []))
+          .catch(() => {});
       });
     }
-  }, [projectPath, isOpen]);
+  }, [projectPath, isOpen, scope]);
 
   // ── Projects column (always visible accordion, left) ────────────────────
   const projectItems = useMemo((): CommandAction[] => {
@@ -152,6 +169,7 @@ export function CommandPalette({
     const projectPaths = new Set<string>();
     Object.values(topics).forEach(t => { if (t.projectPath) projectPaths.add(t.projectPath); });
     recentProjects.forEach(p => projectPaths.add(p));
+    workspaceProjects.forEach(p => projectPaths.add(p));
     const ordered = [
       ...recentProjects.filter(p => projectPaths.has(p)),
       ...Array.from(projectPaths).filter(p => !recentProjects.includes(p)).sort(),
@@ -168,7 +186,7 @@ export function CommandPalette({
       category: 'project' as const,
       action: () => { onOpenProject?.(pp); onClose(); },
     }));
-  }, [topics, onOpenProject, onClose]);
+  }, [topics, workspaceProjects, onOpenProject, onClose]);
 
   // ── Tab recenti (closed tabs, always visible accordion under Projects) ──
   // Moved out of the main list so the right column reads as a clean topic
@@ -182,9 +200,11 @@ export function CommandPalette({
       const timeAgo = formatTimeAgo(record.closedAt);
       const icon = record.terminal?.sessionType === 'claude-code'
         ? <ClaudeIcon size={14} />
-        : paneType === 'terminal'
-          ? <TerminalSquare size={14} />
-          : <RotateCcw size={14} />;
+        : record.terminal?.sessionType === 'codex'
+          ? <CodexIcon size={14} />
+          : paneType === 'terminal'
+            ? <TerminalSquare size={14} />
+            : <RotateCcw size={14} />;
       const parts: string[] = [`Chiusa ${timeAgo}`];
       const cwd = record.terminal?.cwd;
       const projectLabel = record.projectPath ? getProjectLabel(record.projectPath) : null;
@@ -286,12 +306,14 @@ export function CommandPalette({
   const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
 
   // Flat order for keyboard nav, matching the render order in each mode:
+  //  · projects scope:   Projects only (⌘F — jump to a project)
   //  · empty (no query): Projects column → Recently-closed column
   //  · query:            Projects → Topics → Recently-closed → Files → Messages
   const allItems = useMemo(() => {
+    if (scope === 'projects') return filteredProjects;
     if (!query.trim()) return [...filteredProjects, ...filteredRecenti];
     return [...filteredProjects, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
-  }, [query, filteredProjects, filteredRecenti, filteredMain, searchFileItems, searchResults]);
+  }, [scope, query, filteredProjects, filteredRecenti, filteredMain, searchFileItems, searchResults]);
 
   // Reset selection on filter change
   useEffect(() => {
@@ -372,7 +394,7 @@ export function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={projectPath ? "Cerca file, topic, messaggi…" : "Cerca topic, messaggi…"}
+            placeholder={scope === 'projects' ? 'Search projects…' : projectPath ? "Cerca file, topic, messaggi…" : "Cerca topic, messaggi…"}
             className="flex-1 bg-transparent text-[14px] text-app-text placeholder-app-placeholder outline-none"
           />
           <kbd className="kbd">ESC</kbd>
@@ -382,7 +404,20 @@ export function CommandPalette({
             Ultimi progetti | Chiuse di recente. With a query = one full-width
             results list with plain section labels (no collapsible accordions). */}
         <div className="flex-1 min-h-0 flex flex-col">
-          {!query.trim() ? (
+          {scope === 'projects' ? (
+            /* ⌘F — projects scope: one full-width list, find/jump to a project. */
+            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Progetti">
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                Projects
+                {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
+              </div>
+              {filteredProjects.length > 0 ? (
+                filteredProjects.map(item => renderRow(item, { highlight: !!query.trim() }))
+              ) : (
+                <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">No projects</div>
+              )}
+            </div>
+          ) : !query.trim() ? (
             <div ref={listRef} className="flex-1 min-h-0 flex">
               {/* Ultimi progetti */}
               <section className="flex-1 min-w-0 overflow-y-auto py-1 border-r border-app-border">
@@ -459,6 +494,9 @@ export function CommandPalette({
           )}
           {onNewClaude && (
             <ActionPill icon={<ClaudeIcon size={12} />} label="Claude" onClick={() => { onNewClaude(); onClose(); }} />
+          )}
+          {onNewCodex && (
+            <ActionPill icon={<CodexIcon size={12} />} label="Codex" onClick={() => { onNewCodex(); onClose(); }} />
           )}
           {onNewTerminal && (
             <ActionPill icon={<TerminalSquare size={12} />} label="Terminal" onClick={() => { onNewTerminal(); onClose(); }} />

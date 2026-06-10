@@ -33,6 +33,8 @@ import { PendingActionProvider, enqueuePendingAction, tickPendingAction } from '
 import { flushPaneStoreNow } from './state/pane/middleware';
 import { useSignalsSync } from './state/useSignalsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
+import { RESTING_SURFACE } from './lib/selectionStyles';
+import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
@@ -124,6 +126,10 @@ function App() {
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
+  // ⌘K opens the palette in 'all' mode; ⌘F opens it pre-scoped to PROJECTS
+  // (find/jump to a project). The scope is sticky for the open session of
+  // the palette and reset by whichever shortcut/button opens it next.
+  const [searchScope, setSearchScope] = useState<'all' | 'projects'>('all');
   const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -478,6 +484,7 @@ function App() {
     handleReopenClosedTab,
     closedTabs,
     setShowSearch,
+    setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
@@ -594,16 +601,18 @@ function App() {
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
-            {/* Search launcher — opens the ⌘K command palette (no inline tree
-                filtering; ⌘K is the canonical search). */}
+            {/* Search launcher — a real, compact button (RESTING_SURFACE: the
+                same card grammar as inactive tabs) that opens the ⌘K command
+                palette in 'all' scope. No inline tree filtering; ⌘K is the
+                canonical search. */}
             <button
-              onClick={() => setShowSearch(true)}
-              className={`flex-1 min-w-0 flex items-center gap-2 pl-2.5 pr-2 ${isMobile ? 'text-[15px] py-2' : 'text-[13px] py-1'} bg-transparent border border-app-border rounded-md text-app-placeholder hover:border-primary/50 hover:text-app-text-muted transition-colors cursor-pointer app-no-drag`}
+              onClick={() => { setSearchScope('all'); setShowSearch(true); }}
+              className={`flex-1 min-w-0 flex items-center gap-2 px-2 rounded-md ${isMobile ? 'h-9 text-[15px]' : 'h-7 text-[12px]'} ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors cursor-pointer app-no-drag`}
               style={{ pointerEvents: 'auto' }}
               title="Search (⌘K)"
               aria-label="Search — open the command palette"
             >
-              <Search size={14} className="text-app-text-tertiary flex-shrink-0" aria-hidden="true" />
+              <Search size={14} className="flex-shrink-0" aria-hidden="true" />
               <span className="flex-1 text-left truncate">Search…</span>
               <kbd className="kbd flex-shrink-0 hidden md:inline">&#8984;K</kbd>
             </button>
@@ -613,29 +622,31 @@ function App() {
           <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
             {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
                 the header right side is now just the canonical "+" add menu. */}
-            {/* Single canonical <PaneAddMenu> — same trigger button,
-                same opened menu, same brand-tinted icons (Claude
-                orange, Shell purple, Browser green, Git red, Files
-                amber) as the top tab bar and the sidebar project
-                header. The trigger is the default 'pill' variant
-                (6×6 with `bg-surface` plate) so all three "+" buttons
-                across the app look identical. */}
+            {/* The canonical <PaneAddMenu>, STANDALONE variant, rendered as a
+                centered ⌘K-style palette (presentation="palette") instead of a
+                local dropdown — ⌘J opens the same surface. The trigger is the
+                'header' variant: a compact RESTING_SURFACE button with an
+                inline kbd hint, the visual twin of the Search button next to
+                it. Items/order/icons are identical to the standalone tab
+                bar's "+" — one component, one variant per context. */}
             <PaneAddMenu
+              scope="standalone"
+              presentation="palette"
               onNewChat={appSettings.enableNewChat ? () => handleQuickCreateTopic() : undefined}
               onAddPane={(type, subType) => {
                 if (type === 'terminal') {
                   handleQuickCreateTerminal(
-                    subType === 'claude-code' ? 'claude-code' : 'shell',
+                    normalizeTerminalAgent(subType),
                     claudeSkipPermissions,
                   );
                 } else if (type === 'browser') {
                   openBrowserPane(`new-${Date.now()}`);
                 }
               }}
-              availableTypes={['terminal', 'browser']}
-              showProjectActions
               showShortcuts
-              triggerTitle="New (⌘N)"
+              triggerTitle="New (⌘J)"
+              triggerVariant="header"
+              triggerKbd="⌘J"
             />
           </div>
         </div>
@@ -880,9 +891,9 @@ function App() {
 
       {/* The "New" sidebar header menu used to live here as a hand-rolled
           DropdownPortal + 4 hard-coded items. It now renders inline above
-          via <PaneAddMenu triggerVariant="ghost" />, so the trigger button
-          AND the dropdown are the canonical components — no third menu
-          implementation. */}
+          via <PaneAddMenu scope="standalone" presentation="palette" /> (⌘J),
+          so the trigger button AND the centered palette are the canonical
+          components — no third menu implementation. */}
 
       {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
@@ -955,19 +966,22 @@ function App() {
         </Suspense>
       )}
 
-      {/* Command Palette (⌘K / ⌘P) */}
+      {/* Command Palette (⌘K = everything, ⌘F = projects scope) */}
       {showSearch && (
         <Suspense fallback={null}>
           <CommandPalette
             isOpen={showSearch}
+            scope={searchScope}
             onClose={() => setShowSearch(false)}
             topics={topics}
+            workspaceProjects={workspaceProjects}
             onOpenTopic={(id) => handleTopicClick(id)}
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
             enableNewChat={appSettings.enableNewChat}
             onNewProject={isElectron ? handleOpenProjectPicker : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
+            onNewCodex={() => handleQuickCreateTerminal('codex')}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}

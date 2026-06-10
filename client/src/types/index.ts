@@ -1037,7 +1037,7 @@ export interface TerminalSessionInfo {
   command: string;
   clients: number;
   topicId?: string;
-  type: 'shell' | 'claude-code' | 'claude-code-team';
+  type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex';
   claudeSessionId?: string | null;
   /** Authoritative pty-busy snapshot from the server roster. Used to
    *  reconcile loading state so a missed terminal:activity busy:false delta

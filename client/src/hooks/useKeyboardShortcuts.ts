@@ -21,6 +21,7 @@ import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, type ClosedTabRecord } from '../state/pane/adapters';
+import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 
 export interface UseKeyboardShortcutsArgs {
   isElectron: boolean;
@@ -51,6 +52,8 @@ export interface UseKeyboardShortcutsArgs {
   closedTabs: ClosedTabRecord[];
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
+  /** Palette scope — ⌘K opens 'all', ⌘F opens 'projects' (jump to project). */
+  setSearchScope: Dispatch<SetStateAction<'all' | 'projects'>>;
   setShowNewTopic: Dispatch<SetStateAction<false | { projectPath?: string }>>;
   setShowShortcuts: Dispatch<SetStateAction<boolean>>;
   setShowFileSearch: Dispatch<SetStateAction<false | { projectPath: string }>>;
@@ -126,10 +129,25 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     isElectron,
     handleClosePanel, handleQuickCreateTopic, toggleSidebar,
     setFocusedPanelId, handleReopenClosedTab,
-    setShowSearch, setShowNewTopic, setShowShortcuts, setShowFileSearch,
+    setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowFileSearch,
   } = args;
 
   useEffect(() => {
+    // File quick-open — shared by ⌘P (VS Code muscle memory) and ⌘⇧F (legacy
+    // binding, kept working). Scoped to the focused project, falling back to
+    // the first known project path.
+    const toggleFileSearch = () => {
+      const focusedProjectPath = focusedProjectPathRef.current;
+      const topics = topicsRef.current;
+      setShowFileSearch(prev => {
+        if (prev) return false;
+        if (focusedProjectPath) return { projectPath: focusedProjectPath };
+        const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
+        if (projectPaths.length >= 1) return { projectPath: projectPaths[0] };
+        return false;
+      });
+    };
+
     const handler = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
 
@@ -146,9 +164,23 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         }
       }
 
+      // ⌘K — command palette (everything: topics, messages, files, actions).
+      // Deliberately NOT gated on text-input focus: the palette is reachable
+      // from anywhere, including a focused terminal (matches the old behavior).
       if (isMod && e.key === 'k') {
         e.preventDefault();
+        setSearchScope('all');
         setShowSearch(prev => !prev);
+        return;
+      }
+
+      // ⌘J — the centered "New…" add palette (the sidebar header's "+").
+      // Event-based so the palette state stays inside <PaneAddMenu> — same
+      // pattern as topics:open-project-picker. Chrome's Downloads panel
+      // (⌘J default) is suppressed by the preventDefault.
+      if (isMod && e.key === 'j') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent(OPEN_ADD_PALETTE_EVENT));
         return;
       }
 
@@ -173,23 +205,31 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // ⌘P — FILE quick-open scoped to the focused project (VS Code muscle
+      // memory). Was a redundant alias of ⌘K; now it's the file finder.
+      // Always preventDefault so the browser print dialog never opens.
       if (isMod && e.key === 'p') {
         e.preventDefault();
-        setShowSearch(prev => !prev);
+        toggleFileSearch();
         return;
       }
 
+      // ⌘⇧F — same file quick-open (the original binding, kept working).
       if (isMod && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
-        const focusedProjectPath = focusedProjectPathRef.current;
-        const topics = topicsRef.current;
-        setShowFileSearch(prev => {
-          if (prev) return false;
-          if (focusedProjectPath) return { projectPath: focusedProjectPath };
-          const projectPaths = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
-          if (projectPaths.length >= 1) return { projectPath: projectPaths[0] };
-          return false;
-        });
+        toggleFileSearch();
+        return;
+      }
+
+      // ⌘F — command palette pre-scoped to PROJECTS (find/jump to a project).
+      // CRITICAL: never hijack find/typing in a focused text input, the
+      // terminal (xterm's helper textarea), or an editor — bail WITHOUT
+      // preventDefault so the focused surface keeps its own ⌘F.
+      if (isMod && !e.shiftKey && e.key === 'f') {
+        if (isTextInputFocused(e.target)) return;
+        e.preventDefault();
+        setSearchScope('projects');
+        setShowSearch(prev => !prev);
         return;
       }
 
@@ -278,6 +318,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     toggleSidebar,
     handleReopenClosedTab,
     setShowSearch,
+    setSearchScope,
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
