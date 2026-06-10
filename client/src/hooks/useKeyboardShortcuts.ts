@@ -38,11 +38,10 @@ export interface UseKeyboardShortcutsArgs {
   showNewTopic: false | { projectPath?: string };
   showShortcuts: boolean;
   showFileSearch: false | { projectPath: string };
-  /** Paid New Chat gate — when false, ⌘N / ⌘⇧N are inert (mirrored into a ref). */
+  /** Paid New Chat gate — when false, ⌘⇧N (New Topic modal) is inert (mirrored into a ref). */
   enableNewChat: boolean;
   // Stable callbacks (must not change identity each render).
   handleClosePanel: (topicId: string) => void;
-  handleQuickCreateTopic: (projectPath?: string) => Promise<unknown>;
   toggleSidebar: () => void;
   handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
   setFocusedPanelId: (id: string) => void;
@@ -127,7 +126,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   // ---- Keyboard listener — registered ONCE on mount (modulo stable callback identity) ----
   const {
     isElectron,
-    handleClosePanel, handleQuickCreateTopic, toggleSidebar,
+    handleClosePanel, toggleSidebar,
     setFocusedPanelId, handleReopenClosedTab,
     setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowFileSearch,
   } = args;
@@ -174,34 +173,20 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // ⌘J — the centered "New…" add palette (the sidebar header's "+").
+      // ⌘N — the centered "New…" add palette (the sidebar header's "+").
       // Event-based so the palette state stays inside <PaneAddMenu> — same
-      // pattern as topics:open-project-picker. Chrome's Downloads panel
-      // (⌘J default) is suppressed by the preventDefault.
-      if (isMod && e.key === 'j') {
+      // pattern as topics:open-project-picker. (Moved off ⌘J: ⌘N is the
+      // natural "new" key; Electron's default new-window is suppressed by
+      // the preventDefault. In a plain browser tab the browser owns ⌘N —
+      // Electron is the primary target.) ⌘⇧N keeps the New Topic modal,
+      // gated on the paid New Chat feature like every chat-creation entry.
+      if (isMod && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent(OPEN_ADD_PALETTE_EVENT));
-        return;
-      }
-
-      if (isElectron && isMod && e.key === 'n') {
-        // New Chat is a paid, opt-in feature. When disabled, ⌘N / ⌘⇧N are
-        // inert — we still preventDefault so the browser/Electron doesn't
-        // open a new window, but create nothing.
-        e.preventDefault();
-        if (!enableNewChatRef.current) return;
         if (e.shiftKey) {
-          setShowNewTopic({});
-        } else {
-          // Scope the new chat to the focused project so cmd+N inside a
-          // ProjectWindow lands as a chat pane inside that project (which
-          // also triggers `pendingFocusTopicId` → `reopenChatPane` in
-          // useProjectLayout so the new pane is placed in the focused
-          // group and focused). Without this, cmd+N from inside a project
-          // created a top-level standalone draft and the focus snapped
-          // back to the previously-active pane.
-          handleQuickCreateTopic(focusedProjectPathRef.current);
+          if (enableNewChatRef.current) setShowNewTopic({});
+          return;
         }
+        window.dispatchEvent(new CustomEvent(OPEN_ADD_PALETTE_EVENT));
         return;
       }
 
@@ -314,7 +299,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
   }, [
     isElectron,
     handleClosePanel,
-    handleQuickCreateTopic,
     toggleSidebar,
     handleReopenClosedTab,
     setShowSearch,

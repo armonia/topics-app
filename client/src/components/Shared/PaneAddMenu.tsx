@@ -25,7 +25,7 @@
  *         viewport overflow flip.
  *       'palette': centered ⌘K-style modal (lib/modalStyles.ts grammar) —
  *         the sidebar header's standalone add menu. Also opens via the
- *         global `topics:open-add-palette` window event (⌘J).
+ *         global `topics:open-add-palette` window event (⌘N).
  *
  * Every host also shares: the Electron native-overlay path (used when a
  * `WebContentsView` browser pane is open — the OS-level overlay paints above
@@ -65,7 +65,7 @@ import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import type { PaneType } from '../../types';
 
-/** Window event that opens the centered add palette (⌘J — dispatched by
+/** Window event that opens the centered add palette (⌘N — dispatched by
  *  useKeyboardShortcuts). Only instances with `presentation="palette"`
  *  listen, so the shortcut always lands on the sidebar's standalone menu. */
 export const OPEN_ADD_PALETTE_EVENT = 'topics:open-add-palette';
@@ -390,7 +390,7 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *   - `'dropdown'` (default) — portaled dropdown anchored to the trigger.
    *   - `'palette'`  — centered ⌘K-style modal (the sidebar header's
    *     standalone menu). Also opens on the `topics:open-add-palette`
-   *     window event (⌘J).
+   *     window event (⌘N).
    *  Mobile always uses the bottom-sheet; the Electron native-overlay path
    *  (WebContentsView open) always uses the OS overlay — it's the only
    *  surface that paints above the native browser view. */
@@ -462,7 +462,7 @@ export function PaneAddMenu({
     return () => window.removeEventListener('resize', onResize);
   }, [open, isMobile, presentation]);
 
-  // ⌘J / programmatic open: palette instances toggle on the global
+  // ⌘N / programmatic open: palette instances toggle on the global
   // open-add-palette event so the keyboard shortcut needs no prop-drilling
   // (same event-based pattern as topics:open-project-picker).
   useEffect(() => {
