@@ -58,7 +58,7 @@ export interface ProjectWindowPaneProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code';
+  pendingTerminalType?: 'shell' | 'claude-code' | 'codex';
   onPendingPaneConsumed?: () => void;
   // groupId = the tab bar whose "+ new chat" was clicked, so the chat lands there
   onNewChat?: (groupId?: string) => void;
@@ -98,7 +98,7 @@ export function ProjectWindowPane({
   useEffect(() => { const h = () => setIsNarrow(window.innerWidth < 1024); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
   // --- Recently closed tabs ---
-  const { pushClosedTab, popClosedTab, removeClosedTab } = useClosedTabs();
+  const { pushClosedTab, removeClosedTab } = useClosedTabs();
 
   const [showContext, setShowContext] = useState(() => {
     try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
@@ -133,7 +133,6 @@ export function ProjectWindowPane({
     onFocusPanel: () => onFocusPanel(wrapperPaneId),
     onNewChat,
     pushClosedTab,
-    popClosedTab,
     removeClosedTab,
     onOpenPanesChange,
     isSessionStreaming,

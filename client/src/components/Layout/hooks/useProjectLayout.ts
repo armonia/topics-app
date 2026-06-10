@@ -49,6 +49,7 @@ import {
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
+import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
 import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
@@ -96,7 +97,7 @@ export interface UseProjectLayoutArgs {
   focusedPanelId: string | null;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code';
+  pendingTerminalType?: 'shell' | 'claude-code' | 'codex';
   onPendingPaneConsumed?: () => void;
   pendingFocusTopicId?: string | null;
   // Group the chat should land in (set when the user clicks a specific tab
@@ -110,7 +111,6 @@ export interface UseProjectLayoutArgs {
   onNewChat?: () => void;
   // Closed-tab undo:
   pushClosedTab: (record: ClosedTabRecord) => void;
-  popClosedTab: () => ClosedTabRecord | undefined;
   removeClosedTab: (paneId: string) => void;
   // Reporting:
   onOpenPanesChange?: (paneIds: string[]) => void;
@@ -156,7 +156,6 @@ export interface UseProjectLayoutReturn {
     close: (groupId: string, paneId: string) => void;
     /** Immediate close — bypasses the countdown (right-click "Close now"). */
     closeNow: (groupId: string, paneId: string) => void;
-    reopenLastClosed: () => Promise<void>;
     addToGroup: (groupId: string, type: PaneType, subType?: string) => Promise<void>;
     addWhenEmpty: (type: PaneType, subType?: string) => Promise<void>;
     reorderGroupPanes: (groupId: string, newPaneIds: string[]) => void;
@@ -205,7 +204,6 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     onFocusPanel,
     onNewChat: _onNewChat,
     pushClosedTab,
-    popClosedTab,
     removeClosedTab,
     isSessionStreaming: _isSessionStreaming,
     stopSession,
@@ -367,9 +365,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           toAdd.push({
             id: `terminal:${s.id}`,
             type: 'terminal' as PaneType,
-            title: s.name || (s.type === 'claude-code' ? 'Claude Code' : 'Shell'),
+            title: s.name || TERMINAL_AGENT_LABELS[normalizeTerminalAgent(s.type)],
             preview: false,
-            terminalType: s.type === 'claude-code' ? 'claude-code' : 'shell',
+            // claude-code-team intentionally maps to 'shell' here (not a
+            // user-creatable agent); codex keeps its own type → OpenAI glyph.
+            terminalType: normalizeTerminalAgent(s.type),
           });
         }
         if (toAdd.length > 0) updated = [...updated, ...toAdd];
@@ -1012,9 +1012,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     [panes, topics, handleClosePaneNow, groups],
   );
 
-  const handleReopenLastClosed = useCallback(async () => {
-    const record = popClosedTab();
-    if (!record) return;
+  const restoreClosedRecord = useCallback(async (record: ClosedTabRecord) => {
     try {
       const pane = await reopenClosedTab(record);
       setPanes(prev => [...prev, pane]);
@@ -1035,17 +1033,26 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     } catch (err) {
       console.warn('[ProjectWindow] Failed to reopen closed tab:', err);
     }
-  }, [popClosedTab]);
+  }, []);
 
-  // Listen for the reopen-closed-tab event (fired by the ⌘⇧U keyboard chord and
-  // by App-level project reopens) to restore this project's last closed tab.
+  // Listen for the reopen-closed-tab event (fired by usePanelLifecycle's
+  // handleReopenClosedTab — ⌘⇧U pops the GLOBAL stack there and routes the
+  // record here). Claim protocol: the event carries the record in detail;
+  // only the window whose projectPath matches restores it and
+  // preventDefault()s so the dispatcher knows to consume the record off the
+  // stack. Previously this handler ignored detail and popped the global top
+  // itself — so ANY project window restored its own last-closed tab (often a
+  // foreign record), and with N windows open N pops raced on one stack.
   useEffect(() => {
-    const handler = () => {
-      handleReopenLastClosed();
+    const handler = (e: Event) => {
+      const record = (e as CustomEvent<ClosedTabRecord>).detail;
+      if (!record || record.projectPath !== projectPath) return; // not ours
+      e.preventDefault(); // claim — dispatcher removes the record from the stack
+      void restoreClosedRecord(record);
     };
     window.addEventListener('reopen-closed-tab', handler);
     return () => window.removeEventListener('reopen-closed-tab', handler);
-  }, [handleReopenLastClosed]);
+  }, [restoreClosedRecord, projectPath]);
 
   // Listen for Cmd+W → close-focused-pane: when this project is the App-
   // focused panel, close its inner active sub-tab instead of letting the
@@ -1088,11 +1095,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       let paneTitle: string;
 
       if (type === 'terminal') {
-        const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
-        paneTitle = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+        const termType = normalizeTerminalAgent(subType);
+        paneTitle = TERMINAL_AGENT_LABELS[termType];
         try {
-          const body: Record<string, unknown> = { cwd: projectPath, type: termType, name: paneTitle };
-          if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
+          const body = buildTerminalSessionBody(termType, { cwd: projectPath, skipPermissions: claudeSkipPermissions });
           const res = await fetch('/api/terminal/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1115,7 +1121,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         type,
         title: paneTitle,
         preview: type === 'terminal' ? false : true,
-        ...(type === 'terminal' && subType ? { terminalType: subType as 'shell' | 'claude-code' } : {}),
+        ...(type === 'terminal' && subType ? { terminalType: normalizeTerminalAgent(subType) } : {}),
       };
 
       const targetGroup = groups.find(g => g.id === groupId);
@@ -1183,11 +1189,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       let paneTitle: string;
 
       if (type === 'terminal') {
-        const termType = subType === 'claude-code' ? 'claude-code' : 'shell';
-        paneTitle = termType === 'claude-code' ? 'Claude Code' : 'Shell';
+        const termType = normalizeTerminalAgent(subType);
+        paneTitle = TERMINAL_AGENT_LABELS[termType];
         try {
-          const body: Record<string, unknown> = { cwd: projectPath, type: termType, name: paneTitle };
-          if (termType === 'claude-code') body.skipPermissions = claudeSkipPermissions;
+          const body = buildTerminalSessionBody(termType, { cwd: projectPath, skipPermissions: claudeSkipPermissions });
           const res = await fetch('/api/terminal/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1211,7 +1216,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         type,
         title: paneTitle,
         preview: false,
-        ...(type === 'terminal' && subType ? { terminalType: subType as 'shell' | 'claude-code' } : {}),
+        ...(type === 'terminal' && subType ? { terminalType: normalizeTerminalAgent(subType) } : {}),
       };
       const newGroup: PaneGroup = {
         id: newGroupId,
@@ -1766,7 +1771,21 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     if (remove.length > 0) {
       setGroups(prev =>
         prev
-          .map(g => ({ ...g, paneIds: g.paneIds.filter(id => !remove.includes(id)) }))
+          .map(g => {
+            const paneIds = g.paneIds.filter(id => !remove.includes(id));
+            if (paneIds.length === g.paneIds.length) return g;
+            // Re-point activePaneId when the removed pane was the active one
+            // (archive-from-sidebar lands here). Every other close path does
+            // this (handleClosePaneNow, handleAddPaneToGroup, reopenChatPane);
+            // skipping it leaves the group rendering "No pane selected" and
+            // the dangling id persists across reload — orphan-sync can't
+            // repair it because paneIds were already filtered in this commit.
+            const activePaneId =
+              g.activePaneId && !paneIds.includes(g.activePaneId)
+                ? paneIds[Math.min(g.paneIds.indexOf(g.activePaneId), paneIds.length - 1)]
+                : g.activePaneId;
+            return { ...g, paneIds, activePaneId };
+          })
           .filter(g => g.paneIds.length > 0),
       );
     }
@@ -1968,7 +1987,6 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       activate: handleActivatePane,
       close: handleClosePane,
       closeNow: handleClosePaneNow,
-      reopenLastClosed: handleReopenLastClosed,
       addToGroup: handleAddPaneToGroup,
       addWhenEmpty: handleAddPaneWhenEmpty,
       reorderGroupPanes: handleReorderGroupPanes,

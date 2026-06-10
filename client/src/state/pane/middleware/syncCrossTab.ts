@@ -12,8 +12,14 @@
  * (random UUID allocated once at middleware init). The receiver drops frames
  * whose `senderId` matches this tab — no self-apply, no lastSeq bump loop.
  *
- * LWW is still enforced by the incoming snapshot's `lastSeq` — if it's not
- * strictly greater than the local `lastSeq`, we drop the frame.
+ * LWW is enforced on the SERVER-stamped `server_seq` carried in the payload
+ * (written by persistLocal): if it's not strictly greater than the local
+ * `lastServerSeq`, we drop the frame. Two tabs' local `lastSeq` dispatch
+ * counters are independent — comparing them (the old gate) was meaningless
+ * in both directions (audit HIGH). The storage channel is a fast-path for
+ * server-stamped state only; a tab's local not-yet-acked edits reach other
+ * tabs via the server roundtrip (PUT → ui-state:updated broadcast), which
+ * carries a fresh server_seq.
  */
 import { usePaneStore } from '../store';
 import { PANE_STORE_LOCAL_KEY } from './persistLocal';
@@ -46,13 +52,15 @@ function applyIncomingSnapshot(incoming: unknown): void {
   // Narrow only the fields we gate on; the rest of the shape is validated by
   // sanitizeSnapshot inside the reducer. `as any` is confined to the dispatch
   // payload — matches the parsed-JSON shape of the original implementation.
-  const snap = incoming as { senderId?: unknown; lastSeq?: unknown };
+  const snap = incoming as { senderId?: unknown; server_seq?: unknown };
   // Bug #4: self-originated frame — drop. Matches storage + BroadcastChannel.
   if (typeof snap.senderId === 'string' && snap.senderId === tabId) return;
-  if (typeof snap.lastSeq !== 'number') return;
-  const incomingSeq: number = snap.lastSeq;
-  const currentSeq = usePaneStore.getState().lastSeq;
-  if (incomingSeq <= currentSeq) return; // stale or equal — ignore
+  // LWW on the server-stamped seq — see the module docstring. The reducer's
+  // gate re-checks this (server_seq vs lastServerSeq); the early return here
+  // just avoids a pointless sanitize+dispatch for stale frames.
+  if (typeof snap.server_seq !== 'number') return;
+  const incomingSeq: number = snap.server_seq;
+  if (incomingSeq <= usePaneStore.getState().lastServerSeq) return;
   // HYDRATE_FROM_SNAPSHOT runs the sanitizer (B3) so device-local fields
   // from the originating tab's localStorage can't leak in here either.
   // `senderId` is not part of the store shape; the sanitizer drops it.

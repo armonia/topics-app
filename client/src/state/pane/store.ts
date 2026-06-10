@@ -38,6 +38,7 @@ const initialState: PaneState = {
   focusedPaneId: null,
   groupOrder: [],
   lastSeq: 0,
+  lastServerSeq: 0,
 };
 
 export interface PaneStore extends PaneState {

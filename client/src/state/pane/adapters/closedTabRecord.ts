@@ -18,6 +18,7 @@
  */
 import { usePaneStore } from '../store';
 import type { Pane } from '../../../types';
+import type { ClosedTerminalMeta } from '../types';
 import { createPaneId, getTerminalSessionFromPaneId } from './paneConfig';
 
 /**
@@ -34,13 +35,8 @@ export interface ClosedTabRecord {
   groupIndex: number;
   level: 'project' | 'app';
   projectPath?: string;
-  terminal?: {
-    sessionType: 'shell' | 'claude-code';
-    cwd: string;
-    name: string;
-    claudeSessionId?: string;
-    skipPermissions: boolean;
-  };
+  /** Shared shape with the reducer's ClosedPaneRecord — see ClosedTerminalMeta. */
+  terminal?: ClosedTerminalMeta;
   topicId?: string;
   filePath?: string;
 }
@@ -186,9 +182,12 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
       },
       body: JSON.stringify({
         cwd: record.terminal.cwd,
-        type: record.terminal.sessionType,
+        // ClosedTerminalMeta fields are all optional (records can hydrate
+        // from older snapshots that lack them) — default to a plain shell
+        // rather than sending `type: undefined` to the server.
+        type: record.terminal.sessionType ?? 'shell',
         name: record.terminal.name,
-        skipPermissions: record.terminal.skipPermissions,
+        skipPermissions: record.terminal.skipPermissions ?? false,
         claudeSessionId: record.terminal.claudeSessionId,
       }),
     });

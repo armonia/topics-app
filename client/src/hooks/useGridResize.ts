@@ -254,10 +254,18 @@ export function useGridResize(
       cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      // Defensive: if the component unmounts mid-drag, drop the overlay too.
+      hResizing.current = null;
+      vResizing.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      // Defensive: if the component unmounts mid-drag, drop the overlay AND
+      // balance the 'pane-resize-start' already dispatched — listeners
+      // (NativeBrowserPlaceholder) count starts vs ends, and an unbalanced
+      // start keeps native browser panes hidden for the rest of the session.
       if (dragChrome.current) {
         dragChrome.current.remove();
         dragChrome.current = null;
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
       }
     };
   }, [containerRef, callbacksRef]);

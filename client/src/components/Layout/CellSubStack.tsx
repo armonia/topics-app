@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { PanelGridCellStack } from '../../types';
 import { equalizeWidths } from './gridWidths';
 import { MIN_PANE_FRACTION } from './constants';
@@ -92,6 +92,8 @@ interface SubStackResizeDividerProps {
 
 function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDividerProps) {
   const [active, setActive] = useState(false);
+  // Teardown for the in-flight drag, so unmount-mid-drag can finish it.
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -99,6 +101,17 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
       e.preventDefault();
       e.stopPropagation();
       setActive(true);
+
+      // Same drag chrome as useGridResize: a full-viewport overlay keeps the
+      // pointer from being swallowed by iframes (terminal/browser panes), and
+      // the 'pane-resize-start'/'-end' pair lets native Electron
+      // WebContentsView panes hide for the duration. Listeners count starts
+      // vs ends, so teardown must be idempotent and ALWAYS balanced — even
+      // when the divider unmounts mid-drag.
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:row-resize';
+      document.body.appendChild(overlay);
+      window.dispatchEvent(new Event('topics:pane-resize-start'));
 
       // Capture parent height at drag start. The divider's parent container
       // (.flex-col around the whole stack) drives proportional sizing, so
@@ -130,16 +143,27 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
         next[slotIdx + 1] = nextBottom;
         onResize(next);
       };
-      const onUp = () => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        cleanupRef.current = null;
         setActive(false);
         window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('mouseup', finish);
+        overlay.remove();
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
       };
+      cleanupRef.current = finish;
       window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
+      window.addEventListener('mouseup', finish);
     },
     [heights, slotIdx, onResize],
   );
+
+  // Unmount mid-drag (e.g. the stack collapses while dragging): finish the
+  // drag so listeners, overlay and the start/end event count stay balanced.
+  useEffect(() => () => { cleanupRef.current?.(); }, []);
 
   // Double-click any in-stack divider → reset every slot to an equal height.
   const handleDoubleClick = useCallback(() => {

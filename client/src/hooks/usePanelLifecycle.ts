@@ -54,6 +54,12 @@ import {
   getProjectPathFromPaneId,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
+import {
+  buildTerminalSessionBody,
+  normalizeTerminalAgent,
+  TERMINAL_AGENT_LABELS,
+  type TerminalAgentType,
+} from '../lib/terminalAgents';
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
@@ -125,7 +131,7 @@ function ensurePaneRegistered(
 }
 
 interface PendingProjectFocus { projectPath: string; topicId: string; targetGroupId?: string }
-interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' }
+interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType }
 interface ContextMenuState { x: number; y: number; topic: Topic }
 
 export interface UsePanelLifecycleArgs {
@@ -204,7 +210,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTopic: (projectPath?: string, targetGroupId?: string) => Promise<Topic | null>;
     handleCreateTopic: (data: CreateTopicRequest) => Promise<Topic | null>;
     promoteDraft: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
-    handleQuickCreateTerminal: (termType?: 'shell' | 'claude-code', skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
+    handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
     handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
@@ -1125,11 +1131,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     await sendMessage(topic.sessionKey, firstMessage, options);
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
-  const handleQuickCreateTerminal = useCallback(async (termType: 'shell' | 'claude-code' = 'shell', skipPermissions = true): Promise<string | null> => {
+  const handleQuickCreateTerminal = useCallback(async (termType: TerminalAgentType = 'shell', skipPermissions = true): Promise<string | null> => {
     try {
-      const name = termType === 'claude-code' ? 'Claude Code' : 'Shell';
-      const body: Record<string, unknown> = { type: termType, name };
-      if (termType === 'claude-code') body.skipPermissions = skipPermissions;
+      const name = TERMINAL_AGENT_LABELS[termType];
+      const body = buildTerminalSessionBody(termType, { skipPermissions });
       const res = await fetch('/api/terminal/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1265,7 +1270,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setPendingProjectPane({
       projectPath,
       type,
-      terminalType: type === 'terminal' ? ((subType as 'shell' | 'claude-code') || 'shell') : undefined,
+      terminalType: type === 'terminal' ? normalizeTerminalAgent(subType) : undefined,
     });
   }, [openPanels, isMobile, setSidebarCollapsed]);
 
@@ -1302,26 +1307,39 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleReopenClosedTab = useCallback(async (record: ClosedTabRecord) => {
     try {
+      if (record.level === 'project') {
+        // Project-inner records are restored by the OWNING project window —
+        // it has the panes/groups React state these ids live in, and its
+        // restore flow already calls reopenClosedTab (terminal session
+        // recreation) itself. Calling it here too would double-POST a new
+        // terminal session. Cancelable event = claim protocol: the window
+        // whose projectPath matches preventDefault()s, and only then is the
+        // record consumed off the stack.
+        const ev = new CustomEvent('reopen-closed-tab', { detail: record, cancelable: true });
+        window.dispatchEvent(ev);
+        if (ev.defaultPrevented) {
+          removeClosedTab(record.id);
+        } else {
+          console.warn('No project window claimed reopen for', record.projectPath);
+        }
+        return;
+      }
       const pane = await reopenClosedTab(record);
       // 2-state model: reopening a closed chat tab restores it -> unarchive.
       if (pane.type === 'chat' && pane.topicId) void archiveTopic(pane.topicId, false);
-      if (record.level === 'project') {
-        window.dispatchEvent(new CustomEvent('reopen-closed-tab', { detail: record }));
-      } else {
-        // App-level reopen: CLOSE_PANE deleted the pane entity. We must
-        // re-register it before pushing into openPanels — otherwise
-        // Effect A reconciles openPanels back to the store and our id
-        // disappears (the same trap that broke cmd+K project open).
-        ensurePaneRegistered({
-          id: pane.id,
-          type: pane.type,
-          title: pane.title,
-          topicId: pane.topicId,
-          projectPath: pane.projectPath,
-        });
-        setOpenPanels(prev => prev.includes(pane.id) ? prev : [...prev, pane.id]);
-        setFocusedPanelId(pane.id);
-      }
+      // App-level reopen: CLOSE_PANE deleted the pane entity. We must
+      // re-register it before pushing into openPanels — otherwise
+      // Effect A reconciles openPanels back to the store and our id
+      // disappears (the same trap that broke cmd+K project open).
+      ensurePaneRegistered({
+        id: pane.id,
+        type: pane.type,
+        title: pane.title,
+        topicId: pane.topicId,
+        projectPath: pane.projectPath,
+      });
+      setOpenPanels(prev => prev.includes(pane.id) ? prev : [...prev, pane.id]);
+      setFocusedPanelId(pane.id);
       removeClosedTab(record.id);
     } catch (err) {
       console.warn('Failed to reopen closed tab:', err);

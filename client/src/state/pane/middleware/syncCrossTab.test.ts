@@ -60,7 +60,8 @@ const {
 function resetStore(): void {
   // Baseline: reset lastSeq + buckets to 0 so each test starts from a clean
   // slate without relying on module reloads. (HYDRATE requires strict-greater
-  // than local lastSeq, so leakage between tests would mask bugs.)
+  // server_seq than local lastServerSeq, so leakage between tests would mask
+  // bugs.)
   usePaneStore.setState({
     panes: {},
     groups: {},
@@ -69,6 +70,7 @@ function resetStore(): void {
     focusedPaneId: null,
     groupOrder: [],
     lastSeq: 0,
+    lastServerSeq: 0,
   });
 }
 
@@ -119,6 +121,7 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
       groupOrder: [],
       closedStack: [],
       lastSeq: 99,
+      server_seq: 99,
       senderId: tabId, // MATCH — self-originated
     });
 
@@ -145,6 +148,7 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
       groupOrder: [],
       closedStack: [],
       lastSeq: 100,
+      server_seq: 100,
       senderId: `${myId}-other-tab`, // DIFFERENT — not self
     });
 
@@ -156,28 +160,86 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
     });
 
     expect(usePaneStore.getState().lastSeq).toBe(100);
+    expect(usePaneStore.getState().lastServerSeq).toBe(100);
   });
 
   test("storage event with missing senderId is still applied (back-compat)", () => {
     initCrossTabSync();
 
-    // Legacy snapshot written by an older tab before bug #4 fix — no senderId.
-    const legacyPayload = JSON.stringify({
+    // Snapshot whose writer predates the senderId field — but DOES carry the
+    // server-stamped LWW key (persistLocal writes it on every snapshot).
+    const payload = JSON.stringify({
       panes: {},
       groups: {},
       projects: {},
       groupOrder: [],
       closedStack: [],
       lastSeq: 50,
+      server_seq: 50,
     });
 
     const win = (globalThis as unknown as { window: { localStorage: unknown } }).window;
     fake.listeners[0]({
       key: "pane-store-v2",
-      newValue: legacyPayload,
+      newValue: payload,
       storageArea: win.localStorage,
     });
 
     expect(usePaneStore.getState().lastSeq).toBe(50);
+  });
+
+  test("payload without server_seq is dropped (local dispatch counters are not comparable)", () => {
+    initCrossTabSync();
+    const myId = getTabId();
+
+    // A foreign tab's local lastSeq is an independent per-dispatch counter —
+    // comparing it against ours is meaningless (audit HIGH). Without the
+    // server-stamped key the frame must be dropped; the WS roundtrip is the
+    // authoritative channel for that state.
+    const payload = JSON.stringify({
+      panes: {},
+      groups: {},
+      projects: {},
+      groupOrder: [],
+      closedStack: [],
+      lastSeq: 100,
+      senderId: `${myId}-other-tab`,
+    });
+
+    const win = (globalThis as unknown as { window: { localStorage: unknown } }).window;
+    fake.listeners[0]({
+      key: "pane-store-v2",
+      newValue: payload,
+      storageArea: win.localStorage,
+    });
+
+    expect(usePaneStore.getState().lastSeq).toBe(0);
+  });
+
+  test("stale server_seq is dropped even when the writer's lastSeq is higher", () => {
+    initCrossTabSync();
+    const myId = getTabId();
+    usePaneStore.setState({ lastServerSeq: 100 });
+
+    const stalePayload = JSON.stringify({
+      panes: {},
+      groups: {},
+      projects: {},
+      groupOrder: [],
+      closedStack: [],
+      lastSeq: 999, // inflated local counter — must NOT win LWW
+      server_seq: 100, // not strictly newer than ours
+      senderId: `${myId}-other-tab`,
+    });
+
+    const win = (globalThis as unknown as { window: { localStorage: unknown } }).window;
+    fake.listeners[0]({
+      key: "pane-store-v2",
+      newValue: stalePayload,
+      storageArea: win.localStorage,
+    });
+
+    expect(usePaneStore.getState().lastSeq).toBe(0);
+    expect(usePaneStore.getState().lastServerSeq).toBe(100);
   });
 });

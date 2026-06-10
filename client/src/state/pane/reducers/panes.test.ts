@@ -11,6 +11,7 @@ const blankState = (): PaneState => ({
   focusedPaneId: null,
   groupOrder: [],
   lastSeq: 0,
+  lastServerSeq: 0,
 });
 
 describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
@@ -391,10 +392,10 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
   });
 
   test("HYDRATE_FROM_SNAPSHOT leaves lastSeq at clean.lastSeq (no dispatcher double-bump)", async () => {
-    // The reducer writes `state.lastSeq = clean.lastSeq` and the dispatcher
-    // must NOT bump it again — otherwise the next WS broadcast carrying that
-    // same server_seq is silently dropped by the LWW gate
-    // (`clean.lastSeq <= state.lastSeq` fails at equal).
+    // The reducer writes `state.lastSeq = max(state.lastSeq, clean.lastSeq)`
+    // and the dispatcher must NOT bump it again — otherwise the next WS
+    // broadcast carrying that same server_seq is silently dropped by the LWW
+    // gate (`clean.server_seq <= state.lastServerSeq` fails at equal).
     const { usePaneStore } = await import("../store");
     usePaneStore.setState({
       panes: {},
@@ -404,6 +405,7 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
       focusedPaneId: null,
       groupOrder: [],
       lastSeq: 0,
+      lastServerSeq: 0,
     });
 
     const SERVER_SEQ = 42;
@@ -417,12 +419,14 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
           closedStack: [],
           groupOrder: [],
           lastSeq: SERVER_SEQ,
+          server_seq: SERVER_SEQ,
           seq: SERVER_SEQ,
         },
       },
     });
 
     expect(usePaneStore.getState().lastSeq).toBe(SERVER_SEQ);
+    expect(usePaneStore.getState().lastServerSeq).toBe(SERVER_SEQ);
 
     // A subsequent local dispatch must bump above SERVER_SEQ so outbound
     // PUTs still carry a fresh seq (the `_seq` clamp + bump invariant).
@@ -431,6 +435,155 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
       payload: { id: "chat:t1", type: "chat", title: "A", groupId: "g1" },
     });
     expect(usePaneStore.getState().lastSeq).toBeGreaterThan(SERVER_SEQ);
+  });
+
+  test("LWW gate: local dispatch bursts do not block newer remote frames (audit HIGH)", async () => {
+    // Scenario from the audit: A and B hydrated at server_seq=100. On A the
+    // user clicks around (device-local FOCUS_PANE dispatches inflate the
+    // LOCAL counter); on B a structural change PUTs and the server broadcasts
+    // server_seq=101. Under the old gate (clean.lastSeq <= state.lastSeq) A
+    // dropped that frame — a focus click on one device cancelled a structural
+    // edit on another. The gate must compare server seq vs server seq.
+    const { usePaneStore } = await import("../store");
+    usePaneStore.setState({
+      panes: {},
+      groups: {},
+      projects: {},
+      closedStack: [],
+      focusedPaneId: null,
+      groupOrder: [],
+      lastSeq: 0,
+      lastServerSeq: 0,
+    });
+
+    // Hydrate at server_seq=100.
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          panes: {},
+          groups: {},
+          closedStack: [],
+          groupOrder: [],
+          lastSeq: 100,
+          server_seq: 100,
+          seq: 100,
+        },
+      },
+    });
+    expect(usePaneStore.getState().lastServerSeq).toBe(100);
+
+    // Burst of device-local dispatches — lastSeq runs ahead of 101.
+    usePaneStore.getState().dispatch({
+      type: "OPEN_PANE",
+      payload: { id: "chat:x", type: "chat", title: "X", groupId: "g1" },
+    });
+    for (let i = 0; i < 5; i++) {
+      usePaneStore.getState().dispatch({ type: "FOCUS_PANE", payload: { id: "chat:x" } });
+    }
+    expect(usePaneStore.getState().lastSeq).toBeGreaterThan(101);
+
+    // Remote structural change at server_seq=101 MUST still apply.
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          panes: { "chat:remote": { id: "chat:remote", type: "chat", title: "R" } },
+          groups: { g9: { id: "g9", paneIds: ["chat:remote"], splitRatio: 0.5, splitAxis: "horizontal" } },
+          closedStack: [],
+          groupOrder: ["g9"],
+          lastSeq: 101,
+          server_seq: 101,
+          seq: 101,
+        },
+      },
+    });
+
+    expect(usePaneStore.getState().lastServerSeq).toBe(101);
+    expect(usePaneStore.getState().panes["chat:remote"]).toBeDefined();
+    // The local counter never regresses (outbound PUT freshness invariant).
+    expect(usePaneStore.getState().lastSeq).toBeGreaterThan(101);
+  });
+
+  test("LWW gate: warm-boot snapshot with server_seq 0 applies on an empty store, not mid-session", async () => {
+    const { usePaneStore } = await import("../store");
+    usePaneStore.setState({
+      panes: {},
+      groups: {},
+      projects: {},
+      closedStack: [],
+      focusedPaneId: null,
+      groupOrder: [],
+      lastSeq: 0,
+      lastServerSeq: 0,
+    });
+
+    // Boot-time localStorage hydrate from a never-synced device: server_seq 0
+    // on an EMPTY store → warm-boot escape lets it through.
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          panes: { "chat:warm": { id: "chat:warm", type: "chat", title: "W" } },
+          groups: { g1: { id: "g1", paneIds: ["chat:warm"], splitRatio: 0.5, splitAxis: "horizontal" } },
+          closedStack: [],
+          groupOrder: ["g1"],
+          lastSeq: 7,
+          server_seq: 0,
+          seq: 0,
+        },
+      },
+    });
+    expect(usePaneStore.getState().panes["chat:warm"]).toBeDefined();
+
+    // Mid-session (store non-empty), another 0-stamped snapshot must NOT
+    // clobber state.
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          panes: {},
+          groups: {},
+          closedStack: [],
+          groupOrder: [],
+          lastSeq: 8,
+          server_seq: 0,
+          seq: 0,
+        },
+      },
+    });
+    expect(usePaneStore.getState().panes["chat:warm"]).toBeDefined();
+  });
+
+  test("LWW gate: snapshot without server_seq is dropped", async () => {
+    const { usePaneStore } = await import("../store");
+    usePaneStore.setState({
+      panes: { "chat:keep": { id: "chat:keep", type: "chat", title: "K" } },
+      groups: {},
+      projects: {},
+      closedStack: [],
+      focusedPaneId: null,
+      groupOrder: [],
+      lastSeq: 10,
+      lastServerSeq: 5,
+    });
+
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          panes: {},
+          groups: {},
+          closedStack: [],
+          groupOrder: [],
+          lastSeq: 999,
+          seq: 999,
+        },
+      },
+    });
+    // No server_seq → no LWW key → frame dropped, local state intact.
+    expect(usePaneStore.getState().panes["chat:keep"]).toBeDefined();
+    expect(usePaneStore.getState().lastServerSeq).toBe(5);
   });
 
   test("closedStack bounded at 50 entries, FIFO eviction (PANE-03 / CONTEXT.md)", () => {
