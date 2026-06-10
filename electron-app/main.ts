@@ -2968,7 +2968,6 @@ const GH_RELEASES = 'https://github.com/armonia/topics-app/releases';
 let macCustomActive = false;
 let macUpdateInfo: { version: string; fileName: string; sha512: string; size: number } | null = null;
 let macUpdateAppPath: string | null = null; // extracted .app, ready to swap in
-let macUpdateTmpDir: string | null = null;
 
 function macAppBundlePath(): string {
   // …/Topics.app/Contents/MacOS/Topics → …/Topics.app
@@ -3183,14 +3182,12 @@ async function macDownloadUpdateInner(): Promise<void> {
     await execFileP('/usr/bin/ditto', [path.join(extractDir, appName), stagedPath]);
     fs.rmSync(tmpDir, { recursive: true, force: true });
     macUpdateAppPath = stagedPath;
-    macUpdateTmpDir = null;
     macStagedVersion = version;
     broadcastUpdaterStatus({ state: 'ready' });
   } catch (err) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     fs.rmSync(stagedPath, { recursive: true, force: true });
     macUpdateAppPath = null;
-    macUpdateTmpDir = null;
     macStagedVersion = null;
     broadcastUpdaterStatus({ state: 'error', error: (err as Error)?.message || String(err) });
     throw err;
