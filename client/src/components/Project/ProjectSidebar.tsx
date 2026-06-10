@@ -4,6 +4,7 @@ import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
+import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
 
 // Git is heavy (diff rendering) — keep lazy
@@ -101,12 +102,35 @@ export function ProjectSidebar({
     otherStartHeight?: number;
   } | null>(null);
 
+  // Full-viewport drag chrome (same protocol as useGridResize): keeps the
+  // pointer out of iframes in the main area mid-drag and lets native Electron
+  // WebContentsView panes hide via pane-resize-start/end. Raised lazily on
+  // the first real movement so a bare click never retargets its mouseup.
+  const dragOverlay = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const MIN_H = 32;
+    const dropChrome = () => {
+      if (dragOverlay.current) {
+        dragOverlay.current.remove();
+        dragOverlay.current = null;
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
+      }
+    };
     const onMove = (e: MouseEvent) => {
       const r = dragRef.current;
       if (!r) return;
+      // Lost-mouseup recovery: button no longer down — end the drag.
+      if ((e.buttons & 1) === 0) { onUp(); return; }
       const delta = e.clientY - r.startY;
+      if (!dragOverlay.current && Math.abs(delta) <= DRAG_SLOP_PX) return;
+      if (!dragOverlay.current) {
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:row-resize';
+        document.body.appendChild(ov);
+        dragOverlay.current = ov;
+        window.dispatchEvent(new Event('topics:pane-resize-start'));
+      }
       if (r.otherSection) {
         // Redistributing between git ↔ processes
         const newTop = Math.max(MIN_H, r.startHeight - delta);
@@ -122,10 +146,17 @@ export function ProjectSidebar({
       dragRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      dropChrome();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      // Unmount mid-drag: balance the pane-resize-start already dispatched.
+      dragRef.current = null;
+      dropChrome();
+    };
   }, []);
 
   const startBottomResize = useCallback((section: 'git' | 'processes', otherSection?: 'git' | 'processes') => (e: React.MouseEvent) => {

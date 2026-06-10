@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { PanelGridCellStack } from '../../types';
 import { equalizeWidths } from './gridWidths';
 import { MIN_PANE_FRACTION } from './constants';
+import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 
 /**
  * Vertical stack of items inside a single grid cell. The PRIMARY item is
@@ -107,11 +108,17 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
       // the 'pane-resize-start'/'-end' pair lets native Electron
       // WebContentsView panes hide for the duration. Listeners count starts
       // vs ends, so teardown must be idempotent and ALWAYS balanced — even
-      // when the divider unmounts mid-drag.
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:row-resize';
-      document.body.appendChild(overlay);
-      window.dispatchEvent(new Event('topics:pane-resize-start'));
+      // when the divider unmounts mid-drag. Raised lazily on the first move
+      // beyond DRAG_SLOP_PX — raising it on mousedown would retarget the
+      // mouseup to the overlay and double-click → equalize could never fire.
+      let overlay: HTMLDivElement | null = null;
+      const raiseChrome = () => {
+        if (overlay) return;
+        overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:row-resize';
+        document.body.appendChild(overlay);
+        window.dispatchEvent(new Event('topics:pane-resize-start'));
+      };
 
       // Capture parent height at drag start. The divider's parent container
       // (.flex-col around the whole stack) drives proportional sizing, so
@@ -127,6 +134,12 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
       const minSlot = MIN_PANE_FRACTION; // shared floor — prevents collapsing a slot to zero
 
       const onMove = (ev: MouseEvent) => {
+        // Lost-mouseup recovery: button no longer down (released over another
+        // app / native view) — finish instead of leaving the overlay armed.
+        if ((ev.buttons & 1) === 0) { finish(); return; }
+        // Sub-slop jitter while pressed is still a click in progress.
+        if (!overlay && Math.abs(ev.clientY - startY) <= DRAG_SLOP_PX) return;
+        raiseChrome();
         const deltaPx = ev.clientY - startY;
         const deltaFrac = deltaPx / containerHeight;
         let nextTop = startTop + deltaFrac;
@@ -151,8 +164,11 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
         setActive(false);
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', finish);
-        overlay.remove();
-        window.dispatchEvent(new Event('topics:pane-resize-end'));
+        if (overlay) {
+          overlay.remove();
+          overlay = null;
+          window.dispatchEvent(new Event('topics:pane-resize-end'));
+        }
       };
       cleanupRef.current = finish;
       window.addEventListener('mousemove', onMove);
