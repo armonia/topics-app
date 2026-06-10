@@ -75,7 +75,7 @@ interface StandaloneChatGroupProps {
   // Cross-panel-type: accept topic drops from project windows
   onAcceptProjectTopicDrop?: (topicId: string) => void;
   // Pending pane request for project tabs
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project (optional groupId = the tab bar clicked)
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
@@ -88,7 +88,7 @@ interface StandaloneChatGroupProps {
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Create a new terminal (delegates to App). Returns the new pane id so the
   // "+" on a split cell's tab bar can re-target the pane into that cell.
-  onCreateTerminal?: (type: 'shell' | 'claude-code', skipPermissions?: boolean) => void | Promise<string | null>;
+  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void | Promise<string | null>;
   // Report whether this group has utility panes (browser/terminal)
   onUtilityPaneChange?: (has: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
@@ -101,8 +101,6 @@ interface StandaloneChatGroupProps {
   draftMeta?: Record<string, { projectPath?: string }>;
   // Split a pane into its own grid cell (right or down)
   onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
-  // Batch-close multiple panels atomically (for "Close Others" etc.)
-  onCloseMultiplePanels?: (panelIds: string[]) => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
   // Grid item key — used as groupId in PaneTabBar for cross-group DnD detection.
@@ -137,7 +135,6 @@ export function StandaloneChatGroup({
   onOpenBrowserContextIds,
   promoteDraft, draftMeta: _draftMeta,
   onSplitPane,
-  onCloseMultiplePanels,
   persistOrder = true,
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell,
@@ -357,7 +354,7 @@ export function StandaloneChatGroup({
   const lifecycle = usePaneLifecycle({
     ordering, active,
     topics, topicIds, gridItemKey,
-    onClosePanel, onFocusPanel, onCloseMultiplePanels,
+    onClosePanel, onFocusPanel,
     onSplitPane, onUnsolo,
     onCreateTerminal, onMergeIntoCell, claudeSkipPermissions,
     stopSession,
@@ -515,7 +512,7 @@ export function StandaloneChatGroup({
       onCloseImmediate={onClosePanelImmediate}
       onAddPane={handleAddPane}
       availableTypes={availableTypes}
-      showProjectActions
+      addMenuScope="standalone"
       groupId={gridItemKey}
       // Every top-level group (the main standalone group and any solo split
       // cells) shares the standalone scope, so tabs reorder/merge freely among

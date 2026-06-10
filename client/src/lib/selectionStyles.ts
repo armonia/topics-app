@@ -26,6 +26,16 @@ export const SELECTED_SURFACE_SOFT =
   'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
 
 /**
+ * The RESTING state of the same card grammar: an interactive surface that is
+ * not selected (an inactive tab, a sidebar header button). One step quieter
+ * than SELECTED_SURFACE_SOFT at rest, raising on hover. Extracted from the
+ * tab bar's inline classes (PaneTabBar) so the sidebar header's Search / Add
+ * buttons read as the exact same family of controls as the tabs.
+ */
+export const RESTING_SURFACE =
+  'bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]';
+
+/**
  * Shared "card" styling for EVERY sidebar row (topics, terminals, browsers,
  * project folders) so the sidebar reads as a column of tab-like cards — the
  * same visual language as the tab bar — instead of a flat list separated by

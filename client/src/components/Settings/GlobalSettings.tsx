@@ -244,6 +244,9 @@ function ShortcutsSection({ settings }: { settings: AppSettings }) {
       <div className="space-y-1.5 text-[12px]">
         {[
           ['⌘K', 'Search'],
+          ['⌘F', 'Find project'],
+          ['⌘P', 'Quick-open file'],
+          ['⌘J', 'New… (add menu)'],
           // ⌘N is only live when the paid New Chat feature is enabled.
           ...(settings.enableNewChat ? [['⌘N', 'New chat']] : []),
           ['⌘W', 'Close panel'],

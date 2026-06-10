@@ -17,6 +17,10 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'General',
     shortcuts: [
       { keys: '⌘K', description: 'Command palette' },
+      { keys: '⌘F', description: 'Find project' },
+      { keys: '⌘P', description: 'Quick-open file' },
+      { keys: '⌘⇧F', description: 'Quick-open file (alias)' },
+      { keys: '⌘J', description: 'New… (add menu)' },
       { keys: '⌘B', description: 'Toggle sidebar' },
       { keys: '⌘?', description: 'Keyboard shortcuts' },
       { keys: '⌘N', description: 'New chat', desktopOnly: true },

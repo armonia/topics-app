@@ -1,35 +1,37 @@
 /**
  * PaneAddMenu — single source of truth for the "+" / "Add pane" affordance.
  *
- * One component covers EVERY surface where the user can add a pane:
+ * EXACTLY TWO menu variants exist, keyed by `scope`:
  *
- *   1. The trigger button (Plus icon, 14px, `bg-surface hover:bg-app-hover`)
- *   2. Click handling — including the Electron native overlay path used
- *      when a `WebContentsView` browser pane is open (the OS-level overlay
- *      paints above the React DOM, so a regular portal would render behind
- *      it; we delegate to a transparent BrowserWindow via `electronAPI.overlay`).
- *   3. Web fallback — a portaled dropdown anchored below the button with
- *      viewport overflow flip (so a button near the bottom of the screen
- *      flips its menu *upward*, no clipping).
- *   4. Mobile bottom-sheet variant — same items, slid up from the bottom
- *      with a safe-area-aware padding instead of an anchored card.
- *   5. The shared item list (`<PaneAddMenuItems>` below) — derived from
- *      `getAddableTypesForScope()` so adding a new pane type to PANE_CONFIG
- *      with the right `addableScopes` lights it up here automatically.
+ *   - `scope="project"`    — inside a ProjectWindow (top tab bar group "+",
+ *     sidebar project-header "+", touch overflow menu). Items: New Chat,
+ *     Shell, Claude Code, Codex, Browser, Git, Files.
+ *   - `scope="standalone"` — no project context (standalone tab bar "+",
+ *     sidebar global header "+"). Items: New Chat, Shell, Claude Code,
+ *     Codex, Browser, then (Electron) Apri / Crea Progetto.
  *
- * Both callsites render `<PaneAddMenu />` as-is; the only differences they
- * configure via props are:
- *   - which scope's pane types are addable (`availableTypes`)
- *   - whether a `⌘N` hint applies (`showShortcuts` — true on the top tab
- *     bar, false in the sidebar where ⌘N targets the focused group, not
- *     this specific project)
- *   - presentation chrome around the trigger (`triggerClassName` lets the
- *     sidebar do `hidden group-hover/proj:flex` while the tab bar always
- *     shows the button).
+ * The item list, order, icons and row design are derived HERE from the scope
+ * — hosts cannot diverge. The only knobs hosts have:
+ *   - `availableTypes` override for group-level singleton filtering (a group
+ *     that already has a Git pane hides "Git"; computed by GroupLayout /
+ *     StandaloneChatGroup) — a subset filter, never a reorder.
+ *   - `showShortcuts` — whether the ⌘N hint on "New Chat" is accurate at
+ *     this host (it targets the focused group, so the sidebar project "+"
+ *     hides it).
+ *   - trigger presentation (`triggerVariant`, `triggerClassName`,
+ *     `triggerKbd`, `noElectronDrag`).
+ *   - `presentation` — how the OPENED menu renders:
+ *       'dropdown' (default): portaled dropdown anchored to the trigger with
+ *         viewport overflow flip.
+ *       'palette': centered ⌘K-style modal (lib/modalStyles.ts grammar) —
+ *         the sidebar header's standalone add menu. Also opens via the
+ *         global `topics:open-add-palette` window event (⌘J).
  *
- * Anything visual or behavioural is owned here. The two old code paths
- * inside PaneTabBar / TopicTree have been deleted — this is the canonical
- * implementation.
+ * Every host also shares: the Electron native-overlay path (used when a
+ * `WebContentsView` browser pane is open — the OS-level overlay paints above
+ * the React DOM, so a regular portal would render behind it; we delegate to
+ * a transparent BrowserWindow via `electronAPI.overlay`) and the mobile
+ * bottom-sheet (same items, slid up from the bottom, safe-area aware).
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -55,10 +57,18 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
+import { CodexIcon } from './CodexIcon';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
-import { getPaneConfig } from '../../state/pane/adapters';
+import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
+import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import type { PaneType } from '../../types';
+
+/** Window event that opens the centered add palette (⌘J — dispatched by
+ *  useKeyboardShortcuts). Only instances with `presentation="palette"`
+ *  listen, so the shortcut always lands on the sidebar's standalone menu. */
+export const OPEN_ADD_PALETTE_EVENT = 'topics:open-add-palette';
 
 /* ── Item list (re-rendered identically in every host) ─────────────────── */
 
@@ -144,32 +154,35 @@ function openProjectPicker() {
 }
 
 export interface PaneAddMenuItemsProps {
+  /** Which of the TWO canonical menu variants this host gets. Drives the
+   *  default `availableTypes` (via PANE_CONFIG.addableScopes) AND whether
+   *  the Apri/Crea Progetto actions render (standalone only, Electron). */
+  scope: PaneScope;
   /** Spawn a new chat in the current scope. Hidden when omitted. */
   onNewChat?: () => void;
   /** Spawn a new pane of `type` in the current scope. Required for any
    *  `availableTypes` entry to actually do something on click. */
   onAddPane?: (type: PaneType, subType?: string) => void;
-  /** Pane types to expose below "New Chat", in render order. Typically
-   *  derived from `getAddableTypesForScope(scope, …)`. */
+  /** Group-level singleton FILTER (subset of the scope's canonical list).
+   *  Defaults to `getAddableTypesForScope(scope)`. Hosts pass it only to
+   *  hide singletons already present in the target group — never to add
+   *  types or change the order, which are owned by the scope. */
   availableTypes?: readonly PaneType[];
   /** Show keyboard shortcut hints (e.g. ⌘N next to "New Chat"). True on
    *  the top tab bar (where Cmd+N targets the focused group); false in
-   *  the sidebar (where Cmd+N would NOT target this specific project). */
+   *  the sidebar project header (where Cmd+N would NOT target this
+   *  specific project). */
   showShortcuts?: boolean;
-  /** Show the "Apri / Crea Progetto" actions (native folder picker). Passed
-   *  ONLY by the global / standalone add-menus — never by project-scoped ones
-   *  (you don't open/create a project from inside a project's "+"). */
-  showProjectActions?: boolean;
   /** Called after any item is invoked, so the parent can close the menu. */
   onClose: () => void;
 }
 
 export function PaneAddMenuItems({
+  scope,
   onNewChat,
   onAddPane,
   availableTypes,
   showShortcuts,
-  showProjectActions,
   onClose,
 }: PaneAddMenuItemsProps) {
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
@@ -197,13 +210,17 @@ export function PaneAddMenuItems({
   // (any future PaneType not in this list) appear at the end in their
   // declared order so adding a new addableScopes entry still surfaces
   // it without a code change here.
+  const scopeTypes = availableTypes ?? getAddableTypesForScope(scope);
   const SORTED_AVAILABLE: PaneType[] = ['terminal', 'browser', 'git', 'files'];
-  const orderedTypes = availableTypes
-    ? [
-        ...SORTED_AVAILABLE.filter((t) => availableTypes.includes(t)),
-        ...availableTypes.filter((t) => !SORTED_AVAILABLE.includes(t)),
-      ]
-    : [];
+  const orderedTypes = [
+    ...SORTED_AVAILABLE.filter((t) => scopeTypes.includes(t)),
+    ...scopeTypes.filter((t) => !SORTED_AVAILABLE.includes(t)),
+  ];
+
+  // Apri / Crea Progetto are a STANDALONE-variant feature (you don't open or
+  // create a project from inside a project's "+"), and need the OS folder
+  // picker — Electron only.
+  const showProjectActions = scope === 'standalone' && isElectron;
 
   // Brand-tint the "New Chat" row with the chat pane's canonical accent
   // (PANE_CONFIG.chat.color = #0066ff) so it reads as part of the same
@@ -238,6 +255,11 @@ export function PaneAddMenuItems({
           // PANE_CONFIG.terminal.color) so it reads as "the same family
           // as Claude Code" — both are pty-based panes, both should
           // feel branded in the menu the way Claude does.
+          //
+          // Agent picker: Claude Code (default agent) and Codex are both
+          // pty sessions spawned through the same endpoint — the subType
+          // ('claude-code' | 'codex') threads client → server and picks
+          // the CLI (`claude` / `codex`). See lib/terminalAgents.ts.
           const terminalCfg = getPaneConfig('terminal');
           return (
             <Fragment key={type}>
@@ -269,6 +291,16 @@ export function PaneAddMenuItems({
                   <span>yolo</span>
                 </label>
               </button>
+              <button
+                onClick={choose(() => onAddPane('terminal', 'codex'))}
+                className={ROW_CLASS}
+                data-testid="pane-add-menu-codex"
+              >
+                {/* Mono ink on purpose — OpenAI's brand is monochrome; see
+                    CodexIcon. Distinct from every colour-coded row. */}
+                <CodexIcon size={iconSize} className="flex-shrink-0" />
+                <span className="flex-1 text-left">Codex</span>
+              </button>
             </Fragment>
           );
         }
@@ -293,11 +325,11 @@ export function PaneAddMenuItems({
           </button>
         );
       })}
-      {/* Open / create a PROJECT (native folder picker). Only in global /
-          standalone add-menus (showProjectActions) — NOT inside a project's
-          "+". Electron-only (needs the OS dialog). Divider above since these
-          spin up a whole project window, not a pane. */}
-      {isElectron && showProjectActions && (
+      {/* Open / create a PROJECT (native folder picker). Standalone variant
+          only — NOT inside a project's "+". Electron-only (needs the OS
+          dialog). Divider above since these spin up a whole project window,
+          not a pane. */}
+      {showProjectActions && (
         <>
           <div className="my-1 border-t border-app-border" />
           <button
@@ -327,7 +359,7 @@ export function PaneAddMenuItems({
 export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'> {
   /** Tooltip on the trigger button. Defaults to "Add pane". */
   triggerTitle?: string;
-  /** Trigger button visual preset. Two flavours so the menu sits naturally
+  /** Trigger button visual preset. Three flavours so the menu sits naturally
    *  alongside differently-sized neighbours without divergent code paths:
    *
    *   - `'pill'` (default) — 6×6 with a `bg-surface` plate that's visible
@@ -336,9 +368,15 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *   - `'ghost'` — 7×7 desktop / 10×10 mobile with no resting background,
    *     hover `bg-black/5`. Matches the global sidebar header icons
    *     (Settings, Remote, etc.).
+   *   - `'header'` — compact h-7 button with the shared RESTING_SURFACE
+   *     fill (same family as inactive tabs / the sidebar Search button),
+   *     with room for a `triggerKbd` hint. The sidebar header "+".
    *
    *  The size also drives the inner `Plus` icon (14px / 18px). */
-  triggerVariant?: 'pill' | 'ghost';
+  triggerVariant?: 'pill' | 'ghost' | 'header';
+  /** Keyboard-shortcut hint rendered INSIDE the trigger (kbd style — same
+   *  as the sidebar Search button's ⌘K). Desktop only; hidden on mobile. */
+  triggerKbd?: string;
   /** Optional class to layer on top of the default trigger styling. The
    *  sidebar uses this to make the button hover-revealed on the project
    *  header row (`'hidden group-hover/proj:flex'`); the top tab bar leaves
@@ -348,6 +386,15 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
    *  inline style. Used by the top tab bar inside an electron drag region
    *  so dragging the button doesn't initiate a window drag. */
   noElectronDrag?: boolean;
+  /** How the opened menu renders on desktop:
+   *   - `'dropdown'` (default) — portaled dropdown anchored to the trigger.
+   *   - `'palette'`  — centered ⌘K-style modal (the sidebar header's
+   *     standalone menu). Also opens on the `topics:open-add-palette`
+   *     window event (⌘J).
+   *  Mobile always uses the bottom-sheet; the Electron native-overlay path
+   *  (WebContentsView open) always uses the OS overlay — it's the only
+   *  surface that paints above the native browser view. */
+  presentation?: 'dropdown' | 'palette';
 }
 
 const TRIGGER_CLASS_PILL =
@@ -361,15 +408,17 @@ const ESTIMATED_MENU_WIDTH_PX = 180;
 const ESTIMATED_MENU_HEIGHT_PX = 220;
 
 export function PaneAddMenu({
+  scope,
   onNewChat,
   onAddPane,
   availableTypes,
   showShortcuts,
-  showProjectActions,
   triggerTitle = 'Add pane',
   triggerVariant = 'pill',
+  triggerKbd,
   triggerClassName = '',
   noElectronDrag,
+  presentation = 'dropdown',
 }: PaneAddMenuProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -401,18 +450,29 @@ export function PaneAddMenu({
     };
   }, [open, close]);
 
-  // Re-anchor on viewport resize while open.
+  // Re-anchor on viewport resize while open (dropdown presentation only —
+  // the palette is centered by flexbox and needs no anchor math).
   useEffect(() => {
-    if (!open || isMobile) return;
+    if (!open || isMobile || presentation === 'palette') return;
     const onResize = () => {
       if (!buttonRef.current) return;
       setAnchorRect(computeAnchor(buttonRef.current));
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [open, isMobile]);
+  }, [open, isMobile, presentation]);
 
-  const hasMenuItems = !!onNewChat || (availableTypes && availableTypes.length > 0);
+  // ⌘J / programmatic open: palette instances toggle on the global
+  // open-add-palette event so the keyboard shortcut needs no prop-drilling
+  // (same event-based pattern as topics:open-project-picker).
+  useEffect(() => {
+    if (presentation !== 'palette') return;
+    const handler = () => setOpen((prev) => !prev);
+    window.addEventListener(OPEN_ADD_PALETTE_EVENT, handler);
+    return () => window.removeEventListener(OPEN_ADD_PALETTE_EVENT, handler);
+  }, [presentation]);
+
+  const hasMenuItems = !!onNewChat || (availableTypes ?? getAddableTypesForScope(scope)).length > 0;
   if (!hasMenuItems) return null;
 
   /* ── Click handler — Electron overlay path first, web portal fallback ── */
@@ -422,17 +482,17 @@ export function PaneAddMenu({
     if (overlayApi && hasNativeBrowser && buttonRef.current && !open) {
       const selectedId = await openElectronOverlayMenu({
         anchor: buttonRef.current.getBoundingClientRect(),
+        scope,
         onNewChat,
         onAddPane,
         availableTypes,
-        showProjectActions,
       });
       if (!selectedId) return;
       dispatchOverlaySelection(selectedId, onNewChat, onAddPane);
       return;
     }
     // Web fallback: anchor + open (or close on second click).
-    if (!open && buttonRef.current) {
+    if (!open && buttonRef.current && presentation === 'dropdown') {
       setAnchorRect(computeAnchor(buttonRef.current));
     }
     setOpen((prev) => !prev);
@@ -442,12 +502,27 @@ export function PaneAddMenu({
   // header icons (Settings, Remote, etc.) — same 7×7 / 10×10 footprint,
   // transparent at rest, hover bg-black/5. The 'pill' variant matches
   // tab-bar / sidebar-project-row affordances — 6×6 with bg-surface.
+  // The 'header' variant matches the sidebar Search button — compact h-7
+  // RESTING_SURFACE card with an inline kbd hint.
   // Inner icon size scales with the variant + isMobile to look right.
   const triggerBase =
-    triggerVariant === 'ghost'
-      ? `${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
-      : TRIGGER_CLASS_PILL;
-  const triggerIconSize = triggerVariant === 'ghost' && isMobile ? 18 : 14;
+    triggerVariant === 'header'
+      ? `${isMobile ? 'h-9 px-2.5' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0`
+      : triggerVariant === 'ghost'
+        ? `${isMobile ? 'w-10 h-10' : 'w-7 h-7'} flex items-center justify-center text-app-text-muted hover:text-app-text hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex-shrink-0`
+        : TRIGGER_CLASS_PILL;
+  const triggerIconSize = triggerVariant !== 'pill' && isMobile ? 18 : 14;
+
+  const menuItems = (
+    <PaneAddMenuItems
+      scope={scope}
+      onNewChat={onNewChat}
+      onAddPane={onAddPane}
+      availableTypes={availableTypes}
+      showShortcuts={showShortcuts}
+      onClose={close}
+    />
+  );
 
   return (
     <>
@@ -460,34 +535,64 @@ export function PaneAddMenu({
         data-testid="pane-add-menu-trigger"
       >
         <Plus size={triggerIconSize} />
+        {triggerKbd && !isMobile && (
+          <kbd className="kbd flex-shrink-0 hidden md:inline">{triggerKbd}</kbd>
+        )}
       </button>
-      {open && (isMobile || anchorRect) && createPortal(
+      {open && isMobile && createPortal(
+        /* Mobile bottom-sheet — same items, slid up from the bottom with
+           safe-area-aware padding. Used by BOTH presentations: a centered
+           palette is a desktop idiom; the sheet is the mobile one. */
         <>
-          {isMobile && <div className="fixed inset-0 z-[9998]" onClick={close} />}
+          <div className="fixed inset-0 z-[9998]" onClick={close} />
           <div
             ref={menuRef}
-            className={
-              isMobile
-                ? 'fixed bottom-0 left-0 right-0 glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet'
-                : 'fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]'
-            }
-            style={
-              isMobile
-                ? { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }
-                : { top: anchorRect!.top, left: anchorRect!.left }
-            }
+            className="fixed bottom-0 left-0 right-0 glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
             data-testid="pane-add-menu"
           >
-            <PaneAddMenuItems
-              onNewChat={onNewChat}
-              onAddPane={onAddPane}
-              availableTypes={availableTypes}
-              showShortcuts={showShortcuts}
-              showProjectActions={showProjectActions}
-              onClose={close}
-            />
+            {menuItems}
           </div>
         </>,
+        document.body,
+      )}
+      {open && !isMobile && presentation === 'palette' && createPortal(
+        /* Centered ⌘K-style palette — the standalone add menu as a command
+           surface. Same backdrop + panel grammar as the command palette
+           (lib/modalStyles.ts), narrower because it's a fixed action list. */
+        <div
+          className="fixed inset-0 z-[60] flex items-start justify-center pt-[12vh]"
+          onClick={close}
+          role="dialog"
+          aria-modal="true"
+          aria-label="New"
+          data-testid="pane-add-palette"
+        >
+          <div className={MODAL_BACKDROP} />
+          <div
+            ref={menuRef}
+            className={`relative w-full max-w-[300px] mx-4 ${MODAL_PANEL} py-1`}
+            onClick={(e) => e.stopPropagation()}
+            data-testid="pane-add-menu"
+          >
+            <div className="flex items-center justify-between px-3 pt-2 pb-1.5">
+              <span className="text-[10px] font-semibold text-app-text-muted uppercase tracking-wider">New</span>
+              <kbd className="kbd">ESC</kbd>
+            </div>
+            {menuItems}
+          </div>
+        </div>,
+        document.body,
+      )}
+      {open && !isMobile && presentation === 'dropdown' && anchorRect && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]"
+          style={{ top: anchorRect.top, left: anchorRect.left }}
+          data-testid="pane-add-menu"
+        >
+          {menuItems}
+        </div>,
         document.body,
       )}
     </>
@@ -519,16 +624,16 @@ interface OverlayMenuItem {
 
 async function openElectronOverlayMenu({
   anchor,
+  scope,
   onNewChat,
   onAddPane: _onAddPane,
   availableTypes,
-  showProjectActions,
 }: {
   anchor: DOMRect;
+  scope: PaneScope;
   onNewChat?: () => void;
   onAddPane?: (type: PaneType, subType?: string) => void;
   availableTypes?: readonly PaneType[];
-  showProjectActions?: boolean;
 }): Promise<string | null> {
   const overlayApi = window.electronAPI?.overlay;
   if (!overlayApi) return null;
@@ -548,13 +653,16 @@ async function openElectronOverlayMenu({
       iconColor: chatCfg.color,
     });
   }
-  for (const type of availableTypes ?? []) {
+  const types = availableTypes ?? getAddableTypesForScope(scope);
+  for (const type of types) {
     if (type === 'terminal') {
       const terminalCfg = getPaneConfig('terminal');
       // Shell uses the boxed terminal-square (matches web <TerminalSquare/>)
       // and the terminal-family purple. Claude Code gets the actual
       // Anthropic glyph (`claude`) in Claude orange — same as the web
-      // <ClaudeIcon className="text-[#D97757]" />.
+      // <ClaudeIcon className="text-[#D97757]" />. Codex falls back to the
+      // overlay's `bot` glyph (the renderer's fixed icon set has no OpenAI
+      // mark yet) in mono ink, mirroring the web menu's monochrome choice.
       items.push({
         id: 'terminal-shell',
         label: 'Shell',
@@ -568,6 +676,11 @@ async function openElectronOverlayMenu({
         iconName: 'claude',
         iconColor: '#D97757',
       });
+      items.push({
+        id: 'terminal-codex',
+        label: 'Codex',
+        iconName: 'bot',
+      });
     } else {
       const cfg = getPaneConfig(type);
       const iconName = OVERLAY_ICON_BY_LUCIDE[cfg.icon] ?? 'plus-square';
@@ -579,14 +692,14 @@ async function openElectronOverlayMenu({
         // browser → green, git → red, files → amber, board-memory → green.
         // Same value the web menu reads via getPaneConfig(type).color.
         iconColor: cfg.color,
-        divider: type !== availableTypes?.[0] && availableTypes?.[0] !== 'terminal',
+        divider: type !== types[0] && types[0] !== 'terminal',
       });
     }
   }
 
-  // Open / create a PROJECT — only in global/standalone menus, never inside a
+  // Open / create a PROJECT — standalone variant only, never inside a
   // project's "+". Distinct icons: folder (open existing) vs plus-square (new).
-  if (showProjectActions) {
+  if (scope === 'standalone') {
     items.push({ id: 'open-project', label: 'Apri Progetto', iconName: 'folder', divider: items.length > 0 });
     items.push({ id: 'create-project', label: 'Crea Progetto', iconName: 'plus-square' });
   }
@@ -622,6 +735,7 @@ function dispatchOverlaySelection(
   if (selectedId === 'new-chat') return onNewChat?.();
   if (selectedId === 'terminal-shell') return onAddPane?.('terminal', 'shell');
   if (selectedId === 'terminal-claude-code') return onAddPane?.('terminal', 'claude-code');
+  if (selectedId === 'terminal-codex') return onAddPane?.('terminal', 'codex');
   if (selectedId === 'open-project' || selectedId === 'create-project') return openProjectPicker();
   return onAddPane?.(selectedId as PaneType);
 }

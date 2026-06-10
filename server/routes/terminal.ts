@@ -24,7 +24,7 @@ interface TerminalSession {
   cols: number;
   rows: number;
   topicId?: string;
-  type: 'shell' | 'claude-code' | 'claude-code-team';
+  type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex';
   skipPermissions: boolean;
   claudeSessionId?: string;
   /** OS pid of the PTY's root process (reported by the bridge on create /
@@ -728,7 +728,7 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' = 'shell', skipPermissions = true, claudeSessionId?: string): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' = 'shell', skipPermissions = true, claudeSessionId?: string): Promise<TerminalSession> {
   let file: string;
   let args: string[];
   const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
@@ -773,6 +773,14 @@ async function createSession(id: string, name: string, cwd: string, command?: st
       // Non-fatal: a missing bridge just means no open_browser_pane tool.
       console.warn(`[Terminal] MCP config write failed for ${id}:`, err);
     }
+  } else if (sessionType === 'codex') {
+    // Codex (OpenAI CLI) — spawned the same interactive-PTY way as `claude`,
+    // with none of the Claude-specific plumbing (no session-id/--resume, no
+    // MCP bridge config, no tracker registration, no skip-permissions flag).
+    // Codex sessions carry no claude_session_id, so the dormant sweep treats
+    // them like shells (no resumable pointer we track).
+    file = 'codex';
+    args = [];
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -791,6 +799,10 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     if (sessionType === 'claude-code-team') {
       env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1';
     }
+  } else if (sessionType === 'codex') {
+    // Same PATH augmentation as claude: under launchd the server has a
+    // minimal PATH (no Homebrew), so a bare `codex` would ENOENT silently.
+    env = { PATH: augmentPath() };
   }
 
   // Await the bridge's ack before populating in-memory + DB. If the
@@ -946,9 +958,13 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const cols = body.cols || 120;
       const rows = body.rows || 30;
       const topicId = body.topicId || undefined;
-      const sessionType: 'shell' | 'claude-code' | 'claude-code-team' =
+      // Backward-compatible agent choice: absent/unknown `type` = shell, and
+      // the pre-existing types behave exactly as before. 'codex' spawns the
+      // OpenAI CLI interactively (see createSession).
+      const sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' =
         body.type === 'claude-code-team' ? 'claude-code-team' :
-        body.type === 'claude-code' ? 'claude-code' : 'shell';
+        body.type === 'claude-code' ? 'claude-code' :
+        body.type === 'codex' ? 'codex' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
 
       try {

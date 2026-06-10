@@ -6,16 +6,17 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
 import { signalsActions } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
+import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -99,10 +100,11 @@ interface PaneTabBarProps {
    * Defaults to `groupIsFocused`'s value for legacy callers.
    */
   groupIsAppFocused?: boolean;
-  /** Show "Apri / Crea Progetto" in the add-pane "+" menu. Passed only by the
-   *  STANDALONE tab bar — project tab bars (GroupLayout) omit it, since you
-   *  don't open/create a project from inside a project. */
-  showProjectActions?: boolean;
+  /** Which of the two canonical add-menu variants this tab bar's "+" opens.
+   *  StandaloneChatGroup passes 'standalone' (adds the Apri/Crea Progetto
+   *  actions); project tab bars (GroupLayout) default to 'project'. The
+   *  variant's items/order/icons live in <PaneAddMenu> — see its docs. */
+  addMenuScope?: PaneScope;
   /**
    * Schematic of the surrounding split layout, with THIS group's cell flagged
    * as active. Rendered as a tiny grid of squares at the trailing edge of the
@@ -112,7 +114,7 @@ interface PaneTabBarProps {
   splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, showProjectActions, splitMap: _splitMap }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -133,6 +135,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     const ids = new Set<string>();
     for (const s of terminalSessions) {
       if (s.type === 'claude-code' || s.type === 'claude-code-team') ids.add(s.id);
+    }
+    return ids;
+  }, [terminalSessions]);
+  // Codex sessions get the same authoritative detection (persisted
+  // terminalType OR live roster) so their tabs always show the OpenAI
+  // glyph instead of the generic Terminal icon.
+  const codexSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of terminalSessions) {
+      if (s.type === 'codex') ids.add(s.id);
     }
     return ids;
   }, [terminalSessions]);
@@ -509,9 +521,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {panes.map((pane, paneIdx) => {
         const config = getPaneConfig(pane.type);
         const Icon = ICONS[config.icon];
-        // Claude Code = persisted terminalType OR live roster says so (see memo above).
+        // Claude Code / Codex = persisted terminalType OR live roster says so
+        // (see memos above).
         const termSid = pane.type === 'terminal' ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id)) : null;
         const isClaudeCodeTab = pane.type === 'terminal' && (pane.terminalType === 'claude-code' || (!!termSid && claudeCodeSessionIds.has(termSid)));
+        const isCodexTab = pane.type === 'terminal' && !isClaudeCodeTab && (pane.terminalType === 'codex' || (!!termSid && codexSessionIds.has(termSid)));
         // Selection reads in the SAME visual language as the sidebar (shared
         // SELECTED_SURFACE): the focused tab is a clearly raised NEUTRAL card,
         // every other split group still shows ITS active tab one step softer,
@@ -556,7 +570,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 ? SELECTED_SURFACE
                 : isActiveDimmed
                   ? SELECTED_SURFACE_SOFT
-                  : 'text-app-text-tertiary hover:text-app-text bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]'
+                  : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
@@ -596,6 +610,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             ) : isClaudeCodeTab ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <ClaudeIcon size={14} className="text-[#D97757]" />
+              </span>
+            ) : isCodexTab ? (
+              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                {/* Mono ink on purpose — OpenAI's brand is monochrome. */}
+                <CodexIcon size={14} />
               </span>
             ) : pane.type === 'chat' && pane.topicId && topics[pane.topicId] ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
@@ -688,10 +707,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {hasMenuItems && (
         <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1">
           <PaneAddMenu
+            scope={addMenuScope}
             onNewChat={onNewChat}
             onAddPane={onAddPane}
             availableTypes={availableTypes}
-            showProjectActions={showProjectActions}
             // Cmd/Ctrl+N targets the focused group's New Chat — true here.
             showShortcuts
             noElectronDrag
