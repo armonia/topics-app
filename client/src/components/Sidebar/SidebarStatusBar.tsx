@@ -5,6 +5,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
 import type { ConnectionStatus } from '@/types';
+import { ROW_INSET } from '@/lib/selectionStyles';
 
 declare const __BUILD_TIME__: string;
 
@@ -181,7 +182,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
 
   return (
     <>
-      <div className="flex items-center gap-2 min-h-7 px-3 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
+          the sidebar cards, the header, and the tab strip — one inset on every
+          sidebar axis. */}
+      <div className="flex items-center gap-2 min-h-7 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}

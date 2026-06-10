@@ -554,9 +554,14 @@ export function TopicTree({
 
   return (
     <div role="tree" aria-label="Sidebar" className="flex flex-col h-full min-h-0">
-      {/* py-[7px] + each card's my-px (1px) = 8px above the first row and below
-          the last, matching the cards' 8px lateral inset (mx-2). */}
-      <div className="flex-1 min-h-0 overflow-y-auto sidebar-scroll py-[7px]">
+      {/* paddingBlock (ROW_INSET − 1) + each card's my-px (1px) = ROW_INSET
+          above the first row and below the last — the SAME 6px the cards keep
+          laterally (mx-1.5) and the tab bar keeps around its tabs, so the
+          sidebar's padding reads identical on every axis. */}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
+        style={{ paddingBlock: ROW_INSET - 1 }}
+      >
         {viewMode === 'timeline' ? (
           // Timeline: flat list sorted by activity
           filteredItems.map(item => renderItem(item))
