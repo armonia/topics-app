@@ -234,30 +234,35 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           if (drafts.length > 0) localDraftsByGroup[gid] = drafts;
         }
       }
-      // Boot-window protection: panes opened locally between the warm-boot
-      // localStorage hydrate and the FIRST server frame don't exist in the
-      // server snapshot yet — the wholesale replace below would erase them
-      // (the user's just-clicked tab vanishes ~500ms after opening). Preserve
-      // them ONLY on the first server hydrate (lastServerSeq still 0):
-      // steady-state hydrates must keep replacing, or a pane closed on
-      // another device would resurrect here forever. Matches the product's
-      // open-tabs-converge-by-UNION model; this tab's next debounced PUT
-      // pushes the union back to the server.
-      const isFirstServerHydrate =
-        clean.panes !== undefined && state.lastServerSeq === 0 && clean.server_seq > 0;
-      const localBootPanes: PaneState['panes'] = {};
-      const localBootByGroup: Record<string, string[]> = {};
-      if (isFirstServerHydrate) {
+      // Cross-client UNION (was: first-server-hydrate only — steady state did a
+      // wholesale replace). A remote snapshot that doesn't list a pane we hold
+      // locally must NOT silently drop it — that wholesale replace IS the
+      // multi-client clobber: open a project on device A and device B's stale
+      // PUT closes it for everyone (desktop ⇄ PWA ⇄ a second window). We keep
+      // local-only panes (the union) and let the closedStack TOMBSTONE channel
+      // carry removals: a pane genuinely CLOSED on another client rides in
+      // clean.closedStack and IS dropped here, so a real close still propagates
+      // and a closed tab never resurrects. This tab's next debounced PUT pushes
+      // the merged union back to the server.
+      //
+      // Drafts (device-local scratch) are preserved separately just below; this
+      // block subsumes the old boot-window special case (the first hydrate is
+      // simply the first union).
+      const remoteClosedIds = new Set((clean.closedStack ?? []).map((r) => r.id));
+      const localKeptPanes: PaneState['panes'] = {};
+      const localKeptByGroup: Record<string, string[]> = {};
+      {
         const incomingIds = new Set(Object.keys(clean.panes ?? {}));
         for (const [id, pane] of Object.entries(state.panes)) {
-          if (!id.startsWith('draft:') && !incomingIds.has(id)) {
-            localBootPanes[id] = pane;
-          }
+          if (id.startsWith('draft:')) continue;     // re-injected separately below
+          if (incomingIds.has(id)) continue;          // remote already has it
+          if (remoteClosedIds.has(id)) continue;      // closed on another client → drop
+          localKeptPanes[id] = pane;
         }
-        if (Object.keys(localBootPanes).length > 0) {
+        if (Object.keys(localKeptPanes).length > 0) {
           for (const [gid, group] of Object.entries(state.groups)) {
-            const kept = group.paneIds.filter((id) => localBootPanes[id]);
-            if (kept.length > 0) localBootByGroup[gid] = kept;
+            const kept = group.paneIds.filter((id) => localKeptPanes[id]);
+            if (kept.length > 0) localKeptByGroup[gid] = kept;
           }
         }
       }
@@ -267,7 +272,21 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // full reasoning. The field is no longer in outbound snapshots; any
       // legacy server snapshot still carrying it is dead data.
       if (clean.groupOrder) state.groupOrder = clean.groupOrder;
-      if (clean.closedStack) state.closedStack = clean.closedStack;
+      // closedStack is a TOMBSTONE log — MERGE (union by id+closedAt), never
+      // replace: a close that happened on THIS client but hasn't been PUT yet
+      // must not be dropped by an older incoming snapshot (which would let the
+      // union above resurrect the just-closed pane). The clamp further down
+      // keeps it bounded to the most-recent CLOSED_STACK_MAX.
+      if (clean.closedStack) {
+        const seen = new Set(state.closedStack.map((r) => `${r.id}@${r.closedAt}`));
+        const merged = [...state.closedStack];
+        for (const r of clean.closedStack) {
+          const k = `${r.id}@${r.closedAt}`;
+          if (!seen.has(k)) { seen.add(k); merged.push(r); }
+        }
+        merged.sort((a, b) => (a.closedAt ?? 0) - (b.closedAt ?? 0));
+        state.closedStack = merged;
+      }
       // Re-inject local drafts on top of the freshly applied snapshot. We
       // append rather than insert at a fixed index because the draft's prior
       // position is meaningful only locally and the user expects a freshly-
@@ -282,11 +301,13 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           if (!group.paneIds.includes(draftId)) group.paneIds.push(draftId);
         }
       }
-      // Re-inject boot-window panes (first server hydrate only — see above).
-      // Unlike drafts we recreate a missing group: these are real panes the
-      // user just opened, and their group (usually group:default) may not be
-      // in a server snapshot written before this device ever PUT.
-      for (const [gid, ids] of Object.entries(localBootByGroup)) {
+      // Re-inject local-only panes (the UNION half — see the note above).
+      // Unlike drafts we recreate a missing group: these are real panes this
+      // client holds that the remote snapshot didn't list — e.g. a project /
+      // chat tab the user just opened here while another client's older state
+      // was in flight. Appended so a freshly-opened local tab stays on the
+      // right of the bar.
+      for (const [gid, ids] of Object.entries(localKeptByGroup)) {
         let group = state.groups[gid];
         if (!group) {
           group = { id: gid, paneIds: [], splitRatio: 0.5, splitAxis: 'horizontal' };
@@ -294,7 +315,7 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           if (!state.groupOrder.includes(gid)) state.groupOrder.push(gid);
         }
         for (const id of ids) {
-          state.panes[id] = localBootPanes[id];
+          state.panes[id] = localKeptPanes[id];
           if (!group.paneIds.includes(id)) group.paneIds.push(id);
         }
       }
