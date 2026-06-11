@@ -41,6 +41,17 @@ function handleMessage(msg, client) {
       for (const key of Object.keys(mergedEnv)) {
         if (mergedEnv[key] == null) delete mergedEnv[key];
       }
+      // Ensure a UTF-8 locale so accented output doesn't mojibake (à -> √†).
+      // Under launchd the env is stripped (LANG unset) -> agent panes that exec
+      // `claude`/`codex` directly fall into the C/POSIX single-byte locale.
+      // Only fill in if the caller didn't already pass a UTF-8 locale (so an
+      // explicit it_IT.UTF-8 is respected).
+      const hasUtf8Locale = [mergedEnv.LC_ALL, mergedEnv.LC_CTYPE, mergedEnv.LANG]
+        .some((v) => typeof v === 'string' && /utf-?8/i.test(v));
+      if (!hasUtf8Locale) {
+        mergedEnv.LANG = 'en_US.UTF-8';
+        mergedEnv.LC_CTYPE = 'en_US.UTF-8';
+      }
       const home = process.env.HOME || '';
       const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
       const currentPath = mergedEnv.PATH || '';
