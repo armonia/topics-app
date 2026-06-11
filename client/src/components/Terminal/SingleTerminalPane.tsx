@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -6,6 +6,7 @@ import { Copy, Check } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished } from '../../state/signals';
+import { useTerminalSessions } from '../../contexts/TopicsContext';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -94,6 +95,26 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
   const [stale, setStale] = useState(false);
+
+  // ── Lossless reattach ──────────────────────────────────────────────────
+  // The terminal-session list is broadcast by the server and sourced from the
+  // PTY bridge, which keeps sessions alive across server reloads/restarts. So
+  // the AUTHORITATIVE answer to "is this session still alive?" is "is it in
+  // this list?" — NOT the WS close code. We use it to (a) keep reconnecting a
+  // pane whose WS dropped during a reload/reconcile instead of dead-ending on
+  // "expired", and (b) auto-recover a pane that already went stale the instant
+  // its session reappears in the list. Read inside the connection effect via
+  // refs so the (sessionId-keyed) xterm mount effect never re-runs on a list
+  // change.
+  const terminalSessions = useTerminalSessions();
+  const sessionListed = useMemo(
+    () => terminalSessions.some((s) => s.id === sessionId),
+    [terminalSessions, sessionId],
+  );
+  const sessionListedRef = useRef(sessionListed);
+  const staleRef = useRef(stale);
+  const reconnectRef = useRef<(() => void) | null>(null);
+  useEffect(() => { staleRef.current = stale; }, [stale]);
 
   // Viewing a claude-code session = its "finished a turn" notification is seen,
   // so clear it. Depending on `finished` (not just isActive) is what makes this
@@ -237,7 +258,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     setTimeout(() => { doFit(); term.focus(); }, 600);
 
     let retryCount = 0;
-    const MAX_RETRIES = 15;
+    // Grace window for the boot/reconcile race: an attach can fire before the
+    // session list has (re)populated. We retry this many times even while the
+    // session looks absent, so a live session never false-expires before the
+    // authoritative list has had a chance to load. Beyond the grace, the list
+    // is the sole arbiter: listed → keep retrying (lossless); absent → expired.
+    const RECONCILE_GRACE_RETRIES = 5;
     let retryTimer: ReturnType<typeof setTimeout>;
 
     // The server sends a `{type:"replay-end"}` text frame after flushing the
@@ -353,28 +379,44 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
       ws.onclose = (event) => {
         if (intentionalClose) return;
-        if (event.code === 1008) {
-          term.write('\r\n\x1b[90m[Session expired - close and reopen terminal]\x1b[0m\r\n');
+        if (event.code === 1000) {
+          // Clean end — the PTY exited (`exit`, process finished). Not a
+          // reconnect candidate; the session drops from the list on its own.
+          term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
+          return;
+        }
+        // 1008 ("session not found") or any abnormal close. The PTY bridge
+        // keeps sessions alive across server reloads/restarts/reconciles, so
+        // this is TRANSIENT as long as the session is still in the
+        // authoritative list. Keep reconnecting; declare the pane expired only
+        // once the session has actually left the broadcast list. While listed
+        // we retry indefinitely (capped backoff) — that's the lossless
+        // property: a reload can't strand a terminal whose session is alive.
+        retryCount++;
+        if (sessionListedRef.current || retryCount <= RECONCILE_GRACE_RETRIES) {
+          const delay = Math.min(500 * retryCount, 3000);
+          retryTimer = setTimeout(connectWs, delay);
+        } else {
+          term.write('\r\n\x1b[90m[Session expired]\x1b[0m\r\n');
           setStale(true);
           onStale?.();
-        } else if (event.code === 1000) {
-          term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
-        } else {
-          // Unexpected disconnect — auto-reconnect
-          if (retryCount < MAX_RETRIES) {
-            retryCount++;
-            const delay = Math.min(500 * retryCount, 3000);
-            retryTimer = setTimeout(connectWs, delay);
-          } else {
-            term.write('\r\n\x1b[90m[Disconnected]\x1b[0m\r\n');
-            setStale(true);
-            onStale?.();
-          }
         }
       };
 
       return ws;
     }
+
+    // Exposed so the lossless-recovery effect (below) can force a reconnect
+    // when a stale pane's session reappears in the authoritative list. No-op
+    // if a connection is already open/opening, so it can't create a duplicate
+    // socket racing the live one.
+    reconnectRef.current = () => {
+      const cur = termRef.current?.ws;
+      if (cur && (cur.readyState === WebSocket.OPEN || cur.readyState === WebSocket.CONNECTING)) return;
+      clearTimeout(retryTimer);
+      retryCount = 0;
+      connectWs();
+    };
 
     const initialWs = connectWs();
 
@@ -408,6 +450,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     return () => {
       intentionalClose = true;
       clearTimeout(retryTimer);
+      reconnectRef.current = null;
       detachTouchScroll();
       el.removeEventListener('paste', handleImagePaste as unknown as EventListener, true);
       termRef.current?.ws.close();
@@ -415,6 +458,20 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       termRef.current = null;
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lossless recovery — see the "Lossless reattach" note up top. Keep the
+  // session-presence ref current for the connection effect's close handler,
+  // and when a pane that already went stale finds its session back in the
+  // authoritative list (reconcile completed, server returned, dormant session
+  // revived), clear the overlay and reconnect. Keyed on `sessionListed` only
+  // so it never disturbs the xterm mount effect.
+  useEffect(() => {
+    sessionListedRef.current = sessionListed;
+    if (sessionListed && staleRef.current) {
+      setStale(false);
+      reconnectRef.current?.();
+    }
+  }, [sessionListed]);
 
   // Resize observer
   useEffect(() => {
