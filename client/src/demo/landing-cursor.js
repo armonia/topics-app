@@ -29,7 +29,7 @@
     if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   } catch (e) { return; }
 
-  var START_AT_MS = 6000;     // ≈3s after the WS transcripts finish streaming
+  var START_AT_MS = 1200;     // start almost immediately once the UI has mounted
   var LOOP_PAUSE_MS = 25000;  // long pause between rounds
   var GLIDE_EASE = "cubic-bezier(.22,.61,.36,1)";
 

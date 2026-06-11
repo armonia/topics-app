@@ -153,6 +153,22 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(el);
+
+    // Landing demo only: swap in the Canvas renderer, which DRAWS box-drawing
+    // and block-element glyphs itself (customGlyphs) instead of using the font.
+    // The marketing demo shows the real Claude Code block-art logo, and the
+    // default DOM renderer paints those sub-cell quadrant blocks from the font
+    // → hairline seams between them. Canvas renders them seam-free. Gated on a
+    // flag the demo boot shim sets (the real app keeps the DOM renderer for
+    // native mobile text selection), dynamically imported so the addon is a
+    // lazy chunk never fetched outside the demo, and wrapped so any
+    // incompatibility silently falls back to the DOM renderer.
+    if ((window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
+      import('@xterm/addon-canvas')
+        .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ } })
+        .catch(() => { /* DOM fallback */ });
+    }
+
     registerWrappedLinkProvider(term, openLinkExternally);
 
     // Cmd+C (mac) or Ctrl+Shift+C: copy selection without sending SIGINT
