@@ -879,3 +879,98 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
     expect(state.focusedPaneId).toBeNull();
   });
 });
+
+describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () => {
+  const mkPane = (id: string, type = "project") => ({ id, type, title: id }) as any;
+  const mkRec = (id: string, closedAt: number) =>
+    ({ id, closedAt, pane: mkPane(id), groupId: "group:default", groupIndex: 0, level: "app" }) as any;
+  const grp = (paneIds: string[]) =>
+    ({ id: "group:default", paneIds, splitRatio: 0.5, splitAxis: "horizontal" as const });
+  const hydrate = (state: PaneState, snapshot: Record<string, unknown>) =>
+    paneReducer(state, { type: "HYDRATE_FROM_SNAPSHOT", payload: { snapshot } } as any);
+
+  test("a local-only pane survives a remote snapshot that omits it (the clobber fix)", () => {
+    // THIS client just opened project:P. A newer snapshot from another client
+    // (desktop ⇄ PWA ⇄ second window) never saw it and lists only project:Q.
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["project:P"] = mkPane("project:P");
+    state.groups["group:default"] = grp(["project:P"]);
+    state.groupOrder = ["group:default"];
+
+    hydrate(state, {
+      panes: { "project:Q": mkPane("project:Q") },
+      groups: { "group:default": grp(["project:Q"]) },
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+
+    // UNION, not replace: project:P is NOT clobbered, project:Q is adopted.
+    expect(state.panes["project:P"]).toBeDefined();
+    expect(state.panes["project:Q"]).toBeDefined();
+    expect(state.groups["group:default"].paneIds).toContain("project:P");
+    expect(state.groups["group:default"].paneIds).toContain("project:Q");
+  });
+
+  test("concurrent opens on two clients converge to the union", () => {
+    const state = blankState();
+    state.lastServerSeq = 1;
+    state.panes["chat:Y"] = mkPane("chat:Y", "chat");
+    state.groups["group:default"] = grp(["chat:Y"]);
+    state.groupOrder = ["group:default"];
+    hydrate(state, {
+      panes: { "chat:X": mkPane("chat:X", "chat") },
+      groups: { "group:default": grp(["chat:X"]) },
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 2, server_seq: 2, seq: 2,
+    });
+    expect([...state.groups["group:default"].paneIds].sort()).toEqual(["chat:X", "chat:Y"]);
+  });
+
+  test("a pane CLOSED on another client (in clean.closedStack) is removed, not resurrected", () => {
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["project:P"] = mkPane("project:P");
+    state.groups["group:default"] = grp(["project:P"]);
+    state.groupOrder = ["group:default"];
+    // Remote closed project:P → it rides in the incoming closedStack (tombstone)
+    // and is absent from the incoming panes/groups.
+    hydrate(state, {
+      panes: {},
+      groups: { "group:default": grp([]) },
+      closedStack: [mkRec("project:P", 1000)],
+      groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+    // The tombstone wins over the union — P is gone, and the union did NOT
+    // re-add it from local state.
+    expect(state.groups["group:default"].paneIds).not.toContain("project:P");
+    expect(state.panes["project:P"]).toBeUndefined();
+  });
+
+  test("closedStack is MERGED (union), not replaced — an unsynced local close survives", () => {
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.closedStack = [mkRec("chat:local", 2000)];
+    hydrate(state, {
+      panes: {}, groups: {},
+      closedStack: [mkRec("chat:remote", 1000)],
+      groupOrder: [], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+    const ids = state.closedStack.map((r) => r.id);
+    expect(ids).toContain("chat:local");
+    expect(ids).toContain("chat:remote");
+  });
+
+  test("device-local drafts are preserved through a union hydrate", () => {
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["draft:abc"] = mkPane("draft:abc", "chat");
+    state.groups["group:default"] = grp(["draft:abc"]);
+    state.groupOrder = ["group:default"];
+    hydrate(state, {
+      panes: { "chat:R": mkPane("chat:R", "chat") },
+      groups: { "group:default": grp(["chat:R"]) },
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+    expect(state.panes["draft:abc"]).toBeDefined();
+    expect(state.groups["group:default"].paneIds).toContain("draft:abc");
+  });
+});
