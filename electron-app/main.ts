@@ -579,12 +579,55 @@ function createWindow(): void {
     }
   }
 
-  mainWindow.loadURL(SERVER_URL);
+  // Show a branded loading page IMMEDIATELY, then poll the server and switch to
+  // the real app once it responds. WHY: the window is `show:false` and used to
+  // be revealed ONLY on the app's `did-finish-load`. If the bundled server was
+  // slow — or never started (e.g. its unsigned binaries got Gatekeeper-blocked
+  // on a freshly-downloaded app) — that event never fired and the window stayed
+  // hidden forever: the app "didn't open" and, with no visible window, felt
+  // impossible to quit. Now a window is always on screen within a second, the
+  // poller connects when the server is ready, and the tray (created right after
+  // this) is always there to Quit.
+  const LOADING_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
+    `<!doctype html><meta charset="utf-8"><style>
+      html,body{height:100%;margin:0}
+      body{background:#16181d;color:#e7e7ea;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none}
+      .spin{width:26px;height:26px;border:2.5px solid rgba(255,255,255,.15);border-top-color:#d97757;
+        border-radius:50%;animation:s .8s linear infinite}
+      @keyframes s{to{transform:rotate(360deg)}}
+      .t{font-weight:600;letter-spacing:.2px}.d{color:#9b9ba3;font-size:12.5px}
+      .hint{color:#9b9ba3;font-size:12px;max-width:320px;text-align:center;opacity:0;transition:opacity .4s}
+    </style>
+    <div class="spin"></div>
+    <div class="t">Starting Topics…</div>
+    <div class="d">Launching the local engine</div>
+    <div class="hint" id="h">This is taking longer than usual. You can always quit from the Topics icon in the menu bar.</div>
+    <script>setTimeout(function(){document.getElementById('h').style.opacity=1},15000)</script>`
+  );
 
-  mainWindow.webContents.once('did-finish-load', () => {
-    console.log('[Topics Electron] Topics loaded, showing window');
-    mainWindow!.show();
-  });
+  let appLoaded = false;
+  mainWindow.loadURL(LOADING_PAGE).catch(() => { /* data URL never fails */ });
+  mainWindow.show(); // visible right away, regardless of server state
+
+  const connectWhenReady = async () => {
+    if (!mainWindow || mainWindow.isDestroyed() || appLoaded) return;
+    if (await serverAlreadyUp(1000)) {
+      appLoaded = true;
+      mainWindow.loadURL(SERVER_URL).catch((err: { code?: string; errno?: number }) => {
+        // ERR_ABORTED (-3) just means a newer navigation superseded this load
+        // (e.g. it replaced the still-loading splash) — not a real failure, so
+        // don't bounce back to the splash and retry.
+        if (err && (err.code === 'ERR_ABORTED' || err.errno === -3)) return;
+        console.error('[Topics Electron] app load failed, retrying:', err);
+        appLoaded = false;
+        setTimeout(connectWhenReady, 600);
+      });
+      return;
+    }
+    setTimeout(connectWhenReady, 600);
+  };
+  void connectWhenReady();
 
   // Phase 30.1 polish — destroy orphan native browsers on renderer reload.
   // When the React app hot-reloads (Vite HMR, Cmd+R, dev server restart),
@@ -611,8 +654,18 @@ function createWindow(): void {
     }
   });
 
-  mainWindow.webContents.on('did-fail-load', (_event, code, desc) => {
-    console.error('[Topics Electron] Failed to load:', code, desc);
+  mainWindow.webContents.on('did-fail-load', (_event, code, desc, failedUrl) => {
+    console.error('[Topics Electron] Failed to load:', code, desc, failedUrl);
+    // -3 = ERR_ABORTED (a superseded navigation, e.g. our own reload) — ignore.
+    if (code === -3) return;
+    // The real app URL dropped (server restarted/hiccuped mid-load): fall back
+    // to the loading page and resume polling instead of leaving Electron's bare
+    // error page, so the window keeps showing a sane state and auto-reconnects.
+    if (failedUrl && failedUrl.startsWith(SERVER_URL) && mainWindow && !mainWindow.isDestroyed()) {
+      appLoaded = false;
+      mainWindow.loadURL(LOADING_PAGE).catch(() => {});
+      setTimeout(connectWhenReady, 600);
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -2655,11 +2708,18 @@ app.whenReady().then(async () => {
   createAppMenu();
   // Phase 30.1 polish — overlay manager IPC handlers register here.
   initOverlayManager();
-  // Packaged builds: spawn + health-wait the bundled server before loading
-  // the window (no-op in dev / when a server is already running).
-  await startBundledServer();
-  createWindow();
-  createTray();
+  // Window + tray FIRST, before any server work, so the app ALWAYS visibly
+  // opens (loading page) and is ALWAYS quittable (tray Quit) within a second —
+  // even if the bundled server is slow or never starts. createWindow polls the
+  // server and swaps in the real app when it's ready. Independent try/catch so
+  // a failure in one never prevents the other — the tray Quit must exist even
+  // if window creation throws.
+  try { createWindow(); } catch (e) { console.error('[Topics Electron] createWindow failed:', e); }
+  try { createTray(); } catch (e) { console.error('[Topics Electron] createTray failed:', e); }
+  // Packaged builds: spawn the bundled server (no-op in dev / when one is
+  // already running). NOT awaited before the window — the window's own poller
+  // drives the connect, so a slow/failed server can't keep the UI off-screen.
+  startBundledServer().catch((err) => console.error('[Server] start failed:', err));
   startWSBridge();
   startNotificationCleanup();
   startCDPInfoServer();
@@ -3530,6 +3590,23 @@ async function startBundledServer(): Promise<void> {
   if (!fs.existsSync(bunPath)) {
     console.error('[Server] Bundled bun runtime missing:', bunPath);
     return;
+  }
+
+  // A freshly-DOWNLOADED unsigned app has the `com.apple.quarantine` xattr on
+  // EVERY nested file, and macOS Gatekeeper SIGKILLs a quarantined executable
+  // the moment it's exec'd — so the bundled `bun`/`node` would be killed and
+  // the server would never come up (the #1 reason "the installed app won't
+  // open"). Best-effort strip the quarantine from our own bundled runtime so it
+  // can run. No-op when already clear, signed, or not permitted. Async so it
+  // never blocks the event loop (the window is already on screen).
+  if (process.platform === 'darwin') {
+    try {
+      const { execFile } = await import('child_process');
+      await new Promise<void>((resolve) => {
+        execFile('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', serverDir],
+          { timeout: 8000 }, () => resolve());
+      });
+    } catch { /* best effort */ }
   }
 
   // extraResources copies can drop the +x bit — restore it best-effort so the
