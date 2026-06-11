@@ -175,7 +175,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   // ── 2. Build project items ───────────────────────────────────────────────
   // Everything in the sidebar is tab-driven: only show if there's an open tab or unread.
-  // A project appears if: its project pane is open, OR any child has an open tab / unread / running terminal.
+  // A project appears if: its project pane is open, OR any child has an open tab / unread.
 
   for (const pp of projectPaths) {
     const projectTopics = topicsByProject.get(pp) || [];
@@ -217,9 +217,18 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       });
     }
 
-    // Running terminals always show under their project (they're active resources)
+    // Tab-driven, same rule as standalone terminals + project chats: a terminal
+    // shows ONLY while its pane is actually open — inside this project's window
+    // (internalPaneIds) or as a top-level tab (openPanelSet). Previously project
+    // terminals were listed unconditionally as "active resources", so closing a
+    // terminal tab left its sidebar row behind: the row tracked "session is
+    // running", not "tab is open", and the PTY lingers ~60s for the undo grace.
+    // Gating on the open tab makes a closed tab vanish from the sidebar
+    // immediately (⌘Z within the grace window still restores tab + row); a
+    // detached-but-running session stays reachable from Processes / Agents.
     for (const ts of projectTerminals) {
       const termPaneId = `terminal:${ts.id}`;
+      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId)) continue;
       children.push({
         id: termPaneId,
         type: 'terminal',
