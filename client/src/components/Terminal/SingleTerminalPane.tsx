@@ -473,18 +473,32 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     }
   }, [sessionListed]);
 
-  // Resize observer
+  // Resize observer. A divider drag resizes this pane's container on every
+  // animation frame; fitting xterm per frame resizes its canvas layers and
+  // repaints the whole grid each time — a continuous flicker for the length of
+  // the drag (the demo's "le finestre flashano"). useGridResize brackets a real
+  // drag with 'topics:pane-resize-start' / '-end', so coalesce: hold the fits
+  // while a drag is live and run exactly one fit when it ends, at the settled
+  // geometry. Non-drag size changes (sidebar toggle, window resize) still fit
+  // immediately.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const handleResize = () => {
-      if (termRef.current) {
-        try { termRef.current.fit.fit(); } catch {}
-      }
-    };
+    let resizing = false;
+    let missed = false;
+    const fit = () => { if (termRef.current) { try { termRef.current.fit.fit(); } catch {} } };
+    const handleResize = () => { if (resizing) { missed = true; return; } fit(); };
+    const onResizeStart = () => { resizing = true; };
+    const onResizeEnd = () => { resizing = false; if (missed) { missed = false; fit(); } };
     const observer = new ResizeObserver(handleResize);
     observer.observe(el);
-    return () => observer.disconnect();
+    window.addEventListener('topics:pane-resize-start', onResizeStart);
+    window.addEventListener('topics:pane-resize-end', onResizeEnd);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('topics:pane-resize-start', onResizeStart);
+      window.removeEventListener('topics:pane-resize-end', onResizeEnd);
+    };
   }, []);
 
   // When window gains focus, re-fit and force-send dimensions to server.
