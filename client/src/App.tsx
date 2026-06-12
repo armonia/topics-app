@@ -302,6 +302,32 @@ function App() {
     setPendingProjectFocus, setPendingProjectPane, setPanelInitialTab,
   } = panelLifecycle.handlers;
 
+  // Electron "Reopen Closed Tab" menu accelerator (⇧⌘T) → reopen the most
+  // recently closed tab via the SAME shared handler the keyboard chord and the
+  // ⌘K palette use (single reopen entry point). The chord also resolves through
+  // the renderer keydown (useKeyboardShortcuts); this IPC path additionally
+  // covers the case where focus is inside a native pane that swallows the
+  // renderer keydown. Ref-mirror so the listener registers once but always
+  // reads the freshest stack head.
+  const reopenClosedRef = useRef({ tabs: closedTabs, reopen: handleReopenClosedTab });
+  useEffect(() => {
+    reopenClosedRef.current = { tabs: closedTabs, reopen: handleReopenClosedTab };
+  });
+  useEffect(() => {
+    const api = (window as unknown as {
+      electronAPI?: {
+        onReopenClosedTab?: (cb: () => void) => void;
+        removeReopenClosedTabListener?: () => void;
+      };
+    }).electronAPI;
+    if (!api?.onReopenClosedTab) return;
+    api.onReopenClosedTab(() => {
+      const { tabs, reopen } = reopenClosedRef.current;
+      if (tabs[0]) reopen(tabs[0]);
+    });
+    return () => api.removeReopenClosedTabListener?.();
+  }, []);
+
   // Open / create a project via the native folder picker (select an existing
   // folder OR create a new one in the OS dialog). Shared by CommandPalette
   // (onNewProject) and PaneAddMenu's "Apri/Crea Progetto" items, the latter

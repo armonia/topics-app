@@ -25,7 +25,7 @@ import {
   getBrowserContextFromPaneId,
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
-import { findPreviewInList, replaceInList } from '../../../lib/previewTabs';
+import { findPreviewInList, replaceInList, consumeTabRestored } from '../../../lib/previewTabs';
 import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
 import { usePaneStore } from '../../../state/pane/store';
@@ -190,6 +190,23 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
     const wasAdded = topicIds.length > prevTopicIds.length;
 
+    // A REOPENED (restored) tab is additive — it must never be treated as a
+    // preview-navigation that replaces (and closes) the current preview tab.
+    // Consume the one-shot restore marker set by the reopen path (see
+    // lib/previewTabs markTabRestored). Computed OUTSIDE the setOrderedIds
+    // updater so the consume runs exactly once (the updater may re-run under
+    // StrictMode / batching). `addedDelta` is derived from the topicIds delta,
+    // matching what the reopen actually appended.
+    const addedDelta = topicIds.filter(id => !prevTopicIds.includes(id));
+    // Consume the restore marker for EVERY added id so a marker can never linger
+    // (e.g. a reopen that arrived inside a 2-tab batch) and suppress a genuine
+    // preview-navigation later. Only a single-tab restore skips the replace.
+    let restoredAdds = 0;
+    for (const id of addedDelta) {
+      if (consumeTabRestored(id)) restoredAdds++;
+    }
+    const isRestore = wasAdded && addedDelta.length === 1 && restoredAdds === 1;
+
     setOrderedIds(prev => {
       const existing = prev.filter(id => {
         if (isBrowserPaneId(id)) return true;
@@ -198,7 +215,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       });
       const added = topicIds.filter(id => !prev.includes(id));
 
-      if (wasAdded && added.length === 1) {
+      if (wasAdded && added.length === 1 && !isRestore) {
         const previewId = findPreviewInList(existing, pinnedIdsRef.current, added[0]);
         if (previewId && !isBrowserPaneId(previewId) && !isTerminalPaneId(previewId) && !isSessionViewerPaneId(previewId) && !isDraftPaneId(previewId)) {
           pendingCloseRef.current = previewId;

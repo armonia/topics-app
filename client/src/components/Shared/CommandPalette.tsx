@@ -226,7 +226,7 @@ export function CommandPalette({
         icon,
         category: 'recent-closed' as const,
         _ts: record.closedAt,
-        shortcut: i === 0 ? '⌘⇧U' : undefined,
+        shortcut: i === 0 ? '⇧⌘T' : undefined,
         titleOverride,
         action: () => { onReopenClosedTab(record); onClose(); },
       };

@@ -466,8 +466,8 @@ export function ChatInput({
         if (sttSupported && !isCallActive) toggleListening();
         return;
       }
-      // Shift+Cmd+S ("Speak") — moved off Shift+Cmd+T, which the browser owns
-      // for "reopen closed tab".
+      // Shift+Cmd+S ("Speak"). Shift+Cmd+T is the app's "reopen closed tab"
+      // chord (handled globally in useKeyboardShortcuts), so auto-TTS stays here.
       if (isMod && e.shiftKey && e.key === 'S') {
         e.preventDefault();
         setAutoTTS(prev => !prev);

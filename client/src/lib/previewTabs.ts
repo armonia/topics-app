@@ -8,6 +8,33 @@
  */
 
 /**
+ * One-shot "this tab was just restored (reopened)" markers.
+ *
+ * Reopening a closed tab (⇧⌘T / ⌘⇧U / ⌘K "recently closed") is ADDITIVE — it
+ * restores a tab alongside the existing ones. It must NOT be mistaken for a
+ * preview-navigation (a single tab added → replace the current transient
+ * "preview" tab), otherwise reopening a tab would close whatever preview tab is
+ * currently open and the user would just see a swap instead of a restore.
+ *
+ * The reopen path calls `markTabRestored(id)` immediately before the tab lands
+ * in the open list; the ordering effect (usePaneOrdering) calls
+ * `consumeTabRestored(id)` once and, when true, skips the preview replacement.
+ * Module-level Set (not React state) so the marker is readable synchronously in
+ * the very next render's effect, and one-shot so it can never leak into a later,
+ * genuine navigation.
+ */
+const restoredTabIds = new Set<string>();
+
+export function markTabRestored(id: string): void {
+  restoredTabIds.add(id);
+}
+
+/** Returns true (and clears the marker) iff `id` was just restored. */
+export function consumeTabRestored(id: string): boolean {
+  return restoredTabIds.delete(id);
+}
+
+/**
  * Find the first preview (unpinned) ID in an ordered list.
  */
 export function findPreviewInList(

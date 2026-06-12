@@ -20,6 +20,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('navigate-to-topic', (_event, topicId) => callback(topicId));
   },
 
+  // Native "Reopen Closed Tab" menu accelerator (⇧⌘T) → renderer. The renderer
+  // reopens the most recently closed tab via the same shared handler the
+  // keyboard chord and ⌘K palette use.
+  onReopenClosedTab: (callback: () => void) => {
+    ipcRenderer.on('reopen-closed-tab', () => callback());
+  },
+  removeReopenClosedTabListener: () => {
+    ipcRenderer.removeAllListeners('reopen-closed-tab');
+  },
+
   reportFocusedTopic: (topicId: string) => {
     ipcRenderer.send('topic:focused', topicId);
   },

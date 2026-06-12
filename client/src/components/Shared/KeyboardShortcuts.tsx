@@ -25,7 +25,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: '⌘?', description: 'Keyboard shortcuts' },
       { keys: '⌘⇧N', description: 'New chat (with template)', desktopOnly: true },
       { keys: '⌘W', description: 'Close panel', desktopOnly: true },
-      { keys: '⌘⇧U', description: 'Reopen closed tab' },
+      { keys: '⇧⌘T', description: 'Reopen closed tab (alias ⌘⇧U)' },
       { keys: '⌘1-9', description: 'Switch panel', desktopOnly: true },
     ],
   },

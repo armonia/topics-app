@@ -1661,6 +1661,22 @@ function createAppMenu(): void {
           },
         },
         { type: 'separator' },
+        {
+          // Native accelerator for "reopen most recently closed tab" (Warp /
+          // VS Code parity). Claiming ⇧⌘T at the menu level guarantees the
+          // chord fires even when focus is inside a native WebContentsView/
+          // terminal pane, where the renderer's window keydown wouldn't run.
+          // The renderer (App.tsx) handles the resulting `reopen-closed-tab`
+          // IPC via the shared handleReopenClosedTab path.
+          label: 'Reopen Closed Tab',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => {
+            if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+              mainWindow.webContents.send('reopen-closed-tab');
+            }
+          },
+        },
+        { type: 'separator' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
