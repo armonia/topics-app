@@ -65,6 +65,7 @@ import {
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
+import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
 
@@ -1366,6 +1367,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         topicId: pane.topicId,
         projectPath: pane.projectPath,
       });
+      // Reopen is ADDITIVE: mark the restored id so the standalone tab-ordering
+      // (usePaneOrdering) doesn't treat this single add as a preview-navigation
+      // and replace+close the current preview tab (the reopen "swap" bug). Set
+      // before setOpenPanels so the marker is present when the topicIds effect
+      // runs on the next render.
+      markTabRestored(pane.id);
       setOpenPanels(prev => prev.includes(pane.id) ? prev : [...prev, pane.id]);
       setFocusedPanelId(pane.id);
       removeClosedTab(record.id);

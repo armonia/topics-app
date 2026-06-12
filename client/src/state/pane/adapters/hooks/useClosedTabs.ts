@@ -13,22 +13,14 @@ import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from '../../store';
 import type { PaneStore } from '../../store';
 import type { Pane } from '../../../../types';
-import type { ClosedPaneRecord, ClosedTerminalMeta } from '../../types';
-import { cancelTerminalCleanup } from '../closedTabRecord';
+import type { ClosedPaneRecord } from '../../types';
+import { cancelTerminalCleanup, type ClosedTabRecord } from '../closedTabRecord';
 
-export interface ClosedTabRecord {
-  id: string;
-  closedAt: number;
-  pane: Pane;
-  groupId: string;
-  groupIndex: number;
-  level: 'project' | 'app';
-  projectPath?: string;
-  /** Shared shape with the reducer's ClosedPaneRecord — see ClosedTerminalMeta. */
-  terminal?: ClosedTerminalMeta;
-  topicId?: string;
-  filePath?: string;
-}
+// Canonical `ClosedTabRecord` lives in the closedTabRecord adapter. Re-exported
+// here so the long-standing `…/adapters/hooks/useClosedTabs` import path keeps
+// resolving without a second, drift-prone copy of the interface (the two used
+// to be byte-identical and had to be kept in sync by hand).
+export type { ClosedTabRecord };
 
 function projectRecord(rec: ClosedPaneRecord): ClosedTabRecord {
   return {

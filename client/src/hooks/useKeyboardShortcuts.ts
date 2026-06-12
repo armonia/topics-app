@@ -224,10 +224,22 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      // Shift+Cmd+U → reopen the most recently closed tab. The browser owns
-      // Shift+Cmd+T (reopen browser tab), so we can't use it here; auto-TTS,
-      // which previously shared that chord, moved to Shift+Cmd+S.
-      if (isMod && e.shiftKey && (e.key === 'u' || e.key === 'U')) {
+      // ⇧⌘T (primary) / ⌘⇧U (legacy alias) → reopen the most recently closed
+      // tab. The target is resolved synchronously from the in-memory
+      // recently-closed stack (`closedTabs[0]`), so reopen is instant for chats
+      // (Warp / VS Code parity — both also bind ⇧⌘T to "reopen closed tab").
+      // topics-app's primary surface is the Electron desktop app, where ⇧⌘T is
+      // free: a packaged BrowserWindow has no browser tabs to "reopen", so
+      // there is nothing to contend with. In a plain dev-browser tab the
+      // preventDefault below overrides Chrome's reopen-tab while the app is
+      // focused, which is the intended in-app behavior. The Electron app ALSO
+      // claims ⇧⌘T as a native menu accelerator → `reopen-closed-tab` IPC (see
+      // electron-app/main.ts + App.tsx) so the chord still fires when focus is
+      // inside a native pane that swallows the renderer keydown.
+      if (
+        isMod && e.shiftKey &&
+        (e.key === 't' || e.key === 'T' || e.key === 'u' || e.key === 'U')
+      ) {
         e.preventDefault();
         const last = closedTabsRef.current[0];
         if (last) handleReopenClosedTab(last);

@@ -1,0 +1,125 @@
+/**
+ * E2E — reopen-closed-tab-history change.
+ *
+ * Verifies the two user-facing reopen surfaces share the same recently-closed
+ * substrate (closedStack):
+ *   1. ⇧⌘T (primary chord) reopens the most recently closed tab.
+ *   2. ⌘K "Chiuse di recente" lists the closed tab and reopening from there works.
+ *
+ * Strategy mirrors pane-undo.spec.ts: state-inject two app-level chat tabs into
+ * pane-store-v2, then drive close + reopen through the real UI.
+ */
+import { test, expect, type Page } from "@playwright/test";
+import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+
+const BASE = "http://localhost:13334";
+
+async function gotoAndWait(page: Page): Promise<void> {
+  await page.goto("/");
+  await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+}
+
+async function seedTwoTabs(
+  request: import("@playwright/test").APIRequestContext,
+  t1: { id: string; name: string },
+  t2: { id: string; name: string },
+): Promise<void> {
+  const snapshot = {
+    panes: {
+      [t1.id]: { id: t1.id, type: "chat", title: t1.name, topicId: t1.id },
+      [t2.id]: { id: t2.id, type: "chat", title: t2.name, topicId: t2.id },
+    },
+    groups: {
+      "group:default": {
+        id: "group:default",
+        paneIds: [t1.id, t2.id],
+        splitRatio: 1,
+        splitAxis: "horizontal",
+      },
+    },
+    projects: {},
+    groupOrder: ["group:default"],
+    closedStack: [],
+    lastSeq: 1,
+  };
+  await request.put(`${BASE}/api/ui-state/pane-store-v2`, { data: snapshot, ignoreHTTPSErrors: true });
+  await request.put(`${BASE}/api/ui-state/panels`, {
+    data: { openPanels: [t1.id, t2.id] },
+    ignoreHTTPSErrors: true,
+  });
+}
+
+/** Close the last tab in the bar via its close button. Returns the locator set. */
+async function closeLastTab(page: Page) {
+  const tabBar = page.locator('[data-testid="panel-tab-bar"]');
+  await expect(tabBar).toBeVisible({ timeout: 10_000 });
+  const tabs = tabBar.locator('[draggable="true"]');
+  await expect(tabs).toHaveCount(2, { timeout: 10_000 });
+  const lastTab = tabs.nth(1);
+  await lastTab.hover();
+  await lastTab.locator("button").last().click({ force: true });
+  await expect(tabs).toHaveCount(1, { timeout: 5_000 });
+  return { tabBar, tabs };
+}
+
+test.describe("@reopen-closed-tab reopen-closed-tab-history", () => {
+  let t1: { id: string; name: string; slug: string };
+  let t2: { id: string; name: string; slug: string };
+
+  test.beforeEach(async ({ request }) => {
+    t1 = await createTopic(request, `Reopen-A-${Date.now()}`);
+    t2 = await createTopic(request, `Reopen-B-${Date.now()}`);
+    await seedTwoTabs(request, t1, t2);
+  });
+
+  test.afterEach(async ({ request }) => {
+    await deleteTopic(request, t1.id).catch(() => {});
+    await deleteTopic(request, t2.id).catch(() => {});
+  });
+
+  // Regression guard for the reopen "swap" bug (fixed): reopening a closed tab
+  // used to be misread by usePaneOrdering as a preview-navigation, which
+  // replaced+closed the current preview tab — so the reopened tab appeared but
+  // the previously-open one vanished (a swap, not a restore). Reopen now marks
+  // the restored id (lib/previewTabs markTabRestored) so the add stays additive.
+  test("⇧⌘T reopens the most recently closed tab", async ({ page }) => {
+    await gotoAndWait(page);
+    await waitForTopicVisible(page, t2.id);
+
+    const { tabBar, tabs } = await closeLastTab(page);
+
+    // Focus a neutral spot so the chord isn't swallowed by a text input.
+    await tabBar.click({ position: { x: 5, y: 5 } });
+    await page.waitForTimeout(100); // no observable post-focus signal to poll
+    await page.keyboard.press("Meta+Shift+T");
+
+    await expect(tabs).toHaveCount(2, { timeout: 10_000 });
+    // The reopened tab carries t2's pane id again.
+    const ids = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-id")));
+    expect(ids).toContain(t2.id);
+  });
+
+  // Same additive-reopen guarantee from the ⌘K palette surface.
+  test("⌘K 'Chiuse di recente' lists the closed tab and reopens it", async ({ page }) => {
+    await gotoAndWait(page);
+    await waitForTopicVisible(page, t2.id);
+
+    const { tabs } = await closeLastTab(page);
+
+    // Open the command palette (empty query → Projects + Chiuse di recente columns).
+    await page.keyboard.press("Meta+k");
+    const palette = page.locator('[data-testid="command-palette"]');
+    await expect(palette).toBeVisible({ timeout: 5_000 });
+
+    // The closed tab appears as a recent-closed row labelled with its title.
+    const recentRow = palette.getByRole("option").filter({ hasText: t2.name }).first();
+    await expect(recentRow).toBeVisible({ timeout: 5_000 });
+    await recentRow.click();
+
+    // Palette closes and the tab is back.
+    await expect(palette).toBeHidden({ timeout: 5_000 });
+    await expect(tabs).toHaveCount(2, { timeout: 10_000 });
+    const ids = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-id")));
+    expect(ids).toContain(t2.id);
+  });
+});

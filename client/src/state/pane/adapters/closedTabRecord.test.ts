@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test";
 import {
   scheduleTerminalCleanup,
   cancelTerminalCleanup,
+  reopenClosedTab,
+  type ClosedTabRecord,
 } from "./closedTabRecord";
 
 /**
@@ -54,5 +56,32 @@ describe("scheduleTerminalCleanup / cancelTerminalCleanup", () => {
 
   test("cancelTerminalCleanup on an unknown id is a no-op (doesn't throw)", () => {
     expect(() => cancelTerminalCleanup("never-scheduled")).not.toThrow();
+  });
+});
+
+describe("reopenClosedTab (non-terminal path)", () => {
+  const baseRecord = (pane: ClosedTabRecord["pane"]): ClosedTabRecord => ({
+    id: pane.id,
+    closedAt: Date.now(),
+    pane,
+    groupId: "group:default",
+    groupIndex: 0,
+    level: "app",
+  });
+
+  test("returns the captured pane verbatim for a chat record (no network round-trip)", async () => {
+    const pane = { id: "chat:t1", type: "chat" as const, title: "A", topicId: "t1" };
+    const result = await reopenClosedTab(baseRecord(pane));
+    // Instant reopen: the pane is restored from the in-memory record as-is.
+    expect(result).toBe(pane);
+  });
+
+  test("cancels a pending terminal cleanup timer for the record id", async () => {
+    let fired = false;
+    const pane = { id: "chat:t2", type: "chat" as const, title: "B", topicId: "t2" };
+    scheduleTerminalCleanup("chat:t2", 50, () => { fired = true; });
+    await reopenClosedTab(baseRecord(pane)); // cancels cleanup for record.id
+    await new Promise<void>((r) => setTimeout(r, 120));
+    expect(fired).toBe(false);
   });
 });
