@@ -13,8 +13,12 @@
   --grad:linear-gradient(110deg,var(--blue) 0%,var(--violet) 45%,var(--teal) 100%);
   --shadow-lg:0 50px 130px -30px rgb(2 6 20 / .95), 0 12px 44px -20px rgb(0 0 0 / .65);
   --maxw:1180px; --ease:cubic-bezier(.25,.46,.45,.94);
-  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
-  --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,monospace;
+  /* Type: Geist for UI/body, Space Grotesk for display headings, Geist Mono for
+     code/eyebrows/badges. Loaded from Google Fonts in index.html with
+     display=swap; the system fallbacks keep first paint instant. */
+  --font:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --display:"Space Grotesk","Geist",system-ui,sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
@@ -52,7 +56,7 @@ a{color:inherit;text-decoration:none}
 .nav{position:sticky;top:0;z-index:100;border-bottom:1px solid transparent;transition:border-color .3s,background .3s}
 .nav.is-stuck{background:hsl(222 45% 6% / .6);border-bottom-color:var(--border);-webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%)}
 .nav__inner{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:28px}
-.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:1.05rem}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--display);font-weight:600;font-size:1.05rem;letter-spacing:-.01em}
 .brand__mark{border-radius:7px}
 .nav__links{display:flex;gap:26px;margin-left:6px}
 .nav__links a{color:var(--text-dim);font-size:.92rem;font-weight:500;transition:color .2s;display:inline-flex;align-items:center;gap:6px}
@@ -73,33 +77,33 @@ a{color:inherit;text-decoration:none}
 .btn--ghost{background:transparent}
 
 /* ───────── hero ───────── */
-.hero{position:relative;max-width:var(--maxw);margin:0 auto;padding:70px 24px 40px;text-align:center}
+.hero{position:relative;max-width:var(--maxw);margin:0 auto;padding:34px 24px 26px;text-align:center}
 .grid-pattern{position:absolute;inset:-40px 0 auto;height:660px;z-index:-1;pointer-events:none;
   background-image:linear-gradient(hsl(220 60% 70% / .06) 1px,transparent 1px),linear-gradient(90deg,hsl(220 60% 70% / .06) 1px,transparent 1px);background-size:46px 46px;
   -webkit-mask-image:radial-gradient(ellipse 70% 60% at 50% 28%,#000 28%,transparent 74%);mask-image:radial-gradient(ellipse 70% 60% at 50% 28%,#000 28%,transparent 74%)}
 .hero__inner{max-width:900px;margin:0 auto}
-.pill{position:relative;display:inline-flex;align-items:center;gap:9px;padding:6px 9px 6px 12px;border-radius:999px;font-size:.84rem;color:var(--text-dim);background:var(--glass);border:1px solid var(--border-2);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:color .25s;margin-bottom:30px;overflow:hidden}
+.pill{position:relative;display:inline-flex;align-items:center;gap:9px;padding:6px 9px 6px 12px;border-radius:999px;font-size:.84rem;color:var(--text-dim);background:var(--glass);border:1px solid var(--border-2);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:color .25s;margin-bottom:20px;overflow:hidden}
 .pill::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:conic-gradient(from var(--spin),transparent 0 75%,hsl(220 90% 75% / .9) 88%,transparent 100%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:spin 5s linear infinite}
 @keyframes spin{to{--spin:360deg}}
 .pill:hover{color:var(--text)}
 .pill__dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal)}
 .pill__arrow{color:var(--text-faint);transition:transform .2s}.pill:hover .pill__arrow{transform:translateX(3px)}
-.hero__title{font-size:clamp(2.6rem,6.4vw + 1rem,5.2rem);line-height:1.02;font-weight:680;letter-spacing:-.035em;margin-bottom:22px}
+.hero__title{font-family:var(--display);font-size:clamp(2.4rem,5vw + 1rem,4.4rem);line-height:1.03;font-weight:700;letter-spacing:-.035em;margin-bottom:16px}
 .gradient-text{background:linear-gradient(100deg,var(--blue-2) 0%,var(--violet) 38%,var(--teal) 78%,var(--blue-2) 100%);background-size:220% 100%;background-position:var(--shimmer) 0;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 7s linear infinite}
 @keyframes shimmer{to{--shimmer:200%}}
 @supports not (background-clip:text){.gradient-text{color:var(--blue-2)}}
-.hero__sub{font-size:clamp(1.05rem,1.4vw + .7rem,1.32rem);color:var(--text-dim);max-width:640px;margin:0 auto 34px;line-height:1.55}
+.hero__sub{font-size:clamp(1.02rem,1.2vw + .7rem,1.24rem);color:var(--text-dim);max-width:620px;margin:0 auto 20px;line-height:1.5}
 .hero__sub strong{color:var(--text);font-weight:600}.hero__sub em{font-style:italic;color:var(--text)}
 .hero__sub-accent{display:block;margin-top:8px;font-family:Georgia,"Times New Roman",serif;font-style:italic;color:var(--blue-2)}
 .hero__actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-.hero__meta{margin-top:26px;font-size:.85rem;color:var(--text-faint);display:flex;gap:8px;align-items:center;justify-content:center}
+.hero__meta{margin-top:16px;font-size:.85rem;color:var(--text-faint);display:flex;gap:8px;align-items:center;justify-content:center}
 .dot-live,.dot-idle{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
 .dot-live{background:var(--green);box-shadow:0 0 0 0 hsl(150 80% 55% / .6);animation:pulse 2.2s var(--ease) infinite}
 .dot-idle{background:var(--text-faint)}
 @keyframes pulse{0%{box-shadow:0 0 0 0 hsl(150 80% 55% / .5)}70%,100%{box-shadow:0 0 0 7px hsl(150 80% 55% / 0)}}
 
 /* ───────── product window (real-app recreation, 16:10) ───────── */
-.showcase{position:relative;max-width:1200px;margin:62px auto 0;padding:0 4px}
+.showcase{position:relative;max-width:1200px;margin:30px auto 0;padding:0 4px}
 .showcase__glow{position:absolute;inset:-6% 4% 16%;z-index:-1;border-radius:50%;background:var(--grad);filter:blur(96px);opacity:.45}
 /* NB: .window-real is the demo IFRAME. It must NOT carry its own transform or
    a :hover transform: those overrode the iframe's scale(.70) on hover
@@ -129,7 +133,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 /* ───────── features ───────── */
 .section-head{max-width:700px;margin:0 auto 44px;text-align:center}
 .eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;color:var(--blue-2)}
-.section-head h2,.wedge h2{font-size:clamp(1.9rem,3.4vw + .6rem,3rem);letter-spacing:-.03em;line-height:1.08;margin:14px 0;font-weight:660}
+.section-head h2,.wedge h2{font-family:var(--display);font-size:clamp(1.9rem,3.4vw + .6rem,3rem);letter-spacing:-.03em;line-height:1.08;margin:14px 0;font-weight:600}
 .section-head p{color:var(--text-dim);font-size:1.05rem}
 .features{position:relative;max-width:var(--maxw);margin:130px auto 0;padding:0 24px}
 .features::before{content:"";position:absolute;inset:-60px 0 auto;height:400px;z-index:-1;pointer-events:none;background:radial-gradient(60% 100% at 50% 0,hsl(225 70% 40% / .12),transparent 70%)}
@@ -163,10 +167,14 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
 .dl-card{padding:28px 24px;border-radius:16px;text-align:center;background:linear-gradient(180deg,var(--glass),hsl(222 40% 9% / .4));border:1px solid var(--border);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:transform .3s var(--ease),border-color .3s,order 0s;order:2}
 .dl-card{position:relative}
 .dl-card.is-primary{order:1;border-color:var(--blue);box-shadow:0 0 0 1px var(--blue),0 22px 54px -24px hsl(225 100% 50% / .55)}
-.dl-card.is-primary .dl-card__icon::after{content:"for you";position:absolute;transform:translate(34px,-8px);font-family:var(--mono);font-size:.54rem;letter-spacing:.1em;text-transform:uppercase;color:var(--blue-2);white-space:nowrap}
+/* "for you" = a tidy pill pinned to the card's top-right corner (the card is
+   position:relative). The old rule hung it off the centred icon via a bare
+   translate with no anchor, so it floated onto the icon and shoved it
+   off-centre. */
+.dl-card.is-primary::after{content:"for you";position:absolute;top:12px;right:12px;padding:3px 9px;border-radius:999px;font-family:var(--mono);font-size:.58rem;font-weight:500;letter-spacing:.13em;text-transform:uppercase;line-height:1;color:var(--blue-2);background:hsl(225 100% 65% / .12);border:1px solid hsl(225 100% 72% / .38);box-shadow:0 2px 10px -4px hsl(225 100% 50% / .55)}
 .dl-card:hover{transform:translateY(-4px);border-color:var(--border-2)}
 .dl-card__icon{width:52px;height:52px;margin:0 auto 14px;border-radius:13px;display:grid;place-items:center;background:var(--glass);border:1px solid var(--border-2);color:var(--text)}
-.dl-card h3{font-size:1.18rem;margin-bottom:14px}
+.dl-card h3{font-family:var(--display);font-weight:600;font-size:1.18rem;margin-bottom:14px}
 .dl-card__links{display:flex;flex-direction:column;gap:8px}
 .dl-link{padding:9px 12px;border-radius:9px;font-size:.88rem;color:var(--text-dim);background:hsl(222 40% 12% / .5);border:1px solid var(--border);transition:all .2s}
 .dl-link:hover{color:#fff;border-color:var(--blue);background:hsl(225 70% 60% / .15)}
@@ -199,7 +207,7 @@ iframe.window-real{position:absolute;top:0;left:0;width:calc(100% / var(--demo-s
   .dl-card.is-primary{grid-column:span 2}
 }
 @media (max-width:600px){
-  .hero{padding-top:44px}.bento,.dl-grid{grid-template-columns:1fr}.card--wide{grid-column:span 1}
+  .hero{padding-top:26px}.bento,.dl-grid{grid-template-columns:1fr}.card--wide{grid-column:span 1}
   .dl-card.is-primary{grid-column:span 1}
   .footer__inner{flex-direction:column;align-items:flex-start}
   .dl-card.is-primary .dl-card__icon::after{display:none}
