@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>topics-host</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.armonia.topics.host</string>
+    <key>CFBundleName</key>
+    <string>Topics Host</string>
+    <key>CFBundleDisplayName</key>
+    <string>Topics Host</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <!-- Background launcher: no Dock icon, no menu bar. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <!-- TCC usage strings. Screen Recording / Accessibility are toggles (no
+         string strictly required), but declaring them makes the responsible
+         app self-documenting and covers the Automation (Apple Events) prompt. -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Topics needs Screen Recording so AI sessions can capture the screen for "computer use" tasks.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Topics needs Automation so AI sessions can control other apps for "computer use" tasks.</string>
+</dict>
+</plist>
