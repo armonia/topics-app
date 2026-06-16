@@ -18,16 +18,12 @@ export const SELECTED_SURFACE =
   'bg-black/[0.06] dark:bg-white/[0.14] text-app-text';
 
 /**
- * Softer sibling of SELECTED_SURFACE: the active tab of a SPLIT group that does
- * NOT currently own focus. Deliberately an OUTLINE (inset ring, no fill), not a
- * second filled card: a soft FILL read as a second "selected" tab — with a split
- * open you always saw two highlighted tabs for one focus. Only the focused tab
- * gets the solid SELECTED_SURFACE fill now; this marks "the active tab over
- * there" without ever looking selected. The ring is box-shadow-based so the
- * tab's `overflow-hidden` doesn't clip it.
+ * Softer sibling of SELECTED_SURFACE: a tab that is the active one in a SPLIT
+ * group that doesn't currently own focus. Visible within its group, but clearly
+ * a step below the focused surface so only ONE thing reads as "current".
  */
 export const SELECTED_SURFACE_SOFT =
-  'ring-1 ring-inset ring-black/[0.12] dark:ring-white/[0.16] text-app-text-secondary';
+  'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
 
 /**
  * The RESTING state of the same card grammar: an interactive surface that is
