@@ -410,6 +410,15 @@ export function GroupLayout({
     );
   }
 
+  // Defensive render-time dedup: never paint the same group or pane twice, even
+  // if a duplicated id slips into state from a hydrate or split race. The
+  // reducers PREVENT new duplicates but don't scrub a list that arrives already
+  // duplicated, so a group listed in two rows (or a pane in two groups) would
+  // render its whole window/content twice — the "two windows in one window"
+  // symptom. These Sets guarantee one logical window per id at the last mile.
+  // Purely subtractive (by exact id), so it can only ever show fewer, never more.
+  const seenGroupIds = new Set<string>();
+  const seenPaneIds = new Set<string>();
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" onDragEnd={resetDndOverlays}>
       {rows.map((row, rowIdx) => {
@@ -445,11 +454,13 @@ export function GroupLayout({
               )}
               {row.groupIds.map((groupId, groupIdx) => {
                 const group = groupMap.get(groupId);
-                if (!group) return null;
+                if (!group || seenGroupIds.has(groupId)) return null;
+                seenGroupIds.add(groupId);
 
                 const groupPanes = group.paneIds
                   .map(id => paneMap.get(id))
-                  .filter((p): p is Pane => !!p);
+                  .filter((p): p is Pane => !!p && !seenPaneIds.has(p.id));
+                for (const p of groupPanes) seenPaneIds.add(p.id);
                 const groupNotifications = new Map<string, number>();
                 for (const p of groupPanes) {
                   const c = getBadgeCount(p.id, p.topicId, p.id === group.activePaneId);

@@ -1680,6 +1680,11 @@ export function PanelGrid({
   }
 
   /* ---- render multi-row grid layout ---- */
+  // Render-time dedup guard (mirrors GroupLayout): a key present in two gridRows
+  // rows — e.g. additive sync appended it to row 0 while a stale row still holds
+  // it — would render the same window twice. Skip any key already painted. Reset
+  // per render; purely subtractive by exact key.
+  const seenGridKeys = new Set<string>();
   return (
     <div
       ref={containerRef}
@@ -1714,7 +1719,8 @@ export function PanelGrid({
           >
             {row.itemKeys.map((key, colIdx) => {
               const item = itemMap.get(key);
-              if (!item) return null;
+              if (!item || seenGridKeys.has(key)) return null;
+              seenGridKeys.add(key);
 
               const width = row.widths[colIdx] ?? 1 / row.itemKeys.length;
               const isDraggingThis = draggingGridKey === key;
