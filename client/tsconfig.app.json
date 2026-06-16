@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "composite": true,
+    /* baseUrl (below) is deprecated as of TS6 and removed in TS7; this silences
+       the hard error so `tsc -b` / build:client stays green until we migrate
+       off baseUrl (paths already resolve relative to this file in bundler mode). */
+    "ignoreDeprecations": "6.0",
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2023",
     "useDefineForClassFields": true,
