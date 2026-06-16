@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
-import { signalsActions, derivePhaseTerminals, type TerminalPhaseLite } from './signals';
+import { signalsActions, derivePhaseTerminals, useSignalsStore, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES } from './signals';
 
 interface Args {
@@ -88,7 +88,17 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
         // A new turn started — drop any stale "finished" badge for it.
         signalsActions.clearTerminalFinished(msg.id);
       } else if (msg.finished && (msg.kind === 'claude-code' || msg.kind === 'claude-code-team')) {
-        signalsActions.markTerminalFinished(msg.id);
+        // The server's "finished" is a crude PTY-quiet proxy (1.5s lull) and
+        // fires even mid-turn (a sub-agent running quietly, the model thinking).
+        // When the authoritative phase is known, trust IT: don't raise a
+        // finished badge for a session that is phase-active (running/tool-running)
+        // or phase-resting (awaiting-user/paused/completed/…) — those drive
+        // attention via the phase path. Only genuinely phase-less sessions
+        // (hook-less / stuck-at-starting) fall through to the pty heuristic.
+        const sig = useSignalsStore.getState();
+        if (!sig.claudePhaseActiveTermIds.has(msg.id) && !sig.claudePhaseRestingTermIds.has(msg.id)) {
+          signalsActions.markTerminalFinished(msg.id);
+        }
       }
     });
   }, [onWSMessage]);
