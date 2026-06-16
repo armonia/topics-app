@@ -31,8 +31,41 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <signal.h>
+/* ApplicationServices umbrella pulls in CoreGraphics (CGRequestScreenCaptureAccess)
+ * and HIServices (AXIsProcessTrustedWithOptions / kAXTrustedCheckOptionPrompt). */
+#include <ApplicationServices/ApplicationServices.h>
+#include <CoreFoundation/CoreFoundation.h>
 
 extern char **environ;
+
+/*
+ * Proactively REQUEST the TCC permissions Claude "computer use" needs, so macOS
+ * shows the standard prompt and auto-adds this (signed) app to the Privacy
+ * lists — instead of the user having to drag "Topics Host" in by hand. Both
+ * calls are idempotent: when already granted they return without prompting, so
+ * running this once per launch is harmless. Runs from the signed responsible
+ * app (this launcher), which is exactly the identity the descendant claude →
+ * screencapture chain inherits, so the grant lands on the right code.
+ *
+ * Screen Recording / Accessibility are togglable global grants requested here.
+ * Automation (Apple Events) is pairwise per target app and prompts on first use.
+ */
+static void request_tcc_permissions(void) {
+  /* Screen Recording: adds this app to the list + prompts on first call. */
+  CGRequestScreenCaptureAccess();
+
+  /* Accessibility: prompt:YES adds this app to the list + opens the Settings
+   * pane so the user can enable it. */
+  const void *keys[] = { (const void *)kAXTrustedCheckOptionPrompt };
+  const void *vals[] = { (const void *)kCFBooleanTrue };
+  CFDictionaryRef opts = CFDictionaryCreate(
+      kCFAllocatorDefault, keys, vals, 1,
+      &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  if (opts) {
+    AXIsProcessTrustedWithOptions(opts);
+    CFRelease(opts);
+  }
+}
 
 #ifndef START_SCRIPT
 #error "START_SCRIPT must be defined at compile time (absolute path to start-prod.sh)"
@@ -52,6 +85,10 @@ static void forward_signal(int sig) {
 int main(void) {
   signal(SIGTERM, forward_signal);
   signal(SIGINT, forward_signal);
+
+  /* Ask macOS for Screen Recording + Accessibility under THIS signed identity
+   * (no-op if already granted) before launching the server. */
+  request_tcc_permissions();
 
   char *const argv[] = { "/bin/bash", (char *)START_SCRIPT, (char *)0 };
 

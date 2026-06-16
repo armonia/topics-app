@@ -45,6 +45,7 @@ trap 'rm -rf "$WORK"' EXIT
 echo "[topics-host] compiling launcher (START_SCRIPT=$START_SCRIPT)…"
 clang -O2 -Wall -Wextra \
   -DSTART_SCRIPT="\"$START_SCRIPT\"" \
+  -framework ApplicationServices -framework CoreGraphics -framework CoreFoundation \
   "$SRC/topics-host.c" -o "$WORK/topics-host"
 
 # --- 3. Assemble the .app bundle ------------------------------------------
