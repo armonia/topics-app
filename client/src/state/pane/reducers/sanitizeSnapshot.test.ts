@@ -253,4 +253,25 @@ describe("sanitizeSnapshot (audit fixes)", () => {
     expect(out!.groups!.gBig.splitRatio).toBe(0.95);
     expect(out!.groups!.gOk.splitRatio).toBe(0.42);
   });
+
+  test("dedups a paneId repeated within a single group", () => {
+    const out = sanitizeSnapshot({
+      groups: {
+        g1: { id: "g1", paneIds: ["chat:t1", "chat:t1", "terminal:x"], splitRatio: 0.5, splitAxis: "horizontal" },
+      },
+    });
+    expect(out!.groups!.g1.paneIds).toEqual(["chat:t1", "terminal:x"]);
+  });
+
+  test("a paneId in two groups survives only in the FIRST (single-home invariant)", () => {
+    const out = sanitizeSnapshot({
+      groups: {
+        g1: { id: "g1", paneIds: ["terminal:dup", "chat:a"], splitRatio: 0.5, splitAxis: "horizontal" },
+        g2: { id: "g2", paneIds: ["terminal:dup", "chat:b"], splitRatio: 0.5, splitAxis: "horizontal" },
+      },
+    });
+    // 'terminal:dup' would otherwise render its window twice — kept in g1, stripped from g2.
+    expect(out!.groups!.g1.paneIds).toEqual(["terminal:dup", "chat:a"]);
+    expect(out!.groups!.g2.paneIds).toEqual(["chat:b"]);
+  });
 });

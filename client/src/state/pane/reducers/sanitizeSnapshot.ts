@@ -127,9 +127,14 @@ function sanitizeGroup(raw: unknown): Group | null {
   if (!isPlainObject(raw)) return null;
   if (typeof raw.id !== 'string' || !raw.id) return null;
   if (!Array.isArray(raw.paneIds)) return null;
-  const paneIds = raw.paneIds.filter(
+  const rawPaneIds = raw.paneIds.filter(
     (x): x is string => typeof x === 'string' && !x.startsWith('draft:'),
   );
+  // Dedup within the group: a paneId listed twice would render its content (and
+  // its whole window) twice — the GroupLayout render guard catches it at the last
+  // mile, but scrub it here too so the duplicate never even enters the store.
+  const seenInGroup = new Set<string>();
+  const paneIds = rawPaneIds.filter((id) => (seenInGroup.has(id) ? false : (seenInGroup.add(id), true)));
   // `typeof NaN === 'number'` — without the Number.isFinite check NaN would
   // ride through and poison every downstream layout calc. Range-clamp to the
   // same window the runtime reducer uses (groups.ts clampRatio) so an
@@ -176,6 +181,16 @@ function sanitizeGroups(raw: unknown): Record<string, Group> | null {
   for (const [key, v] of Object.entries(raw)) {
     const g = sanitizeGroup(v);
     if (g && g.id === key) out[key] = g;
+  }
+  // Cross-group dedup: a paneId may legally live in only ONE group — the
+  // OPEN_PANE reducer enforces this single-home invariant by removing a pane
+  // from any other group before insert. A snapshot that lists the same paneId
+  // in two groups would render the pane (and its window) twice. Keep it in the
+  // FIRST group that claims it (insertion order) and strip it from later ones.
+  const claimed = new Set<string>();
+  for (const key of Object.keys(out)) {
+    const g = out[key];
+    out[key] = { ...g, paneIds: g.paneIds.filter((id) => (claimed.has(id) ? false : (claimed.add(id), true))) };
   }
   return out;
 }
