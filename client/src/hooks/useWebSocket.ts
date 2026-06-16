@@ -190,6 +190,19 @@ export function useWebSocket(): UseWebSocketReturn {
   }, [connect, clearOfflineTimer]);
 
   const sendWS = useCallback((message: WSMessage) => {
+    // Optimistic local unread clear. The focus ping is the single signal that
+    // the user is now LOOKING at a topic (sent right alongside markRead in the
+    // chat focus effects). Zero its unread locally in the SAME tick instead of
+    // waiting for the server to round-trip `unread:updated{0}`: that latency was
+    // the window where the tab's active-suppression and the real count disagreed,
+    // so the badge dropped then popped back as focus moved between tabs/split
+    // groups. The next server `unread:updated` reconciles to truth, so the
+    // optimistic zero is safe (self-heals if a message lands in the same tick).
+    const m = message as unknown as { type?: string; topicId?: string | null };
+    if (m.type === 'focus' && m.topicId) {
+      const tid = m.topicId;
+      setUnreadData(prev => (prev[tid]?.unreadCount ? { ...prev, [tid]: { ...prev[tid], unreadCount: 0 } } : prev));
+    }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
