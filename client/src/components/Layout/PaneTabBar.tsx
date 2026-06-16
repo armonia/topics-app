@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
@@ -169,13 +169,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll active tab into view when it changes
+  // Auto-scroll the active tab into view when it changes. The FIRST positioning
+  // (mount / reload) must be INSTANT — a tab bar that was already scrolled
+  // should reappear already scrolled, not animate from 0. Only genuine tab
+  // switches after mount animate. useLayoutEffect runs before paint, so the
+  // instant case lands with no visible jump from scrollLeft 0.
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  const didInitialScrollRef = useRef(false);
+  useLayoutEffect(() => {
     if (!activePaneId || !scrollContainerRef.current) return;
     const el = scrollContainerRef.current.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      el.scrollIntoView({
+        behavior: didInitialScrollRef.current ? 'smooth' : 'auto',
+        block: 'nearest',
+        inline: 'nearest',
+      });
+      didInitialScrollRef.current = true;
     }
   }, [activePaneId]);
 
