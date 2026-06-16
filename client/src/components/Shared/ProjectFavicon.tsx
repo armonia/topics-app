@@ -6,10 +6,47 @@ import { useState, useEffect, type ReactNode } from 'react';
  * <link rel="icon">), resolved + served by GET /api/projects/icon. Projects
  * without an icon (most non-web folders) render `fallback` (default: nothing),
  * preserving the app's "no fake folder glyph" convention.
- *
- * The 404 for icon-less projects is cached by the server, so re-opening the
- * palette / re-rendering the sidebar doesn't re-probe disk.
  */
+
+// Client-side cache of which project paths actually ship an icon. Without it,
+// every fresh load (e.g. an Electron app update / reload) re-discovers "this
+// folder has no icon" from scratch: the <img> mounts, reserves its width (and
+// briefly paints the broken-image glyph), then the 404 collapses it — a useless
+// empty-slot flash to the left of every icon-less folder. The server already
+// caches the 404; this cache is purely so the CLIENT doesn't re-flash on reload.
+//   - 'has'    → render the <img> and reserve its slot up-front (no shift when
+//                the cached icon decodes).
+//   - 'none'   → render nothing — no element, no width, no margin. Re-probed
+//                after NONE_TTL_MS so a folder that later gains a favicon shows
+//                it within a day.
+//   - unknown  → probe with a ZERO-width <img> (no reserved gap); promote to
+//                'has' on load or 'none' on error.
+const CACHE_KEY = 'topics-project-icon-cache';
+const NONE_TTL_MS = 12 * 60 * 60 * 1000;
+type IconStatus = 'has' | 'none';
+interface CacheEntry { s: IconStatus; t: number }
+
+let memCache: Record<string, CacheEntry> | null = null;
+function cache(): Record<string, CacheEntry> {
+  if (memCache) return memCache;
+  try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
+  catch { memCache = {}; }
+  return memCache!;
+}
+function resolveStatus(path: string): IconStatus | 'unknown' {
+  const e = cache()[path];
+  if (!e) return 'unknown';
+  // 'none' self-heals after the TTL so a newly-added favicon eventually shows.
+  if (e.s === 'none' && Date.now() - e.t > NONE_TTL_MS) return 'unknown';
+  return e.s;
+}
+function remember(path: string, s: IconStatus): void {
+  const c = cache();
+  if (c[path]?.s === s) return; // only write on a real status change
+  c[path] = { s, t: Date.now() };
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
+}
+
 export function ProjectFavicon({
   path,
   size = 14,
@@ -21,13 +58,23 @@ export function ProjectFavicon({
   className?: string;
   fallback?: ReactNode;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [status, setStatus] = useState<IconStatus | 'unknown'>(() => (path ? resolveStatus(path) : 'none'));
+  const [loaded, setLoaded] = useState(false);
   // A row can be recycled for a different project (virtualised lists, memo
-  // reuse) — reset the error state when the path changes.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot reset of the error flag when a recycled row points at a new project path; converges immediately and does not loop (deps = [path])
-  useEffect(() => { setFailed(false); }, [path]);
+  // reuse) — re-resolve from cache when the path changes.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot re-resolve when a recycled row points at a new project path; converges immediately (deps = [path])
+  useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); }, [path]);
 
-  if (failed || !path) return <>{fallback}</>;
+  // Known icon-less (or no path) → render nothing at all: no element, so no
+  // reserved width and no margin to the left of the folder name.
+  if (!path || status === 'none') return <>{fallback}</>;
+
+  // 'has' (cached) → reserve the slot immediately so a cached icon decodes with
+  // no layout shift. 'unknown' → zero width so an as-yet-unprobed folder that
+  // turns out icon-less never flashes a gap; it widens to `size` only once the
+  // image actually loads. opacity:0-until-load also hides the broken glyph that
+  // an erroring <img> would paint for a frame.
+  const reserve = status === 'has' || loaded;
   return (
     <img
       src={`/api/projects/icon?path=${encodeURIComponent(path)}`}
@@ -36,7 +83,16 @@ export function ProjectFavicon({
       alt=""
       draggable={false}
       className={`rounded-[3px] object-contain flex-shrink-0 ${className}`}
-      onError={() => setFailed(true)}
+      style={{
+        opacity: loaded ? 1 : 0,
+        width: reserve ? size : 0,
+        // Suppress any caller margin (e.g. mr-0.5) while the slot is collapsed,
+        // so an unknown/icon-less folder takes ZERO horizontal footprint.
+        marginLeft: reserve ? undefined : 0,
+        marginRight: reserve ? undefined : 0,
+      }}
+      onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
+      onError={() => { setStatus('none'); remember(path, 'none'); }}
     />
   );
 }
