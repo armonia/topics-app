@@ -121,3 +121,49 @@ export function isInputEcho(
 ): boolean {
   return msSinceInput !== null && msSinceInput >= 0 && msSinceInput < windowMs;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Resize-repaint suppression
+// ───────────────────────────────────────────────────────────────────────────
+//
+// A window/pane resize — and the many things that re-fit xterm: dragging a
+// split divider to a new column count, toggling the sidebar, switching to a
+// terminal tab, the PWA/window regaining focus — POSTs a `resize` to the pty.
+// The TUI reacts to the SIGWINCH by repainting at the new width. When the new
+// width rewraps visible lines, that repaint's visible text DIFFERS from the
+// previous frame, so classifyFrame classes it as real activity and the loading
+// spinner flashes for ~1.5s on every resize — the "loading a caso al resize /
+// all'apertura tab" bug. Like input echo, this is a user-initiated redraw, not
+// the process working, so a frame arriving shortly after a resize must not mark
+// the session busy.
+//
+// Why a SEPARATE, WIDER window than input echo (150ms): a keystroke echo is a
+// single near-instant line redraw, whereas a SIGWINCH repaint is a full-screen
+// clear+redraw that round-trips client→server→bridge→pty and can land a beat
+// later and stream over several frames. 500ms covers that tail comfortably.
+//
+// Why it never hides real work: markTerminalActivity keeps a session busy for
+// TERMINAL_IDLE_MS (1500ms) after the LAST counted frame, so a genuinely busy
+// session (frames arriving < 1.5s apart) stays busy straight through the 500ms
+// suppression — no flicker. The window only bites when the pty is OTHERWISE
+// IDLE and the resize repaint is the sole output, i.e. exactly the false
+// positive. The one cost is a ≤500ms delay before the spinner appears if a
+// fully-idle session starts producing its first output within 500ms of a
+// resize — imperceptible and self-correcting.
+export const RESIZE_REPAINT_WINDOW_MS = 500;
+
+/**
+ * True when an output frame should be treated as the repaint provoked by — or
+ * arriving shortly after — a resize the user/UI just requested, rather than
+ * process activity.
+ *
+ * @param msSinceResize elapsed ms since this session's last resize, or null
+ *        when the session has no recorded resize (then it is never a repaint).
+ * @param windowMs the suppression window; defaults to RESIZE_REPAINT_WINDOW_MS.
+ */
+export function isResizeRepaint(
+  msSinceResize: number | null,
+  windowMs: number = RESIZE_REPAINT_WINDOW_MS,
+): boolean {
+  return msSinceResize !== null && msSinceResize >= 0 && msSinceResize < windowMs;
+}

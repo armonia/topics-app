@@ -111,14 +111,24 @@ export function TabNotificationProvider({
       if (msg.type === 'agents:sessions') {
         const sessions = msg.sessions;
         const prevStatuses = prevSessionStatusRef.current;
+        // The FIRST frame after load/reconnect is a baseline, not a set of
+        // transitions: the roster watcher re-broadcasts the full list (which can
+        // carry an hours-old `error` row), and we have no prior status to diff
+        // against. Seeding-only on the first frame stops that stale row reading
+        // as a fresh active→error and badging "a caso" on load. A genuinely-new
+        // error in a LATER frame still requires a KNOWN non-error predecessor,
+        // so a roster rebroadcast that first reveals an already-errored session
+        // never notifies either.
+        const isFirstFrame = prevStatuses.size === 0;
         let shouldNotifyAgents = false;
 
         for (const session of sessions) {
           const prevStatus = prevStatuses.get(session.key);
-          // Notify on: active→idle transition (session just completed), or error status
+          // Notify on: active→idle (just completed) or a transition INTO error
+          // from a known non-error status (symmetric with justCompleted).
           const justCompleted = prevStatus === 'active' && session.status === 'idle';
-          const isError = session.status === 'error' && prevStatus !== 'error';
-          if (justCompleted || isError) {
+          const isError = prevStatus !== undefined && prevStatus !== 'error' && session.status === 'error';
+          if (!isFirstFrame && (justCompleted || isError)) {
             shouldNotifyAgents = true;
             if (session.topicId) {
               touchTopic(session.topicId);
@@ -137,9 +147,18 @@ export function TabNotificationProvider({
           badgePrefixes(AGENTS_PREFIXES);
         }
       }
-      // Stream ended (Claude finished responding) → badge on agents + session-viewer
+      // Stream ended (a chat turn finished) → badge ONLY the session-viewer
+      // pinned to THIS session, if it's open and not focused. The old code
+      // badged EVERY agents + session-viewer pane on every chat turn end
+      // (badgePrefixes is sessionKey-blind) — "notifiche a caso" that piled up
+      // on unrelated panes while you worked in chats. The agents-list pane gets
+      // its real attention from the agents:sessions completion/error path above,
+      // not from a chat stream ending, so it's no longer badged here.
       if (msg.type === 'stream:end' && msg.sessionKey) {
-        badgePrefixes(AGENTS_PREFIXES);
+        const viewerId = `session-viewer:${msg.sessionKey}`;
+        if (viewerId !== focusedRef.current && openPanelsRef.current.includes(viewerId)) {
+          notifyPane(viewerId);
+        }
         if (msg.topicId) {
           touchTopic(msg.topicId);
         }
@@ -148,11 +167,13 @@ export function TabNotificationProvider({
       if (msg.type === 'agent:escalation' || msg.type === 'agent:nudge') {
         badgePrefixes(AGENTS_PREFIXES);
       }
-      // New terminal session spawned externally → badge terminal panes
-      // (edge-triggered: server broadcasts on session create/exit, not poll)
-      if (msg.type === 'terminal:sessions') {
-        badgePrefixes(['terminal:']);
-      }
+      // NB: `terminal:sessions` is intentionally NOT badged. It fires on every
+      // session create/exit/roster refresh (e.g. opening any terminal tab), and
+      // a terminal pane's badge is driven by the finished-turn signal
+      // (terminalAttentionCount) — getBadgeCount short-circuits `terminal:` panes
+      // to that and never reads extraCounts — so badging here lit nothing while
+      // implying every open/close was attention. A finished claude-code turn
+      // already badges via terminalFinishedIds.
       // Intentionally NOT badged: `git:status` and `dashboard:updated`. Both
       // fire from fswatch/heartbeat polling and would light up tabs while the
       // user is typing into their own editor. Re-enable behind a source-of-

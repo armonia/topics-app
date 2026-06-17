@@ -218,13 +218,19 @@ export function useCompletionNotifier({
       const prev = prevStatusRef.current;
       const next = new Map<string, string>();
       const focusedTopicId = topicIdFromPanel(focusedRef.current);
+      // First frame after load/reconnect = baseline only (no prior status to
+      // diff). The roster watcher re-broadcasts the full list, so a stale
+      // `error` row would otherwise toast on load. Mirrors the badge path in
+      // useTabNotifications. A later transition into error still requires a
+      // KNOWN non-error predecessor.
+      const isFirstFrame = prev.size === 0;
 
       for (const session of sessions) {
         const previousStatus = prev.get(session.key);
         const justCompleted = previousStatus === 'active' && session.status === 'idle';
-        const justErrored = session.status === 'error' && previousStatus !== 'error';
+        const justErrored = previousStatus !== undefined && previousStatus !== 'error' && session.status === 'error';
 
-        if (justCompleted || justErrored) {
+        if (!isFirstFrame && (justCompleted || justErrored)) {
           const topicId = session.topicId ?? null;
           const isFocused = topicId !== null && topicId === focusedTopicId;
           const shouldShow = !isFocused || cfg.notifyEvenWhenFocused;
