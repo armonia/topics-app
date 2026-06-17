@@ -172,6 +172,52 @@ export function reconcileTerminalSignals(
   };
 }
 
+/**
+ * Decide which locally-"streaming" chat sessions are ORPHANS — the client still
+ * shows a chat mid-reply but the server's authoritative streaming registry
+ * (GET /api/topics/streaming, backed by the in-memory activeStreams map) has not
+ * listed it for `threshold` consecutive polls.
+ *
+ * This is the self-heal for a MISSED `stream:end`. The WS can drop between
+ * `stream:start` and `stream:end` (server churn / a sleeping laptop): the server
+ * finalises the message and clears its registry, but the terminal event never
+ * reaches the client, so useChat's `streaming[sessionKey]` stays `true` and the
+ * spinner never stops (the 3-min watchdog only helps if it was armed, and a
+ * reload was the only sure cure). The 15s poll already fetches server truth;
+ * this turns it into a reconciler so an orphaned flag clears in ≤2 poll cycles.
+ *
+ * Guards against false clears:
+ *  - `inFlightLocalSends` — a session whose own SSE response is still being read
+ *    locally is authoritative by itself (its `sendMessage` finally clears it);
+ *    never touch it, even if the server registry momentarily lacks it (the brief
+ *    window after send before `startStream` registers the entry).
+ *  - `threshold` consecutive misses — right after send the client optimistically
+ *    streams before the server registers; a REAL stream re-appears within one
+ *    poll, so requiring N≥2 misses means only a genuinely dead flag accumulates
+ *    enough to be cleared. A session that re-appears, goes in-flight, or stops
+ *    streaming resets to 0 (by omission from the returned map).
+ *
+ * Pure: returns the sessionKeys to clear + the next miss-count map.
+ */
+export function reconcileOrphanStreams(
+  localStreamingSessionKeys: Iterable<string>,
+  serverStreamingSessionKeys: Set<string>,
+  inFlightLocalSends: Set<string>,
+  prevMiss: Map<string, number>,
+  threshold = 2,
+): { orphans: string[]; nextMiss: Map<string, number> } {
+  const nextMiss = new Map<string, number>();
+  const orphans: string[] = [];
+  for (const sk of localStreamingSessionKeys) {
+    if (inFlightLocalSends.has(sk)) continue;         // own in-flight SSE → leave it
+    if (serverStreamingSessionKeys.has(sk)) continue; // server agrees it's live → reset
+    const n = (prevMiss.get(sk) ?? 0) + 1;
+    if (n >= threshold) orphans.push(sk);             // dead for ≥threshold polls → clear
+    else nextMiss.set(sk, n);                         // not yet — carry the count forward
+  }
+  return { orphans, nextMiss };
+}
+
 export const useSignalsStore = create<SignalsState>((set) => ({
   liveStreamTopics: new Set(),
   hydratedStreamTopics: new Set(),

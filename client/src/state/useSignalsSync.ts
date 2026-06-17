@@ -17,10 +17,14 @@ interface Args {
    *  reconciliation so loading state self-heals from a single source of truth. */
   terminalSessions: TerminalSessionInfo[];
   isSessionStreaming: (sessionKey: string) => boolean;
+  /** Reconcile useChat's local streaming flags against the server registry so a
+   *  spinner stuck after a lost stream:end self-heals. Fed the server's
+   *  currently-streaming sessionKeys on each /api/topics/streaming poll. */
+  reconcileServerStreams: (serverStreamingSessionKeys: Set<string>) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
-export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, terminalSessions, isSessionStreaming, onWSMessage }: Args) {
+export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, terminalSessions, isSessionStreaming, reconcileServerStreams, onWSMessage }: Args) {
   // Agent sessions active → by topic.
   useEffect(() => {
     const ids = new Set<string>();
@@ -58,11 +62,20 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
       try {
         const res = await fetch('/api/topics/streaming');
         if (!res.ok) return;
-        const body = (await res.json()) as { sessions?: { topicId?: string; state?: string }[] };
+        const body = (await res.json()) as { sessions?: { topicId?: string; sessionKey?: string; state?: string }[] };
         if (cancelled) return;
         const ids = new Set<string>();
-        for (const s of body.sessions ?? []) if (s.state === 'streaming' && s.topicId) ids.add(s.topicId);
+        const sessionKeys = new Set<string>();
+        for (const s of body.sessions ?? []) {
+          if (s.state !== 'streaming') continue;
+          if (s.topicId) ids.add(s.topicId);
+          if (s.sessionKey) sessionKeys.add(s.sessionKey);
+        }
         signalsActions.setHydratedStreamTopics(ids);
+        // Self-heal: this server snapshot is authoritative, so any chat we still
+        // show as streaming but the server doesn't is an orphaned flag (lost
+        // stream:end). reconcileServerStreams clears it after ≥2 such polls.
+        reconcileServerStreams(sessionKeys);
       } catch { /* live WS still drives in-session transitions */ }
     };
     refresh();
@@ -76,7 +89,7 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
       }
     });
     return () => { cancelled = true; clearInterval(interval); unsub(); };
-  }, [onWSMessage]);
+  }, [onWSMessage, reconcileServerStreams]);
 
   // Server-tracked pty activity → terminal busy (loading) + claude-code
   // finished (notification). Works for every session, mounted or not.
