@@ -4,6 +4,7 @@ import { chatApi } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
+import { reconcileOrphanStreams } from '../state/signals';
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
@@ -184,6 +185,12 @@ export function useChat() {
   // Keep a ref to the latest messages to avoid stale closure in sendMessage.
   // useRefMirror is the canonical helper for this state→ref bridge.
   const messagesRef = useRefMirror(messages);
+  // Live mirror of the streaming map so the server-reconciler (below) reads the
+  // freshest flags without being re-created on every streaming change.
+  const streamingRef = useRefMirror(streaming);
+  // Per-session count of consecutive polls where the server said "not streaming"
+  // while we still showed it streaming. Drives the orphan-clear threshold.
+  const streamMissRef = useRef<Map<string, number>>(new Map());
   // Ref for sendMessage to allow stream:end to trigger next queued message
   const sendMessageRef = useRef<((sk: string, content: string, opts?: SendMessageOptions) => Promise<boolean>) | null>(null);
 
@@ -207,6 +214,38 @@ export function useChat() {
       delete streamingTimeoutRef.current[sessionKey];
     }
   }, []);
+
+  /**
+   * Reconcile our local `streaming` flags against the server's authoritative
+   * streaming registry (the sessionKeys from GET /api/topics/streaming, fed in
+   * by useSignalsSync's poll). Clears a chat's spinner that got stuck `true`
+   * because its terminal `stream:end` was lost (WS dropped mid-stream) — the
+   * server long since finished, so the client must stop showing it as in
+   * progress. Own in-flight SSE sends are skipped, and a session must be absent
+   * for ≥2 consecutive polls before we clear it, so a genuinely-live stream is
+   * never killed. See reconcileOrphanStreams for the decision logic.
+   */
+  const reconcileServerStreams = useCallback((serverStreamingSessionKeys: Set<string>) => {
+    const localActive: string[] = [];
+    for (const [sk, on] of Object.entries(streamingRef.current)) if (on) localActive.push(sk);
+    if (localActive.length === 0) {
+      if (streamMissRef.current.size) streamMissRef.current = new Map();
+      return;
+    }
+    const { orphans, nextMiss } = reconcileOrphanStreams(
+      localActive,
+      serverStreamingSessionKeys,
+      localSSESessionsRef.current,
+      streamMissRef.current,
+    );
+    streamMissRef.current = nextMiss;
+    if (orphans.length === 0) return;
+    console.warn('[useChat] clearing orphaned stream flag(s) — server no longer streaming:', orphans);
+    for (const sk of orphans) clearStreamTimeout(sk);
+    setStreaming(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
+    setLoading(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
+    setThinking(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
+  }, [clearStreamTimeout, streamingRef]);
 
   const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
     const newMessage: ChatMessage = {
@@ -1477,6 +1516,7 @@ export function useChat() {
     getSessionMessages,
     isSessionLoading,
     isSessionStreaming,
+    reconcileServerStreams,
     isSessionThinking,
     isSessionCached,
     loadHistory,

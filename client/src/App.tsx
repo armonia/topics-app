@@ -204,6 +204,7 @@ function App() {
     addMessageFromWS,
     isSessionLoading,
     isSessionStreaming,
+    reconcileServerStreams,
     loadHistory,
     appendMediaToLastAssistant,
     clearSession,
@@ -256,6 +257,7 @@ function App() {
     activeAgentSessions: activeSessions,
     terminalSessions,
     isSessionStreaming,
+    reconcileServerStreams,
     onWSMessage,
   });
   const { closedTabs, removeClosedTab } = useClosedTabs();

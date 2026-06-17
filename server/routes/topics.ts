@@ -1101,10 +1101,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // /api/topics/master/sessions 404'd, so hydration silently never fired.
     if (method === "GET" && pathname === "/api/topics/streaming") {
       const data = loadTopics();
-      const sessions: { topicId: string; state: "streaming" }[] = [];
+      // sessionKey is included so the client can reconcile its per-session
+      // streaming flags against this authoritative registry (self-heal a
+      // spinner stuck after a lost stream:end). topicId stays for the
+      // hydratedStreamTopics mapping.
+      const sessions: { topicId: string; sessionKey: string; state: "streaming" }[] = [];
       for (const topic of Object.values(data.topics)) {
         if (topic.sessionKey && isStreaming(topic.sessionKey)) {
-          sessions.push({ topicId: topic.id, state: "streaming" });
+          sessions.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "streaming" });
         }
       }
       return json({ sessions });
