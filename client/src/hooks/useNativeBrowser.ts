@@ -51,6 +51,15 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
 
   const cleanupsRef = useRef<Array<() => void>>([]);
   const mountedRef = useRef(true);
+  // Navigation requested before the WebContentsView/viewId resolved. The
+  // create() round-trip is async (it awaits first paint + CDP target
+  // resolution), but a navigateUrl can arrive on the very first render —
+  // e.g. an agent/terminal calling open_browser_pane spawns the pane AND
+  // pushes the URL in the same tick. Without buffering, navigate() would
+  // drop that URL (viewId still null) and the effect never re-fires, so the
+  // view stays on about:blank → the "browser opens white" bug. We stash the
+  // pending URL here and flush it the moment the view is ready.
+  const pendingNavigateRef = useRef<string | null>(null);
 
   // Mount: create WebContentsView + register CDP target server-side.
   useEffect(() => {
@@ -97,6 +106,19 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
         cleanupsRef.current.push(api.onFaviconChange(result.viewId, (f) => mountedRef.current && setFaviconUrl(f)));
 
         setReady(true);
+
+        // Flush any navigation that arrived while the view was still spinning
+        // up (see pendingNavigateRef). This is what turns an agent/terminal
+        // "open this URL" into an actual page load instead of a blank view.
+        const pending = pendingNavigateRef.current;
+        if (pending) {
+          pendingNavigateRef.current = null;
+          if (pending !== (initialUrl ?? 'about:blank')) {
+            api.navigate(result.viewId, pending).catch((err) => {
+              console.warn('[useNativeBrowser] pending navigate failed:', err);
+            });
+          }
+        }
       } catch (err) {
         console.error('[useNativeBrowser] create failed:', err);
       }
@@ -160,7 +182,13 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
 
   const navigate = useCallback(async (target: string) => {
     const api = window.electronAPI?.browserNative;
-    if (!api || !viewId) return;
+    if (!api) return;
+    if (!viewId) {
+      // View not ready yet — buffer; the create() effect flushes on resolve.
+      // Last write wins (a newer URL supersedes an older pending one).
+      pendingNavigateRef.current = target;
+      return;
+    }
     await api.navigate(viewId, target);
   }, [viewId]);
 

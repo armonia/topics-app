@@ -11,6 +11,10 @@
 import type { BrowserService } from './browser-service';
 import type { ElectronCdpDispatcher } from './browser-cdp-dispatcher';
 import type { IndexedElement } from './browser-tools';
+import {
+  extractIndexedElementsOnPage,
+  captureAnnotatedScreenshotOnPage,
+} from './browser-dom-walker';
 
 export interface BrowserOps {
   navigate(url: string): Promise<{ url: string; title: string }>;
@@ -63,10 +67,11 @@ export function playwrightOps(service: BrowserService, contextId: string): Brows
 export function cdpOps(
   dispatcher: ElectronCdpDispatcher,
   contextId: string,
-  // Fallback service for ops we don't (yet) implement on the CDP path.
-  fallbackService: BrowserService,
+  // Retained for signature compatibility; the CDP path no longer delegates
+  // observe/extract to the separate Playwright service (that walked the wrong
+  // page). Kept as a param so callers don't change.
+  _fallbackService: BrowserService,
 ): BrowserOps {
-  const playwrightFallback = playwrightOps(fallbackService, contextId);
   return {
     async navigate(url) {
       const page = await dispatcher.getPage(contextId);
@@ -91,23 +96,17 @@ export function cdpOps(
         await page.mouse.wheel(payload.deltaX ?? 0, payload.deltaY ?? 0);
       }
     },
-    // Observe/extract: delegate to BrowserService — DOM walker reuse keeps
-    // behaviour identical to web mode. KNOWN LIMITATION MVP: the walker
-    // runs on the Playwright-managed page in BrowserService, NOT on the
-    // Electron WebContentsView. Silent state mismatch acceptable per MVP
-    // (browser_act subsequently dispatches via WebContentsView CDP, and
-    // the user-visible WebContentsView is the source of truth). See
-    // REQUIREMENTS.md BROWSER-CHAT-06 known-limitation note. Future
-    // improvement: extract DOM walker into a standalone module reusable
-    // by both adapters. Runtime warns once per call so the deviation is
-    // observable in dev logs.
+    // Observe/extract now run on the REAL WebContentsView (the CDP-resolved
+    // page), via the shared page-portable walker. This is the fix for the
+    // former BROWSER-CHAT-06 limitation: observe and act target the same DOM,
+    // so element bboxes from observe are the exact coordinates act clicks.
     extractIndexedElements: async (opts) => {
-      console.warn('[cdpOps] extractIndexedElements: delegating to Playwright BrowserService (DOM walker reuse) — NOT walking the Electron WebContentsView. Known MVP limitation per BROWSER-CHAT-06.');
-      return playwrightFallback.extractIndexedElements(opts);
+      const page = await dispatcher.getPage(contextId);
+      return extractIndexedElementsOnPage(page, opts.maxElements);
     },
     captureAnnotatedScreenshot: async (elements) => {
-      console.warn('[cdpOps] captureAnnotatedScreenshot: delegating to Playwright BrowserService — annotation overlay drawn on Playwright page, NOT WebContentsView. Known MVP limitation per BROWSER-CHAT-06.');
-      return playwrightFallback.captureAnnotatedScreenshot(elements);
+      const page = await dispatcher.getPage(contextId);
+      return captureAnnotatedScreenshotOnPage(page, elements);
     },
     accessibilitySnapshot: async () => {
       const page = await dispatcher.getPage(contextId);
