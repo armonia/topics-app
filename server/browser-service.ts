@@ -5,6 +5,10 @@ import { loadStorageState, saveStorageState, debouncedSaver } from "./browser-st
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "./browser-ws-messages";
+import {
+  extractIndexedElementsOnPage,
+  captureAnnotatedScreenshotOnPage,
+} from "./browser-dom-walker";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -819,83 +823,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // Side effect: writes data-topics-idx="N" on each element (cleaned by
     // captureAnnotatedScreenshot's finally block).
     async extractIndexedElements(contextId, observeOpts) {
-      const maxElements = Math.min(Math.max(observeOpts?.maxElements ?? 50, 1), 100);
       const entry = await service.getOrCreate(contextId);
-      const elements = await entry.page.evaluate((max: number) => {
-        const selectors = [
-          'button',
-          '[role="button"]',
-          'a[href]',
-          'input:not([type="hidden"])',
-          'select',
-          'textarea',
-          '[onclick]',
-          '[tabindex]:not([tabindex="-1"])',
-          '[role="link"]',
-          '[role="menuitem"]',
-          '[role="checkbox"]',
-          '[role="radio"]',
-        ].join(',');
-
-        const seen = new Set<Element>();
-        const out: Array<{
-          id: number;
-          role: string;
-          name: string;
-          bbox: { x: number; y: number; width: number; height: number };
-          text?: string;
-          tagName: string;
-        }> = [];
-        let counter = 0;
-
-        const nodes = document.querySelectorAll(selectors);
-        for (const node of Array.from(nodes)) {
-          if (seen.has(node)) continue;
-          seen.add(node);
-          if (out.length >= max) break;
-
-          const rect = node.getBoundingClientRect();
-          if (rect.width < 4 || rect.height < 4) continue;
-          if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
-          if (rect.right < 0 || rect.left > window.innerWidth) continue;
-
-          counter += 1;
-          const id = counter;
-          const el = node as HTMLElement;
-          el.setAttribute('data-topics-idx', String(id));
-
-          const tagName = (node.tagName || '').toLowerCase();
-          const ariaRole = node.getAttribute('role');
-          const role = ariaRole && ariaRole.trim() ? ariaRole : tagName;
-
-          const ariaLabel = node.getAttribute('aria-label');
-          const titleAttr = node.getAttribute('title');
-          const innerText = (el.innerText || '').replace(/\s+/g, ' ').trim();
-          const name =
-            (ariaLabel && ariaLabel.trim()) ||
-            (titleAttr && titleAttr.trim()) ||
-            innerText.slice(0, 80) ||
-            '';
-
-          out.push({
-            id,
-            role,
-            name,
-            bbox: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height),
-            },
-            text: innerText.slice(0, 200),
-            tagName,
-          });
-        }
-        return out;
-      }, maxElements);
-
+      // Shared page-portable walker (browser-dom-walker.ts) — identical logic
+      // is reused by the Electron CDP path so observe targets the same DOM.
+      const elements = await extractIndexedElementsOnPage(entry.page, observeOpts?.maxElements);
       touchActivity(entry);
-      return elements as IndexedElement[];
+      return elements;
     },
 
     // Phase 30 BROWSER-CHAT-03 — annotated screenshot via overlay injection.
@@ -905,95 +838,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // Cleanup is in finally — overlay container removed, data-topics-idx
     // attributes stripped. Cleanup errors are swallowed (best effort).
     async captureAnnotatedScreenshot(contextId, elements, screenshotOpts) {
-      const quality = screenshotOpts?.quality ?? 70;
       const entry = await service.getOrCreate(contextId);
-      try {
-        await entry.page.evaluate((els: IndexedElement[]) => {
-          // Remove any leftover overlay first (idempotent).
-          const old = document.getElementById('__topics_observe_overlay');
-          if (old) old.remove();
-
-          const colors = ['#16a34a', '#eab308', '#dc2626'];
-          const container = document.createElement('div');
-          container.id = '__topics_observe_overlay';
-          container.style.cssText = [
-            'position:absolute',
-            'top:0',
-            'left:0',
-            'width:100%',
-            'height:100%',
-            'pointer-events:none',
-            'z-index:2147483647',
-          ].join(';');
-
-          for (const el of els) {
-            const color = colors[(el.id - 1) % colors.length];
-            const box = document.createElement('div');
-            box.style.cssText = [
-              'position:absolute',
-              `left:${el.bbox.x}px`,
-              `top:${el.bbox.y}px`,
-              `width:${el.bbox.width}px`,
-              `height:${el.bbox.height}px`,
-              `border:2px solid ${color}`,
-              'box-sizing:border-box',
-              'pointer-events:none',
-            ].join(';');
-
-            const label = document.createElement('span');
-            label.textContent = String(el.id);
-            label.style.cssText = [
-              'position:absolute',
-              'top:-20px',
-              'left:0',
-              'padding:1px 6px',
-              `background:${color}`,
-              'color:#ffffff',
-              'font-family:system-ui,sans-serif',
-              'font-size:12px',
-              'font-weight:600',
-              'border-radius:2px',
-              'white-space:nowrap',
-            ].join(';');
-            box.appendChild(label);
-            container.appendChild(box);
-          }
-          document.body.appendChild(container);
-        }, elements);
-
-        let buf: Buffer;
-        try {
-          buf = await entry.page.screenshot({ type: 'jpeg', quality, fullPage: false });
-        } finally {
-          // Cleanup overlay + data-topics-idx attrs. Wrapped in try/catch so
-          // a broken page doesn't propagate cleanup errors.
-          try {
-            await entry.page.evaluate(() => {
-              const c = document.getElementById('__topics_observe_overlay');
-              if (c) c.remove();
-              const indexed = document.querySelectorAll('[data-topics-idx]');
-              for (const node of Array.from(indexed)) {
-                (node as HTMLElement).removeAttribute('data-topics-idx');
-              }
-            });
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`[BrowserService] captureAnnotatedScreenshot cleanup failed for ${contextId}:`, msg);
-          }
-        }
-        touchActivity(entry);
-        return buf.toString('base64');
-      } catch (err) {
-        // Outer catch: if overlay inject itself failed, attempt cleanup once
-        // before rethrowing.
-        try {
-          await entry.page.evaluate(() => {
-            const c = document.getElementById('__topics_observe_overlay');
-            if (c) c.remove();
-          });
-        } catch {}
-        throw err;
-      }
+      // Shared page-portable annotated-screenshot helper (browser-dom-walker.ts).
+      const b64 = await captureAnnotatedScreenshotOnPage(entry.page, elements, screenshotOpts?.quality ?? 70);
+      touchActivity(entry);
+      return b64;
     },
 
     // Phase 30 BROWSER-CHAT-04 — DOM info at a point for select-element mode.
@@ -1014,7 +863,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           const segments: string[] = [];
           let cur: Element | null = target;
           while (cur && cur !== document.documentElement) {
-            const parent = cur.parentElement;
+            const parent: Element | null = cur.parentElement;
             const siblings = parent
               ? Array.from(parent.children).filter((c) => c.tagName === cur!.tagName)
               : [];

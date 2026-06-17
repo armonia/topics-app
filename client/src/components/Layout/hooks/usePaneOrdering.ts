@@ -26,6 +26,7 @@ import {
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
 import { findPreviewInList, replaceInList, consumeTabRestored } from '../../../lib/previewTabs';
+import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
 import { usePaneStore } from '../../../state/pane/store';
@@ -330,16 +331,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // tracking; it isn't part of the typed WSBrowserNavigateMessage shape,
         // so read it defensively without widening the message type.
         const navTopicId = (msg as { topicId?: string }).topicId;
-        // Rewrite localhost URLs to use the current hostname (Tailscale / remote).
-        let navigateUrl: string = msg.url;
-        try {
-          const parsed = new URL(navigateUrl);
-          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-            parsed.hostname = window.location.hostname;
-            parsed.protocol = window.location.protocol;
-            navigateUrl = parsed.toString();
-          }
-        } catch { /* not a valid URL, leave as-is */ }
+        // Resolve localhost ONLY for remote web clients; never in Electron native
+        // (same-machine WebContentsView reaches localhost directly, and forcing
+        // https there breaks http dev servers → white page). See resolveBrowserNavigateUrl.
+        const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
         onBrowserNavigateUrl(navigateUrl);
         setOrderedIds(prev => {
           // Today's extra guard: navTopicId must already be open in this group.
@@ -364,15 +359,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       // as chat-driven navigation — the terminal's browser shares the group's
       // one browser pane rather than spawning a second.
       if (msg.type === 'browser:open-near-pane' && msg.url && msg.paneId) {
-        let navigateUrl: string = msg.url;
-        try {
-          const parsed = new URL(navigateUrl);
-          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-            parsed.hostname = window.location.hostname;
-            parsed.protocol = window.location.protocol;
-            navigateUrl = parsed.toString();
-          }
-        } catch { /* not a valid URL, leave as-is */ }
+        const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
         setOrderedIds(prev => {
           if (!prev.includes(msg.paneId)) return prev; // terminal not in this group
           const { next, resolvedId } = browserSingletonReducer(prev);
@@ -395,15 +382,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       const ce = e as CustomEvent<{ topicId?: string; url?: string }>;
       if (!ce.detail?.url) return;
       if (hasProjectPaneRef.current) return; // Project window owns its panes
-      let navigateUrl: string = ce.detail.url;
-      try {
-        const parsed = new URL(navigateUrl);
-        if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-          parsed.hostname = window.location.hostname;
-          parsed.protocol = window.location.protocol;
-          navigateUrl = parsed.toString();
-        }
-      } catch { /* not a valid URL, leave as-is */ }
+      const navigateUrl: string = resolveBrowserNavigateUrl(ce.detail.url);
       onBrowserNavigateUrl(navigateUrl);
       setOrderedIds(prev => {
         if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
