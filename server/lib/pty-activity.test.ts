@@ -3,7 +3,7 @@
  * animated TUI statusline from pinning a session "busy" forever.
  */
 import { describe, test, expect } from "bun:test";
-import { visibleSignature, classifyFrame, isInputEcho, INPUT_ECHO_WINDOW_MS } from "./pty-activity";
+import { visibleSignature, classifyFrame, isInputEcho, INPUT_ECHO_WINDOW_MS, isResizeRepaint, RESIZE_REPAINT_WINDOW_MS } from "./pty-activity";
 
 const ESC = "\x1b";
 
@@ -93,5 +93,40 @@ describe("isInputEcho", () => {
   test("honours a custom window", () => {
     expect(isInputEcho(120, 100)).toBe(false);
     expect(isInputEcho(80, 100)).toBe(true);
+  });
+});
+
+describe("isResizeRepaint", () => {
+  test("a frame right after a resize is a repaint (the core fix)", () => {
+    // The SIGWINCH rewrap that follows a resize/tab-show must not mark busy.
+    expect(isResizeRepaint(0)).toBe(true);
+    expect(isResizeRepaint(5)).toBe(true);
+    expect(isResizeRepaint(RESIZE_REPAINT_WINDOW_MS - 1)).toBe(true);
+  });
+
+  test("covers a wider tail than the keystroke echo window", () => {
+    // A repaint can land a beat after the resize round-trips the bridge —
+    // beyond the 150ms input-echo window but still well inside the resize one.
+    expect(RESIZE_REPAINT_WINDOW_MS).toBeGreaterThan(INPUT_ECHO_WINDOW_MS);
+    expect(isResizeRepaint(INPUT_ECHO_WINDOW_MS + 10)).toBe(true);
+  });
+
+  test("a frame long after a resize is real process output", () => {
+    expect(isResizeRepaint(RESIZE_REPAINT_WINDOW_MS)).toBe(false);
+    expect(isResizeRepaint(1500)).toBe(false);
+    expect(isResizeRepaint(5000)).toBe(false);
+  });
+
+  test("no recorded resize is never a repaint", () => {
+    expect(isResizeRepaint(null)).toBe(false);
+  });
+
+  test("a negative elapsed (clock skew) is not a repaint", () => {
+    expect(isResizeRepaint(-1)).toBe(false);
+  });
+
+  test("honours a custom window", () => {
+    expect(isResizeRepaint(120, 100)).toBe(false);
+    expect(isResizeRepaint(80, 100)).toBe(true);
   });
 });

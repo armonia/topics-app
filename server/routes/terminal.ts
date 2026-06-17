@@ -10,7 +10,7 @@ import net from "net";
 import fs from "fs";
 import { augmentPath } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
-import { classifyFrame, isInputEcho } from "../lib/pty-activity";
+import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -84,12 +84,27 @@ const lastVisibleSig = new Map<string, string>();
 // the fix for "just typing into a Claude Code prompt raises the loading
 // spinner". See lib/pty-activity.ts → isInputEcho.
 const lastInputAt = new Map<string, number>();
+// Time (ms) of the last resize we forwarded to each session's pty. The SIGWINCH
+// repaint that follows changes the screen (lines rewrap at the new width)
+// WITHOUT the process doing work, so an output frame arriving within
+// RESIZE_REPAINT_WINDOW_MS of a resize must not mark the session busy — the fix
+// for "loading a caso al resize / all'apertura tab". A wider window than input
+// echo because a full repaint round-trips the bridge and can lag a few frames.
+// See lib/pty-activity.ts → isResizeRepaint.
+const lastResizeAt = new Map<string, number>();
 
 /** Record that the user just sent input to a session's pty (any write: a typed
  *  char, a paste, Enter, an arrow key). Stamped from every write path so the
  *  data handler can recognise the resulting echo frames. */
 function noteTerminalInput(id: string) {
   lastInputAt.set(id, Date.now());
+}
+
+/** Record that we just resized a session's pty (window/pane resize, divider
+ *  drag, sidebar toggle, tab show, focus regain). The data handler treats the
+ *  resulting SIGWINCH repaint as non-work so it doesn't flash the spinner. */
+function noteTerminalResize(id: string) {
+  lastResizeAt.set(id, Date.now());
 }
 
 function markTerminalActivity(id: string) {
@@ -119,6 +134,7 @@ function clearTerminalActivity(id: string) {
   terminalActivity.delete(id);
   lastVisibleSig.delete(id);
   lastInputAt.delete(id);
+  lastResizeAt.delete(id);
   // Tell clients to drop any loading state for this session (no `finished`:
   // an exit isn't a completed turn).
   if (a?.busy) _broadcastToAll?.({ type: 'terminal:activity', id, busy: false });
@@ -420,11 +436,18 @@ function handleBridgeMessage(msg: any) {
       //      that as activity is the "just typing raises the spinner" bug (and
       //      it would revive a dormant session). isInputEcho gates on how long
       //      ago we forwarded a keystroke to this pty. See lib/pty-activity.ts.
+      //   3. resize repaint — a window/pane resize (or a tab becoming visible,
+      //      which re-fits xterm) sends SIGWINCH; the TUI repaints at the new
+      //      width, rewrapping lines so the frame looks non-cosmetic. That
+      //      redraw is the user's resize, not the process working — counting it
+      //      is the "loading a caso al resize / all'apertura tab" bug.
       const { cosmetic, sig } = classifyFrame(lastVisibleSig.get(msg.id), msg.data);
       lastVisibleSig.set(msg.id, sig);
       const inAt = lastInputAt.get(msg.id);
       const echo = isInputEcho(inAt !== undefined ? Date.now() - inAt : null);
-      if (!cosmetic && !echo) {
+      const rsAt = lastResizeAt.get(msg.id);
+      const resizeEcho = isResizeRepaint(rsAt !== undefined ? Date.now() - rsAt : null);
+      if (!cosmetic && !echo && !resizeEcho) {
         markTerminalActivity(msg.id);
         // Real output revives a session the reaper demoted to dormant while it
         // was merely silent (missed Stop hook), so the loading dots come back.
@@ -1030,6 +1053,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (cols && rows) {
         session.cols = cols;
         session.rows = rows;
+        // Stamp BEFORE forwarding so the SIGWINCH repaint this provokes is
+        // recognised as resize-driven (not process work) by the data handler.
+        noteTerminalResize(resizeMatch.id);
         sendToBridge({ type: "resize", id: resizeMatch.id, cols, rows });
       }
       return json({ ok: true });
