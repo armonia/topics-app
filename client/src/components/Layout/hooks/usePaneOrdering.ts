@@ -69,6 +69,22 @@ function persistBrowserPane(paneId: string): void {
 }
 
 /**
+ * Ask the standalone grid to split a freshly opened browser pane out of the
+ * tab bar into its own cell, so a session-opened browser lands BESIDE the chat
+ * (not stacked as a tab the user has to find). The orientation (side-by-side vs
+ * stacked) is decided by available space in PanelGrid's auto-solo effect; here
+ * we only signal which pane to solo. usePanelLifecycle listens and feeds it
+ * into the existing `pendingSoloPanelId` plumbing (which is idempotent — a pane
+ * already in its own cell is left alone, so re-opening just navigates in place).
+ */
+function requestBrowserSolo(paneId: string): void {
+  if (!isBrowserPaneId(paneId)) return;
+  try {
+    window.dispatchEvent(new CustomEvent('browser:request-solo', { detail: { paneId } }));
+  } catch { /* SSR / no window — no-op */ }
+}
+
+/**
  * Singleton reducer shared by `ensureBrowserPane` op and the WS
  * browser:navigate listener. Keeps the swap/reuse/create logic DRY.
  */
@@ -341,7 +357,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           if (navTopicId && !prev.includes(navTopicId)) return prev;
           const { next, resolvedId } = browserSingletonReducer(prev);
           if (resolvedId) {
-            queueMicrotask(() => onFocusPanel(resolvedId));
+            queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
             persistBrowserPane(resolvedId);
             // Record spawner relationship: chat → browser. Lets the chat
             // header surface a jump-to-browser button and the browser
@@ -365,7 +381,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           const { next, resolvedId } = browserSingletonReducer(prev);
           if (resolvedId) {
             persistBrowserPane(resolvedId);
-            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
+            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+            // Spawner key = the terminal pane id, so its tab gets the
+            // "opened a browser" cue (same registry as chat-driven opens).
+            const ctx = getBrowserContextFromPaneId(resolvedId);
+            if (ctx) setBrowserSpawner(ctx, msg.paneId);
           }
           return next;
         });
@@ -388,7 +408,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
         const { next, resolvedId } = browserSingletonReducer(prev);
         if (resolvedId) {
-          queueMicrotask(() => onFocusPanel(resolvedId));
+          queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
           persistBrowserPane(resolvedId);
           const ctx = getBrowserContextFromPaneId(resolvedId);
           if (ctx && ce.detail?.topicId) setBrowserSpawner(ctx, ce.detail.topicId);

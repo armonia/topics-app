@@ -16,6 +16,7 @@ import { EDGE_DROP_PX } from './constants';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
+import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
@@ -118,6 +119,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
+  // Spawner map (chat topicId | terminal paneId → browser contextId) so each
+  // tab can show a quiet "opened a browser" cue. One subscription, read per tab.
+  const spawnedBrowserMap = useSpawnedBrowserMap();
   // Resolve per-topic icon + colour for chat tabs so the tab bar reads in the
   // SAME visual language as the sidebar (which already shows the topic's own
   // icon). Without this, every chat tab fell back to a generic MessageSquare
@@ -689,6 +693,24 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
             {pane.type === 'agents' && <AgentStreamingSpinner />}
+            {/* Quiet cue: this chat/terminal tab opened a browser. A third,
+                independent signal — not attention (NotificationBadge) and not
+                loading (spinner) — so it stays muted. Keyed by topicId (chat)
+                or pane id (terminal); see browserSpawner registry. */}
+            {(() => {
+              const spawnerKey = pane.type === 'chat' ? pane.topicId : pane.type === 'terminal' ? pane.id : undefined;
+              if (!spawnerKey || !spawnedBrowserMap[spawnerKey]) return null;
+              return (
+                <span
+                  className="ml-0.5 flex items-center text-app-text-faint/70"
+                  title="Questa tab ha aperto un browser"
+                  data-testid="tab-spawned-browser"
+                  aria-label="Ha aperto un browser"
+                >
+                  <Globe size={11} />
+                </span>
+              );
+            })()}
             {/* The split position mini-map lives on the SIDEBAR topic cards
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally

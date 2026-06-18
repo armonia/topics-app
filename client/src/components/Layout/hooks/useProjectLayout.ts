@@ -39,6 +39,7 @@ import {
   getAddableTypesForScope,
   getPaneConfig,
   getTerminalSessionFromPaneId,
+  getBrowserContextFromPaneId,
   PANE_CONFIG,
   captureClosedTab,
   reopenClosedTab,
@@ -54,7 +55,8 @@ import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
-import { splitColumnWidths, appendColumnWidths, keepColumnWidths } from '../gridWidths';
+import { splitColumnWidths, appendColumnWidths, keepColumnWidths, chooseSplitOrientation } from '../gridWidths';
+import { setBrowserSpawner, clearBrowserSpawner } from '../../../state/browserSpawner';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
 import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
@@ -156,7 +158,7 @@ export interface UseProjectLayoutReturn {
     close: (groupId: string, paneId: string) => void;
     /** Immediate close — bypasses the countdown (right-click "Close now"). */
     closeNow: (groupId: string, paneId: string) => void;
-    addToGroup: (groupId: string, type: PaneType, subType?: string) => Promise<void>;
+    addToGroup: (groupId: string, type: PaneType, subType?: string) => Promise<string | undefined>;
     addWhenEmpty: (type: PaneType, subType?: string) => Promise<void>;
     reorderGroupPanes: (groupId: string, newPaneIds: string[]) => void;
     moveBetweenGroups: (sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => void;
@@ -286,7 +288,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // Forward-declared ref so the browser-navigate useEffect (mounted near the
   // top of this hook) can call `handleAddPaneToGroup`, which is itself
   // defined ~500 lines further down. Pure plumbing — no behavior on its own.
-  const handleAddPaneToGroupRef = useRef<((groupId: string, type: PaneType, subType?: string) => Promise<void>) | null>(null);
+  const handleAddPaneToGroupRef = useRef<((groupId: string, type: PaneType, subType?: string) => Promise<string | undefined>) | null>(null);
+  // Pinned each render so the early-mounted browser-split effect can call the
+  // latest handleSplitGroup (defined ~1200 lines below). Same pattern as
+  // handleAddPaneToGroupRef.
+  const handleSplitGroupRef = useRef<((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => void) | null>(null);
+  // A browser pane just added to a group, queued to be split OUT into its own
+  // space-aware group beside the source (consumed by the effect below once the
+  // pane is committed). Mirrors the standalone pendingSoloPanelId pattern.
+  const [pendingBrowserSplit, setPendingBrowserSplit] = useState<{ paneId: string; sourceGroupId: string } | null>(null);
 
   // Forward-declared ref so the pendingFocusTopicId effect (mounted ~80
   // lines below) can call `reopenChatPane`, which is itself defined
@@ -430,30 +440,42 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // panel consumes it via `onNavigateConsumed`. If the broadcast races the
   // pane mount, the navigateUrl prop will be honoured on first render.
   useEffect(() => {
-    const ensureBrowserPaneAndNavigate = (url: string, targetGroupId?: string) => {
+    const ensureBrowserPaneAndNavigate = (url: string, targetGroupId?: string, spawnerKey?: string) => {
       if (!url) return;
       // Default to the focused group (chat-driven navigation), but allow an
-      // explicit target so a terminal-originated open lands in the SAME group
-      // as the terminal pane rather than wherever focus happens to be.
+      // explicit target so a terminal-originated open lands beside the SAME
+      // group as the terminal pane rather than wherever focus happens to be.
       const fgid = targetGroupId ?? focusedGroupIdRef.current;
       if (!fgid) return;
-      const groupPanes = groupsRef.current.find(g => g.id === fgid)?.paneIds || [];
-      const existing = panesRef.current.find(
-        p => p.type === 'browser' && groupPanes.includes(p.id),
-      );
+
+      // Reuse ANY existing browser in this project — refresh it in place rather
+      // than spawning a second. A project shares one browser context across its
+      // panes, so a duplicate would fight over the same Electron view.
+      const existing = panesRef.current.find(p => p.type === 'browser');
       if (existing) {
-        // Pane is already there — just focus + push the URL.
-        setGroups(prev =>
-          prev.map(g => (g.id === fgid ? { ...g, activePaneId: existing.id } : g)),
-        );
-      } else {
-        // Singleton add — handleAddPaneToGroup handles dedup itself, but we
-        // call it after the current render cycle to avoid stomping in-flight
-        // state updates.
-        queueMicrotask(() => {
-          void handleAddPaneToGroupRef.current?.(fgid, 'browser');
-        });
+        const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
+        if (grp) {
+          setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
+          setFocusedGroupId(grp.id);
+        }
+        const ctx = getBrowserContextFromPaneId(existing.id);
+        if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
+        onBrowserNavigateUrl?.(url);
+        return;
       }
+
+      // None yet → add the browser to the source group, then queue a split so
+      // it lands in its own space-aware cell BESIDE the chat/terminal instead
+      // of sitting hidden as a tab. The split effect below consumes this once
+      // the pane is committed and picks side-by-side vs stacked by space.
+      queueMicrotask(async () => {
+        const newId = await handleAddPaneToGroupRef.current?.(fgid, 'browser');
+        if (newId) {
+          const ctx = getBrowserContextFromPaneId(newId);
+          if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
+          setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
+        }
+      });
       onBrowserNavigateUrl?.(url);
     };
 
@@ -473,21 +495,22 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     const unsubWS = onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string };
       if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
-        ensureBrowserPaneAndNavigate(m.url);
+        ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId);
       }
       // Terminal-originated open: only the project window whose layout actually
-      // contains the terminal pane reacts; it opens the browser in that exact
-      // group (next to the terminal), not the focused group.
+      // contains the terminal pane reacts; it opens the browser beside that
+      // exact group (next to the terminal), not the focused group. The spawner
+      // key is the terminal pane id so its tab gets the "opened a browser" cue.
       if (m.type === 'browser:open-near-pane' && m.url && m.paneId) {
         const g = groupsRef.current.find(gr => gr.paneIds.includes(m.paneId!));
-        if (g) ensureBrowserPaneAndNavigate(m.url, g.id);
+        if (g) ensureBrowserPaneAndNavigate(m.url, g.id, m.paneId);
       }
     });
 
     const domHandler = (e: Event) => {
       const detail = (e as CustomEvent<{ topicId?: string; url?: string }>).detail;
       if (detail?.url && topicBelongsToThisProject(detail.topicId)) {
-        ensureBrowserPaneAndNavigate(detail.url);
+        ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId);
       }
     };
     window.addEventListener('browser:open-and-navigate', domHandler);
@@ -500,6 +523,32 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     // render. Deps are the stable identity inputs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onWSMessage, onBrowserNavigateUrl, topics, projectPath]);
+
+  // Consume a queued browser split: once the freshly added browser pane is
+  // committed into its source group (beside the chat/terminal), split it OUT
+  // into its own cell, oriented by the source group's available space (wide →
+  // side-by-side, tall/narrow → stacked). Idempotent: a browser already alone
+  // in its group is left as-is, so re-opening just navigates it.
+  useEffect(() => {
+    if (!pendingBrowserSplit) return;
+    const { paneId } = pendingBrowserSplit;
+    if (!panes.some(p => p.id === paneId)) return; // not committed yet — wait
+    const hostGroup = groups.find(g => g.paneIds.includes(paneId));
+    if (!hostGroup) return;
+    // Already in its own cell (sibling closed / prior split) → nothing to do.
+    if (hostGroup.paneIds.length <= 1) { setPendingBrowserSplit(null); return; }
+    // Measure the source group's on-screen cell to pick the orientation.
+    let rect: { width: number; height: number } | null = null;
+    try {
+      const bar = document.querySelector(`[data-testid="panel-tab-bar"][data-group-id="${hostGroup.id}"]`);
+      const cell = (bar?.parentElement as HTMLElement | null) ?? null;
+      const r = cell?.getBoundingClientRect();
+      if (r) rect = { width: r.width, height: r.height };
+    } catch { /* DOM not ready / bad selector — fall back to 'side' */ }
+    const edge = chooseSplitOrientation(rect) === 'side' ? 'right' : 'bottom';
+    handleSplitGroupRef.current?.(hostGroup.id, paneId, hostGroup.id, edge);
+    setPendingBrowserSplit(null);
+  }, [pendingBrowserSplit, panes, groups]);
 
   // --- Sync groups with panes (orphan-sync, immutable, no mutations) ---
   useEffect(() => {
@@ -910,6 +959,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           if (!hasOtherBrowserPane) {
             fetch(`/api/browsers/${encodeURIComponent(projectPath)}`, { method: 'DELETE' }).catch(() => {});
           }
+          // Drop the spawner relationship so the "opened a browser" tab cue
+          // clears when the browser closes (the registry isn't auto-pruned).
+          const bctx = getBrowserContextFromPaneId(paneId);
+          if (bctx) clearBrowserSpawner(bctx);
         }
 
         pushClosedTab(record);
@@ -1208,6 +1261,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         });
       }
       setFocusedGroupId(groupId);
+      return paneId;
     },
     [panes, groups, projectPath, claudeSkipPermissions],
   );
@@ -1768,6 +1822,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     },
     [panes, groups, rowsRef],
   );
+
+  // Pin the latest handleSplitGroup so the early-mounted browser-split effect
+  // can invoke it with a fresh panes/groups closure.
+  handleSplitGroupRef.current = handleSplitGroup;
 
   const handleReorderRows = useCallback((newRowOrder: number[]) => {
     setRows(prev => {

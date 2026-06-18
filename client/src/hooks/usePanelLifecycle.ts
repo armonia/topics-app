@@ -507,6 +507,22 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
   }, [isMobile, setSidebarCollapsed, openPanelsRef]);
 
+  // A browser opened by a session (chat/terminal via the WS/DOM handlers in
+  // usePaneOrdering) should split out into its own cell BESIDE the chat, just
+  // like the manual open above — not sit hidden as a tab. usePaneOrdering
+  // dispatches `browser:request-solo` once the pane is added; we route it into
+  // the same `pendingSoloPanelId` signal. PanelGrid's auto-solo effect picks
+  // the orientation by available space and is idempotent (an already-solo'd
+  // pane is left alone, so re-opening the same browser just navigates it).
+  useEffect(() => {
+    const onRequestSolo = (e: Event) => {
+      const id = (e as CustomEvent<{ paneId?: string }>).detail?.paneId;
+      if (id) setPendingSoloPanelId(id);
+    };
+    window.addEventListener('browser:request-solo', onRequestSolo as EventListener);
+    return () => window.removeEventListener('browser:request-solo', onRequestSolo as EventListener);
+  }, []);
+
   // ---- Panel layout mode ----
   const [nextPanelMode, setNextPanelMode] = useState<'side' | 'below'>('side');
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);

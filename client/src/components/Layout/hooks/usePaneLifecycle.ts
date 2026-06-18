@@ -21,6 +21,7 @@ import {
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
 import { primaryFromSoloCellKey } from '../soloCells';
+import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
 
@@ -52,7 +53,12 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
     matches: isBrowserPaneId,
     sideEffect: (id) => {
       const ctx = getBrowserContextFromPaneId(id);
-      if (ctx) fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE' }).catch(() => {});
+      if (ctx) {
+        fetch(`/api/browsers/${encodeURIComponent(ctx)}`, { method: 'DELETE' }).catch(() => {});
+        // Clear the spawner relationship so the "opened a browser" tab cue
+        // disappears once the browser is closed (registry isn't auto-pruned).
+        clearBrowserSpawner(ctx);
+      }
     },
     localManaged: true,
   },

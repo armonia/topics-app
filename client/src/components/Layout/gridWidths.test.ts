@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths } from './gridWidths';
+import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths, chooseSplitOrientation } from './gridWidths';
 
 const approx = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length);
@@ -99,5 +99,26 @@ describe('keepColumnWidths — multi-column survivor renormalise', () => {
   });
   test('keeping all is identity-after-normalise', () => {
     approx(keepColumnWidths([0.3, 0.7], [0, 1]), [0.3, 0.7]);
+  });
+});
+
+describe('chooseSplitOrientation — split by available space', () => {
+  test('landscape cell splits side-by-side', () => {
+    expect(chooseSplitOrientation({ width: 1200, height: 800 })).toBe('side');
+    expect(chooseSplitOrientation({ width: 1000, height: 600 })).toBe('side');
+  });
+  test('portrait / tall-narrow cell stacks', () => {
+    expect(chooseSplitOrientation({ width: 500, height: 900 })).toBe('stack');
+    expect(chooseSplitOrientation({ width: 700, height: 700 })).toBe('stack'); // square → stack
+  });
+  test('just past the 1.2 threshold flips to side', () => {
+    expect(chooseSplitOrientation({ width: 721, height: 600 })).toBe('side'); // 1.202×
+    expect(chooseSplitOrientation({ width: 719, height: 600 })).toBe('stack'); // 1.198×
+  });
+  test('null / degenerate rect → side (historical default)', () => {
+    expect(chooseSplitOrientation(null)).toBe('side');
+    expect(chooseSplitOrientation(undefined)).toBe('side');
+    expect(chooseSplitOrientation({ width: 800, height: 0 })).toBe('side');
+    expect(chooseSplitOrientation({ width: NaN, height: 600 })).toBe('side');
   });
 });

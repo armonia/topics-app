@@ -78,6 +78,28 @@ export function normalizeWidths(widths: readonly number[]): number[] {
 }
 
 /**
+ * Choose how to split a cell when opening a companion pane (e.g. a browser
+ * opened by a chat/terminal) based on the available space of the source cell.
+ *
+ * Landscape cells (wider than ~1.2× their height) split side-by-side so both
+ * panes stay readable; portrait / square cells stack so neither pane is
+ * squeezed into a sliver. `null`/degenerate rect → `'side'` (the historical
+ * default — a new solo cell was always a column).
+ *
+ * Callers map the logical result onto their own axis vocabulary:
+ *   - standalone PanelGrid.handleSplitPane: `'side' → 'right'`, `'stack' → 'down'`
+ *   - project handleSplitGroup edges:        `'side' → 'right'`, `'stack' → 'bottom'`
+ */
+export function chooseSplitOrientation(
+  rect: { width: number; height: number } | null | undefined,
+): 'side' | 'stack' {
+  if (!rect || !Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.height <= 0) {
+    return 'side';
+  }
+  return rect.width > rect.height * 1.2 ? 'side' : 'stack';
+}
+
+/**
  * Drop a column at `removeIdx` and renormalise the survivors, preserving their
  * relative proportions. Returns `[]` for a row that empties out (caller decides
  * whether to drop the row).
