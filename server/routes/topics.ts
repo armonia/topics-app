@@ -682,15 +682,20 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
    * project the user has in Topics. Returns null when nothing resolves to an
    * existing directory.
    */
-  function resolveProjectRef(ref: string): string | null {
+  function resolveProjectRef(ref: string, opts?: { trustRawPaths?: boolean }): string | null {
     const raw = (ref || "").trim();
     if (!raw) return null;
 
-    // Absolute / home-relative paths: use verbatim.
-    if (raw.startsWith("/")) return isExistingDir(raw) ? raw : null;
-    if (raw.startsWith("~/")) {
-      const abs = join(homedir(), raw.slice(2));
-      return isExistingDir(abs) ? abs : null;
+    // Absolute / home-relative paths. Honoured verbatim ONLY for explicit local
+    // user actions (the /project command, an adopt body). On the AI-marker path
+    // (trustRawPaths falsy) a raw path must already be a project Topics knows
+    // about — otherwise a model, or prompt injection reaching a cloud session,
+    // could emit {{PROJECT_OPEN:~/.ssh}} / {{PROJECT_OPEN:/etc}} and make every
+    // connected client open a pane rooted at an arbitrary directory.
+    if (raw.startsWith("/") || raw.startsWith("~/")) {
+      const abs = raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+      if (!isExistingDir(abs)) return null;
+      return (opts?.trustRawPaths || isKnownProject(abs)) ? abs : null;
     }
 
     // Bare name/slug: match against known projects (strongest signal first).
@@ -706,7 +711,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     }
     for (const p of getWorkspaceProjects()) candidates.push({ path: p });
 
-    const matched = matchProjectRef(raw, candidates, slugify);
+    // Compare candidate slugs with the SAME slugify that produced them (the
+    // store's), so "My App" matches a project stored as slug "my-app".
+    const matched = matchProjectRef(raw, candidates, (s) => projectStore.slugify(s));
     if (matched && isExistingDir(matched)) return matched;
 
     // Last resort: a same-named folder directly under the workspace.
@@ -1232,40 +1239,63 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // topic bound to the EXISTING gateway session so the user can talk to it,
     // optionally scoped to a project.
     if (method === "POST" && pathname === "/api/topics/adopt") {
-      const body = await readJSON(req);
-      const sessionKey = body?.sessionKey ? String(body.sessionKey).trim() : "";
-      if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+      try {
+        const body = await readJSON(req);
+        const sessionKey = body?.sessionKey ? String(body.sessionKey).trim() : "";
+        if (!sessionKey) return json({ error: "sessionKey required" }, 400);
 
-      const existing = getTopicBySessionKey(sessionKey);
-      if (existing) {
-        if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
-        return json(existing, 200);
+        const existing = getTopicBySessionKey(sessionKey);
+        if (existing) {
+          if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
+          return json(existing, 200);
+        }
+
+        const id = crypto.randomUUID();
+        const name =
+          (body?.name ? String(body.name).trim() : "") ||
+          `Cloud session ${sessionKey.replace(/^topic:/, "").slice(0, 12)}`;
+        // body.projectPath is an explicit local action → raw paths are trusted.
+        const projectDir = body?.projectPath
+          ? resolveProjectRef(String(body.projectPath), { trustRawPaths: true })
+          : null;
+
+        // Atomic check-then-insert: re-read INSIDE the transaction so two
+        // concurrent adopts for the same sessionKey converge on one topic,
+        // rather than the second INSERT OR REPLACE destructively deleting the
+        // first row (session_key is UNIQUE; REPLACE would cascade FK deletes).
+        const out = ctx.db.transaction((): { topic: Topic; created: boolean } => {
+          const again = getTopicBySessionKey(sessionKey);
+          if (again) return { topic: again, created: false };
+          const data = loadTopics();
+          const topic: Topic = {
+            id, name, slug: slugify(name), parentId: null, links: [],
+            sessionKey,                     // adopt the EXISTING gateway session
+            color: body?.color || "#5865f2", icon: body?.icon || "Cloud",
+            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+            archived: false, systemPrompt: "",
+            contextFiles: [], pinnedMessages: [],
+            sortOrder: Object.keys(data.topics).length,
+            provider: "openclaw",           // cloud-backed
+          };
+          if (projectDir) (topic as any).projectPath = projectDir;
+          saveSingleTopic(topic);
+          return { topic, created: true };
+        })();
+
+        if (!out.created) {
+          if (out.topic.projectPath) bindTopicToProject(out.topic.id, out.topic.projectPath, { focus: true });
+          return json(out.topic, 200);
+        }
+
+        broadcastToAll({ type: "topic:created", topic: out.topic });
+        // Scope to its project (open + nest) when one was resolved; otherwise the
+        // caller opens it as a standalone cloud chat.
+        if (projectDir) bindTopicToProject(out.topic.id, projectDir, { focus: true });
+        return json(out.topic, 201);
+      } catch (err: any) {
+        console.warn("[adopt] failed:", err);
+        return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
       }
-
-      const data = loadTopics();
-      const id = crypto.randomUUID();
-      const name =
-        (body?.name ? String(body.name).trim() : "") ||
-        `Cloud session ${sessionKey.replace(/^topic:/, "").slice(0, 12)}`;
-      const topic: Topic = {
-        id, name, slug: slugify(name), parentId: null, links: [],
-        sessionKey,                       // adopt the EXISTING gateway session
-        color: body?.color || "#5865f2", icon: body?.icon || "Cloud",
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        archived: false, systemPrompt: "",
-        contextFiles: [], pinnedMessages: [],
-        sortOrder: Object.keys(data.topics).length,
-        provider: "openclaw",             // cloud-backed
-      };
-      const projectDir = body?.projectPath ? resolveProjectRef(String(body.projectPath)) : null;
-      if (projectDir) (topic as any).projectPath = projectDir;
-      data.topics[id] = topic;
-      saveSingleTopic(topic);
-      broadcastToAll({ type: "topic:created", topic });
-      // Scope to its project (open + nest) when one was resolved; otherwise the
-      // caller opens it as a standalone cloud chat.
-      if (projectDir) bindTopicToProject(id, projectDir, { focus: true });
-      return json(topic, 201);
     }
 
     // PATCH /api/topics/:id
@@ -1905,7 +1935,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                   }
                 } else if (sub === "open" && arg) {
                   // Resolve against the user's real Topics projects, not just the workspace.
-                  const targetDir = resolveProjectRef(arg);
+                  // Explicit local user command → raw absolute/~ paths are trusted.
+                  const targetDir = resolveProjectRef(arg, { trustRawPaths: true });
                   if (!targetDir) {
                     response = `Project not found: \`${arg}\``;
                   } else {
@@ -3841,7 +3872,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
             if (sub === "open") {
               if (!value) return json({ error: "/project open <name-or-path> requires a target" }, 400);
-              const targetDir = resolveProjectRef(value);
+              const targetDir = resolveProjectRef(value, { trustRawPaths: true });
               if (!targetDir) {
                 return json({ error: `Project not found: ${value}` }, 404);
               }

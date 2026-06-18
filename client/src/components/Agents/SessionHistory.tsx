@@ -427,6 +427,7 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
       onNavigateToTopic(topic.id);
     } catch (err) {
       console.warn('[SessionDetail] adopt failed', err);
+      setError('Could not open this session.');
     } finally {
       setAdopting(false);
     }

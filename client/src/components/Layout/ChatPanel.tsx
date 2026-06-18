@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { LazyPane } from './LazyPane';
-import { Settings, Pin, X, ExternalLink, Layers, Globe } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
@@ -164,6 +164,11 @@ export function ChatPanel({
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
               <span className="leading-none flex items-center justify-center w-6 h-6 flex-shrink-0"><TopicIcon name={topic.icon} size={16} color={topic.color || undefined} /></span>
               <span className="text-[14px] font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
+              {topic.provider === 'openclaw' && (
+                <span className="text-[11px] px-1 py-px rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5 flex-shrink-0" title="Cloud (OpenClaw)">
+                  <Cloud size={10} /> Cloud
+                </span>
+              )}
               {currentMessages.length > 0 && (
                 <span className="text-[11px] text-app-text-muted tabular-nums ml-1">{currentMessages.length} msg</span>
               )}

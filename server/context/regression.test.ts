@@ -195,10 +195,16 @@ The marker will be automatically processed and removed from the visible output. 
   }
   // 5. project markers
   {
-    const content = `You can surface projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
-- To OPEN an existing project as a project in Topics, include {{PROJECT_OPEN:project-name-or-path}} — use the user's Topics project NAME when you know it (Topics resolves the name to the real project), or a workspace name / absolute path. Topics opens that project window and places THIS session inside it, so the conversation appears scoped to the project.
+    const content = `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
+- To OPEN/SCOPE an existing project, include {{PROJECT_OPEN:project-name-or-path}} — use the user's Topics project NAME when you know it (Topics resolves the name to the real project), or a workspace name / absolute path. Topics opens that project window and places THIS session inside it, so the conversation appears scoped to the project.
 - To CREATE a new project, include {{PROJECT_CREATE:project-name}} — this scaffolds a workspace directory, binds it to this session, and opens it.
-Emit {{PROJECT_OPEN:...}} when the user asks to open or switch to a project, AND whenever you begin focused work inside a specific project or repository, so this session is shown under that project in Topics (like a cloud session scoped to its repo). Do NOT emit it for casual mentions, comparisons, single-file references, or test/debug chatter. The marker is processed and stripped from visible output — never mention the marker or projects-as-markers to the user.`;
+Emit {{PROJECT_OPEN:...}} whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session/conversation/tab BELONGS TO or should LIVE UNDER a project — not only the literal word "open". Examples that MUST trigger it:
+- "open project Pix" → {{PROJECT_OPEN:Pix}}
+- "aprimi il progetto Pix" → {{PROJECT_OPEN:Pix}}
+- "metti questa sessione nel progetto Pix" → {{PROJECT_OPEN:Pix}}
+- "spostami nel progetto Pix" / "move me into project Pix" → {{PROJECT_OPEN:Pix}}
+- "questo appartiene al progetto Pix" / "this belongs to project Pix" → {{PROJECT_OPEN:Pix}}
+Also emit {{PROJECT_OPEN:...}} whenever you begin focused work inside a specific project or repository, so this session is shown under that project in Topics (like a cloud session scoped to its repo). If the user says it belongs to "this project"/"this tab" WITHOUT naming it and you cannot infer the exact project name or path, ask which project they mean rather than guessing — only emit the marker once you have a concrete name or path. Do NOT emit it for casual mentions, comparisons, single-file references, or test/debug chatter. The marker is processed and stripped from visible output — never mention the marker or projects-as-markers to the user.`;
     const idx = finalMessages.findIndex((m) => m.role !== "system");
     finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
   }

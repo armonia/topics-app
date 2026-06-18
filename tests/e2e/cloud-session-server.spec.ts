@@ -78,6 +78,28 @@ test.describe("cloud session ↔ project (server e2e)", () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
+  test("explicit '/project open <absolute path>' is trusted (trustRawPaths) and resolves", async ({
+    request,
+  }) => {
+    const ts = Date.now().toString(36);
+    const dir = `/tmp/e2e-cloud-abs-${ts}`;
+    mkdirSync(dir, { recursive: true });
+    const cloud = await createTopic(request, `CloudAbs-${ts}`);
+    const sessionKey = `topic:${cloud.id.slice(0, 8)}`;
+
+    // The /project command is an explicit local user action → a raw absolute
+    // path is honoured even though the dir is not a pre-known project.
+    const res = await request.post(`${BASE}/api/command`, {
+      data: { command: "project", sessionKey, args: { sub: "open", value: dir } },
+      ignoreHTTPSErrors: true,
+    });
+    expect(res.ok()).toBeTruthy();
+    expect((await res.json()).path).toBe(dir);
+
+    await deleteTopic(request, cloud.id);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("adopting a gateway session opens it as an interactive openclaw chat (idempotent)", async ({
     request,
   }) => {
