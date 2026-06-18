@@ -1225,6 +1225,49 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return json(topic, 201);
     }
 
+    // POST /api/topics/adopt — open a cloud (gateway) session as a first-class,
+    // INTERACTIVE Topics chat (like opening a cloud session from Warp), instead
+    // of only viewing it read-only. Idempotent: if a topic already owns this
+    // sessionKey, return (and focus) it. Otherwise create an openclaw-backed
+    // topic bound to the EXISTING gateway session so the user can talk to it,
+    // optionally scoped to a project.
+    if (method === "POST" && pathname === "/api/topics/adopt") {
+      const body = await readJSON(req);
+      const sessionKey = body?.sessionKey ? String(body.sessionKey).trim() : "";
+      if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+
+      const existing = getTopicBySessionKey(sessionKey);
+      if (existing) {
+        if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
+        return json(existing, 200);
+      }
+
+      const data = loadTopics();
+      const id = crypto.randomUUID();
+      const name =
+        (body?.name ? String(body.name).trim() : "") ||
+        `Cloud session ${sessionKey.replace(/^topic:/, "").slice(0, 12)}`;
+      const topic: Topic = {
+        id, name, slug: slugify(name), parentId: null, links: [],
+        sessionKey,                       // adopt the EXISTING gateway session
+        color: body?.color || "#5865f2", icon: body?.icon || "Cloud",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        archived: false, systemPrompt: "",
+        contextFiles: [], pinnedMessages: [],
+        sortOrder: Object.keys(data.topics).length,
+        provider: "openclaw",             // cloud-backed
+      };
+      const projectDir = body?.projectPath ? resolveProjectRef(String(body.projectPath)) : null;
+      if (projectDir) (topic as any).projectPath = projectDir;
+      data.topics[id] = topic;
+      saveSingleTopic(topic);
+      broadcastToAll({ type: "topic:created", topic });
+      // Scope to its project (open + nest) when one was resolved; otherwise the
+      // caller opens it as a standalone cloud chat.
+      if (projectDir) bindTopicToProject(id, projectDir, { focus: true });
+      return json(topic, 201);
+    }
+
     // PATCH /api/topics/:id
     {
       const params = matchRoute(pathname, "/api/topics/:id");

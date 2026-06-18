@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, X, ChevronLeft, ChevronRight, ArrowLeft, AlertCircle, Filter, MessageSquare, User, Bot, ExternalLink } from 'lucide-react';
-import { agentProfilesApi, chatApi, type SessionHistoryItem, type AgentProfile } from '../../lib/api';
+import { agentProfilesApi, chatApi, topicsApi, type SessionHistoryItem, type AgentProfile } from '../../lib/api';
 import type { HistoryMessage, WSMessage } from '../../types';
 import type { AgentSession as LiveSession } from '../../hooks/useAgents';
 
@@ -410,8 +410,27 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adopting, setAdopting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastUpdateRef = useRef<number>(0);
+
+  // "Open" a session as a first-class interactive chat. If it's already a
+  // Topics topic, focus it; otherwise adopt the cloud (gateway) session into a
+  // new openclaw-backed topic, then focus that — so any cloud session can be
+  // opened and talked to, like a Warp cloud session, not just viewed.
+  const handleOpen = useCallback(async () => {
+    if (!onNavigateToTopic) return;
+    if (session.topicId) { onNavigateToTopic(session.topicId); return; }
+    setAdopting(true);
+    try {
+      const topic = await topicsApi.adoptSession(session.sessionKey, session.agentName || undefined);
+      onNavigateToTopic(topic.id);
+    } catch (err) {
+      console.warn('[SessionDetail] adopt failed', err);
+    } finally {
+      setAdopting(false);
+    }
+  }, [onNavigateToTopic, session.topicId, session.sessionKey, session.agentName]);
 
   // Shared fetch logic: tries local history first, falls back to gateway for sub-agent sessions
   const fetchTimeline = useCallback(async (): Promise<TimelineEntry[]> => {
@@ -593,14 +612,15 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
             Pane
           </button>
         )}
-        {session.topicId && onNavigateToTopic && (
+        {onNavigateToTopic && (
           <button
-            onClick={() => onNavigateToTopic(session.topicId!)}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors flex-shrink-0"
-            title="Open in main panel"
+            onClick={handleOpen}
+            disabled={adopting}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors flex-shrink-0 disabled:opacity-50"
+            title={session.topicId ? 'Open in main panel' : 'Open as an interactive cloud chat'}
           >
             <MessageSquare size={10} />
-            Open
+            {adopting ? 'Opening…' : 'Open'}
           </button>
         )}
       </div>
