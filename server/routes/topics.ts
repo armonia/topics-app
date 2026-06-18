@@ -18,6 +18,7 @@ import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { getTerminalSessionById } from "./terminal";
 import { resolveTailscaleBin } from "../lib/tailscale-bin";
 import { buildProviderHistory } from "../utils/build-provider-history";
+import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
@@ -296,6 +297,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     switchActiveBranch, getSiblingMessages, loadActiveThread,
     activeStreams,
     worktreeStore,
+    projectStore,
   } = ctx;
 
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
@@ -666,14 +668,96 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: target.id };
   }
 
+  function isExistingDir(p: string): boolean {
+    try { return existsSync(p) && statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  /**
+   * Resolve a project reference (a Topics project name/slug, a `~/` or absolute
+   * path, or an OpenClaw workspace name) to an absolute directory on disk.
+   *
+   * Crucially this prefers the user's REAL Topics projects (projectStore) and
+   * folders already bound to a topic — not just `~/.openclaw/workspace`. That is
+   * what makes a cloud session's "open project Pix" land on the actual Pix
+   * project the user has in Topics. Returns null when nothing resolves to an
+   * existing directory.
+   */
+  function resolveProjectRef(ref: string): string | null {
+    const raw = (ref || "").trim();
+    if (!raw) return null;
+
+    // Absolute / home-relative paths: use verbatim.
+    if (raw.startsWith("/")) return isExistingDir(raw) ? raw : null;
+    if (raw.startsWith("~/")) {
+      const abs = join(homedir(), raw.slice(2));
+      return isExistingDir(abs) ? abs : null;
+    }
+
+    // Bare name/slug: match against known projects (strongest signal first).
+    const candidates: ProjectRefCandidate[] = [];
+    try {
+      for (const p of projectStore.list({ archived: false })) {
+        candidates.push({ path: p.path, name: p.name, slug: p.slug });
+      }
+    } catch { /* projectStore is best-effort here */ }
+    for (const t of Object.values(loadTopics().topics)) {
+      const pp = (t as any).projectPath as string | undefined;
+      if (pp) candidates.push({ path: pp });
+    }
+    for (const p of getWorkspaceProjects()) candidates.push({ path: p });
+
+    const matched = matchProjectRef(raw, candidates, slugify);
+    if (matched && isExistingDir(matched)) return matched;
+
+    // Last resort: a same-named folder directly under the workspace.
+    const wsDir = join(WORKSPACE_DIR, raw.replace(/[^a-zA-Z0-9_-]/g, ""));
+    return isExistingDir(wsDir) ? wsDir : null;
+  }
+
+  /** Is this directory already a project Topics knows about? Used to decide
+   *  whether a heuristic auto-bind is safe to surface as a project window. */
+  function isKnownProject(dir: string): boolean {
+    try { if (projectStore.getByPath(dir)) return true; } catch { /* ignore */ }
+    if (getWorkspaceProjects().includes(dir)) return true;
+    for (const t of Object.values(loadTopics().topics)) {
+      if ((t as any).projectPath === dir) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Single source of truth for binding a topic (a chat / cloud session) to a
+   * project directory. Persists `projectPath`, notifies clients (topic:updated)
+   * and — when `focus` — emits `pane:focus-suggest` so every client opens the
+   * project window and nests THIS session inside it. The cloud session then
+   * shows up as a project on Topics, the way a Warp cloud session is scoped to
+   * its repo. `projectPath` rides along on the focus-suggest so the client
+   * never has to wait for topic:updated to arrive first (removes a race).
+   */
+  function bindTopicToProject(topicId: string, targetDir: string, opts?: { focus?: boolean }): boolean {
+    const t = getTopicById(topicId);
+    if (!t) return false;
+    if (t.projectPath !== targetDir) {
+      t.projectPath = targetDir;
+      t.updatedAt = new Date().toISOString();
+      saveSingleTopic(t);
+      broadcastToAll({ type: "topic:updated", topic: t });
+    }
+    if (opts?.focus) {
+      broadcastToAll({ type: "pane:focus-suggest", topicId: t.id, projectPath: targetDir });
+    }
+    return true;
+  }
+
   /**
    * Detect {{PROJECT_CREATE:name}} and {{PROJECT_OPEN:path}} markers in AI responses.
-   * Creates or binds projects and strips markers from content.
+   * Creates or binds projects, opens them as project windows (nesting the
+   * current session), and strips markers from content.
    */
   function detectAndHandleProjectMarkers(content: string, currentTopic: Topic | null): string {
     if (!currentTopic) return content;
 
-    // {{PROJECT_CREATE:name}}
+    // {{PROJECT_CREATE:name}} — scaffold a workspace dir, then open + nest.
     const createMatch = content.match(/\{\{PROJECT_CREATE:([^}]+)\}\}/);
     if (createMatch) {
       const rawName = createMatch[1].trim();
@@ -683,40 +767,23 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!existsSync(targetDir)) {
           mkdirSync(targetDir, { recursive: true });
           writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
-          const t = getTopicById(currentTopic.id);
-          if (t) {
-            t.projectPath = targetDir;
-            t.updatedAt = new Date().toISOString();
-            saveSingleTopic(t);
-            broadcastToAll({ type: "topic:updated", topic: t });
-          }
           console.log(`[ProjectMarker] Created project "${safeName}" at ${targetDir}`);
         }
+        bindTopicToProject(currentTopic.id, targetDir, { focus: true });
       }
       content = content.replace(/\{\{PROJECT_CREATE:[^}]+\}\}/g, "");
     }
 
-    // {{PROJECT_OPEN:path}}
+    // {{PROJECT_OPEN:name-or-path}} — resolve against the user's real Topics
+    // projects (not just the workspace), then open + nest the session.
     const openMatch = content.match(/\{\{PROJECT_OPEN:([^}]+)\}\}/);
     if (openMatch) {
-      let targetDir = openMatch[1].trim();
-      if (targetDir.startsWith("~/")) {
-        targetDir = join(homedir(), targetDir.slice(2));
-      } else if (!targetDir.startsWith("/")) {
-        // Look up by name in workspace
-        const wsProjects = getWorkspaceProjects();
-        const found = wsProjects.find(p => p.endsWith("/" + targetDir));
-        targetDir = found || join(WORKSPACE_DIR, targetDir);
-      }
-      if (existsSync(targetDir) && statSync(targetDir).isDirectory()) {
-        const t = getTopicById(currentTopic.id);
-        if (t) {
-          t.projectPath = targetDir;
-          t.updatedAt = new Date().toISOString();
-          saveSingleTopic(t);
-          broadcastToAll({ type: "topic:updated", topic: t });
-        }
+      const targetDir = resolveProjectRef(openMatch[1]);
+      if (targetDir) {
+        bindTopicToProject(currentTopic.id, targetDir, { focus: true });
         console.log(`[ProjectMarker] Opened project at ${targetDir}`);
+      } else {
+        console.log(`[ProjectMarker] Could not resolve PROJECT_OPEN ref: ${openMatch[1].trim()}`);
       }
       content = content.replace(/\{\{PROJECT_OPEN:[^}]+\}\}/g, "");
     }
@@ -782,10 +849,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     if (detected) {
       const t = getTopicById(topic.id);
       if (t && !t.projectPath) {
-        t.projectPath = detected;
-        t.updatedAt = new Date().toISOString();
-        saveSingleTopic(t);
-        broadcastToAll({ type: "topic:updated", topic: t });
+        // Heuristic detection: only force the project window open when the
+        // folder is one Topics already knows about. A brand-new path mentioned
+        // in passing still binds, but doesn't surprise the user with a window.
+        bindTopicToProject(t.id, detected, { focus: isKnownProject(detected) });
         console.log(`[AutoBind] Detected projectPath for "${t.name}": ${detected}`);
       }
     }
@@ -1788,43 +1855,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
                     } else {
                       mkdirSync(targetDir, { recursive: true });
                       writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
-                      // Bind to current topic
-                      if (matchedTopic) {
-                        const t = getTopicById(matchedTopic.id);
-                        if (t) {
-                          t.projectPath = targetDir;
-                          t.updatedAt = new Date().toISOString();
-                          saveSingleTopic(t);
-                          broadcastToAll({ type: "topic:updated", topic: t });
-                        }
-                      }
+                      // Bind to current topic + open the project window.
+                      if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
                       response = `Created project **${safeName}** at \`${targetDir}\` and bound to this topic.`;
                     }
                   }
                 } else if (sub === "open" && arg) {
-                  // Resolve path: absolute, ~/, or workspace name
-                  let targetDir = arg;
-                  if (targetDir.startsWith("~/")) {
-                    targetDir = join(homedir(), targetDir.slice(2));
-                  } else if (!targetDir.startsWith("/")) {
-                    // Look up by name in workspace
-                    const wsProjects = getWorkspaceProjects();
-                    const found = wsProjects.find(p => p.endsWith("/" + arg));
-                    targetDir = found || join(WORKSPACE_DIR, arg);
-                  }
-                  if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
-                    response = `Directory not found: \`${targetDir}\``;
+                  // Resolve against the user's real Topics projects, not just the workspace.
+                  const targetDir = resolveProjectRef(arg);
+                  if (!targetDir) {
+                    response = `Project not found: \`${arg}\``;
                   } else {
                     const projectName = targetDir.split("/").pop() || arg;
-                    if (matchedTopic) {
-                      const t = getTopicById(matchedTopic.id);
-                      if (t) {
-                        t.projectPath = targetDir;
-                        t.updatedAt = new Date().toISOString();
-                        saveSingleTopic(t);
-                        broadcastToAll({ type: "topic:updated", topic: t });
-                      }
-                    }
+                    if (matchedTopic) bindTopicToProject(matchedTopic.id, targetDir, { focus: true });
                     response = `Opened project **${projectName}** — bound to this topic.`;
                   }
                 } else {
@@ -3749,37 +3792,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
               } catch (err: any) {
                 return json({ error: `Failed to create project: ${err.message}` }, 500);
               }
-              const t = getTopicById(topic.id);
-              if (t) {
-                t.projectPath = targetDir;
-                t.updatedAt = new Date().toISOString();
-                saveSingleTopic(t);
-                broadcastToAll({ type: "topic:updated", topic: t });
-              }
+              bindTopicToProject(topic.id, targetDir, { focus: true });
               return json({ ok: true, command: "project", sub: "create", path: targetDir, output: `📁 Created project "${safeName}" at ${targetDir} and bound it to this topic.` });
             }
 
             if (sub === "open") {
               if (!value) return json({ error: "/project open <name-or-path> requires a target" }, 400);
-              let targetDir = value;
-              if (targetDir.startsWith("~/")) {
-                targetDir = join(homedir(), targetDir.slice(2));
-              } else if (!targetDir.startsWith("/")) {
-                const wsProjects = getWorkspaceProjects();
-                const found = wsProjects.find(p => p.endsWith("/" + targetDir));
-                targetDir = found || join(WORKSPACE_DIR, targetDir);
+              const targetDir = resolveProjectRef(value);
+              if (!targetDir) {
+                return json({ error: `Project not found: ${value}` }, 404);
               }
-              if (!existsSync(targetDir) || !statSync(targetDir).isDirectory()) {
-                return json({ error: `Path not found or not a directory: ${targetDir}` }, 404);
-              }
-              const t = getTopicById(topic.id);
-              if (t) {
-                t.projectPath = targetDir;
-                t.updatedAt = new Date().toISOString();
-                saveSingleTopic(t);
-                broadcastToAll({ type: "topic:updated", topic: t });
-              }
-              return json({ ok: true, command: "project", sub: "open", path: targetDir, output: `📁 Bound project at ${targetDir} to this topic.` });
+              bindTopicToProject(topic.id, targetDir, { focus: true });
+              return json({ ok: true, command: "project", sub: "open", path: targetDir, output: `📁 Opened project at ${targetDir} and bound it to this topic.` });
             }
 
             // info (no args): show current binding + list workspace projects

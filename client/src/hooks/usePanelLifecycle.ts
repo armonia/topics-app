@@ -661,14 +661,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // Master strip surfaces project topics, so this path runs often.
       if (msg.type === 'pane:focus-suggest') {
         const topic = topicsRef.current[msg.topicId];
-        if (topic?.projectPath) {
-          const projectPaneId = createPaneId('project', topic.projectPath);
-          ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
+        // Prefer the projectPath carried on the message (a cloud session that
+        // just bound itself to a project) over the topic's synced field, so we
+        // don't depend on a preceding topic:updated having landed first.
+        const projectPath = msg.projectPath ?? topic?.projectPath;
+        if (projectPath) {
+          const projectPaneId = createPaneId('project', projectPath);
+          ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath });
           if (!openPanelsRef.current.includes(projectPaneId)) {
             setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
           }
           setFocusedPanelId(projectPaneId);
-          setPendingProjectFocus({ projectPath: topic.projectPath, topicId: msg.topicId });
+          setPendingProjectFocus({ projectPath, topicId: msg.topicId });
         } else if (!openPanelsRef.current.includes(msg.topicId)) {
           openPanelRef.current(msg.topicId, 'permanent');
         } else {
