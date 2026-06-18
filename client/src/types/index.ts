@@ -688,7 +688,15 @@ export interface WSUnreadUpdatedMessage {
 export interface WSPaneFocusSuggestMessage {
   type: 'pane:focus-suggest';
   topicId: string;
-  taskId: string;
+  /** Present when the focus was triggered by a board task (jump-to-tab). */
+  taskId?: string;
+  /**
+   * When set, the listener opens this project window and nests the topic
+   * inside it. Sent inline (rather than read from the topic) so the client
+   * needn't wait for a preceding topic:updated to land first — used when a
+   * cloud session binds itself to a project via {{PROJECT_OPEN}} / /project.
+   */
+  projectPath?: string;
 }
 
 /**

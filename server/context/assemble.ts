@@ -750,7 +750,10 @@ The marker will be automatically processed and removed from the visible output. 
 }
 
 export function projectMarkersContent(): string {
-  return `You can create or open projects for the user. When the user asks to create a new project, include {{PROJECT_CREATE:project-name}} in your response — this creates a directory in the workspace and binds it to this topic. When the user asks to open or switch to an existing project, include {{PROJECT_OPEN:project-name-or-path}} (workspace name or absolute path). The marker is automatically processed and removed from visible output. Do not mention the marker to the user. Only use these when the user explicitly asks to create or open a project.`;
+  return `You can surface projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
+- To OPEN an existing project as a project in Topics, include {{PROJECT_OPEN:project-name-or-path}} — use the user's Topics project NAME when you know it (Topics resolves the name to the real project), or a workspace name / absolute path. Topics opens that project window and places THIS session inside it, so the conversation appears scoped to the project.
+- To CREATE a new project, include {{PROJECT_CREATE:project-name}} — this scaffolds a workspace directory, binds it to this session, and opens it.
+Emit {{PROJECT_OPEN:...}} when the user asks to open or switch to a project, AND whenever you begin focused work inside a specific project or repository, so this session is shown under that project in Topics (like a cloud session scoped to its repo). Do NOT emit it for casual mentions, comparisons, single-file references, or test/debug chatter. The marker is processed and stripped from visible output — never mention the marker or projects-as-markers to the user.`;
 }
 
 export function topicSwitchContent(topic: Topic, directory: string): string {
