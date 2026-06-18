@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2 } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -711,6 +711,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 </span>
               );
             })()}
+            {/* Quiet cue: this chat is backed by the cloud (OpenClaw) provider —
+                a cloud session, not a local one. Muted, like the browser cue. */}
+            {pane.type === 'chat' && pane.topicId && topics[pane.topicId]?.provider === 'openclaw' && (
+              <span
+                className="ml-0.5 flex items-center text-app-text-faint/70"
+                title="Cloud (OpenClaw)"
+                data-testid="tab-cloud"
+                aria-label="Sessione cloud (OpenClaw)"
+              >
+                <Cloud size={11} />
+              </span>
+            )}
             {/* The split position mini-map lives on the SIDEBAR topic cards
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally

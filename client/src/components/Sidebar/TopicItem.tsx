@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { TopicIcon } from '@/lib/topicIcons';
@@ -217,6 +217,14 @@ export const TopicItem = memo(function TopicItem({
       )}>
         {topic.name}
       </span>
+
+      {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
+          session, not a local one. Muted tone (not the attention axis). */}
+      {topic.provider === 'openclaw' && (
+        <span className="flex-shrink-0 flex items-center text-app-text-tertiary" title="Cloud (OpenClaw)" aria-label="Sessione cloud (OpenClaw)">
+          <Cloud size={12} />
+        </span>
+      )}
 
       {/* Split position — the same proportional mini-map the tab bar shows,
           this topic's cell lit. Only present when the topic is open in a split
