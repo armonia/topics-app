@@ -76,6 +76,18 @@ export const topicsApi = {
     });
   },
 
+  /**
+   * Open a cloud (gateway) session as a first-class, interactive Topics chat.
+   * Idempotent server-side: returns the existing topic if one already owns the
+   * sessionKey, otherwise creates an openclaw-backed topic bound to it.
+   */
+  async adoptSession(sessionKey: string, name?: string): Promise<Topic> {
+    return request<Topic>('/topics/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ sessionKey, name }),
+    });
+  },
+
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {
       method: 'PATCH',
