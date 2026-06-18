@@ -132,3 +132,19 @@ export function useSpawnedBrowser(spawnerTopicId: string | null): string | null 
     () => null,
   );
 }
+
+/**
+ * The whole spawner→browser map (key: chat topicId or terminal paneId →
+ * browser contextId). Lets a tab bar look up "did THIS tab open a browser?" for
+ * every tab without breaking the rules of hooks (one subscription, then plain
+ * reads per tab). The map object identity changes on every mutation (state is
+ * replaced immutably), so this re-renders exactly when the relationship changes.
+ */
+const EMPTY_MAP: Record<string, string> = {};
+export function useSpawnedBrowserMap(): Record<string, string> {
+  return useSyncExternalStore(
+    subscribeBrowserSpawner,
+    () => state.topicToBrowser,
+    () => EMPTY_MAP,
+  );
+}

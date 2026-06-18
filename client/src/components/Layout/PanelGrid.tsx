@@ -13,7 +13,7 @@ import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
-import { splitColumnWidths, appendColumnWidths } from './gridWidths';
+import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation } from './gridWidths';
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 
@@ -916,13 +916,20 @@ export function PanelGrid({
     if (!pendingSoloPanelId) return;
     const id = pendingSoloPanelId;
     // Only auto-solo if there are other panels already open AND this pane is
-    // not already solo. A pane that's the only one open doesn't need solo.
+    // not already solo. A pane that's the only one open doesn't need solo;
+    // one that's already in its own cell must not be re-split (idempotent —
+    // an agent re-opening/refreshing the same browser navigates in place).
     const otherOpen = openPanels.filter(p => p !== id).length > 0;
-    if (otherOpen) {
-      setSoloCells(prev => addSoloCell(prev, id));
+    const alreadySolo = soloTopicIds.includes(id);
+    if (otherOpen && !alreadySolo) {
+      // Choose orientation from the grid's available space: a wide window
+      // splits side-by-side ('right'), a narrow/tall one stacks ('down').
+      const rect = containerRef.current?.getBoundingClientRect() ?? null;
+      const dir = chooseSplitOrientation(rect) === 'side' ? 'right' : 'down';
+      handleSplitPane(id, dir);
     }
     onPendingSoloPanelIdConsumed?.();
-  }, [pendingSoloPanelId, openPanels, onPendingSoloPanelIdConsumed, setSoloCells]);
+  }, [pendingSoloPanelId, openPanels, soloTopicIds, onPendingSoloPanelIdConsumed, handleSplitPane]);
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
