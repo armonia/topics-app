@@ -16,7 +16,12 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
+    // strict stays off (noImplicitAny would flood on the ~440 untyped spots),
+    // but strictNullChecks is ON: it catches real null-safety bugs AND makes
+    // discriminated-union narrowing (`if (!r.ok) … r.error`) work — without it,
+    // ~12 correctly-guarded result-type accesses were false positives.
     "strict": false,
+    "strictNullChecks": true,
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
