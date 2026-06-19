@@ -1,5 +1,5 @@
 /**
- * Cloud session → Topics project.
+ * Cloud session → Topics project (client render behaviour).
  *
  * When a cloud (gateway) session binds itself to a project — via the
  * {{PROJECT_OPEN:name}} marker, the /project command, or auto-detect — the
@@ -9,8 +9,8 @@
  * nest the session inside it, so the cloud session appears scoped to its
  * project (à la Warp). This locks that client behaviour.
  *
- * CONVENTION: real backend via interceptWebSocket passthrough; the focus-suggest
- * is injected exactly as the server emits it. No waitForTimeout.
+ * Real backend via interceptWebSocket passthrough; the two frames are injected
+ * exactly as bindTopicToProject emits them. No waitForTimeout.
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp } from "./helpers";
@@ -18,38 +18,60 @@ import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fix
 import { interceptWebSocket } from "./helpers/ws-helpers";
 
 test.describe("cloud session opens as a Topics project", () => {
-  test("pane:focus-suggest with an inline projectPath opens the project window and nests the session", async ({
+  test("topic:updated + pane:focus-suggest open the project window and nest the session", async ({
     page,
     request,
   }) => {
-    const projectPath = `/tmp/e2e-cloud-proj-${Date.now().toString(36)}`;
+    const ts = Date.now().toString(36);
+    const projectPath = `/tmp/e2e-cloud-proj-${ts}`;
     const projectPaneId = `project:${encodeURIComponent(projectPath)}`;
 
-    // A cloud session already bound to a project (mirrors the server having set
-    // projectPath inside bindTopicToProject before it emits focus-suggest).
-    const topic = await createTopic(request, `E2E-CloudSession-${Date.now()}`, {
-      projectPath,
-    });
+    // A standalone cloud session, not yet scoped to a project.
+    const topic = await createTopic(request, `E2E-CloudSession-${ts}`);
 
     const ws = await interceptWebSocket(page, /\/ws/);
     await goToApp(page);
-    // Session is rendered (and the WS is connected, so ws.send is safe).
+    // Standalone session is rendered (and the WS is connected, so ws.send is safe).
     await waitForTopicVisible(page, topic.id);
 
-    // Precondition: the project window is not open yet.
+    // Precondition: this project's window is not open yet.
     await expect(page.locator(`[data-pane-id="${projectPaneId}"]`)).toHaveCount(0);
 
-    // The server emits this when the session opens/binds a project.
+    // Exactly what bindTopicToProject(topicId, dir, { focus: true }) broadcasts:
+    // (1) persist projectPath on the topic, (2) ask clients to open + nest it.
+    ws.send({
+      type: "topic:updated",
+      topic: { id: topic.id, name: topic.name, slug: topic.slug, projectPath, provider: "openclaw", archived: false },
+    });
     ws.send({ type: "pane:focus-suggest", topicId: topic.id, projectPath });
 
     // The project window opens...
     await expect(page.locator(`[data-pane-id="${projectPaneId}"]`).first()).toBeVisible({
       timeout: 10000,
     });
-    // ...and the session is nested inside it (its name shows in a project tab bar).
+    // ...the session nests under that project in the sidebar (and is selected)...
     await expect(
-      page.locator('[data-testid="panel-tab-bar"]').getByText(topic.name).first(),
+      page.getByRole("treeitem", { name: topic.name }).first(),
     ).toBeVisible({ timeout: 10000 });
+    // ...and renders as an interactive chat inside the project window.
+    await expect(
+      page.getByRole("textbox", { name: /Message input/ }),
+    ).toBeVisible({ timeout: 10000 });
+
+    await deleteTopic(request, topic.id);
+  });
+
+  test("an openclaw-backed (cloud) topic shows a Cloud indicator", async ({ page, request }) => {
+    const ts = Date.now().toString(36);
+    const topic = await createTopic(request, `E2E-Cloud-Badge-${ts}`, { provider: "openclaw" });
+
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+
+    // The cloud (OpenClaw) attribute glyph (sidebar row and/or tab) is labelled.
+    await expect(page.getByLabel("Sessione cloud (OpenClaw)").first()).toBeVisible({
+      timeout: 10000,
+    });
 
     await deleteTopic(request, topic.id);
   });
