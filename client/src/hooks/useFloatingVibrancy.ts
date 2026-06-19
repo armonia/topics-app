@@ -65,7 +65,23 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
       rafId = requestAnimationFrame(push);
     };
 
-    // Freeze during gestures: hold the last regions, snap to final on end.
+    // Divider resize: the panes resize live (direct DOM width mutation), so we
+    // TRACK the frost live too — a per-frame loop re-reads the panel rects and
+    // repositions the native views so the glass follows the split as you drag
+    // (the "live preview"). Resize is a constrained 1-axis move, so the native
+    // setFrame keeps up well enough; on end we snap to the settled rects.
+    let liveRaf = 0;
+    const liveLoop = () => {
+      const rects = collect();
+      const key = JSON.stringify(rects);
+      if (key !== lastKey) { lastKey = key; api.setRegions(rects); }
+      liveRaf = requestAnimationFrame(liveLoop);
+    };
+    const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop); };
+    const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; schedule(); };
+
+    // Free-form tab drag is bigger/laggier than a divider drag — freeze it (the
+    // frost holds, then snaps on drop) rather than chase it frame-by-frame.
     const freeze = () => { frozen = true; };
     const unfreeze = () => { frozen = false; lastKey = ''; setTimeout(schedule, 60); };
 
@@ -75,8 +91,8 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
     mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
 
     window.addEventListener('resize', schedule);
-    window.addEventListener('topics:pane-resize-start', freeze);
-    window.addEventListener('topics:pane-resize-end', unfreeze);
+    window.addEventListener('topics:pane-resize-start', startLive);
+    window.addEventListener('topics:pane-resize-end', stopLive);
     document.addEventListener('dragstart', freeze, true);
     document.addEventListener('dragend', unfreeze, true);
     document.addEventListener('drop', unfreeze, true);
@@ -89,13 +105,14 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
       ro.disconnect();
       mo.disconnect();
       window.removeEventListener('resize', schedule);
-      window.removeEventListener('topics:pane-resize-start', freeze);
-      window.removeEventListener('topics:pane-resize-end', unfreeze);
+      window.removeEventListener('topics:pane-resize-start', startLive);
+      window.removeEventListener('topics:pane-resize-end', stopLive);
       document.removeEventListener('dragstart', freeze, true);
       document.removeEventListener('dragend', unfreeze, true);
       document.removeEventListener('drop', unfreeze, true);
       window.clearInterval(poll);
       cancelAnimationFrame(rafId);
+      cancelAnimationFrame(liveRaf);
       api.clear();
     };
   }, [isElectron, floatingSplits]);
