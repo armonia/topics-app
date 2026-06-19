@@ -15,7 +15,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type {
   AIProvider,
@@ -42,7 +42,6 @@ export interface CodexProviderConfig {
 
 // ============ Constants ============
 
-const DEFAULT_MODEL = "gpt-5-codex";
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 const KILL_GRACE_MS = 3_000;
 
@@ -344,6 +343,13 @@ export class CodexProvider implements AIProvider {
     const timeout = setTimeout(() => {
       try { child.kill("SIGTERM"); } catch {}
       handler.onError("Codex turn timed out after 30 minutes");
+      // SIGKILL fallback if it ignores SIGTERM, so the close handler runs and
+      // we don't leak an orphan child. Mirrors abort()'s grace-window guard.
+      setTimeout(() => {
+        if (this.activeChildren.get(sessionKey) === child) {
+          try { child.kill("SIGKILL"); } catch {}
+        }
+      }, KILL_GRACE_MS);
     }, MESSAGE_TIMEOUT_MS);
 
     child.on("close", (code) => {
@@ -587,11 +593,16 @@ export class CodexProvider implements AIProvider {
                   m.content)
       .join("\n\n");
 
-    const model = this.config.model ?? DEFAULT_MODEL;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
+    // Only forward --model when explicitly configured; otherwise let the CLI
+    // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
+    // (e.g. gpt-5-codex is rejected for ChatGPT-account auth). Mirrors sendChat.
+    const args = ["exec"];
+    if (this.config.model) args.push("--model", this.config.model);
+
     return new Promise<CompletionResult>((resolve, reject) => {
-      const child = spawn(bin, ["exec", "--model", model], {
+      const child = spawn(bin, args, {
         cwd: workspace,
         stdio: ["pipe", "pipe", "pipe"],
         env: buildSafeEnv(),
@@ -699,7 +710,6 @@ export class CodexProvider implements AIProvider {
     const codexHome = process.env.CODEX_HOME || join(process.env.HOME || "", ".codex");
     const cachePath = join(codexHome, "models_cache.json");
     try {
-      const { readFileSync } = require("fs");
       const raw = readFileSync(cachePath, "utf-8");
       const parsed = JSON.parse(raw) as { models?: Array<{ slug?: unknown; visibility?: unknown }> };
       const slugs = (parsed.models ?? [])

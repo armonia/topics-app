@@ -41,6 +41,9 @@ export class ActivityMonitor {
   private batchBuffer: ActivityEvent[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private watcher: ReturnType<typeof watch> | null = null;
+  // Single id sequencer: every event id appends ++eventCounter, so ids stay
+  // unique across the process lifetime even when Date.now() collides. It is
+  // persisted/restored alongside the buffer so ids never repeat after restart.
   private eventCounter = 0;
   private lastLineHash = '';
   private dedupeCount = 0;

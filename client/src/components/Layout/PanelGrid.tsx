@@ -992,9 +992,12 @@ export function PanelGrid({
       const windowHeight = window.innerHeight;
 
       if (clientX < 0 || clientX > windowWidth || clientY < 0 || clientY > windowHeight) {
-        const url = `${window.location.origin}?topic=${draggedId}`;
-        window.open(url, `topic-${draggedId}`, 'width=900,height=700');
-        onClosePanel(draggedId);
+        const url = `${window.location.origin}?topic=${encodeURIComponent(draggedId)}`;
+        // Only close the source pane if the pop-out window actually opened
+        // (blocked popups return null) — otherwise the pane vanishes with
+        // nowhere for it to go.
+        const w = window.open(url, `topic-${draggedId}`, 'width=900,height=700');
+        if (w) onClosePanel(draggedId);
       }
     }
   }, [draggingId, onClosePanel, windowId, sendWS]);
@@ -1235,7 +1238,7 @@ export function PanelGrid({
           // Enforce grid limits (kept as in-updater defense — the pre-check
           // above reads a ref that could lag a concurrent update)
           if ((zone === 'top' || zone === 'bottom') && prev.length >= MAX_ROWS) return prev;
-          if ((zone === 'left' || zone === 'right' || zone === 'center') && prev[targetRowIdx]?.itemKeys.length >= MAX_COLS_PER_ROW) return prev;
+          if ((zone === 'left' || zone === 'right' || zone === 'center') && (prev[targetRowIdx]?.itemKeys.length ?? 0) >= MAX_COLS_PER_ROW) return prev;
 
           const targetKey = prev[targetRowIdx]?.itemKeys[targetColIdx];
           if (!targetKey) return prev;
@@ -1345,7 +1348,10 @@ export function PanelGrid({
             const stacks = { ...(r.cellStacks ?? {}), ...(movedStack ? { [effectiveKey]: movedStack } : {}) };
             return {
               itemKeys: newKeys,
-              widths: newKeys.map(() => 1 / newKeys.length),
+              // Give the appended column a fair share while preserving the
+              // surviving columns' relative weights (was `1/n`, which flattened
+              // the whole last row) — matches every other insert path.
+              widths: appendColumnWidths(lastRow.widths, 1),
               ...(Object.keys(stacks).length > 0 ? { cellStacks: stacks } : {}),
             };
           });

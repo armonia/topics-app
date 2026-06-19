@@ -42,7 +42,7 @@ export interface IndexedElement {
 
 export interface AgentObserveResponse {
   /** Result of page.accessibility.snapshot() (string-formatted). */
-  a11y_tree: unknown;
+  a11y_tree: string;
   /** Base64 JPEG with bbox overlay + numbered labels. */
   screenshot_annotated: string;
   /** Up to max_elements indexed elements (default 50, range 1-100). */

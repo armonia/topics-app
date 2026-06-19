@@ -244,6 +244,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -259,7 +260,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
       }
     };
     const onEnded = () => { setPlaying(false); setCurrentTime(0); };
-    const onError = (e: Event) => console.error('Audio error:', (e.target as HTMLAudioElement)?.error);
+    const onError = (e: Event) => { console.error('Audio error:', (e.target as HTMLAudioElement)?.error); setError(true); };
     audio.addEventListener('loadedmetadata', onMeta);
     audio.addEventListener('durationchange', onMeta);
     audio.addEventListener('timeupdate', onTime);
@@ -273,6 +274,14 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
       audio.removeEventListener('error', onError);
     };
   }, []);
+
+  if (error) {
+    return (
+      <div data-testid="voice-player-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
+        🎙️ Voice message failed to load
+      </div>
+    );
+  }
 
   const toggle = () => {
     const audio = audioRef.current;
@@ -401,8 +410,8 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   const [wordWrap, setWordWrap] = useState(false);
   const language = className?.replace('language-', '') || '';
   
-  const textContent = getTextContent(children);
-  const lines = textContent.split('\n');
+  const textContent = useMemo(() => getTextContent(children), [children]);
+  const lines = useMemo(() => textContent.split('\n'), [textContent]);
   const lineCount = lines.length;
   const isLong = lineCount > 20;
   const PREVIEW_LINES = 10;
@@ -867,6 +876,10 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return paths;
   }, [extractedMediaPaths, media]);
 
+  // Plan detection is reused at both legacy-path gates below; cleanText is
+  // already memoized so this dependency is stable.
+  const planResp = useMemo(() => isPlanResponse(cleanText), [cleanText]);
+
   if (role === 'user') {
     const renderUserText = (text: string) => {
       const lines = text.split('\n');
@@ -903,7 +916,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
     return (
       <div data-testid="message-content-user">
-        {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={role === "user"} /></div>)}
+        {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage /></div>)}
         {cleanText && renderUserText(cleanText)}
       </div>
     );
@@ -1067,7 +1080,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             )}
 
             {/* Plan view - detect plan-format responses */}
-            {cleanText && !partial && isPlanResponse(cleanText) && onPlanApprove && (
+            {cleanText && !partial && planResp && onPlanApprove && (
               <PlanView
                 content={cleanText}
                 onApprove={onPlanApprove}
@@ -1077,7 +1090,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             )}
 
             {/* Main content - inline tool calls or plain */}
-            {cleanText && (!isPlanResponse(cleanText) || !onPlanApprove || partial) && (
+            {cleanText && (!planResp || !onPlanApprove || partial) && (
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (

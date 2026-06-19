@@ -70,7 +70,7 @@ test.describe('Browser Electron Native — Electron-only (gated by ELECTRON_RUNT
     await expect(page.getByTestId('browser-agent-active-overlay')).toBeVisible({ timeout: 5000 });
   });
 
-  test('per-topic partition persists cookies across destroy/recreate', async ({ page: _page }) => {
+  test.fixme('per-topic partition persists cookies across destroy/recreate', async ({ page: _page }) => {
     test.info().annotations.push({ type: 'spec', description: 'BROWSER-CHAT-06' });
 
     // Flow:
@@ -79,7 +79,6 @@ test.describe('Browser Electron Native — Electron-only (gated by ELECTRON_RUNT
     //   3. Open pane again (same topicId)
     //   4. Navigate to httpbin.org/cookies -> assert response includes foo=bar
     // Implementation pending harness; testid scaffolding ready.
-    expect(true).toBe(true); // placeholder until harness lands
   });
 
   test('POST /api/browsers/:id/cdp-target registers and persists for agent dispatcher', async ({ request }) => {

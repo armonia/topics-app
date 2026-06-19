@@ -315,6 +315,15 @@ export function CommandPalette({
     return [...filteredProjects, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
   }, [scope, query, filteredProjects, filteredRecenti, filteredMain, searchFileItems, searchResults]);
 
+  // O(1) id→index lookup, built once per `allItems` change. Rendering each
+  // section calls `indexOf` per row; a findIndex there made render O(n²) over
+  // the result list — this Map keeps it linear.
+  const indexById = useMemo(() => {
+    const m = new Map<string, number>();
+    allItems.forEach((it, i) => m.set(it.id, i));
+    return m;
+  }, [allItems]);
+
   // Reset selection on filter change
   useEffect(() => {
     setSelectedIndex(0);
@@ -361,7 +370,7 @@ export function CommandPalette({
   // Each rendered row needs a stable global index for keyboard nav. We build
   // the indices in the same order `allItems` enumerates them so arrow keys
   // and rendered selection stay in sync.
-  const indexOf = (id: string) => allItems.findIndex(it => it.id === id);
+  const indexOf = (id: string) => indexById.get(id) ?? -1;
   const renderRow = (item: CommandAction, opts?: { compact?: boolean; highlight?: boolean }) => {
     const idx = indexOf(item.id);
     return (

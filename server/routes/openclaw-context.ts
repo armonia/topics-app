@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
-import { join, resolve, relative } from "path";
+import { join, resolve, relative, sep } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { loadMemoryForTopic } from "./memory";
 import { assembleTopicContext, getProviderStrategy } from "../context";
@@ -7,7 +7,35 @@ import { getProvider, getDefaultProvider } from "../providers";
 
 // ── Context analysis cache (15s TTL) ─────────────────────────────────────
 const CONTEXT_CACHE_TTL = 15000;
-const contextAnalysisCache = new Map<string, { data: any; timestamp: number }>();
+
+/** Legacy `/api/context/analyze` response envelope (see wrapper below). */
+interface ContextAnalysisResult {
+  sources: Array<{
+    id: string;
+    label: string;
+    category: string;
+    tokens: number;
+    enabled: boolean;
+    editable: boolean;
+    preview?: string;
+    countInBudget: boolean;
+  }>;
+  totalTokens: number;
+  budgetLimit: number;
+  budgetPercent: number;
+  warnings: string[];
+}
+
+/** One node in the recursively-scanned workspace memory tree. */
+interface MemoryNode {
+  path: string;
+  name: string;
+  type: "file" | "dir";
+  tokens?: number;
+  children?: MemoryNode[];
+}
+
+const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; timestamp: number }>();
 
 export function invalidateContextCache(topicId: string) {
   // Cache keys are `${topicId}::${providerName}` since change
@@ -43,12 +71,14 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
   /** Ensure requested path stays within workspace */
   function resolveWorkspacePath(requestedPath: string): string | null {
     const resolved = resolve(WORKSPACE_DIR, requestedPath);
-    if (!resolved.startsWith(WORKSPACE_DIR)) return null;
+    // Guard against sibling-dir traversal (e.g. `/ws-evil` shares the `/ws`
+    // prefix): require an exact match or a path *inside* the workspace dir.
+    if (resolved !== WORKSPACE_DIR && !resolved.startsWith(WORKSPACE_DIR + sep)) return null;
     return resolved;
   }
 
   /** Recursively scan memory directory tree */
-  function scanMemoryTree(dir: string, depth = 0, maxDepth = 3): { path: string; name: string; type: "file" | "dir"; tokens?: number; children?: any[] }[] {
+  function scanMemoryTree(dir: string, depth = 0, maxDepth = 3): MemoryNode[] {
     if (depth > maxDepth || !existsSync(dir)) return [];
     try {
       const entries = readdirSync(dir, { withFileTypes: true });
@@ -105,7 +135,7 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
       const memoryDir = join(WORKSPACE_DIR, "memory");
       const memoryIndex = scanMemoryTree(memoryDir);
       let memoryTokens = 0;
-      const countTokensRecursive = (items: any[]) => {
+      const countTokensRecursive = (items: MemoryNode[]) => {
         for (const item of items) {
           if (item.tokens) memoryTokens += item.tokens;
           if (item.children) countTokensRecursive(item.children);

@@ -68,6 +68,7 @@ import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
 import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
+import { stripWrapperPaneId } from './projectPersistence';
 
 const isNativeApp =
   typeof window !== 'undefined' && !!(window as unknown as { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
@@ -89,11 +90,6 @@ function buildDefaultGroups(panes: Pane[]): { groups: PaneGroup[]; rows: GroupLa
     type: 'chat',
   };
   return { groups: [g], rows: [{ groupIds: [g.id], widths: [1] }] };
-}
-
-function stripWrapperPaneId<T extends { id: string }>(panes: T[], projectPath: string): T[] {
-  const wrapperId = createPaneId('project', projectPath);
-  return panes.filter(p => p.id !== wrapperId);
 }
 
 // --- Args / Return types ---
@@ -346,7 +342,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // claude-code tab inside a project AND persist the wipe → sessions lost.
   const seenTerminalSessionIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const syncTerminals = (sessions: { id: string; cwd: string; name: string; type: string }[]) => {
+    // A roster entry is only usable if it carries a string `id` and `cwd`.
+    // The roster can arrive over both the fetch and WS paths from a server
+    // mid-restart (partial shapes) — without this guard `s.cwd.startsWith`
+    // throws and a single bad entry wipes the whole sync.
+    const isTerminalSession = (
+      s: unknown,
+    ): s is { id: string; cwd: string; name: string; type: string } =>
+      !!s &&
+      typeof (s as { id?: unknown }).id === 'string' &&
+      typeof (s as { cwd?: unknown }).cwd === 'string';
+
+    const syncTerminals = (rawSessions: { id: string; cwd: string; name: string; type: string }[]) => {
+      const sessions = rawSessions.filter(isTerminalSession);
       const sessionIds = new Set(sessions.map(s => s.id));
       const seen = seenTerminalSessionIdsRef.current;
       for (const id of sessionIds) seen.add(id);
@@ -405,13 +413,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       .then(r => r.json())
       .then(async (dormant: { id: string; name: string; cwd: string; type: string }[]) => {
         const tombstones = getTerminalTombstones();
-        for (const d of dormant) {
-          if (tombstones.has(d.id)) continue;
-          try {
-            const res = await fetch(`/api/terminal/sessions/${d.id}/revive`, { method: 'POST' });
-            if (res.ok) console.log(`[ProjectWindow] Revived dormant session ${d.id} (${d.type})`);
-          } catch {}
-        }
+        // Revive in parallel — N dormant sessions used to be N awaited
+        // round-trips at mount, serialising the layout's terminal restore.
+        await Promise.all(
+          dormant
+            .filter(d => !tombstones.has(d.id))
+            .map(d =>
+              fetch(`/api/terminal/sessions/${d.id}/revive`, { method: 'POST' }).catch(() => {}),
+            ),
+        );
       })
       .catch(() => {});
 
@@ -1124,12 +1134,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const restoreClosedRecord = useCallback(async (record: ClosedTabRecord) => {
     try {
       const pane = await reopenClosedTab(record);
-      setPanes(prev => [...prev, pane]);
+      // Id-dedup guard (same pattern as the undo path / reopenChatPane): the
+      // pane may already be open (reopened via the sidebar between close and
+      // this restore) — re-adding would duplicate the id in panes[] and
+      // group.paneIds (React key collision).
+      setPanes(prev => (prev.some(p => p.id === pane.id) ? prev : [...prev, pane]));
       // Reopening a project chat restores open == non-archived.
       if (pane.type === 'chat' && pane.topicId) {
         window.dispatchEvent(new CustomEvent('topic-unarchive-on-open', { detail: { topicId: pane.topicId } }));
       }
       setGroups(prev => {
+        if (prev.some(g => g.paneIds.includes(pane.id))) return prev;
         const targetGroup = prev.find(g => g.id === record.groupId) || prev[0];
         if (!targetGroup) return prev;
         const insertIdx = Math.min(record.groupIndex, targetGroup.paneIds.length);

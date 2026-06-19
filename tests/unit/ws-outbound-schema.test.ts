@@ -172,6 +172,7 @@ describe('outbound registry contract', () => {
       'chat:created',
       'chat:deleted',
       'chat:updated',
+      'claude-event',
       'clear',
       'connected',
       'cron:updated',
@@ -199,6 +200,7 @@ describe('outbound registry contract', () => {
       'providers:snapshot',
       'scripts:output',
       'scripts:updated',
+      'session:state',
       'stream:catchup',
       'stream:content_chunk',
       'stream:end',
@@ -251,8 +253,8 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 94 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(94);
+  test('all 96 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
   });
 });
 

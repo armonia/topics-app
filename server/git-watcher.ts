@@ -19,6 +19,16 @@ const DEBOUNCE_MS = 500;
 // Keyed by absPath so distinct worktrees of the same project don't collide.
 const watchers = new Map<string, { close: () => void }>();
 
+// Shape of the computed git status. Named so the broadcast envelope below
+// is typed instead of leaking `any` (matches the typed ws-outbound discipline).
+type GitStatus = {
+  branch: string;
+  lastCommit: { hash: string; message: string; author: string; ago: string };
+  files: { path: string; status: string }[];
+  ahead: number;
+  behind: number;
+};
+
 /**
  * Resolve the directory we should hand to `watch()` for a given working
  * tree. For plain repos this is `<path>/.git/`. For worktrees the `.git`
@@ -44,7 +54,7 @@ function resolveGitDir(projectPath: string): string | null {
   return null;
 }
 
-async function computeGitStatus(resolvedDir: string) {
+async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> {
   try {
     const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
     const statusText = await new Response(statusProc.stdout).text();
@@ -135,7 +145,7 @@ export function watchGitDir(
     debounceTimer = setTimeout(async () => {
       const status = await computeGitStatus(projectPath);
       if (status) {
-        const envelope: { type: string; projectPath: string; status: any; worktreeId?: string } = {
+        const envelope: { type: string; projectPath: string; status: GitStatus; worktreeId?: string } = {
           type: "git:status",
           projectPath,
           status,

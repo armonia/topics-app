@@ -103,8 +103,7 @@ export function __getLastEmittedServerSeq(): number {
 
 /** Test-only: reset all self-echo state. Not exported from the barrel. */
 export function __resetSelfEchoForTests(): void {
-  acks.clear();
-  lastEmittedServerSeq = 0;
+  resetSelfEcho();
 }
 
 /**

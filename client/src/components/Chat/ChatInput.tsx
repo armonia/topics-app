@@ -438,6 +438,9 @@ export function ChatInput({
   const { isListening, transcript, isSupported: sttSupported, toggleListening, clearTranscript } = useSpeechToText();
   const { speak, stop: stopSpeaking, isSpeaking } = useTextToSpeech();
   const [autoTTS, setAutoTTS] = useState(false);
+  // Last message id auto-spoken, so the effect below never re-speaks the same
+  // message when `currentMessages`/`currentStreaming` re-fire for other reasons.
+  const spokenIdRef = useRef<string | null>(null);
   
   // Voice Call Mode
   const { isCallActive, callStatus, isSupported: voiceCallSupported, toggleCall } = useVoiceCall(
@@ -468,16 +471,17 @@ export function ChatInput({
       }
       // Shift+Cmd+S ("Speak"). Shift+Cmd+T is the app's "reopen closed tab"
       // chord (handled globally in useKeyboardShortcuts), so auto-TTS stays here.
+      // Mirror the overflow-menu button: stop when currently speaking, else toggle.
       if (isMod && e.shiftKey && e.key === 'S') {
         e.preventDefault();
-        setAutoTTS(prev => !prev);
+        if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
         return;
       }
     };
-    
+
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording]);
+  }, [toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording, isSpeaking, stopSpeaking]);
 
   // Sync transcript to message input. `message`/`setMessage` are intentionally
   // read as a snapshot only when a new `transcript` arrives — the guard plus
@@ -490,11 +494,19 @@ export function ChatInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when a new transcript arrives; including `message` would re-fire on every keystroke (no-op due to the transcript guard, but pointless), and `setMessage` is a stable parent setter
   }, [transcript, clearTranscript]);
 
-  // Auto-TTS for new assistant messages
+  // Reset the auto-TTS guard when switching topics so the first assistant
+  // message in the newly-focused topic is spoken even if it shares no id state.
+  useEffect(() => {
+    spokenIdRef.current = null;
+  }, [topic.id]);
+
+  // Auto-TTS for new assistant messages. Guarded by `spokenIdRef` so the same
+  // message is never spoken twice when this effect re-runs for other reasons.
   useEffect(() => {
     if (!autoTTS) return;
     const lastMsg = currentMessages[currentMessages.length - 1];
-    if (lastMsg?.role === 'assistant' && !currentStreaming && lastMsg.content) {
+    if (lastMsg?.role === 'assistant' && !currentStreaming && lastMsg.content && lastMsg.id !== spokenIdRef.current) {
+      spokenIdRef.current = lastMsg.id;
       const textToSpeak = lastMsg.content.slice(0, 500);
       speak(textToSpeak);
     }

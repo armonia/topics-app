@@ -9,6 +9,17 @@ import { ContextBudgetBar } from './ContextBudgetBar';
 import { ContextWarnings } from './ContextWarnings';
 import { ContextSourceRow } from './ContextSourceRow';
 import { ContextEnvelopeView } from './ContextEnvelopeView';
+import { useToast } from '../Shared/Toast';
+
+/** Extract a human-readable message from an unknown thrown value. */
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return String(err);
+}
 
 interface ContextInspectorProps {
   topic: Topic;
@@ -31,6 +42,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   const { sources, totalTokens, budgetLimit, budgetPercent, warnings, loading, reload } = useContextInspector(topic.id, onMessage);
   const { data: openclawData } = useOpenClawContext();
   const { saveTopicMemory, saveGlobalMemory } = useMemory(topic.id, { onMessage });
+  const toast = useToast();
 
   const [browsingMemoryTree, setBrowsingMemoryTree] = useState(false);
 
@@ -74,19 +86,29 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
   }, [onOpenFile, openclawData?.workspacePath]);
 
   const handleUploadContextFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+    const input = e.target;
+    const files = Array.from(input.files || []);
     if (files.length === 0) return;
-    for (const file of files) {
-      await uploadApi.uploadContextFile(file, topic.id);
+    try {
+      for (const file of files) {
+        await uploadApi.uploadContextFile(file, topic.id);
+      }
+      reload();
+    } catch (err) {
+      toast.error(errMessage(err) || 'Failed to upload context file');
+    } finally {
+      input.value = '';
     }
-    reload();
-    e.target.value = '';
-  }, [topic.id, reload]);
+  }, [topic.id, reload, toast]);
 
   const handleRemoveContextFile = useCallback(async (filePath: string) => {
-    await uploadApi.deleteContextFile(topic.id, filePath);
-    reload();
-  }, [topic.id, reload]);
+    try {
+      await uploadApi.deleteContextFile(topic.id, filePath);
+      reload();
+    } catch (err) {
+      toast.error(errMessage(err) || 'Failed to remove context file');
+    }
+  }, [topic.id, reload, toast]);
 
   if (!isOpen) return null;
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, renameSync, unlinkSync } from "fs";
 import { readFileSync } from "fs";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
@@ -443,7 +443,6 @@ export function createAppContext(baseDir: string): AppContext {
 
   // --- Atomic write (kept for backward compat with non-DB file writes) ---
   function atomicWriteJSON(filepath: string, data: object): void {
-    const { writeFileSync, renameSync, unlinkSync } = require("fs");
     const tempPath = filepath + ".tmp." + process.pid + "." + Date.now();
     try {
       writeFileSync(tempPath, JSON.stringify(data, null, 2));
@@ -567,6 +566,9 @@ export function createAppContext(baseDir: string): AppContext {
     // Walk from root(s) following active branches
     const thread: StoredMessage[] = [];
     let currentParentId: string | null = null;
+    // Guard against a corrupt chain (cyclic or self-referential parent_id)
+    // looping forever — bail the first time we'd revisit a node.
+    const visited = new Set<string>();
 
     while (true) {
       const children = childrenMap.get(currentParentId);
@@ -583,6 +585,11 @@ export function createAppContext(baseDir: string): AppContext {
 
       // Find the child at this branch index
       const selectedChild = children.find((c: any) => (c.branch_index || 0) === activeBranchIndex) || children[0];
+      if (visited.has(selectedChild.id)) {
+        console.warn(`[loadActiveThread] Cyclic message chain detected for ${sessionKey} at ${selectedChild.id} — truncating thread`);
+        break;
+      }
+      visited.add(selectedChild.id);
       const msg = rowToMessage(selectedChild);
 
       // Annotate with sibling info for the client
@@ -869,11 +876,21 @@ export function createAppContext(baseDir: string): AppContext {
   function endStream(sessionKey: string) {
     const stream = activeStreams.get(sessionKey);
     if (stream?.messageId) {
-      // Mark any "running" tool calls as "error" in the DB so clients don't show stale spinners
+      // Mark any "running" tool calls as "error" in the DB so clients don't show stale spinners.
+      // Parse → map → serialize (same pattern as updateToolCallResult) instead of a substring
+      // REPLACE, which would also clobber the literal string `"status":"running"` if it ever
+      // appeared inside a tool call's args/result.
       try {
-        const msg = db.prepare(`SELECT tool_calls FROM messages WHERE id = ?`).get(stream.messageId) as any;
-        if (msg?.tool_calls && msg.tool_calls.includes('"status":"running"')) {
-          db.prepare(`UPDATE messages SET tool_calls = REPLACE(tool_calls, '"status":"running"', '"status":"error"') WHERE id = ?`).run(stream.messageId);
+        const row = db.prepare(`SELECT tool_calls FROM messages WHERE id = ?`).get(stream.messageId) as any;
+        if (row?.tool_calls) {
+          const toolCalls = JSON.parse(row.tool_calls) as ToolCall[];
+          let changed = false;
+          for (const tc of toolCalls) {
+            if (tc?.status === 'running') { tc.status = 'error'; changed = true; }
+          }
+          if (changed) {
+            db.prepare(`UPDATE messages SET tool_calls = ? WHERE id = ?`).run(JSON.stringify(toolCalls), stream.messageId);
+          }
         }
       } catch {}
     }
@@ -1106,6 +1123,8 @@ export function createAppContext(baseDir: string): AppContext {
         const store = JSON.parse(readFileSync(sessionsStorePath, "utf-8"));
         for (const [key, entry] of Object.entries(store) as any[]) {
           if (!entry?.sessionId) continue;
+          // Guard against path traversal — sessionId becomes a filename below.
+          if (typeof entry.sessionId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(entry.sessionId)) continue;
           if (!key.startsWith("topic:")) continue;
           if (!sessionToTopic[key]) continue;
           const jsonlPath = join(SESSIONS_DIR, entry.sessionId + ".jsonl");

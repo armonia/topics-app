@@ -1,9 +1,12 @@
-// Pane types — authoritative union. This MUST stay a superset of the legacy
-// `PaneType` in client/src/types/index.ts, otherwise sanitizeSnapshot will
-// silently drop panes whose type it doesn't recognise (previous review-round-12
-// B2: `project`, `files`, `git`, `activity`, `agents`, `all-boards`,
-// `process-log`, `session-viewer` were dispatched at runtime but dropped on
-// every HYDRATE_FROM_SNAPSHOT round-trip).
+// Pane types — the authoritative `PaneType` union and single source of truth.
+// `client/src/types/index.ts` re-exports this type (it is no longer a separate
+// declaration), so there is only one union to keep in sync.
+// The runtime mirror is `KNOWN_PANE_TYPES` in
+// `client/src/state/pane/reducers/sanitizeSnapshot.ts`: it MUST stay in sync
+// with this union, otherwise sanitizeSnapshot silently drops panes whose type
+// it doesn't recognise (previous review-round-12 B2: `project`, `files`, `git`,
+// `activity`, `agents`, `all-boards`, `process-log`, `session-viewer` were
+// dispatched at runtime but dropped on every HYDRATE_FROM_SNAPSHOT round-trip).
 export type PaneType =
   // Used at runtime today (must include every legacy type)
   | 'chat'

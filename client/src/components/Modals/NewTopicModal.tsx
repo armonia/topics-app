@@ -81,7 +81,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
 
   // The hook keeps the worktree list live via WS; project-scoped when we
   // know the project, no-op when we don't.
-  const { worktrees, ready: readyWorktrees, byId: worktreeById } = useWorktrees({
+  const { ready: readyWorktrees, byId: worktreeById } = useWorktrees({
     projectId: project?.id,
     onMessage,
   });
@@ -463,8 +463,6 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
             {submitting && wtMode === 'create-new' ? 'Setting up worktree…' : 'Create Topic'}
           </button>
         </div>
-        {/* Avoid unused-warning when worktrees is consumed only via byId */}
-        <span className="hidden" data-worktree-count={worktrees.length} />
       </div>
     </div>
   );

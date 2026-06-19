@@ -139,8 +139,6 @@ export const dashboardApi = mk({
 export const boardMemoryApi = mk({ list: async () => ([]) });
 export const agentActionsApi = mk({});
 export const providersApi = mk({ snapshot: async () => ({ providers: [], defaultProvider: null, generatedAt: now() }) });
-export const globalBoardApi = mk({});
-export const masterApi = mk({});
 export const projectsApi = mk({ list: async () => ({ projects: [{ path: "/demo/topics-app", name: "topics-app" }] }) });
 export const machinesApi = mk({ list: async () => ([]) });
 export const worktreesApi = mk({ list: async () => ([]) });

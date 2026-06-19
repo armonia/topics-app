@@ -501,11 +501,7 @@ export function StandaloneChatGroup({
       groupIsFocused={validatedOrderedIds.includes(focusedPanelId || '')}
       onActivate={(paneId) => {
         clearPane(paneId); // clear non-chat badge on tab activation
-        if (isBrowserPaneId(paneId)) {
-          onFocusPanel(paneId);
-        } else {
-          onFocusPanel(paneId);
-        }
+        onFocusPanel(paneId);
       }}
       onClose={handleClosePane}
       onCloseImmediate={onClosePanelImmediate}

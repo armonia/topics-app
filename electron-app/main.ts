@@ -271,7 +271,9 @@ async function resolveCdpTargetIdForView(view: WebContentsView): Promise<string>
   const url = wc.getURL();
   const title = wc.getTitle();
 
-  const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
+  // 3s timeout so a wedged CDP endpoint can't hang browser-native:create
+  // indefinitely — the caller tolerates an empty cdpTargetId on failure.
+  const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`, { signal: AbortSignal.timeout(3000) });
   if (!res.ok) {
     throw new Error(`CDP /json/list returned ${res.status}`);
   }
@@ -312,7 +314,7 @@ function createNativeBrowser(
   // Per-topic isolated session — cookies/localStorage/sessionStorage scoped
   // to the partition string. Persists across Electron restarts because the
   // 'persist:' prefix tells Electron to write to disk under userData.
-  const topicSession = session.fromPartition(partitionId, { cache: true });
+  const topicSession = session.fromPartition(partitionId);
 
   // Phase 30.1 polish — permissions handler. Without this, Chromium
   // silently denies camera/mic/geolocation/notifications/clipboard requests
@@ -1085,6 +1087,7 @@ function handleWSMessage(msg: WSMessage): void {
 function fetchTopicCache(): void {
   const req = serverGet('/api/topics', (res) => {
     let data = '';
+    res.setEncoding('utf8');
     res.on('data', (chunk: string) => data += chunk);
     res.on('end', () => {
       try {
@@ -1121,6 +1124,7 @@ function getTopicName(topicId: string): string {
 function fetchClaudeSessions(): void {
   const req = serverGet('/api/claude-sessions', (res) => {
     let data = '';
+    res.setEncoding('utf8');
     res.on('data', (chunk: string) => data += chunk);
     res.on('end', () => {
       try {
@@ -2577,7 +2581,6 @@ function startCDPInfoServer(): void {
 
 // ============ Production Asset Watcher ============
 
-let assetWatcher: fs.FSWatcher | null = null;
 let watchedIndexHtml: string | null = null;
 let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -2676,10 +2679,6 @@ function stopAssetWatcher(): void {
     clearTimeout(reloadDebounceTimer);
     reloadDebounceTimer = null;
   }
-  if (assetWatcher) {
-    assetWatcher.close();
-    assetWatcher = null;
-  }
   if (watchedIndexHtml) {
     fs.unwatchFile(watchedIndexHtml);
     watchedIndexHtml = null;
@@ -2775,11 +2774,9 @@ app.whenReady().then(async () => {
   // shortcut would steal it system-wide for as long as this app is running.
   try {
     const registered = globalShortcut.register('CommandOrControl+Alt+T', () => {
-      alwaysOnTop = !alwaysOnTop;
-      if (mainWindow) mainWindow.setAlwaysOnTop(alwaysOnTop, 'floating');
-      savePreferences({ alwaysOnTop });
-      // Rebuild menus so checkbox state reflects new value
-      try { createAppMenu(); } catch {}
+      // Reuse the canonical toggle so the persisted-state and dual menu
+      // (tray + app) rebuilds stay in sync with the menu accelerator.
+      toggleAlwaysOnTop();
     });
     if (!registered) {
       console.warn('[Topics Electron] Failed to register CommandOrControl+Alt+T shortcut (likely in use by another app)');
@@ -2840,7 +2837,12 @@ app.on('will-quit', () => {
   stopWSBridge();
   stopNotificationCleanup();
   stopAssetWatcher();
-  // Phase 30.1 — destroy any native browser views still alive.
+  // Phase 30.1 — cancel any pending grace-destroy timers so they can't fire
+  // after window teardown, then destroy any native browser views still alive.
+  for (const timer of pendingDestroys.values()) {
+    try { clearTimeout(timer); } catch { /* best effort */ }
+  }
+  pendingDestroys.clear();
   for (const viewId of nativeBrowsers.keys()) {
     try { destroyNativeBrowser(viewId); } catch { /* best effort */ }
   }

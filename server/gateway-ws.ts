@@ -177,7 +177,7 @@ export class GatewayWS {
     });
 
     this.ws.addEventListener("error", (err) => {
-      console.error("[GatewayWS] WebSocket error");
+      console.error("[GatewayWS] WebSocket error", (err as any)?.message ?? err);
     });
   }
 

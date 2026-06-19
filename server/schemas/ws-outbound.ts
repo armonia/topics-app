@@ -22,6 +22,7 @@
  * type string. The validator picks it up automatically.
  */
 import { z } from 'zod';
+import { welcomeMessageSchema } from './ws-handshake';
 
 // ---- Connection lifecycle --------------------------------------------------
 
@@ -284,15 +285,8 @@ const errorMessageSchema = z.object({
 }).passthrough();
 
 // ---- Welcome (v3 WS-02 handshake echo on outbound side) --------------------
-
-const welcomeOutboundSchema = z.object({
-  type: z.literal('welcome'),
-  serverVersion: z.string(),
-  protocolVersion: z.number().int(),
-  capabilities: z.array(z.string()),
-  serverTime: z.number(),
-  clientId: z.string(),
-}).passthrough();
+// Reuse the canonical handshake schema (same project — no TS6307) so the
+// outbound guard can't drift from the source-of-truth welcome shape.
 
 // ---- Agent lifecycle cluster ----------------------------------------------
 
@@ -628,6 +622,34 @@ const gitStatusUpdatedSchema = z.object({
   type: z.literal('git-status:updated'),
 }).passthrough();
 
+// ---- Claude session state + events (highest-traffic live path) ------------
+
+/**
+ * `session:state` is the hot phase-machine broadcast. We validate the
+ * WRAPPER — sessionKey (nullable for terminal sessions) + a state object that
+ * must carry claudeSessionId + phase — and accept the rest of the rich
+ * ClaudeSessionState via .passthrough() (it evolves across migrations).
+ */
+const sessionStateSchema = z.object({
+  type: z.literal('session:state'),
+  sessionKey: z.string().nullable(),
+  state: z.object({
+    claudeSessionId: z.string(),
+    phase: z.string(),
+  }).passthrough(),
+}).passthrough();
+
+/**
+ * `claude-event` carries a notification event whose inner shape is still
+ * settling (Phase F triple-layer capture). Validate the wrapper + the
+ * suppressed flag; keep the event payload loose.
+ */
+const claudeEventSchema = z.object({
+  type: z.literal('claude-event'),
+  event: z.unknown(),
+  suppressed: z.boolean().optional(),
+}).passthrough();
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -680,7 +702,7 @@ const OUTBOUND_SCHEMAS = {
   // Errors
   'error': errorMessageSchema,
   // Handshake echo (welcome is sent right after connected)
-  'welcome': welcomeOutboundSchema,
+  'welcome': welcomeMessageSchema,
   // Agent lifecycle
   'agent:profile:created': agentProfileCreatedSchema,
   'agent:profile:updated': agentProfileUpdatedSchema,
@@ -745,6 +767,9 @@ const OUTBOUND_SCHEMAS = {
   'provider:changed': providerChangedSchema,
   // Git status (legacy/forward compat)
   'git-status:updated': gitStatusUpdatedSchema,
+  // Claude session state + events (highest-traffic live path)
+  'session:state': sessionStateSchema,
+  'claude-event': claudeEventSchema,
 } as const;
 
 /**

@@ -367,7 +367,7 @@ function AIProvidersSection() {
   // Single subscription point — replaces the per-component fetches the section
   // used to do. Snapshot updates arrive via WS, so opening Settings in two
   // windows shows identical state without either window polling.
-  const { snapshot, loading, refresh } = useProvidersSnapshot();
+  const { snapshot, loading, error, refresh, retry } = useProvidersSnapshot();
   const entries: ProviderSnapshotEntry[] = useMemo(
     () => snapshot?.providers ?? [],
     [snapshot],
@@ -383,6 +383,15 @@ function AIProvidersSection() {
   // and synthesize the user-visible result message. This avoids a parallel
   // HTTP path — every consumer sees the same snapshot.
   const testTriggeredAt = useRef<Map<string, string>>(new Map());
+  // Watchdog timer for the in-flight test — if no fresh snapshot lands within
+  // the timeout we clear `testing` and surface a timeout result so the spinner
+  // doesn't stick forever.
+  const testWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the watchdog on unmount so a pending timer can't fire after teardown.
+  useEffect(() => () => {
+    if (testWatchdog.current) clearTimeout(testWatchdog.current);
+  }, []);
 
   useEffect(() => {
     if (!testing) return;
@@ -395,6 +404,7 @@ function AIProvidersSection() {
     const message = ok
       ? `Connected${entry.models.length ? ` · ${entry.models.length} models` : ''}${entry.version ? ` · v${entry.version}` : ''}`
       : entry.lastError ?? STATUS_LABELS[entry.status];
+    if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- converging external-store sync: derives the test result from a freshly-arrived WS snapshot and clears `testing`, which guards against re-runs (no cascade)
     setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
     testTriggeredAt.current.delete(testing);
@@ -414,15 +424,47 @@ function AIProvidersSection() {
     const entry = entries.find((e) => e.name === name);
     testTriggeredAt.current.set(name, entry?.fetchedAt ?? '');
     setTesting(name);
+    // Arm a watchdog: if no fresh snapshot converges in time, stop spinning
+    // and report a timeout instead of hanging indefinitely.
+    if (testWatchdog.current) clearTimeout(testWatchdog.current);
+    testWatchdog.current = setTimeout(() => {
+      testWatchdog.current = null;
+      testTriggeredAt.current.delete(name);
+      setResults((prev) => ({ ...prev, [name]: { ok: false, message: 'Test timed out', at: Date.now() } }));
+      setTesting(null);
+    }, 15000);
     try {
       await refresh(name);
     } catch (err) {
+      if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
       const message = err instanceof Error ? err.message : 'Test failed';
       setResults((prev) => ({ ...prev, [name]: { ok: false, message, at: Date.now() } }));
       testTriggeredAt.current.delete(name);
       setTesting(null);
     }
   };
+
+  if (error && entries.length === 0) {
+    return (
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-3">
+          <Cpu size={14} />
+          AI Providers
+        </label>
+        <div className="flex items-center gap-2 text-[12px] text-red-500">
+          <AlertCircle size={12} className="flex-shrink-0" />
+          <span className="break-words flex-1">{error.message || 'Failed to load providers.'}</span>
+          <button
+            onClick={() => { void retry(); }}
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
+          >
+            <RefreshCw size={11} />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading && entries.length === 0) {
     return (
@@ -613,6 +655,9 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
     navigator.clipboard.writeText(cmd.trim()).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {
+      // Clipboard write can be rejected (no permission / insecure context) —
+      // swallow it so it doesn't surface as an unhandled rejection.
     });
   };
 
@@ -701,15 +746,19 @@ function ClaudeCodeModelPicker({ models, currentModel, onSaved }: { models: stri
 function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | 'openai'; placeholder: string; onSaved: () => void }) {
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     if (!apiKey.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       if (provider === 'claude') await providersApi.configureClaude(apiKey.trim());
       else await providersApi.configureOpenAI(apiKey.trim());
       setApiKey('');
       onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save key');
     } finally {
       setSaving(false);
     }
@@ -734,6 +783,9 @@ function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | '
           {saving ? '…' : 'Save'}
         </button>
       </div>
+      {error && (
+        <div className="mt-1 text-[11px] text-red-500">{error}</div>
+      )}
     </div>
   );
 }

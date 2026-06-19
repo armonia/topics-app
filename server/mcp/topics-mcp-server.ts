@@ -202,18 +202,54 @@ export async function callOpenBrowserPane(
 }
 
 /**
+ * Response shapes returned by the topics-app HTTP surface for the Phase-1
+ * bridge tools. These live at a trust boundary (a remote process with no tsc
+ * gate), so callers declare the field they read rather than passing `any`
+ * around. Fields stay optional — the parsed body is still untrusted input and
+ * each caller guards what it actually uses.
+ */
+interface RunScriptResp { processId?: string; pid?: number }
+interface ScriptRow {
+  status?: string;
+  scriptName?: string;
+  processId?: string;
+  pid?: number;
+  ports?: number[];
+  exitCode?: number | null;
+}
+interface ScriptsResp { scripts?: ScriptRow[] }
+interface ProcessOutputResp {
+  output?: string;
+  offset?: number;
+  status?: string;
+  done?: boolean;
+  exitCode?: number | null;
+}
+interface TaskRow {
+  status?: string;
+  text?: string;
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+}
+interface TasksResp { tasks?: TaskRow[] }
+interface UpdateTaskResp { status?: string }
+
+/**
  * Shared HTTP helper for the Phase-1 bridge tools. Sends an optionally-bodied
  * request to topics-app, parses JSON tolerantly, and turns non-2xx / `{error}`
  * responses into thrown Errors (surfaced to the model as isError content).
+ * Generic in the expected body shape `T` so each caller declares what it reads
+ * instead of passing `any` across the trust boundary.
  * `callOpenBrowserPane` keeps its own bespoke impl for backwards compatibility.
  */
-async function httpJson(
+async function httpJson<T>(
   args: ParsedArgs,
   method: string,
   path: string,
   body: unknown | undefined,
   fetchImpl: typeof fetch,
-): Promise<any> {
+): Promise<T | undefined> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
@@ -226,7 +262,7 @@ async function httpJson(
   });
 
   const text = await resp.text().catch(() => "");
-  let parsed: any;
+  let parsed: (T & { error?: unknown; available?: unknown }) | undefined;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
 
   if (!resp.ok) {
@@ -247,8 +283,11 @@ export async function callRunScript(
     throw new Error("run_script: 'script' (string) is required");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/scripts/run`;
-  const body = await httpJson(args, "POST", path, { scriptName: toolArgs.script }, fetchImpl);
-  return `started · processId=${body?.processId} · pid=${body?.pid ?? "?"} — read output with read_process_output(process_id="${body?.processId}")`;
+  const body = await httpJson<RunScriptResp>(args, "POST", path, { scriptName: toolArgs.script }, fetchImpl);
+  if (typeof body?.processId !== "string") {
+    throw new Error("run_script: server did not return a processId");
+  }
+  return `started · processId=${body.processId} · pid=${body.pid ?? "?"} — read output with read_process_output(process_id="${body.processId}")`;
 }
 
 export async function callListProcesses(
@@ -257,10 +296,10 @@ export async function callListProcesses(
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/scripts`;
-  const body = await httpJson(args, "GET", path, undefined, fetchImpl);
+  const body = await httpJson<ScriptsResp>(args, "GET", path, undefined, fetchImpl);
   const scripts = Array.isArray(body?.scripts) ? body.scripts : [];
   if (!scripts.length) return "No processes running or recent.";
-  return scripts.map((s: any) => {
+  return scripts.map((s: ScriptRow) => {
     const ports = Array.isArray(s.ports) && s.ports.length ? ` ports=${s.ports.join(",")}` : "";
     const exit = s.exitCode !== undefined && s.exitCode !== null ? ` exit=${s.exitCode}` : "";
     return `[${s.status}] ${s.scriptName} id=${s.processId} pid=${s.pid ?? "?"}${ports}${exit}`;
@@ -277,7 +316,7 @@ export async function callReadProcessOutput(
   }
   const offset = typeof toolArgs.offset === "number" ? toolArgs.offset : 0;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/scripts/${encodeURIComponent(toolArgs.process_id)}/output?offset=${offset}`;
-  const body = await httpJson(args, "GET", path, undefined, fetchImpl);
+  const body = await httpJson<ProcessOutputResp>(args, "GET", path, undefined, fetchImpl);
 
   let output = typeof body?.output === "string" ? body.output : "";
   const MAX = 8000;
@@ -300,7 +339,7 @@ export async function callStopProcess(
     throw new Error("stop_process: 'process_id' (string) is required");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/scripts/${encodeURIComponent(toolArgs.process_id)}/stop`;
-  await httpJson(args, "POST", path, {}, fetchImpl);
+  await httpJson<{ ok?: boolean }>(args, "POST", path, {}, fetchImpl);
   return `stopped ${toolArgs.process_id}`;
 }
 
@@ -313,10 +352,10 @@ export async function callListTasks(
     ? `?status=${encodeURIComponent(toolArgs.status)}`
     : "";
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks${q}`;
-  const body = await httpJson(args, "GET", path, undefined, fetchImpl);
+  const body = await httpJson<TasksResp>(args, "GET", path, undefined, fetchImpl);
   const tasks = Array.isArray(body?.tasks) ? body.tasks : [];
   if (!tasks.length) return "No tasks.";
-  return tasks.map((t: any) =>
+  return tasks.map((t: TaskRow) =>
     `[${t.status}] ${t.text} (id=${t.id} project=${t.projectId ?? t.project_id ?? "?"})`,
   ).join("\n");
 }
@@ -336,7 +375,7 @@ export async function callUpdateTask(
     throw new Error("update_task: 'status' (string) is required");
   }
   const path = `/api/boards/${encodeURIComponent(toolArgs.project_id)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
-  const body = await httpJson(args, "PATCH", path, { status: toolArgs.status }, fetchImpl);
+  const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, { status: toolArgs.status }, fetchImpl);
   return `task ${toolArgs.task_id} → ${body?.status ?? toolArgs.status}`;
 }
 
@@ -344,21 +383,26 @@ export async function callUpdateTask(
  * Tool dispatch registry. Each handler returns the human-readable text that
  * becomes the tool result's `content[0].text`. Adding a tool = one entry here
  * + one entry in TOOLS, nothing else.
+ *
+ * Handlers always use the global `fetch` in production: `handleMessage` never
+ * threads a fetchImpl through `tools/call` (tests patch `globalThis.fetch`
+ * instead). The underlying call* functions still take an explicit fetchImpl
+ * for direct unit testing — the registry just relies on their default.
  */
 const TOOL_HANDLERS: Record<
   string,
-  (args: ParsedArgs, toolArgs: Record<string, unknown>, fetchImpl?: typeof fetch) => Promise<string>
+  (args: ParsedArgs, toolArgs: Record<string, unknown>) => Promise<string>
 > = {
-  open_browser_pane: async (a, t, f) => {
-    const r = await callOpenBrowserPane(a, t as { url?: unknown }, f);
+  open_browser_pane: async (a, t) => {
+    const r = await callOpenBrowserPane(a, t as { url?: unknown });
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
-  run_script: (a, t, f) => callRunScript(a, t, f),
-  list_processes: (a, t, f) => callListProcesses(a, t, f),
-  read_process_output: (a, t, f) => callReadProcessOutput(a, t, f),
-  stop_process: (a, t, f) => callStopProcess(a, t, f),
-  list_tasks: (a, t, f) => callListTasks(a, t, f),
-  update_task: (a, t, f) => callUpdateTask(a, t, f),
+  run_script: (a, t) => callRunScript(a, t),
+  list_processes: (a, t) => callListProcesses(a, t),
+  read_process_output: (a, t) => callReadProcessOutput(a, t),
+  stop_process: (a, t) => callStopProcess(a, t),
+  list_tasks: (a, t) => callListTasks(a, t),
+  update_task: (a, t) => callUpdateTask(a, t),
 };
 
 export async function handleMessage(

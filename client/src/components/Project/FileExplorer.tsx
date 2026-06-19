@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
 import type { FileNode } from '../../types';
@@ -372,8 +372,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const [rootDragOver, setRootDragOver] = useState(false);
   const { gitStatus: feGitStatus } = useGitStatus({ projectPath });
-  const [gitFileMap, setGitFileMap] = useState<Map<string, string>>(new Map());
-  const [gitDirSet, setGitDirSet] = useState<Set<string>>(new Set());
   const treeRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const editorTabsRef = useRef<{ openFile: (path: string, name: string) => void; pinTab: (path: string) => void } | null>(null);
@@ -415,12 +413,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     loadFiles();
   }, [loadFiles]);
 
-  // Build git lookup maps from shared hook data (no duplicate polling)
-  useEffect(() => {
-    if (!feGitStatus?.files) return;
+  // Build git lookup maps from shared hook data (no duplicate polling).
+  // Keyed on a stable signature of the file statuses so identical poll results
+  // reuse the previous map references and skip downstream re-renders.
+  const gitSignature = useMemo(
+    () => (feGitStatus?.files ?? []).map(f => f.path + f.status).join('\n'),
+    [feGitStatus],
+  );
+  const { gitFileMap, gitDirSet } = useMemo(() => {
     const fileMap = new Map<string, string>();
     const dirSet = new Set<string>();
-    for (const f of feGitStatus.files) {
+    for (const f of feGitStatus?.files ?? []) {
       const absPath = projectPath + '/' + f.path;
       fileMap.set(absPath, f.status);
       // Propagate to all parent directories
@@ -432,9 +435,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         dir = next;
       }
     }
-    setGitFileMap(fileMap);
-    setGitDirSet(dirSet);
-  }, [feGitStatus, projectPath]);
+    return { gitFileMap: fileMap, gitDirSet: dirSet };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gitSignature is the stable proxy for feGitStatus.files
+  }, [gitSignature, projectPath]);
 
   const handleExpandOverflow = useCallback((path: string) => {
     setExpandedOverflow(prev => { const next = new Set(prev); next.add(path); return next; });
@@ -557,10 +560,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       scrollToPath(fullPath);
     } catch (err: unknown) {
       console.error('Failed to create item:', err);
+      toast.error(`Create failed: ${errMessage(err)}`);
     }
     setNewItemParent(null);
     setNewItemType(null);
-  }, [newItemParent, newItemType, loadFiles, scrollToPath]);
+  }, [newItemParent, newItemType, loadFiles, scrollToPath, toast]);
 
   const handleNewItemCancel = useCallback(() => {
     setNewItemParent(null);
@@ -583,9 +587,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       scrollToPath(newPath);
     } catch (err: unknown) {
       console.error('Failed to rename:', err);
+      toast.error(`Rename failed: ${errMessage(err)}`);
     }
     setRenamingPath(null);
-  }, [getParentDir, loadFiles, scrollToPath]);
+  }, [getParentDir, loadFiles, scrollToPath, toast]);
 
   const handleRenameCancel = useCallback(() => {
     setRenamingPath(null);
@@ -608,9 +613,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await loadFiles();
     } catch (err: unknown) {
       console.error('Failed to delete:', err);
+      toast.error(`Delete failed: ${errMessage(err)}`);
     }
     closeContextMenu();
-  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles]);
+  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles, toast]);
 
   const handleOpenFile = useCallback(() => {
     if (!contextMenuNode || contextMenuNode.type === 'dir') { closeContextMenu(); return; }
@@ -623,20 +629,27 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     closeContextMenu();
   }, [contextMenuNode, compact, onOpenFile, closeContextMenu]);
 
+  // Guarded clipboard write — navigator.clipboard is undefined in non-secure contexts
+  const copyToClipboard = useCallback((text: string) => {
+    const p = navigator.clipboard?.writeText(text);
+    if (p) p.then(() => toast.success('Path copied')).catch(() => toast.error('Copy failed'));
+    else toast.error('Copy failed');
+  }, [toast]);
+
   const handleCopyPath = useCallback(() => {
     if (!contextMenuNode) { closeContextMenu(); return; }
-    navigator.clipboard.writeText(contextMenuNode.path);
+    copyToClipboard(contextMenuNode.path);
     closeContextMenu();
-  }, [contextMenuNode, closeContextMenu]);
+  }, [contextMenuNode, closeContextMenu, copyToClipboard]);
 
   const handleCopyRelativePath = useCallback(() => {
     if (!contextMenuNode) { closeContextMenu(); return; }
     const rel = contextMenuNode.path.startsWith(projectPath)
       ? contextMenuNode.path.slice(projectPath.length + 1)
       : contextMenuNode.path;
-    navigator.clipboard.writeText(rel);
+    copyToClipboard(rel);
     closeContextMenu();
-  }, [contextMenuNode, projectPath, closeContextMenu]);
+  }, [contextMenuNode, projectPath, closeContextMenu, copyToClipboard]);
 
   const handleDuplicate = useCallback(async () => {
     const pathsToDuplicate = selectedPaths.size > 1
@@ -648,9 +661,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await loadFiles();
     } catch (err: unknown) {
       console.error('Failed to duplicate:', err);
+      toast.error(`Duplicate failed: ${errMessage(err)}`);
     }
     closeContextMenu();
-  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles]);
+  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles, toast]);
 
   // Collapse all
   const handleCollapseAll = useCallback(() => {
@@ -872,8 +886,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await loadFiles();
     } catch (err: unknown) {
       console.error('Failed to move:', err);
+      toast.error(`Move failed: ${errMessage(err)}`);
     }
-  }, [isChildOf, loadFiles, uploadExternalFiles]);
+  }, [isChildOf, loadFiles, uploadExternalFiles, toast]);
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     if (e.currentTarget instanceof HTMLElement) {
@@ -926,8 +941,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       await loadFiles();
     } catch (err: unknown) {
       console.error('Failed to paste:', err);
+      toast.error(`Paste failed: ${errMessage(err)}`);
     }
-  }, [getTargetDir, loadFiles]);
+  }, [getTargetDir, loadFiles, toast]);
 
   // Close context menu on outside click or Escape
   useEffect(() => {
@@ -955,6 +971,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     const handler = (e: KeyboardEvent) => {
       // Only when tree is focused
       if (!el.contains(document.activeElement) && document.activeElement !== el) return;
+      // Don't hijack keys while editing an inline input (rename / new item)
+      const t = e.target as HTMLElement;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
       const isMeta = e.metaKey || e.ctrlKey;
       if (isMeta && e.key === 'c') {
         e.preventDefault();
@@ -1021,6 +1040,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, [pendingFile, onPendingFileConsumed, compact]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Don't hijack navigation keys while editing an inline input (rename / new item)
+    const t = e.target as HTMLElement;
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
     // Let copy/cut/paste bubble to the native handler above
     const isMeta = e.metaKey || e.ctrlKey;
     if (isMeta && (e.key === 'c' || e.key === 'x' || e.key === 'v')) return;

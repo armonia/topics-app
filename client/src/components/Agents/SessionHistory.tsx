@@ -558,9 +558,9 @@ export function SessionDetail({ session, onBack, onNavigateToTopic, onOpenInPane
           return deduped;
         });
       } catch {}
-    }, onMessage ? 30_000 : 30_000);
+    }, 30_000);
     return () => clearInterval(interval);
-  }, [session.isLive, session.status, session.sessionKey, fetchTimeline, onMessage]);
+  }, [session.isLive, session.status, session.sessionKey, fetchTimeline]);
 
   // Count by type for summary
   const msgCount = timeline.filter(e => e.type === 'message').length;

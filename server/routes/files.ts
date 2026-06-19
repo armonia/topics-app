@@ -1,11 +1,26 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync, rmdirSync, renameSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync, renameSync } from "fs";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
 const GIT_STATUS_CACHE_TTL = 5000;
-const gitStatusCache = new Map<string, { data: any; timestamp: number }>();
+interface GitStatusFile { path: string; status: string; }
+interface GitStatusResult {
+  branch: string;
+  lastCommit: { hash: string; message: string; author: string; ago: string };
+  files: GitStatusFile[];
+  ahead: number;
+  behind: number;
+}
+const gitStatusCache = new Map<string, { data: GitStatusResult; timestamp: number }>();
+
+// Conservative git ref/remote name validation (mirrors worktrees.ts BASE_REF_REGEX)
+const GIT_REF_MAX = 200;
+const GIT_REF_REGEX = /^[A-Za-z0-9_./\-]+$/;
+function isValidGitRef(ref: unknown): ref is string {
+  return typeof ref === "string" && ref.length > 0 && ref.length <= GIT_REF_MAX && GIT_REF_REGEX.test(ref);
+}
 
 export function invalidateGitCache(projectPath: string) {
   gitStatusCache.delete(projectPath);
@@ -406,7 +421,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       try {
         const branchProc = Bun.spawn(["git", "branch", "-a", "--format=%(refname:short)|%(HEAD)|%(upstream:short)"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const branchText = (await new Response(branchProc.stdout).text()).trim();
-        const branches: any[] = [];
+        interface GitBranch { name: string; current: boolean; isRemote: boolean; ahead: number; behind: number; }
+        const branches: GitBranch[] = [];
         for (const line of branchText.split("\n").filter(Boolean)) {
           const [name, head, upstream] = line.split("|");
           const isCurrent = head === "*";
@@ -442,6 +458,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     if (method === "POST" && pathname === "/api/git/checkout") {
       const body = await readJSON(req);
       if (!body?.path || !body?.branch) return json({ error: "path and branch required" }, 400);
+      if (!isValidGitRef(body.branch)) return json({ error: "Invalid branch name" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
@@ -481,7 +498,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
-      try { for (const f of files) { const proc = Bun.spawn(["git", "add", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; } return json({ ok: true }); } catch (err: any) { return json({ error: "Stage error: " + err.message }, 500); }
+      try {
+        const failed: string[] = [];
+        for (const f of files) {
+          const proc = Bun.spawn(["git", "add", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          await proc.exited;
+          if (proc.exitCode !== 0) failed.push(f);
+        }
+        if (failed.length > 0) return json({ ok: false, error: "Failed to stage some files", failed }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Stage error: " + err.message }, 500); }
     }
 
     // --- Git stage all ---
@@ -549,7 +575,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
-      try { for (const f of files) { const proc = Bun.spawn(["git", "reset", "HEAD", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await proc.exited; } return json({ ok: true }); } catch (err: any) { return json({ error: "Unstage error: " + err.message }, 500); }
+      try {
+        const failed: string[] = [];
+        for (const f of files) {
+          const proc = Bun.spawn(["git", "reset", "HEAD", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          await proc.exited;
+          if (proc.exitCode !== 0) failed.push(f);
+        }
+        if (failed.length > 0) return json({ ok: false, error: "Failed to unstage some files", failed }, 400);
+        return json({ ok: true });
+      } catch (err: any) { return json({ error: "Unstage error: " + err.message }, 500); }
     }
 
     // --- Git unstage all ---
@@ -569,17 +604,21 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
+        const failed: string[] = [];
         for (const file of files) {
-          const statusProc = Bun.spawn(["git", "status", "--porcelain", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const statusProc = Bun.spawn(["git", "status", "--porcelain", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
           const statusOut = (await new Response(statusProc.stdout).text()).trim();
           if (statusOut.startsWith("??")) {
-            const rmProc = Bun.spawn(["rm", "-rf", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            const rmProc = Bun.spawn(["rm", "-rf", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
             await rmProc.exited;
+            if (rmProc.exitCode !== 0) failed.push(file);
           } else {
             const proc = Bun.spawn(["git", "checkout", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
             await proc.exited;
+            if (proc.exitCode !== 0) failed.push(file);
           }
         }
+        if (failed.length > 0) return json({ ok: false, error: "Failed to discard some files", failed }, 400);
         return json({ ok: true });
       } catch (err: any) { return json({ error: "Discard error: " + err.message }, 500); }
     }
@@ -591,7 +630,15 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        if (body.files && Array.isArray(body.files)) { for (const file of body.files) { const addProc = Bun.spawn(["git", "add", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" }); await addProc.exited; } }
+        if (body.files && Array.isArray(body.files)) {
+          const failed: string[] = [];
+          for (const file of body.files) {
+            const addProc = Bun.spawn(["git", "add", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+            await addProc.exited;
+            if (addProc.exitCode !== 0) failed.push(file);
+          }
+          if (failed.length > 0) return json({ ok: false, error: "Failed to stage some files", failed }, 400);
+        }
         const proc = Bun.spawn(["git", "commit", "-m", body.message], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await proc.exited;
         const stdout = await new Response(proc.stdout).text();
@@ -970,8 +1017,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           return json({ error: `Gateway error: ${resp.status} ${errText.slice(0, 200)}` }, 502);
         }
 
-        const data = await resp.json() as any;
-        const message = data.choices?.[0]?.message?.content?.trim() || "chore: update files";
+        const data = await resp.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+        const rawContent = data.choices?.[0]?.message?.content;
+        const message = typeof rawContent === "string" && rawContent.trim() ? rawContent.trim() : "chore: update files";
         return json({ message });
       } catch (err: any) {
         return json({ error: "AI commit message error: " + err.message }, 500);
@@ -998,6 +1046,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     if (method === "POST" && pathname === "/api/git/create-branch") {
       const body = await readJSON(req);
       if (!body?.path || !body?.name) return json({ error: "path and name required" }, 400);
+      if (!isValidGitRef(body.name)) return json({ error: "Invalid branch name" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
@@ -1015,6 +1064,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     if (method === "POST" && pathname === "/api/git/delete-branch") {
       const body = await readJSON(req);
       if (!body?.path || !body?.name) return json({ error: "path and name required" }, 400);
+      if (!isValidGitRef(body.name)) return json({ error: "Invalid branch name" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
@@ -1059,6 +1109,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     if (method === "POST" && pathname === "/api/git/remote-add") {
       const body = await readJSON(req);
       if (!body?.path || !body?.name || !body?.url) return json({ error: "path, name, and url required" }, 400);
+      if (!isValidGitRef(body.name)) return json({ error: "Invalid remote name" }, 400);
+      if (typeof body.url !== "string" || body.url.startsWith("-")) return json({ error: "Invalid remote url" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
@@ -1074,6 +1126,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     if (method === "POST" && pathname === "/api/git/remote-remove") {
       const body = await readJSON(req);
       if (!body?.path || !body?.name) return json({ error: "path and name required" }, 400);
+      if (!isValidGitRef(body.name)) return json({ error: "Invalid remote name" }, 400);
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
@@ -1137,6 +1190,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           return json({ error: "Target directory not found" }, 404);
         }
 
+        // Containment guard: reject any client-supplied path that escapes resolvedDir.
+        const containmentRoot = resolve(resolvedDir);
+        function isContained(p: string): boolean {
+          const r = resolve(p);
+          return r === containmentRoot || r.startsWith(containmentRoot + "/");
+        }
+        function hasDotDotSegment(rel: string): boolean {
+          return rel.split(/[\\/]/).some((seg) => seg === "..");
+        }
+
         const relativePathsRaw = formData.get("relativePaths") as string | null;
         const relativePaths: string[] = relativePathsRaw ? JSON.parse(relativePathsRaw) : [];
         // Empty directory paths to create (no files inside)
@@ -1148,7 +1211,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
 
         // Create empty directories first
         for (const dir of emptyDirs) {
+          if (hasDotDotSegment(dir)) return json({ error: "Invalid directory path" }, 400);
           const dirPath = join(resolvedDir, dir);
+          if (!isContained(dirPath)) return json({ error: "Invalid directory path" }, 400);
           if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true });
         }
 
@@ -1160,7 +1225,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           }
 
           const relPath = relativePaths[i] || file.name;
+          if (hasDotDotSegment(relPath)) return json({ error: "Invalid file path" }, 400);
           let targetPath = join(resolvedDir, relPath);
+          if (!isContained(targetPath)) return json({ error: "Invalid file path" }, 400);
 
           // Ensure parent directory exists
           const parentDir = targetPath.substring(0, targetPath.lastIndexOf("/"));

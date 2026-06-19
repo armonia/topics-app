@@ -9,7 +9,7 @@ export NODE_ENV=production
 # Wait for server
 TIMEOUT=15
 ELAPSED=0
-while ! curl -sf http://localhost:3333 > /dev/null 2>&1; do
+while ! curl -sfk https://127.0.0.1:3333 > /dev/null 2>&1; do
   sleep 1
   ELAPSED=$((ELAPSED + 1))
   if [ $ELAPSED -ge $TIMEOUT ]; then

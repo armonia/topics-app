@@ -66,6 +66,19 @@ export async function pointObject(
 ): Promise<MoondreamPointResult | MoondreamPointError> {
   const { contextId, imageBase64, description, viewport } = args;
 
+  if (
+    !viewport ||
+    !Number.isFinite(viewport.width) ||
+    !Number.isFinite(viewport.height) ||
+    viewport.width <= 0 ||
+    viewport.height <= 0
+  ) {
+    return {
+      error: "Invalid viewport: width/height must be finite positive numbers.",
+      details: viewport,
+    };
+  }
+
   const apiKey = process.env.MOONDREAM_API_KEY;
   if (!apiKey) {
     return {
@@ -128,15 +141,20 @@ export async function pointObject(
     };
   }
 
-  // Scale 0..1 normalized coords to viewport pixels.
-  const scaled = parsed.points.map((p) => ({
-    x: Math.round(p.x * viewport.width),
-    y: Math.round(p.y * viewport.height),
-  }));
+  // Scale 0..1 normalized coords to viewport pixels. Skip any point whose
+  // coords aren't finite numbers (defensive against a malformed response).
+  const scaled = parsed.points
+    .filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y))
+    .map((p) => ({
+      x: Math.round(p.x * viewport.width),
+      y: Math.round(p.y * viewport.height),
+    }));
 
-  console.log(
-    `[Moondream] point("${description}") -> ${scaled.length} candidates (used ${used + 1}/${max} for ctx ${contextId})`
-  );
+  if (process.env.MOONDREAM_DEBUG) {
+    console.log(
+      `[Moondream] point("${description}") -> ${scaled.length} candidates (used ${used + 1}/${max} for ctx ${contextId})`
+    );
+  }
 
   return {
     points: scaled,

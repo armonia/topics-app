@@ -14,7 +14,7 @@
  * Standalone: takes a small interface (file-system + DB-like callbacks)
  * so it can be unit-tested without booting the full server.
  */
-import { existsSync, statSync, readdirSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, statSync, readdirSync, readFileSync, watch, type FSWatcher, type WatchOptions } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -181,13 +181,15 @@ export function startClaudeTasksSync(opts: SyncOptions): SyncHandle {
   // FS watch on root (best effort; not all FS implementations support recursive watch).
   try {
     if (existsSync(root)) {
-      const w = watch(root, { persistent: false, recursive: true } as any, () => {
+      const watchOpts: WatchOptions = { persistent: false, recursive: true };
+      const w = watch(root, watchOpts, () => {
         if (!stopped) scanNow();
       });
       watchers.push(w);
     }
-  } catch {
+  } catch (err) {
     // Recursive watch unsupported (e.g. Linux without inotify-recursive). Fall back to poll.
+    console.warn(`[claude-tasks-sync] recursive watch unsupported, polling every ${pollMs}ms: ${(err as Error).message}`);
   }
 
   // Polling fallback.

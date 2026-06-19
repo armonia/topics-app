@@ -63,6 +63,24 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return response.json();
 }
 
+// ─── Response-envelope convention ─────────────────────────────────────────────
+//
+// The server wraps most collection responses in a single-key envelope
+// (`{ tasks }`, `{ providers }`, `{ webhooks }`, `{ points }`, …). This file is
+// deliberately mixed about how that envelope is surfaced to callers:
+//
+//   • List methods that return the bare array (`agentProfilesApi.list`,
+//     `webhooksApi.list`, `dashboardApi.getTimeSeries/getAgentStats`,
+//     `boardMemoryApi.list`, `agentActionsApi.list`) `await request<{ key: T[] }>`
+//     and return `.key` — the caller never sees the envelope.
+//   • The remaining methods (`tasksApi.list`, `boardsApi.listTasks`,
+//     `searchApi.search`, `usageApi.*`, …) return the envelope verbatim so the
+//     caller destructures `{ tasks }` / `{ results }` itself.
+//
+// Both are intentional and load-bearing for existing callers — do NOT
+// "normalise" one into the other without updating every call site. When adding
+// a new endpoint, match the convention already used by its sibling methods.
+
 // Topics API
 export const topicsApi = {
   async getAll(signal?: AbortSignal): Promise<TopicsData> {

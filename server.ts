@@ -1,4 +1,5 @@
-import { join, resolve } from "path";
+import { join, resolve, sep } from "path";
+import { readFileSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -58,8 +59,6 @@ import { startHeartbeatChecker } from "./server/agent-heartbeat";
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 if (!process.env.GATEWAY_TOKEN) {
   try {
-    const { readFileSync } = require("fs");
-    const { join } = require("path");
     const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
     if (config?.gateway?.auth?.token) {
       process.env.GATEWAY_TOKEN = config.gateway.auth.token;
@@ -84,7 +83,7 @@ const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast
 // websocket.open browser branch and cleaned by websocket.close.
 const browserWsClients = new Map<string, Set<ServerWebSocket<WSData>>>();
 
-export function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
+function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
   const set = browserWsClients.get(contextId);
   if (!set || set.size === 0) return;
   const payload = JSON.stringify(msg);
@@ -358,7 +357,7 @@ const WS_HEARTBEAT_INTERVAL_MS = 30000;
 const WS_TIMEOUT_MS = 90000;
 
 // WebSocket heartbeat
-setInterval(() => {
+const wsHeartbeatTimer = setInterval(() => {
   const now = Date.now();
   for (const ws of wsClients) {
     if (now - ws.data.lastPong > WS_TIMEOUT_MS) {
@@ -564,8 +563,12 @@ const server = Bun.serve<WSData>({
     if (method === "GET" && pathname.startsWith("/media/") && !pathname.includes("..")) {
       const mediaBase = join(process.env.HOME || "/tmp", ".openclaw", "media");
       const filePath = join(mediaBase, pathname.slice("/media/".length));
-      // Security: ensure resolved path stays within media directory
-      if (resolve(filePath).startsWith(resolve(mediaBase))) {
+      // Security: ensure resolved path stays within media directory (match on a
+      // trailing separator so a sibling like `…/media-evil` can't sneak through,
+      // while still allowing the base dir itself).
+      const resolvedFile = resolve(filePath);
+      const resolvedBase = resolve(mediaBase);
+      if (resolvedFile === resolvedBase || resolvedFile.startsWith(resolvedBase + sep)) {
         const file = Bun.file(filePath);
         if (await file.exists()) {
           return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": "public, max-age=86400" } });
@@ -863,7 +866,7 @@ const server = Bun.serve<WSData>({
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
-setInterval(() => {
+const staleStreamTimer = setInterval(() => {
   const now = Date.now();
   for (const [sessionKey, stream] of activeStreams.entries()) {
     if (!activeStreams.has(sessionKey)) continue;
@@ -913,6 +916,8 @@ browserService.restoreAllContexts(Object.values(ctx.loadTopics().topics))
 async function gracefulShutdown(signal: string) {
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
+  clearInterval(wsHeartbeatTimer);
+  clearInterval(staleStreamTimer);
   stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();

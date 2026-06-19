@@ -308,6 +308,30 @@ async function getPortsForProcess(pid: number): Promise<number[]> {
     .map(p => p.port);
 }
 
+/** Batched port lookup for several tracked pids at once: one lsof + one ps-table
+ *  snapshot are shared (both already cached), and the cached port list is walked
+ *  ONCE — each listening port is attributed to the first owning tree instead of
+ *  re-filtering the whole list per pid (the per-process getPortsForProcess path).
+ *  Returns pid → ports[]. */
+async function getPortsForProcesses(pids: number[]): Promise<Map<number, number[]>> {
+  const out = new Map<number, number[]>();
+  if (pids.length === 0) return out;
+  const allPorts = await getListeningPorts();
+  // Descendant closure per tracked pid (shares the cached ps proc table).
+  const trees: { pid: number; tree: Set<number> }[] = [];
+  for (const pid of pids) {
+    out.set(pid, []);
+    trees.push({ pid, tree: await getDescendantPids(pid) });
+  }
+  // Single pass over the cached port list: attribute each port to the first
+  // tracked pid whose descendant set owns it.
+  for (const lp of allPorts) {
+    const owner = trees.find(t => t.tree.has(lp.pid));
+    if (owner) out.get(owner.pid)!.push(lp.port);
+  }
+  return out;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function addToRecent(sp: ScriptProcess) {
@@ -722,15 +746,19 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
   /** Build the `{ scripts }` payload, optionally filtered to one project path. */
   async function serializeScripts(filterCwd?: string): Promise<{ scripts: any[] }> {
     const match = (sp: ScriptProcess) => !filterCwd || sp.projectPath === filterCwd;
-    const runningList = await Promise.all(
-      Array.from(runningScripts.values()).filter(match).map(async sp => ({
-        processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-        projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
-        startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
-        source: sp.source ?? "script",
-        ports: sp.pid ? await getPortsForProcess(sp.pid) : [],
-      })),
+    const running = Array.from(runningScripts.values()).filter(match);
+    // One batched port lookup for all running pids (shared lsof + ps snapshot,
+    // single pass over the cached port list) instead of per-process.
+    const portsByPid = await getPortsForProcesses(
+      running.map(sp => sp.pid).filter((p): p is number => !!p),
     );
+    const runningList = running.map(sp => ({
+      processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
+      projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
+      startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+      source: sp.source ?? "script",
+      ports: sp.pid ? (portsByPid.get(sp.pid) ?? []) : [],
+    }));
     const recentList = recentScripts.filter(match).map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,

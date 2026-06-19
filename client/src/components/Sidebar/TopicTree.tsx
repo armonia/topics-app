@@ -148,12 +148,17 @@ export function TopicTree({
     });
   }, [onToggleProject]);
 
-  // Close project context menu on outside click
+  // Close project context menu on outside click or Escape.
   useEffect(() => {
     if (!projectContextMenu) return;
-    const h = () => setProjectContextMenu(null);
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    const close = () => setProjectContextMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [projectContextMenu]);
 
   // ── Build unified items ──────────────────────────────────────────────────
@@ -261,7 +266,10 @@ export function TopicTree({
         onArchive={handleArchive}
         onStopStreaming={stopSession ? () => {
           const isFirst = stopSession(topic.sessionKey);
-          if (isFirst) onArchiveTopic(topic.id, true);
+          // Route through the same deferred wrapper the row's Archive button
+          // uses (not a raw onArchiveTopic call) so both paths share one
+          // contract; surface a failed archive instead of dropping it silently.
+          if (isFirst) handleArchive(topic.id, true).catch(() => {});
         } : undefined}
         isArchived={item.archived}
         hideIcon={depth > 0}
@@ -303,7 +311,11 @@ export function TopicTree({
   const renderBrowserItem = (item: SidebarItem, depth = 0) => {
     const bc = item.browser!;
     const paneId = `browser:${bc.id}`;
-    const isFocused = focusedTopicId === paneId;
+    // Focused directly, OR the active inner browser of the focused project —
+    // mirrors the chat/terminal rows. Behavior-preserving today (the builder
+    // doesn't tag browser items with a projectPath, so isActiveInnerChild is a
+    // no-op), correct once browsers can nest inside a project window.
+    const isFocused = focusedTopicId === paneId || isActiveInnerChild(item.projectPath, paneId);
     const isOpen = !isFocused && allOpenPaneIds.has(paneId);
     return (
       <BrowserSidebarItem
@@ -582,10 +594,20 @@ export function TopicTree({
       </div>
 
       {/* Project context menu */}
-      {projectContextMenu && (
+      {projectContextMenu && (() => {
+        // Clamp the click point so the menu never spills past the viewport
+        // (mirrors ProviderModelPicker's Math.min approach). Width = the menu's
+        // min-w (160px); height is estimated from the visible item count
+        // (~34px/row desktop + the py-1 wrapper) since we have no ref to measure.
+        const MENU_W = 160;
+        const itemCount = (projectContextMenu.unreadTopicIds.length > 0 ? 1 : 0) + (onArchiveProject ? 1 : 0);
+        const menuH = itemCount * 34 + 8;
+        const left = Math.max(8, Math.min(projectContextMenu.x, window.innerWidth - MENU_W - 8));
+        const top = Math.max(8, Math.min(projectContextMenu.y, window.innerHeight - menuH - 8));
+        return (
         <div
           className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[100] min-w-[160px]"
-          style={{ top: projectContextMenu.y, left: projectContextMenu.x }}
+          style={{ top, left }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {projectContextMenu.unreadTopicIds.length > 0 && (
@@ -615,7 +637,8 @@ export function TopicTree({
             </button>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

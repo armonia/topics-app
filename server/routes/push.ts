@@ -2,7 +2,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { getVapidPublicKey } from "../push-service";
 
 export function createPushRouter(ctx: AppContext): RouteHandler {
-  const { db, json } = ctx;
+  const { db, json, readJSON } = ctx;
 
   return async function pushRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -13,7 +13,8 @@ export function createPushRouter(ctx: AppContext): RouteHandler {
 
     // POST /api/push/subscribe
     if (method === "POST" && pathname === "/api/push/subscribe") {
-      const body = await req.json();
+      const body = await readJSON(req);
+      if (!body) return json({ error: "Invalid JSON" }, 400);
       const { endpoint, keys } = body;
 
       if (!endpoint || !keys?.p256dh || !keys?.auth) {
@@ -33,7 +34,8 @@ export function createPushRouter(ctx: AppContext): RouteHandler {
 
     // POST /api/push/unsubscribe
     if (method === "POST" && pathname === "/api/push/unsubscribe") {
-      const body = await req.json();
+      const body = await readJSON(req);
+      if (!body) return json({ error: "Invalid JSON" }, 400);
       const { endpoint } = body;
 
       if (!endpoint) {
