@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 
 // Known pre-existing server type errors (tsconfig.server.json, 2026-06-19).
 // Lower this when you fix some; do NOT raise it to make CI green.
-const BASELINE = 27;
+const BASELINE = 19;
 
 const TSC = "./client/node_modules/.bin/tsc";
 const res = spawnSync(
