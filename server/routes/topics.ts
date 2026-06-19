@@ -1244,6 +1244,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const sessionKey = body?.sessionKey ? String(body.sessionKey).trim() : "";
         if (!sessionKey) return json({ error: "sessionKey required" }, 400);
 
+        // Shape guard: a session key is `kind:id` / a bare token (e.g.
+        // "topic:abc12345", "agent:sub-xyz", "main"). Reject whitespace,
+        // control chars, path-like inputs and `..` so a fabricated/garbled key
+        // from a buggy client can't mint a phantom cloud chat.
+        if (!/^[A-Za-z0-9][\w:.\-/]{0,127}$/.test(sessionKey) || sessionKey.includes("..")) {
+          return json({ error: "invalid sessionKey" }, 400);
+        }
+
         const existing = getTopicBySessionKey(sessionKey);
         if (existing) {
           if (existing.projectPath) bindTopicToProject(existing.id, existing.projectPath, { focus: true });
