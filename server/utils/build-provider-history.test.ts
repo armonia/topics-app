@@ -85,6 +85,21 @@ describe("buildProviderHistory", () => {
     ]);
   });
 
+  test("strips PROJECT_OPEN / PROJECT_CREATE markers (audit #4 leak regression)", () => {
+    const stored: StoredMessage[] = [
+      msg("assistant", "Opening it now {{PROJECT_OPEN:Pix}} done."),
+      msg("assistant", "{{PROJECT_CREATE:my-app}} scaffolded."),
+    ];
+    const out = buildProviderHistory(stored);
+    const joined = out.map((m) => m.content).join("\n");
+    expect(joined).not.toContain("{{PROJECT_OPEN");
+    expect(joined).not.toContain("{{PROJECT_CREATE");
+    expect(out.map((m) => m.content)).toEqual([
+      "Opening it now  done.",
+      "scaffolded.",
+    ]);
+  });
+
   test("drops messages that become empty after marker stripping", () => {
     const stored: StoredMessage[] = [
       msg("user", "{{TOPIC_SWITCH:abc-123}}"),

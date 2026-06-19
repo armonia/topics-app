@@ -26,6 +26,7 @@ import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { loadMemoryForTopic } from "../routes/memory";
 import { buildProviderHistory } from "../utils/build-provider-history";
+import { stripMarkers, detectMarkers } from "../lib/markers";
 
 import type {
   ContextDiagnostics,
@@ -59,9 +60,9 @@ const PROJECT_TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENT
 const OPENCLAW_WORKSPACE_FILES = ["SOUL.md", "MEMORY.md", "AGENTS.md", "TOOLS.md", "IDENTITY.md", "USER.md"];
 
 const CHAT_CONTEXT_PREFIX = "[Chat messages since your last reply";
-const BROWSER_MARKER_RE = /\{\{BROWSER:.*?\}\}/g;
-const TOPIC_SWITCH_MARKER_RE = /\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g;
-const TOPIC_NEW_MARKER_RE = /\{\{TOPIC_NEW:[^}]+\}\}\s*/g;
+// Marker detection/stripping uses the canonical grammar in `../lib/markers`
+// (all 5 families incl. PROJECT_*). The local copy here covered only 3 and
+// leaked {{PROJECT_OPEN/CREATE:…}} into replayed history (audit #4).
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -590,7 +591,7 @@ function buildHistoryWithDiagnostics(
     const m = stored[i];
     const original = m.content || "";
     const markers = detectMarkers(original);
-    const stripped = stripMarkersImpl(original).trim();
+    const stripped = stripMarkers(original).trim();
     const bytesDropped = original.length - stripped.length;
 
     let excludeReason: HistoryExcludeReason | undefined;
@@ -645,24 +646,6 @@ function buildHistoryWithDiagnostics(
     historyEntries: classified.map((c) => c.entry),
     droppedHistoryTurns,
   };
-}
-
-function detectMarkers(content: string): string[] {
-  const markers: string[] = [];
-  const browser = content.match(BROWSER_MARKER_RE);
-  if (browser) markers.push(...browser);
-  const switchM = content.match(TOPIC_SWITCH_MARKER_RE);
-  if (switchM) markers.push(...switchM.map((m) => m.trim()));
-  const newM = content.match(TOPIC_NEW_MARKER_RE);
-  if (newM) markers.push(...newM.map((m) => m.trim()));
-  return markers;
-}
-
-function stripMarkersImpl(content: string): string {
-  return content
-    .replace(BROWSER_MARKER_RE, "")
-    .replace(TOPIC_SWITCH_MARKER_RE, "")
-    .replace(TOPIC_NEW_MARKER_RE, "");
 }
 
 // ────────────────────────────────────────────────────────────────────────────

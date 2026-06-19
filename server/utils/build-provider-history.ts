@@ -25,6 +25,7 @@
 
 import type { ChatMessage } from "../providers/types";
 import type { StoredMessage } from "../types";
+import { stripMarkers } from "../lib/markers";
 
 export interface BuildProviderHistoryOptions {
   /**
@@ -42,9 +43,6 @@ export interface BuildProviderHistoryOptions {
 }
 
 const CONTEXT_PREFIX = "[Chat messages since your last reply";
-const BROWSER_MARKER = /\{\{BROWSER:.*?\}\}/g;
-const TOPIC_SWITCH_MARKER = /\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g;
-const TOPIC_NEW_MARKER = /\{\{TOPIC_NEW:[^}]+\}\}\s*/g;
 
 /**
  * Mirror of the client-side filter in `client/src/hooks/useChat.ts:172-174`.
@@ -55,18 +53,11 @@ function isContextMessage(content: string): boolean {
   return content.startsWith(CONTEXT_PREFIX);
 }
 
-/**
- * Mirror of the client-side strippers (useChat.ts:167-169). `{{BROWSER:...}}`
- * is consumed by the server's browser-navigate adapter; topic-switch markers
- * are routing hints. None of them carry meaning for the LLM and stripping
- * keeps prompts clean.
- */
-function stripMarkers(content: string): string {
-  return content
-    .replace(BROWSER_MARKER, "")
-    .replace(TOPIC_SWITCH_MARKER, "")
-    .replace(TOPIC_NEW_MARKER, "");
-}
+// Marker stripping (`{{BROWSER:…}}`, `{{TOPIC_*:…}}`, `{{PROJECT_*:…}}`) uses
+// the canonical grammar in `../lib/markers` — the single source of truth shared
+// with the streaming path (routes/topics.ts) and the context assembler. This
+// previously reimplemented only 3 of the 5 marker families, leaking
+// `{{PROJECT_OPEN/CREATE:…}}` back into provider history (audit #4).
 
 export function buildProviderHistory(
   storedMessages: StoredMessage[],

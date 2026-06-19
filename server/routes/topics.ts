@@ -19,6 +19,7 @@ import { getTerminalSessionById } from "./terminal";
 import { resolveTailscaleBin } from "../lib/tailscale-bin";
 import { buildProviderHistory } from "../utils/build-provider-history";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
+import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import {
   adaptEnvelope,
@@ -76,10 +77,13 @@ const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento — il provider è a
  * `lastBroadcastClean` accumulator that closes the remaining gap where a
  * single delta carries `{{...}} tail` (close + post-marker text in the same
  * chunk).
+ *
+ * The grammar itself now lives in `server/lib/markers.ts` (the single source
+ * of truth, shared with the history pipelines and mirrored by the client).
+ * Re-exported here so callers importing from this route module — notably
+ * `topics-marker-strip.test.ts` — keep working unchanged.
  */
-const MARKER_NAMES_GROUP = "(?:TOPIC_SWITCH|TOPIC_NEW|BROWSER|PROJECT_CREATE|PROJECT_OPEN)";
-export const CLOSED_MARKER_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*\\}\\}`, "g");
-export const OPEN_MARKER_TAIL_REGEX = new RegExp(`\\{\\{${MARKER_NAMES_GROUP}:[^}]*$`);
+export { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX };
 
 /**
  * Compute the next visible delta to broadcast given the accumulated server-side
