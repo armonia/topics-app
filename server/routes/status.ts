@@ -66,7 +66,8 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       return { enabled: 0, disabled: 0, total: 0 };
     }
     try {
-      const data = await provider.invokeTool("cron", { action: "list" });
+      const data = await provider.invokeTool("cron", { action: "list" }) as
+        { result?: { jobs?: any[] }; jobs?: any[] } | undefined;
       const jobs = data?.result?.jobs || data?.jobs || [];
       let enabled = 0, disabled = 0;
       let nextRun: string | undefined;
@@ -87,7 +88,8 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       return { total: 0, byType: {} };
     }
     try {
-      const data = await provider.invokeTool("sessions_list", {});
+      const data = await provider.invokeTool("sessions_list", {}) as
+        { result?: { sessions?: any[] }; sessions?: any[] } | undefined;
       const sessions = data?.result?.sessions || data?.sessions || [];
       const byType: Record<string, number> = {};
       for (const s of sessions) {
