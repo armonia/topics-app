@@ -7,14 +7,16 @@
  * risky on hot paths, so instead we grandfather the current count and forbid it
  * from rising: CI fails if a change introduces a NEW server type error.
  *
- * Burn the baseline DOWN as errors get fixed (the script tells you when to);
- * never raise it. Reaching 0 means we can flip `strict` on and gate hard.
+ * The backlog has now been fully burned down: BASELINE is 0, so this is a HARD
+ * gate — any new server type error fails CI. Keep it at 0. A future step can
+ * tighten tsconfig.server.json further (e.g. flip full `strict` on, which would
+ * surface the remaining implicit-any spots).
  */
 import { spawnSync } from "node:child_process";
 
-// Known pre-existing server type errors (tsconfig.server.json, 2026-06-19).
-// Lower this when you fix some; do NOT raise it to make CI green.
-const BASELINE = 11;
+// Server type errors must stay at zero (tsconfig.server.json). Do NOT raise
+// this to make CI green — fix the new error instead.
+const BASELINE = 0;
 
 const TSC = "./client/node_modules/.bin/tsc";
 const res = spawnSync(
