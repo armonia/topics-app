@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, MessageSquarePlus } from 'lucide-react';
+import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, ChevronDown, ChevronRight, RefreshCw, Copy, AlertCircle, Palette, Keyboard, Sparkles, MessageSquarePlus, LayoutGrid } from 'lucide-react';
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
@@ -13,6 +13,8 @@ interface GlobalSettingsProps {
   onSettingsChange: (settings: AppSettings) => void;
   themeMode?: ThemeMode;
   onThemeChange?: (mode: ThemeMode) => void;
+  /** Desktop (Electron) build — gates desktop-only options (e.g. floating splits). */
+  isElectron?: boolean;
 }
 
 type SectionId = 'appearance' | 'notifications' | 'features' | 'providers' | 'shortcuts';
@@ -25,7 +27,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
 ];
 
-export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange }: GlobalSettingsProps) {
+export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, isElectron = false }: GlobalSettingsProps) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [section, setSection] = useState<SectionId>('appearance');
 
@@ -88,6 +90,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                 themeMode={themeMode}
                 onThemeChange={onThemeChange}
                 onChange={handleChange}
+                isElectron={isElectron}
               />
             )}
             {section === 'notifications' && (
@@ -110,9 +113,10 @@ interface AppearanceSectionProps {
   themeMode: ThemeMode;
   onThemeChange?: (mode: ThemeMode) => void;
   onChange: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
+  isElectron?: boolean;
 }
 
-function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: AppearanceSectionProps) {
+function AppearanceSection({ settings, themeMode, onThemeChange, onChange, isElectron = false }: AppearanceSectionProps) {
   return (
     <div className="space-y-5">
       {/* Font Size */}
@@ -232,6 +236,33 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
           </div>
         </div>
       </div>
+
+      {/* Floating splits — desktop only (relies on native macOS window
+          vibrancy to reveal the backdrop through the gaps). Hidden entirely
+          on web/PWA, where there's no vibrancy to show underneath. */}
+      {isElectron && (
+        <div>
+          <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+            <LayoutGrid size={14} />
+            Floating splits
+            <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+              Beta
+            </span>
+          </label>
+          <p className="text-[12px] text-app-text-muted mb-3">
+            Detach every window split and the sidebar into rounded floating
+            cards with a small gap between them, revealing the desktop
+            vibrancy underneath — making the split layout easier to read.
+          </p>
+
+          <ToggleRow
+            label="Floating splits"
+            description="Render splits and the sidebar as separate floating panels."
+            value={settings.floatingSplits}
+            onChange={(v) => onChange('floatingSplits', v)}
+          />
+        </div>
+      )}
 
     </div>
   );

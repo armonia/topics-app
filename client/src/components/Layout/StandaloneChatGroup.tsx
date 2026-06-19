@@ -711,6 +711,7 @@ export function StandaloneChatGroup({
   return (
     <>
       <div
+        data-split-card
         className={`flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
         onMouseDownCapture={() => {
           if (activePaneId && focusedPanelId !== activePaneId) {

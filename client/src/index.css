@@ -1135,3 +1135,58 @@ html.electron-mac [data-testid="terminal-panel"],
 html.electron-mac [data-testid="single-terminal-pane"] {
   background-color: transparent !important;
 }
+
+/* ─── Floating splits (experimental, desktop-only) ──────────────────────────
+ * Opt-in from Settings → Appearance (Electron only — see App.tsx, which only
+ * adds `.floating-splits` when the setting is on AND in Electron). Detaches
+ * every window split and the sidebar into rounded "cards" separated by a small
+ * gap, so the native window vibrancy shows through the gaps and the split
+ * structure reads at a glance.
+ *
+ * Pure paint — the flex/width tiling math is untouched. Cards gain a margin
+ * (the gap), a radius and an elevation shadow; the 1px resize dividers go
+ * transparent at rest (kept as invisible hit-zones, still highlighted on
+ * hover). The gaps are transparent down to `#main-content`, which is itself
+ * transparent under `.electron-mac`, so they reveal the blurred-desktop frost
+ * — exactly "what's underneath". */
+.floating-splits {
+  /* `--float-gap` is the per-card margin; adjacent cards therefore sit
+   * 2×gap + 1px (the divider) apart — a hair of separation, no more. */
+  --float-gap: 3px;
+  --float-radius: 10px;
+  /* Window frame: combined with each edge card's own margin this yields a
+   * uniform ~6px inset from the window border on every side. */
+  padding: var(--float-gap);
+}
+
+/* Every split is a card: each group block (GroupLayout) and standalone group
+ * (PanelGrid) root carries data-split-card. These roots already `overflow-
+ * hidden`, so the radius cleanly clips the tab bar + content. The layered
+ * box-shadow does both jobs — a hairline edge (0-spread ring) and the float
+ * elevation — so nothing shifts the inner layout (no `border`). */
+.floating-splits [data-split-card],
+.floating-splits [role="navigation"][aria-label="Topics sidebar"] {
+  margin: var(--float-gap);
+  border-radius: var(--float-radius);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.16),
+    0 6px 20px rgba(0, 0, 0, 0.14);
+}
+html.dark .floating-splits [data-split-card],
+html.dark .floating-splits [role="navigation"][aria-label="Topics sidebar"] {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.40);
+}
+
+/* Resize dividers (column / row / sub-stack handles and the sidebar handle)
+ * all share `cursor-col-resize` / `cursor-row-resize` + a resting
+ * `bg-app-border` line. In floating mode that line would draw straight down
+ * the middle of a gap, so null it at rest — the element stays a transparent
+ * resize hit-zone and still lights up (hover:bg-primary) when grabbed. */
+.floating-splits .cursor-col-resize:not(:hover),
+.floating-splits .cursor-row-resize:not(:hover) {
+  background-color: transparent !important;
+}

@@ -558,7 +558,7 @@ function App() {
     */}
     <PendingActionProvider countdownMs={1500}>
     <div
-      className="flex bg-app-bg overflow-hidden max-w-[100vw]"
+      className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isElectron ? 'floating-splits' : ''}`}
       onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
       onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
       style={{
@@ -996,6 +996,7 @@ function App() {
             onSettingsChange={setAppSettings}
             themeMode={themeMode}
             onThemeChange={setTheme}
+            isElectron={isElectron}
           />
         </Suspense>
       )}

@@ -499,7 +499,7 @@ export function GroupLayout({
     const isFullyFocused = isFocusedGroup && isAppFocused;
     const edgeDrop = edgeDropTarget?.groupId === gid ? edgeDropTarget.edge : null;
     return (
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <div data-split-card className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         {/* Per-group tab bar — h-10 to match the project sidebar header
             and the StandaloneChatGroup header (consistent chrome row). */}
         <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0" onDragOverCapture={handleTabBarDragOver(gid)}>
