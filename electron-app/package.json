@@ -17,6 +17,7 @@
     "dev": "npm run build:ts && electronmon dist/main.js"
   },
   "dependencies": {
+    "bindings": "^1.5.0",
     "electron-updater": "^6.3.0",
     "puppeteer-core": "^23.0.0",
     "ws": "^8.20.0"
@@ -27,21 +28,34 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "electronmon": "^2.0.4",
+    "node-addon-api": "^8.8.0",
+    "node-gyp": "^12.4.0",
     "typescript": "~5.9.3"
   },
   "build": {
     "appId": "com.topics.app",
     "productName": "Topics",
     "asar": true,
-    "asarUnpack": ["**/*.node"],
+    "asarUnpack": [
+      "**/*.node"
+    ],
     "extraResources": [
-      { "from": "server-dist", "to": "server", "filter": ["**/*"] }
+      {
+        "from": "server-dist",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "icon.icns",
       "identity": null,
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "x64ArchFiles": "**/server/**",
       "extendInfo": {
         "NSPrefersDisplaySafeAreaCompatibilityMode": false
@@ -49,7 +63,14 @@
     },
     "win": {
       "icon": "icon.png",
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -59,7 +80,10 @@
     "linux": {
       "icon": "icon.png",
       "category": "Utility",
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     },
     "publish": {
       "provider": "github",
@@ -68,17 +92,26 @@
       "releaseType": "release"
     },
     "files": [
-      "dist/main.js", "dist/main.js.map",
-      "dist/preload.js", "dist/preload.js.map",
+      "dist/main.js",
+      "dist/main.js.map",
+      "dist/preload.js",
+      "dist/preload.js.map",
       "dist/overlay.html",
-      "dist/overlay-manager.js", "dist/overlay-manager.js.map",
-      "dist/overlay-renderer.js", "dist/overlay-renderer.js.map",
-      "dist/overlay-preload.js", "dist/overlay-preload.js.map",
-      "icon.icns", "icon.png",
+      "dist/overlay-manager.js",
+      "dist/overlay-manager.js.map",
+      "dist/overlay-renderer.js",
+      "dist/overlay-renderer.js.map",
+      "dist/overlay-preload.js",
+      "dist/overlay-preload.js.map",
+      "icon.icns",
+      "icon.png",
       "tray-icon.png",
-      "trayTemplate.png", "trayTemplate@2x.png",
-      "trayUnreadTemplate.png", "trayUnreadTemplate@2x.png",
-      "trayDisconnectedTemplate.png", "trayDisconnectedTemplate@2x.png"
+      "trayTemplate.png",
+      "trayTemplate@2x.png",
+      "trayUnreadTemplate.png",
+      "trayUnreadTemplate@2x.png",
+      "trayDisconnectedTemplate.png",
+      "trayDisconnectedTemplate@2x.png"
     ]
   }
 }

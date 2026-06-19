@@ -10,6 +10,24 @@ import fs from 'fs';
 import WebSocket from 'ws';
 import { initOverlayManager, showMenu as showOverlayMenu } from './overlay-manager';
 
+// Per-region native vibrancy addon (macOS). Loaded defensively: any failure
+// (non-mac, missing/incompatible binary) yields a no-op so the app still boots
+// and floating-splits falls back to a CSS surface. See native/vibrancy/.
+interface VibrancyAddon {
+  available: boolean;
+  setRegions: (handle: Buffer, rects: unknown[], material?: string) => number;
+  clear: (handle: Buffer) => void;
+}
+const vibrancy: VibrancyAddon = (() => {
+  try {
+    // __dirname is dist/ at runtime; the addon lives at electron-app/native/vibrancy.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(path.join(__dirname, '..', 'native', 'vibrancy')) as VibrancyAddon;
+  } catch {
+    return { available: false, setRegions: () => 0, clear: () => {} };
+  }
+})();
+
 // ============ Types ============
 
 interface BrowserTab {
@@ -469,13 +487,17 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
-    // The window is GENUINELY transparent on macOS (not vibrancy): floating-
-    // splits needs the gaps between panels to reveal the real desktop, and
-    // native vibrancy only gives a frosted grey. We drop the `sidebar`
-    // vibrancy material and frost the chrome (sidebar, tab bars, terminals)
-    // via CSS `backdrop-filter` instead — see index.css · electron-mac block.
-    // Content panes stay opaque, so only the deliberate gaps show through.
-    ...(isMac ? { transparent: true } : {}),
+    // When the per-region vibrancy addon is available we make the window truly
+    // TRANSPARENT so floating-splits gaps reveal the clear live desktop, and the
+    // addon paints frosted NSVisualEffectViews under each panel rect (the
+    // renderer streams them; #root rounds its own corners since a transparent
+    // window has no native frame). If the addon isn't available (build missing /
+    // older macOS) we fall back to whole-window vibrancy — solid, frosted gaps.
+    ...(isMac
+      ? (vibrancy.available
+          ? { transparent: true as const, roundedCorners: true as const }
+          : { vibrancy: 'sidebar' as const, visualEffectState: 'active' as const })
+      : {}),
     backgroundColor: isMac ? '#00000000' : '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
@@ -2796,8 +2818,24 @@ app.on('before-quit', (e) => {
   }
 });
 
+// Per-region vibrancy IPC: the renderer streams the panel rects (one batch per
+// settled layout) and we upsert NSVisualEffectViews under them; it sends an
+// empty array (or clears) during drag/resize so the frost doesn't lag the
+// gesture. Fire-and-forget `send` (not invoke) to keep it cheap.
+ipcMain.on('vibrancy:set-regions', (_evt, rects: unknown[]) => {
+  if (!vibrancy.available || !mainWindow || mainWindow.isDestroyed()) return;
+  try { vibrancy.setRegions(mainWindow.getNativeWindowHandle(), Array.isArray(rects) ? rects : [], 'sidebar'); }
+  catch { /* no-op */ }
+});
+ipcMain.on('vibrancy:clear', () => {
+  if (!vibrancy.available || !mainWindow || mainWindow.isDestroyed()) return;
+  try { vibrancy.clear(mainWindow.getNativeWindowHandle()); } catch { /* no-op */ }
+});
+
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch { /* best effort */ }
+  // Release native vibrancy views before teardown so no lingering refs hang quit.
+  try { if (mainWindow && !mainWindow.isDestroyed()) vibrancy.clear(mainWindow.getNativeWindowHandle()); } catch { /* best effort */ }
   stopBundledServer();
   stopWSBridge();
   stopNotificationCleanup();

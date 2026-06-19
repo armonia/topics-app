@@ -209,6 +209,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Open URL in system browser
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
+  // Per-region native vibrancy (macOS floating-splits). The renderer streams
+  // panel rects (top-left CSS px) on settled layout; main upserts blur views
+  // under them and clears during gestures. Fire-and-forget (send, not invoke).
+  vibrancy: {
+    setRegions: (rects: Array<{ x: number; y: number; w: number; h: number; radius?: number }>) =>
+      ipcRenderer.send('vibrancy:set-regions', rects),
+    clear: () => ipcRenderer.send('vibrancy:clear'),
+  },
+
   // Platform info
   platform: process.platform,
   isElectron: true,
