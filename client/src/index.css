@@ -1041,20 +1041,27 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-/* ─── macOS transparent window + CSS-frosted chrome (Electron only) ────────
- * The main window is GENUINELY transparent (electron-app/main.ts: `transparent:
- * true`, no vibrancy) so floating-splits gaps reveal the REAL desktop. We punch
- * html/body/#root fully transparent and frost each chrome surface itself with a
- * CSS `backdrop-filter: blur()` over a translucent tint — replacing the single
- * native-vibrancy blur the window used to provide. Content panes keep their
- * opaque `--bg-surface`, so dense text (chat, terminal, code) stays crisp; only
- * the chrome (and the deliberate floating gaps) is see-through.
+/* ─── macOS native vibrancy (Electron only) ──────────────────────────────
+ * The main window is created with `vibrancy:'sidebar'` + a transparent native
+ * background (electron-app/main.ts). macOS blur only shows where the ENTIRE
+ * layer stack is translucent — so we punch html/body/#root fully transparent
+ * and let the chrome carry a single translucent tint that frosts over the
+ * blurred desktop. Content panes keep their opaque `--bg-surface`, so dense
+ * text (chat, terminal, code) stays crisp and readable.
  *
  * The `.electron-mac` class is set pre-paint by the head script in index.html. */
 html.electron-mac,
 html.electron-mac body,
 html.electron-mac #root {
   background-color: transparent !important;
+}
+/* When the per-region vibrancy addon is active the window is truly transparent
+ * and has no native rounded frame, so #root rounds its own corners. Radius
+ * matches the native macOS window corner; harmless on the vibrancy-fallback
+ * window (the native corners sit at the same radius). */
+html.electron-mac #root {
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 /* Chrome (sidebar / top bar / pane gutters use var(--bg)) → frosted glass.
@@ -1082,13 +1089,11 @@ html.electron-mac #main-content {
  * Content panes (chat / terminal / editor) keep their opaque `bg-surface`. */
 html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac.dark .chrome-glass {
-  background-color: hsl(224 26% 4.5% / 0.62) !important;
-  @apply backdrop-blur-2xl backdrop-saturate-150;
+  background-color: hsl(224 26% 4.5% / 0.55) !important;
 }
 html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac:not(.dark) .chrome-glass {
-  background-color: hsl(220 16% 90% / 0.62) !important;
-  @apply backdrop-blur-2xl backdrop-saturate-150;
+  background-color: hsl(220 16% 90% / 0.55) !important;
 }
 
 /* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
@@ -1098,21 +1103,17 @@ html.electron-mac:not(.dark) .chrome-glass {
  * vs a terminal (container + group-cell = 2) both ended up darker than intended,
  * and any deeper nesting darker still. Collapsing nested glass to transparent
  * makes every frosted chrome surface render exactly one identical tint over the
- * shared base frost. The same applies to the CSS blur now: only the OUTERMOST
- * chrome-glass frosts the desktop; nested ones reset `backdrop-filter` so the
- * blur isn't applied (and re-applied) layer over layer. */
+ * shared base frost. */
 html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 /* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
  * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
  * In dark mode `--bg-surface` is #181a20 (a blue-tinted grey); rendered opaque
  * over the translucent chrome it stood out as a lighter "blue" panel. Unlike the
- * chrome — which frosts the desktop directly — a popover floats over OPAQUE
- * content panes, so it carries its OWN `backdrop-filter: blur()` to frost
+ * chrome — whose blur comes from native window vibrancy — a popover floats over
+ * OPAQUE content panes, so it carries its OWN `backdrop-filter: blur()` to frost
  * whatever is behind it (content or desktop). Slightly more opaque than the
  * chrome (≈0.72 vs 0.55) so menu text stays crisp over busy content. On the web
  * (no `.electron-mac`) the base rule keeps the opaque `--bg-surface` fallback. */
@@ -1132,9 +1133,9 @@ html.electron-mac:not(.dark) .glass-surface {
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
-/* Terminal panes frost like the project sidebar. Their roots carry an opaque
- * `bg-surface` (web fallback); under Electron we null it so the `.chrome-glass`
- * terminal container frosts the desktop (its own CSS backdrop-blur) instead of
+/* Terminal panes ride the vibrancy like the project sidebar. Their roots carry
+ * an opaque `bg-surface` (web fallback); under Electron we null it so the
+ * `.chrome-glass` terminal container frosts over the desktop instead of
  * compositing on an opaque backdrop (which would reintroduce the blue cast the
  * single frosted layer avoids). The xterm background is transparent, so the
  * frosted tint reads through behind the (opaque) terminal text. */
@@ -1169,11 +1170,11 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * pulling each tiling surface (data-split-surface) out by one gap into its
  * overflow-hidden parent. */
 .floating-splits {
-  /* `--float-gap` is the per-card margin; adjacent cards therefore sit
-   * 2×gap + 1px (the divider) apart — a hair of separation, no more. */
-  --float-gap: 3px;
+  /* `--float-gap` is the per-card margin; adjacent cards sit 2×gap apart — a
+   * hair of separation, no more. */
+  --float-gap: 2px;
   --float-radius: 10px;
-  /* Transparent so the gaps reveal native vibrancy, not the shell frost. */
+  /* Transparent so the gaps reveal the native window vibrancy underneath. */
   background-color: transparent !important;
 }
 
@@ -1185,36 +1186,37 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   margin: calc(-1 * var(--float-gap)) !important;
 }
 
-/* Every split is a card: each group block (GroupLayout) and standalone group
- * (PanelGrid) root carries data-split-card. These roots already `overflow-
- * hidden`, so the radius cleanly clips the tab bar + content. The layered
- * box-shadow does both jobs — a hairline edge (0-spread ring) and the float
- * elevation — so nothing shifts the inner layout (no `border`). */
+/* Every split is a rounded card; the native window vibrancy frosts its chrome.
+ * NO box-shadow/border — over the frosted gaps a dark shadow reads as an ugly
+ * black halo, and a hairline ring as an unwanted border. The radius + the small
+ * gap alone separate the cards cleanly. */
 .floating-splits [data-split-card] {
   margin: var(--float-gap);
   border-radius: var(--float-radius);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.16),
-    0 6px 20px rgba(0, 0, 0, 0.14);
+  box-shadow: none;
 }
 /* The sidebar is a floating card too, but stays flush to the window on its
- * three outer sides — only the inner (right) edge gets a gap to the content,
- * matching the inter-card channel. */
+ * three outer sides — only the inner (right) edge gets a gap to the content. */
 .floating-splits [role="navigation"][aria-label="Topics sidebar"] {
   margin: 0 calc(2 * var(--float-gap)) 0 0;
   border-radius: var(--float-radius);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.16),
-    0 6px 20px rgba(0, 0, 0, 0.14);
+  box-shadow: none;
 }
-html.dark .floating-splits [data-split-card],
-html.dark .floating-splits [role="navigation"][aria-label="Topics sidebar"] {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.07),
-    0 1px 2px rgba(0, 0, 0, 0.45),
-    0 8px 24px rgba(0, 0, 0, 0.40);
+/* When the sidebar is COLLAPSED (inline `width: 0px`) drop its gap margin so no
+ * empty strip lingers on the left — the content sits flush to the edge. */
+.floating-splits [role="navigation"][aria-label="Topics sidebar"][style*="width: 0px"] {
+  margin: 0 !important;
+}
+/* A card nested inside another card (a PROJECT panel whose own GroupLayout
+ * splits are themselves data-split-cards) must NOT re-apply the floating frame
+ * — otherwise it reads as a "double wrapper". Only the OUTERMOST card per
+ * top-level panel floats; nested splits go flat. */
+.floating-splits [data-split-card] [data-split-card] {
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+.floating-splits [data-split-card] [data-split-surface] {
+  margin: 0 !important;
 }
 
 /* Resize dividers (column / row / sub-stack handles and the sidebar handle)

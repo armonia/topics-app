@@ -49,6 +49,11 @@ export interface ElectronAPI {
     quit: () => void;
     relaunch: () => Promise<void>;
   };
+  /** Per-region native vibrancy (macOS floating-splits). Absent off-macOS. */
+  vibrancy?: {
+    setRegions: (rects: Array<{ x: number; y: number; w: number; h: number; radius?: number }>) => void;
+    clear: () => void;
+  };
   platform: string;
   isElectron: boolean;
 }

@@ -17,6 +17,7 @@ import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
+import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -123,6 +124,11 @@ function App() {
     setSidebarCollapsed,
     setAppSettings,
   } = layout.handlers;
+
+  // Native per-region vibrancy (macOS desktop only). Streams panel rects to the
+  // transparent window so floating-splits gaps show the clear desktop while each
+  // panel frosts; no-op off-Electron / when the addon is unavailable.
+  useFloatingVibrancy(isElectron, appSettings.floatingSplits);
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
