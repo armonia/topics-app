@@ -125,6 +125,13 @@ test.describe("cloud session ↔ project (server e2e)", () => {
     const t2 = await second.json();
     expect(t2.id).toBe(t1.id);
 
+    // A malformed / non-session-shaped key is rejected (shape guard).
+    const bad = await request.post(`${BASE}/api/topics/adopt`, {
+      data: { sessionKey: "../etc passwd" },
+      ignoreHTTPSErrors: true,
+    });
+    expect(bad.status()).toBe(400);
+
     await deleteTopic(request, t1.id);
   });
 });
