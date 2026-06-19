@@ -1146,17 +1146,36 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * Pure paint — the flex/width tiling math is untouched. Cards gain a margin
  * (the gap), a radius and an elevation shadow; the 1px resize dividers go
  * transparent at rest (kept as invisible hit-zones, still highlighted on
- * hover). The gaps are transparent down to `#main-content`, which is itself
- * transparent under `.electron-mac`, so they reveal the blurred-desktop frost
- * — exactly "what's underneath". */
+ * hover).
+ *
+ * "What's underneath" = the REAL native vibrancy, not a tinted frost. The app
+ * shell normally paints the single frosted backdrop (`--bg`, a ~0.5 dark
+ * tint); left in place, the gaps would reveal that tint and read as flat grey.
+ * So in floating mode the shell goes fully transparent — the gaps then fall
+ * straight through to the macOS vibrancy material (blurred desktop), and the
+ * chrome surfaces (sidebar, tab bars) still frost because each carries its own
+ * `.chrome-glass` tint over the now-bare vibrancy (one layer, not compounded).
+ *
+ * Edges are FLUSH, gaps only BETWEEN zones: cards reach the window border with
+ * no outer frame, and the spacing lives only between adjacent cards. Card
+ * margins make the inter-card gaps; the outermost margins are clipped away by
+ * pulling each tiling surface (data-split-surface) out by one gap into its
+ * overflow-hidden parent. */
 .floating-splits {
   /* `--float-gap` is the per-card margin; adjacent cards therefore sit
    * 2×gap + 1px (the divider) apart — a hair of separation, no more. */
   --float-gap: 3px;
   --float-radius: 10px;
-  /* Window frame: combined with each edge card's own margin this yields a
-   * uniform ~6px inset from the window border on every side. */
-  padding: var(--float-gap);
+  /* Transparent so the gaps reveal native vibrancy, not the shell frost. */
+  background-color: transparent !important;
+}
+
+/* The tiling surface (PanelGrid / GroupLayout root) is pulled out by one gap
+ * so the OUTERMOST card margins land in the surrounding overflow-hidden
+ * parent's clip — leaving the edge cards flush to the window while the
+ * between-card margins survive as the only gaps. */
+.floating-splits [data-split-surface] {
+  margin: calc(-1 * var(--float-gap)) !important;
 }
 
 /* Every split is a card: each group block (GroupLayout) and standalone group
@@ -1164,9 +1183,19 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * hidden`, so the radius cleanly clips the tab bar + content. The layered
  * box-shadow does both jobs — a hairline edge (0-spread ring) and the float
  * elevation — so nothing shifts the inner layout (no `border`). */
-.floating-splits [data-split-card],
-.floating-splits [role="navigation"][aria-label="Topics sidebar"] {
+.floating-splits [data-split-card] {
   margin: var(--float-gap);
+  border-radius: var(--float-radius);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.16),
+    0 6px 20px rgba(0, 0, 0, 0.14);
+}
+/* The sidebar is a floating card too, but stays flush to the window on its
+ * three outer sides — only the inner (right) edge gets a gap to the content,
+ * matching the inter-card channel. */
+.floating-splits [role="navigation"][aria-label="Topics sidebar"] {
+  margin: 0 calc(2 * var(--float-gap)) 0 0;
   border-radius: var(--float-radius);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.06),
