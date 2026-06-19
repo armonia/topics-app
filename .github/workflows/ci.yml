@@ -53,20 +53,12 @@ jobs:
         run: bun run lint
         working-directory: client
 
-      # The server has no tsconfig/tsc step, so nothing else verifies it parses.
-      # Transpile every server file in isolation (imports externalized) as a
-      # minimal syntax gate until a real server tsconfig lands (audit #3).
-      - name: Parse-check server
-        run: |
-          set -euo pipefail
-          fail=0
-          for f in $(find server -name '*.ts' ! -name '*.test.ts') server.ts; do
-            if ! bun build "$f" --target bun --outfile /dev/null --external '*' >/dev/null 2>&1; then
-              echo "PARSE FAIL: $f"
-              fail=1
-            fi
-          done
-          [ "$fail" -eq 0 ]
+      # The server runs on Bun with no build-time tsc step. This ratchet
+      # typechecks it (tsconfig.server.json) and fails only if the error count
+      # rises above the grandfathered baseline — so new type errors are caught
+      # while the known backlog is burned down over time (audit #3).
+      - name: Typecheck server (ratchet)
+        run: bun run typecheck:server
 
       - name: Unit + integration tests
         run: bun test:unit
