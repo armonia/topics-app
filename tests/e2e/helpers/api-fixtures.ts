@@ -54,7 +54,7 @@ export async function waitForTopicVisible(
 export async function createTopic(
   request: APIRequestContext,
   name: string,
-  opts?: { parentId?: string; systemPrompt?: string; projectPath?: string; color?: string; icon?: string }
+  opts?: { parentId?: string; systemPrompt?: string; projectPath?: string; color?: string; icon?: string; provider?: string }
 ): Promise<{ id: string; name: string; slug: string }> {
   const res = await request.post(`${BASE}/api/topics`, {
     data: { name, ...opts },
