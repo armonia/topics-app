@@ -1,6 +1,8 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
+import { CellSubStack } from './CellSubStack';
+import { setColumnStackHeights } from './groupLayoutStacks';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -33,7 +35,13 @@ interface GroupLayoutProps {
   onAddPaneWhenEmpty?: (type: PaneType, subType?: string) => void;
   onReorderGroupPanes?: (groupId: string, newPaneIds: string[]) => void;
   onMovePaneBetweenGroups?: (sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => void;
-  onSplitGroup?: (sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => void;
+  /**
+   * Split a group on an edge. Vertical (top/bottom) splits default to a
+   * SINGLE-COLUMN vertical stack — the soloed pane lands under just the
+   * target's column. Pass `opts.fullRow` (the container's full-width drop
+   * strips) to instead insert a new row spanning every column.
+   */
+  onSplitGroup?: (sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom', opts?: { fullRow?: boolean }) => void;
   onReorderRows?: (newRowOrder: number[]) => void;
   onUpdateRows: (rows: GroupLayoutRow[]) => void;
   onUpdateRowHeights: (heights: number[]) => void;
@@ -289,6 +297,58 @@ export function GroupLayout({
       onMovePaneBetweenGroups?.(sourceGroupId, targetGroupId, sourcePaneId, insertIdx);
     }, [onMovePaneBetweenGroups]);
 
+  /* ---- Full-width row drop strips (split "in basso/in alto a TUTTE le tab") ----
+   * The per-cell top/bottom edges split a SINGLE column (cellStacks). To still
+   * offer the full-width row — a new row spanning every column — we paint two
+   * thin strips at the container's extreme top and bottom that only light up
+   * during a cross-group tab drag. Dropping there calls onSplitGroup with
+   * `fullRow: true` (no target group needed; the handler inserts above the
+   * first / below the last row). */
+  const [fullRowDrop, setFullRowDrop] = useState<'top' | 'bottom' | null>(null);
+  const fullRowDropRef = useRefMirror(fullRowDrop);
+  // True while a same-scope tab is being dragged anywhere over this layout —
+  // gates the full-width drop strips so they only intercept events during a
+  // drag (otherwise their top/bottom bands would swallow normal clicks on the
+  // first row's tab bar). Set on the container's capture-phase dragenter,
+  // cleared by resetDndOverlays (window dragend/drop).
+  const [dragActive, setDragActive] = useState(false);
+
+  const isPaneTabDrag = useCallback((e: React.DragEvent) =>
+    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) &&
+    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP) &&
+    dragMatchesScope(e.dataTransfer.types, dndScope), [dndScope]);
+
+  const handleFullRowDragOver = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
+    if (!onSplitGroup || !isPaneTabDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // The strip sits over a cell's edge band — clear that per-cell preview so
+    // only ONE intent (full-width) shows while the pointer is on the strip.
+    if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
+    if (fullRowDropRef.current !== side) { fullRowDropRef.current = side; setFullRowDrop(side); }
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef]);
+
+  const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
+    const rt = e.relatedTarget as Node | null;
+    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    fullRowDropRef.current = null;
+    setFullRowDrop(null);
+  }, [fullRowDropRef]);
+
+  const handleFullRowDrop = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
+    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    fullRowDropRef.current = null;
+    setFullRowDrop(null);
+    if (!sourcePaneId || !sourceGroupId) return;
+    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
+    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // targetGroupId '' → handler falls back to first/last row for the new row.
+    onSplitGroup?.(sourceGroupId, sourcePaneId, '', side, { fullRow: true });
+  }, [onSplitGroup, dndScope, fullRowDropRef]);
+
   /* ---- Row drag reordering (Phase 5) ---- */
   const [draggingRowIdx, setDraggingRowIdx] = useState<number | null>(null);
   const [rowDropTarget, setRowDropTarget] = useState<{ idx: number; side: 'top' | 'bottom' } | null>(null);
@@ -356,7 +416,10 @@ export function GroupLayout({
     setEdgeDropTarget(null);
     setDraggingRowIdx(null);
     setRowDropTarget(null);
-  }, [edgeDropTargetRef]);
+    fullRowDropRef.current = null;
+    setFullRowDrop(null);
+    setDragActive(false);
+  }, [edgeDropTargetRef, fullRowDropRef]);
 
   // Reset on dragend OR drop. A cross-group move unmounts the dragged tab
   // synchronously inside its drop handler, and the browser then never fires
@@ -410,6 +473,177 @@ export function GroupLayout({
     );
   }
 
+  // Render one group's "block" — its tab bar + active-pane content — reused for
+  // a column's primary group AND for each group vertically stacked under it via
+  // cellStacks. `rowIdx`/`groupIdx` only feed the split mini-map's active cell
+  // (column-level); stacked members share their column's groupIdx. `seenPaneIds`
+  // is threaded so a duplicated pane id never paints twice.
+  const renderGroupBlock = (gid: string, rowIdx: number, groupIdx: number, seenPaneIds: Set<string>): React.ReactNode => {
+    const group = groupMap.get(gid);
+    if (!group) return null;
+    const groupPanes = group.paneIds
+      .map(id => paneMap.get(id))
+      .filter((p): p is Pane => !!p && !seenPaneIds.has(p.id));
+    for (const p of groupPanes) seenPaneIds.add(p.id);
+    const groupNotifications = new Map<string, number>();
+    for (const p of groupPanes) {
+      const c = getBadgeCount(p.id, p.topicId, p.id === group.activePaneId);
+      if (c > 0) groupNotifications.set(p.id, c);
+    }
+    const isFocusedGroup = focusedGroupId === gid;
+    // Tri-state for the active tab + content ring:
+    //  - fully focused: project is App-focused AND this is the focused group
+    //  - dimmed-active: this is the focused group inside the project, but
+    //    the project itself sits next to a focused sibling at App level
+    //  - inactive: not the focused group of this project
+    const isFullyFocused = isFocusedGroup && isAppFocused;
+    const edgeDrop = edgeDropTarget?.groupId === gid ? edgeDropTarget.edge : null;
+    return (
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+        {/* Per-group tab bar — h-10 to match the project sidebar header
+            and the StandaloneChatGroup header (consistent chrome row). */}
+        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0" onDragOverCapture={handleTabBarDragOver(gid)}>
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+          <PaneTabBar
+            panes={groupPanes}
+            activePaneId={group.activePaneId}
+            groupIsFocused={isFocusedGroup}
+            groupIsAppFocused={isFullyFocused}
+            onActivate={(paneId) => { clearPane(paneId); onActivatePane(gid, paneId); }}
+            onClose={(paneId) => onClosePane(gid, paneId)}
+            onCloseImmediate={onClosePaneImmediate ? (paneId) => onClosePaneImmediate(gid, paneId) : undefined}
+            onAddPane={(type, subType) => onAddPaneToGroup(gid, type, subType)}
+            availableTypes={availableTypesForGroup(group.type, gid)}
+            groupType={group.type}
+            groupId={gid}
+            dndScope={dndScope}
+            // "New Chat" is always offered in project tab bars
+            // regardless of group.type. Previously gated to
+            // `group.type === 'chat'`, which hid the entry from
+            // file/browser/git/board groups — the user couldn't
+            // create a project chat from them at all. The
+            // handler routes the new chat into the project's
+            // existing chat group (or creates one) — it does
+            // NOT add a chat into a non-chat group.
+            onNewChat={onNewChatInGroup
+              ? () => onNewChatInGroup(gid)
+              : undefined
+            }
+            onReorderPanes={onReorderGroupPanes
+              ? (newPaneIds) => onReorderGroupPanes(gid, newPaneIds)
+              : undefined
+            }
+            onCrossGroupDrop={onMovePaneBetweenGroups
+              ? handleCrossGroupDrop(gid)
+              : undefined
+            }
+            onEdgeSplitDrop={onSplitGroup
+              ? (sourcePaneId, sourceGroupId, edge) => onSplitGroup(sourceGroupId, sourcePaneId, gid, edge)
+              : undefined
+            }
+            onSplitRight={onSplitGroup
+              ? (paneId) => onSplitGroup(gid, paneId, gid, 'right')
+              : undefined
+            }
+            // "Split Down" mirrors the cell bottom-edge drop: a SINGLE-COLUMN
+            // vertical stack (under just this column), not a full-width row.
+            onSplitDown={onSplitGroup
+              ? (paneId) => onSplitGroup(gid, paneId, gid, 'bottom')
+              : undefined
+            }
+            contextPercent={contextPercent}
+            onContextRingClick={onContextRingClick}
+            onStopStreaming={onStopStreaming}
+            onSettings={onSettings}
+            onPopOut={onPopOut}
+            onPinPane={onPinPane ? (paneId) => onPinPane(gid, paneId) : undefined}
+            tabNotifications={groupNotifications}
+            splitMap={hasSplit ? { rows: splitRowWidths, rowHeights, active: [rowIdx, groupIdx] } : undefined}
+          />
+          </div>
+        </div>
+        {/* Active pane content */}
+        <div
+          className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
+          onMouseDownCapture={() => {
+            if (!isFocusedGroup && group.activePaneId) {
+              onActivatePane(gid, group.activePaneId);
+            }
+          }}
+          onDragOver={handleGroupContentDragOver(gid)}
+          onDragLeave={handleGroupContentDragLeave(gid)}
+          onDrop={handleGroupContentDrop(gid)}
+        >
+          {(() => {
+            // Keep-alive render: every pane that has been visited
+            // stays mounted; only the active one is visible. This
+            // preserves chat scroll, history caches, terminal
+            // buffers, and form drafts across tab switches —
+            // before this, switching tabs unmounted the active
+            // pane and re-mounted it from scratch, so users saw
+            // a "reload" flicker (re-fetched history, lost
+            // scroll, etc.) every time they came back.
+            //
+            // Always include the currently-active pane even if
+            // `visitedKeys` hasn't caught up yet — the visited
+            // set is updated in a useEffect that runs *after*
+            // render, so on the first render after activation
+            // we'd otherwise show the empty-state for one frame.
+            // Using `stableKey` as the React key (not pane.id)
+            // keeps the subtree mounted across PANE_ID_REMAP.
+            const visiblePanes = groupPanes.filter(
+              (p) => visitedKeys.has(stableKeyOf(p)) || p.id === group.activePaneId,
+            );
+            if (visiblePanes.length === 0) {
+              return (
+                <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">
+                  No pane selected
+                </div>
+              );
+            }
+            return visiblePanes.map((pane) => {
+              const isPaneActive = pane.id === group.activePaneId;
+              return (
+                <div
+                  key={stableKeyOf(pane)}
+                  // Content panes paint their own opaque bg so they stay crisp once
+                  // the shared backdrop (#main-content) is transparent under Electron
+                  // vibrancy. `project` and `terminal` panes stay transparent here so
+                  // they ride exactly ONE extra glass layer over the shared group-cell
+                  // backdrop (which is itself .chrome-glass): the project sidebar's
+                  // own .chrome-glass, or the terminal container's own .chrome-glass.
+                  // Adding glass here too would stack a third layer and darken the
+                  // terminal relative to the sidebar.
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${pane.type === 'project' || pane.type === 'terminal' ? '' : 'bg-surface'}`}
+                  style={{ display: isPaneActive ? 'flex' : 'none' }}
+                  aria-hidden={!isPaneActive}
+                >
+                  {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
+                </div>
+              );
+            });
+          })()}
+
+          {/* Edge drop zone overlays (Phase 3) */}
+          {edgeDrop && (
+            <div
+              className="absolute pointer-events-none z-30"
+              style={{
+                top: edgeDrop === 'top' ? 0 : edgeDrop === 'bottom' ? '50%' : 0,
+                bottom: edgeDrop === 'bottom' ? 0 : edgeDrop === 'top' ? '50%' : 0,
+                left: edgeDrop === 'left' ? 0 : edgeDrop === 'right' ? '50%' : 0,
+                right: edgeDrop === 'right' ? 0 : edgeDrop === 'left' ? '50%' : 0,
+                background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
+                border: '2px dashed var(--primary)',
+                borderRadius: '4px',
+              }}
+            />
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Defensive render-time dedup: never paint the same group or pane twice, even
   // if a duplicated id slips into state from a hydrate or split race. The
   // reducers PREVENT new duplicates but don't scrub a list that arrives already
@@ -419,8 +653,46 @@ export function GroupLayout({
   // Purely subtractive (by exact id), so it can only ever show fewer, never more.
   const seenGroupIds = new Set<string>();
   const seenPaneIds = new Set<string>();
+  // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
+  // make sense when there's more than one column somewhere — with a single
+  // column a per-cell vertical split already spans the full width, so the
+  // distinction (and the strips) would be redundant.
+  const hasMultipleColumns = rows.some((r) => r.groupIds.length > 1);
+  const showFullRowStrips = dragActive && hasMultipleColumns && !!onSplitGroup;
+
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" onDragEnd={resetDndOverlays}>
+    <div
+      ref={containerRef}
+      className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
+      onDragEnd={resetDndOverlays}
+      onDragEnterCapture={(e) => { if (isPaneTabDrag(e)) setDragActive(true); }}
+    >
+      {/* Full-width row drop strips — only live mid-drag (dragActive) so their
+          top/bottom bands never swallow normal clicks on the first row's tab
+          bar. Dropping here inserts a NEW row spanning every column. */}
+      {showFullRowStrips && (['top', 'bottom'] as const).map((side) => (
+        <div
+          key={side}
+          className="absolute left-0 right-0 z-40 flex items-center justify-center transition-colors"
+          style={{
+            [side]: 0,
+            height: 26,
+            background: fullRowDrop === side
+              ? 'color-mix(in srgb, var(--primary) 22%, transparent)'
+              : 'color-mix(in srgb, var(--primary) 6%, transparent)',
+            borderTop: side === 'bottom' ? '2px dashed var(--primary)' : undefined,
+            borderBottom: side === 'top' ? '2px dashed var(--primary)' : undefined,
+            opacity: fullRowDrop === side ? 1 : 0.65,
+          }}
+          onDragOver={handleFullRowDragOver(side)}
+          onDragLeave={handleFullRowDragLeave}
+          onDrop={handleFullRowDrop(side)}
+        >
+          <span className="text-[10px] font-medium text-primary/80 pointer-events-none select-none uppercase tracking-wide">
+            Full-width row
+          </span>
+        </div>
+      ))}
       {rows.map((row, rowIdx) => {
         const isDraggingRow = draggingRowIdx === rowIdx;
         const isRowDropTop = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'top';
@@ -457,23 +729,18 @@ export function GroupLayout({
                 if (!group || seenGroupIds.has(groupId)) return null;
                 seenGroupIds.add(groupId);
 
-                const groupPanes = group.paneIds
-                  .map(id => paneMap.get(id))
-                  .filter((p): p is Pane => !!p && !seenPaneIds.has(p.id));
-                for (const p of groupPanes) seenPaneIds.add(p.id);
-                const groupNotifications = new Map<string, number>();
-                for (const p of groupPanes) {
-                  const c = getBadgeCount(p.id, p.topicId, p.id === group.activePaneId);
-                  if (c > 0) groupNotifications.set(p.id, c);
-                }
-                const isFocusedGroup = focusedGroupId === groupId;
-                // Tri-state for the active tab + content ring:
-                //  - fully focused: project is App-focused AND this is the focused group
-                //  - dimmed-active: this is the focused group inside the project, but
-                //    the project itself sits next to a focused sibling at App level
-                //  - inactive: not the focused group of this project
-                const isFullyFocused = isFocusedGroup && isAppFocused;
-                const edgeDrop = edgeDropTarget?.groupId === groupId ? edgeDropTarget.edge : null;
+                // This column's vertical sub-stack: the groups stacked UNDER the
+                // primary (split "in basso a una singola split tab"). Skip any
+                // missing / already-painted group and mark survivors seen so a
+                // stacked group never also renders as its own top-level column.
+                const rawStack = row.cellStacks?.[groupId];
+                const stackedIds = (rawStack?.groupIds ?? []).filter(
+                  (id) => groupMap.has(id) && !seenGroupIds.has(id),
+                );
+                for (const id of stackedIds) seenGroupIds.add(id);
+                const subStack = stackedIds.length > 0
+                  ? { items: stackedIds, heights: rawStack?.heights ?? [] }
+                  : undefined;
 
                 return (
                   <div
@@ -485,146 +752,16 @@ export function GroupLayout({
                     // and collapse the cell.
                     style={{ width: `${(row.widths[groupIdx] ?? 1 / row.groupIds.length) * 100}%` }}
                   >
-                    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-                      {/* Per-group tab bar — h-10 to match the project sidebar header
-                          and the StandaloneChatGroup header (consistent chrome row). */}
-                      <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0" onDragOverCapture={handleTabBarDragOver(groupId)}>
-                        <div className="flex-1 flex items-center min-w-0 overflow-hidden">
-                        <PaneTabBar
-                          panes={groupPanes}
-                          activePaneId={group.activePaneId}
-                          groupIsFocused={isFocusedGroup}
-                          groupIsAppFocused={isFullyFocused}
-                          onActivate={(paneId) => { clearPane(paneId); onActivatePane(groupId, paneId); }}
-                          onClose={(paneId) => onClosePane(groupId, paneId)}
-                          onCloseImmediate={onClosePaneImmediate ? (paneId) => onClosePaneImmediate(groupId, paneId) : undefined}
-                          onAddPane={(type, subType) => onAddPaneToGroup(groupId, type, subType)}
-                          availableTypes={availableTypesForGroup(group.type, groupId)}
-                          groupType={group.type}
-                          groupId={groupId}
-                          dndScope={dndScope}
-                          // "New Chat" is always offered in project tab bars
-                          // regardless of group.type. Previously gated to
-                          // `group.type === 'chat'`, which hid the entry from
-                          // file/browser/git/board groups — the user couldn't
-                          // create a project chat from them at all. The
-                          // handler routes the new chat into the project's
-                          // existing chat group (or creates one) — it does
-                          // NOT add a chat into a non-chat group.
-                          onNewChat={onNewChatInGroup
-                            ? () => onNewChatInGroup(groupId)
-                            : undefined
-                          }
-                          onReorderPanes={onReorderGroupPanes
-                            ? (newPaneIds) => onReorderGroupPanes(groupId, newPaneIds)
-                            : undefined
-                          }
-                          onCrossGroupDrop={onMovePaneBetweenGroups
-                            ? handleCrossGroupDrop(groupId)
-                            : undefined
-                          }
-                          onEdgeSplitDrop={onSplitGroup
-                            ? (sourcePaneId, sourceGroupId, edge) => onSplitGroup(sourceGroupId, sourcePaneId, groupId, edge)
-                            : undefined
-                          }
-                          onSplitRight={onSplitGroup
-                            ? (paneId) => onSplitGroup(groupId, paneId, groupId, 'right')
-                            : undefined
-                          }
-                          onSplitDown={onSplitGroup
-                            ? (paneId) => onSplitGroup(groupId, paneId, groupId, 'bottom')
-                            : undefined
-                          }
-                          contextPercent={contextPercent}
-                          onContextRingClick={onContextRingClick}
-                          onStopStreaming={onStopStreaming}
-                          onSettings={onSettings}
-                          onPopOut={onPopOut}
-                          onPinPane={onPinPane ? (paneId) => onPinPane(groupId, paneId) : undefined}
-                          tabNotifications={groupNotifications}
-                          splitMap={hasSplit ? { rows: splitRowWidths, rowHeights, active: [rowIdx, groupIdx] } : undefined}
-                        />
-                        </div>
-                      </div>
-                      {/* Active pane content */}
-                      <div
-                        className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
-                        onMouseDownCapture={() => {
-                          if (!isFocusedGroup && group.activePaneId) {
-                            onActivatePane(groupId, group.activePaneId);
-                          }
-                        }}
-                        onDragOver={handleGroupContentDragOver(groupId)}
-                        onDragLeave={handleGroupContentDragLeave(groupId)}
-                        onDrop={handleGroupContentDrop(groupId)}
-                      >
-                        {(() => {
-                          // Keep-alive render: every pane that has been visited
-                          // stays mounted; only the active one is visible. This
-                          // preserves chat scroll, history caches, terminal
-                          // buffers, and form drafts across tab switches —
-                          // before this, switching tabs unmounted the active
-                          // pane and re-mounted it from scratch, so users saw
-                          // a "reload" flicker (re-fetched history, lost
-                          // scroll, etc.) every time they came back.
-                          //
-                          // Always include the currently-active pane even if
-                          // `visitedKeys` hasn't caught up yet — the visited
-                          // set is updated in a useEffect that runs *after*
-                          // render, so on the first render after activation
-                          // we'd otherwise show the empty-state for one frame.
-                          // Using `stableKey` as the React key (not pane.id)
-                          // keeps the subtree mounted across PANE_ID_REMAP.
-                          const visiblePanes = groupPanes.filter(
-                            (p) => visitedKeys.has(stableKeyOf(p)) || p.id === group.activePaneId,
-                          );
-                          if (visiblePanes.length === 0) {
-                            return (
-                              <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">
-                                No pane selected
-                              </div>
-                            );
-                          }
-                          return visiblePanes.map((pane) => {
-                            const isPaneActive = pane.id === group.activePaneId;
-                            return (
-                              <div
-                                key={stableKeyOf(pane)}
-                                // Content panes paint their own opaque bg so they stay crisp once
-                                // the shared backdrop (#main-content) is transparent under Electron
-                                // vibrancy. `project` and `terminal` panes stay transparent here so
-                                // they ride exactly ONE extra glass layer over the shared group-cell
-                                // backdrop (which is itself .chrome-glass): the project sidebar's
-                                // own .chrome-glass, or the terminal container's own .chrome-glass.
-                                // Adding glass here too would stack a third layer and darken the
-                                // terminal relative to the sidebar.
-                                className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${pane.type === 'project' || pane.type === 'terminal' ? '' : 'bg-surface'}`}
-                                style={{ display: isPaneActive ? 'flex' : 'none' }}
-                                aria-hidden={!isPaneActive}
-                              >
-                                {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
-                              </div>
-                            );
-                          });
-                        })()}
-
-                        {/* Edge drop zone overlays (Phase 3) */}
-                        {edgeDrop && (
-                          <div
-                            className="absolute pointer-events-none z-30"
-                            style={{
-                              top: edgeDrop === 'top' ? 0 : edgeDrop === 'bottom' ? '50%' : 0,
-                              bottom: edgeDrop === 'bottom' ? 0 : edgeDrop === 'top' ? '50%' : 0,
-                              left: edgeDrop === 'left' ? 0 : edgeDrop === 'right' ? '50%' : 0,
-                              right: edgeDrop === 'right' ? 0 : edgeDrop === 'left' ? '50%' : 0,
-                              background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
-                              border: '2px dashed var(--primary)',
-                              borderRadius: '4px',
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
+                    {/* Column body: the primary group, plus any groups stacked
+                        vertically under it (cellStacks) composed via CellSubStack
+                        with their own in-cell resize dividers. Sibling columns
+                        stay full-height. */}
+                    <CellSubStack
+                      stack={subStack}
+                      primary={renderGroupBlock(groupId, rowIdx, groupIdx, seenPaneIds)}
+                      renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, groupIdx, seenPaneIds)}
+                      onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, groupId, nextHeights))}
+                    />
 
                     {/* Horizontal divider between groups in a row */}
                     {groupIdx < row.groupIds.length - 1 && (
