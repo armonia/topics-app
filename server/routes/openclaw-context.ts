@@ -23,7 +23,9 @@ interface ContextAnalysisResult {
   totalTokens: number;
   budgetLimit: number;
   budgetPercent: number;
-  warnings: string[];
+  // Matches the envelope's diagnostics.warnings shape (the actual data sent);
+  // was mis-annotated as string[] — runtime always emitted {type,detail}.
+  warnings: { type: string; detail: string }[];
 }
 
 /** One node in the recursively-scanned workspace memory tree. */
