@@ -892,7 +892,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
     // Build the messages array from the active thread up to (and including) the new user message
     const activeThread = loadActiveThread(sessionKey);
-    const finalMessages: { role: string; content: string }[] = activeThread.map(m => ({
+    const finalMessages: ChatMessage[] = activeThread.map(m => ({
       role: m.role,
       content: m.content,
     }));
@@ -2049,7 +2049,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       // shape matches what providers used to receive (system messages
       // followed by the full user/assistant transcript).
       const composedSystemMessages = composeSystemMessages(envelope.systemBlocks);
-      const finalMessages: { role: string; content: string }[] = [
+      const finalMessages: ChatMessage[] = [
         ...composedSystemMessages.map((m) => ({ role: m.role, content: m.content })),
         ...envelope.history.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content: envelope.userMessage.content },
