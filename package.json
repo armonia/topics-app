@@ -27,6 +27,7 @@
     "test:cli": "bun test tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
+    "typecheck:server": "bun run scripts/typecheck-server.ts",
     "hooks:install": "bun run scripts/install-claude-hooks.ts install",
     "hooks:uninstall": "bun run scripts/install-claude-hooks.ts uninstall",
     "test": "npx playwright test",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/bun": "^1.3.14",
     "@types/web-push": "^3.6.4"
   }
 }
