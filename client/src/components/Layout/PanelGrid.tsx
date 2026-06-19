@@ -1695,6 +1695,7 @@ export function PanelGrid({
   return (
     <div
       ref={containerRef}
+      data-split-surface
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
       onDragStartCapture={handleAnyDragStart}
       onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); handleAnyDragEnd(); }}
