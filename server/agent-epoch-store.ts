@@ -86,7 +86,7 @@ export type AgentEpochEventType = z.infer<typeof eventTypeSchema>;
 
 export type ParseResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
-function formatZodIssues<T>(result: z.SafeParseReturnType<unknown, T>): string {
+function formatZodIssues<T>(result: { success: true; data: T } | { success: false; error: z.ZodError }): string {
   if (result.success) return '';
   return result.error.issues
     .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)

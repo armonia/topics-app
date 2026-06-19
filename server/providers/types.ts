@@ -184,8 +184,9 @@ export type ProviderContextStrategy =
 // "./providers/types"`.
 export type { ProviderStatus, ProviderRequirement } from "../../shared/types";
 
-// Import the type so the local references in this file resolve.
-import type { ProviderStatus } from "../../shared/types";
+// Import the types so the local references in this file resolve (a bare
+// `export … from` re-export does not create an in-module binding).
+import type { ProviderStatus, ProviderRequirement, ProvidersSnapshot } from "../../shared/types";
 
 export interface ProviderDiagnostic {
   name: string;
