@@ -663,6 +663,7 @@ export function GroupLayout({
   return (
     <div
       ref={containerRef}
+      data-split-surface
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
       onDragEnd={resetDndOverlays}
       onDragEnterCapture={(e) => { if (isPaneTabDrag(e)) setDragActive(true); }}
