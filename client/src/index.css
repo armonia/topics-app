@@ -1041,13 +1041,14 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-/* ─── macOS native vibrancy (Electron only) ──────────────────────────────
- * The main window is created with `vibrancy:'sidebar'` + a transparent native
- * background (electron-app/main.ts). macOS blur only shows where the ENTIRE
- * layer stack is translucent — so we punch html/body/#root fully transparent
- * and let the chrome carry a single translucent tint that frosts over the
- * blurred desktop. Content panes keep their opaque `--bg-surface`, so dense
- * text (chat, terminal, code) stays crisp and readable.
+/* ─── macOS transparent window + CSS-frosted chrome (Electron only) ────────
+ * The main window is GENUINELY transparent (electron-app/main.ts: `transparent:
+ * true`, no vibrancy) so floating-splits gaps reveal the REAL desktop. We punch
+ * html/body/#root fully transparent and frost each chrome surface itself with a
+ * CSS `backdrop-filter: blur()` over a translucent tint — replacing the single
+ * native-vibrancy blur the window used to provide. Content panes keep their
+ * opaque `--bg-surface`, so dense text (chat, terminal, code) stays crisp; only
+ * the chrome (and the deliberate floating gaps) is see-through.
  *
  * The `.electron-mac` class is set pre-paint by the head script in index.html. */
 html.electron-mac,
@@ -1081,11 +1082,13 @@ html.electron-mac #main-content {
  * Content panes (chat / terminal / editor) keep their opaque `bg-surface`. */
 html.electron-mac.dark [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac.dark .chrome-glass {
-  background-color: hsl(224 26% 4.5% / 0.55) !important;
+  background-color: hsl(224 26% 4.5% / 0.62) !important;
+  @apply backdrop-blur-2xl backdrop-saturate-150;
 }
 html.electron-mac:not(.dark) [role="navigation"][aria-label="Topics sidebar"],
 html.electron-mac:not(.dark) .chrome-glass {
-  background-color: hsl(220 16% 90% / 0.55) !important;
+  background-color: hsl(220 16% 90% / 0.62) !important;
+  @apply backdrop-blur-2xl backdrop-saturate-150;
 }
 
 /* SINGLE translucent layer, always. A `.chrome-glass` nested inside another
@@ -1095,17 +1098,21 @@ html.electron-mac:not(.dark) .chrome-glass {
  * vs a terminal (container + group-cell = 2) both ended up darker than intended,
  * and any deeper nesting darker still. Collapsing nested glass to transparent
  * makes every frosted chrome surface render exactly one identical tint over the
- * shared base frost. */
+ * shared base frost. The same applies to the CSS blur now: only the OUTERMOST
+ * chrome-glass frosts the desktop; nested ones reset `backdrop-filter` so the
+ * blur isn't applied (and re-applied) layer over layer. */
 html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
  * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
  * In dark mode `--bg-surface` is #181a20 (a blue-tinted grey); rendered opaque
  * over the translucent chrome it stood out as a lighter "blue" panel. Unlike the
- * chrome — whose blur comes from native window vibrancy — a popover floats over
- * OPAQUE content panes, so it carries its OWN `backdrop-filter: blur()` to frost
+ * chrome — which frosts the desktop directly — a popover floats over OPAQUE
+ * content panes, so it carries its OWN `backdrop-filter: blur()` to frost
  * whatever is behind it (content or desktop). Slightly more opaque than the
  * chrome (≈0.72 vs 0.55) so menu text stays crisp over busy content. On the web
  * (no `.electron-mac`) the base rule keeps the opaque `--bg-surface` fallback. */
@@ -1125,9 +1132,9 @@ html.electron-mac:not(.dark) .glass-surface {
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
-/* Terminal panes ride the vibrancy like the project sidebar. Their roots carry
- * an opaque `bg-surface` (web fallback); under Electron we null it so the
- * `.chrome-glass` terminal container frosts over the desktop instead of
+/* Terminal panes frost like the project sidebar. Their roots carry an opaque
+ * `bg-surface` (web fallback); under Electron we null it so the `.chrome-glass`
+ * terminal container frosts the desktop (its own CSS backdrop-blur) instead of
  * compositing on an opaque backdrop (which would reintroduce the blue cast the
  * single frosted layer avoids). The xterm background is transparent, so the
  * frosted tint reads through behind the (opaque) terminal text. */
