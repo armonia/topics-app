@@ -469,10 +469,13 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 12, y: 12 },
-    // Phase G: vibrancy material on macOS so the chrome can layer over
-    // a translucent background. Renderer tokens with `/ .7` alpha
-    // surface the material through.
-    ...(isMac ? { vibrancy: 'sidebar' as const, visualEffectState: 'active' as const } : {}),
+    // The window is GENUINELY transparent on macOS (not vibrancy): floating-
+    // splits needs the gaps between panels to reveal the real desktop, and
+    // native vibrancy only gives a frosted grey. We drop the `sidebar`
+    // vibrancy material and frost the chrome (sidebar, tab bars, terminals)
+    // via CSS `backdrop-filter` instead — see index.css · electron-mac block.
+    // Content panes stay opaque, so only the deliberate gaps show through.
+    ...(isMac ? { transparent: true } : {}),
     backgroundColor: isMac ? '#00000000' : '#1a1a1a',
     icon: path.join(__dirname, 'icon.icns'),
     webPreferences: {
