@@ -177,7 +177,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           online: gateway.online,
           status: gateway.status,
           latencyMs: gateway.latencyMs,
-          httpStatus: gateway.httpStatus,
+          httpStatus: "httpStatus" in gateway ? gateway.httpStatus : undefined,
           lastCheckedAt: gateway.checkedAt,
         },
         server: {
