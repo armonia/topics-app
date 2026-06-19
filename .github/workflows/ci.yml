@@ -62,3 +62,10 @@ jobs:
 
       - name: Unit + integration tests
         run: bun test:unit
+
+      # Collect (don't run) every Playwright spec: catches transpile/import
+      # errors across the whole E2E suite without needing the app or browsers.
+      # `--list` aborts on the first bad spec, so one broken file used to mask
+      # the entire suite (see the context-settings ESM/require fix).
+      - name: E2E spec collection
+        run: npx playwright test --list
