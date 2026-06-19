@@ -233,39 +233,6 @@ async function globalSetup() {
       }).catch(() => {});
     }
     console.log("[global-setup] Reset UI state (panels, grid-layout, panel-order)");
-
-    // Clean up stale E2E tasks — the /api/boards/tasks endpoint returns
-    // an object with project keys, each containing an array of tasks
-    const boardsRes = await fetch(`${BASE}/api/boards/tasks`, {
-      headers: { Accept: "application/json" },
-    });
-    if (boardsRes.ok) {
-      const data = await boardsRes.json();
-      // Handle both array and object response formats
-      const tasks: Array<{ id: string; text: string; projectPath?: string }> =
-        Array.isArray(data)
-          ? data
-          : (Object.values(data).flat() as any);
-      const staleTasks = (tasks || []).filter(
-        (t: any) =>
-          t &&
-          t.text &&
-          (t.text.startsWith("KB-") || t.text.startsWith("E2E-"))
-      );
-      if (staleTasks.length > 0) {
-        console.log(
-          `[global-setup] Cleaning ${staleTasks.length} stale E2E tasks...`
-        );
-        for (const task of staleTasks) {
-          const projectId = encodeURIComponent(
-            (task as any).projectPath || ""
-          );
-          await fetch(`${BASE}/api/boards/${projectId}/tasks/${task.id}`, {
-            method: "DELETE",
-          }).catch(() => {});
-        }
-      }
-    }
   } catch (err) {
     // Server might have issues — don't fail setup, tests will catch errors
     console.warn(
