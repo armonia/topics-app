@@ -100,7 +100,7 @@ function sanitiseQuestion(raw: unknown): AskUserQuestionItem | null {
           const description = typeof rec.description === "string" ? rec.description : undefined;
           return { label, description };
         })
-        .filter((o): o is { label: string; description?: string } => o !== null)
+        .filter((o): o is NonNullable<typeof o> => o !== null)
     : [];
   // SDK contract: min 2, max 4 options (excluding the implicit "Other"
   // we add on the client). Anything outside that range is a sign the
