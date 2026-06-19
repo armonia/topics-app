@@ -1,0 +1,72 @@
+name: CI
+
+# Quality gate on every push to main and every pull request: client typecheck,
+# client lint, server parse-check, and the unit/integration suite.
+#
+# Why this exists: release.yml only runs on version tags, so before this nothing
+# was typechecked or tested on merge — regressions (and a build-breaking tsconfig
+# value) shipped silently. See AUDIT-2026-06-19.md, priority #3.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by server tests)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile
+
+      # node-pty ships no Linux prebuild — rebuild against the runner's Node.
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      # Use the LOCALLY pinned tsc (5.9.3): `bunx tsc` could fetch a newer major
+      # whose deprecation handling differs and re-break the build gate.
+      - name: Typecheck client (tsc -b)
+        run: ./node_modules/.bin/tsc -b
+        working-directory: client
+
+      - name: Lint client (eslint)
+        run: bun run lint
+        working-directory: client
+
+      # The server has no tsconfig/tsc step, so nothing else verifies it parses.
+      # Transpile every server file in isolation (imports externalized) as a
+      # minimal syntax gate until a real server tsconfig lands (audit #3).
+      - name: Parse-check server
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(find server -name '*.ts' ! -name '*.test.ts') server.ts; do
+            if ! bun build "$f" --target bun --outfile /dev/null --external '*' >/dev/null 2>&1; then
+              echo "PARSE FAIL: $f"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+
+      - name: Unit + integration tests
+        run: bun test:unit

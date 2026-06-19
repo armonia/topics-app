@@ -881,13 +881,13 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
 });
 
 describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () => {
-  const mkPane = (id: string, type = "project") => ({ id, type, title: id }) as any;
+  const mkPane = (id: string, type = "project") => ({ id, type, title: id }) as unknown as ClosedPaneRecord["pane"];
   const mkRec = (id: string, closedAt: number) =>
-    ({ id, closedAt, pane: mkPane(id), groupId: "group:default", groupIndex: 0, level: "app" }) as any;
+    ({ id, closedAt, pane: mkPane(id), groupId: "group:default", groupIndex: 0, level: "app" }) as unknown as ClosedPaneRecord;
   const grp = (paneIds: string[]) =>
     ({ id: "group:default", paneIds, splitRatio: 0.5, splitAxis: "horizontal" as const });
   const hydrate = (state: PaneState, snapshot: Record<string, unknown>) =>
-    paneReducer(state, { type: "HYDRATE_FROM_SNAPSHOT", payload: { snapshot } } as any);
+    paneReducer(state, { type: "HYDRATE_FROM_SNAPSHOT", payload: { snapshot } } as unknown as Parameters<typeof paneReducer>[1]);
 
   test("a local-only pane survives a remote snapshot that omits it (the clobber fix)", () => {
     // THIS client just opened project:P. A newer snapshot from another client
