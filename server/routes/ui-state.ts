@@ -240,7 +240,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
              payload_version = 2,
              server_seq = excluded.server_seq,
              updated_at = datetime('now')`,
-          key, value, nextSeq,
+          [key, value, nextSeq],
         );
         return nextSeq;
       }).immediate();
@@ -306,7 +306,7 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
                payload_version = 2,
                server_seq = excluded.server_seq,
                updated_at = datetime('now')`,
-            key, serialized, nextSeq,
+            [key, serialized, nextSeq],
           );
           server_seqs[key] = nextSeq;
         }

@@ -117,9 +117,7 @@ export function purgeWorktreeFromUiState(
              payload_version = 2,
              server_seq = excluded.server_seq,
              updated_at = datetime('now')`,
-          row.key,
-          nextValue,
-          nextSeq,
+          [row.key, nextValue, nextSeq],
         );
         out.push({ key: row.key, value: parsed, server_seq: nextSeq });
       }

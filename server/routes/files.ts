@@ -943,7 +943,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             if (entry.isDirectory()) {
               walkFlat(fullPath);
             } else if (entry.isFile()) {
-              files.push(relative(resolvedPath, fullPath));
+              // resolvedPath is guaranteed non-null (guarded at the top of the
+              // handler); TS just loses the narrowing inside this closure.
+              files.push(relative(resolvedPath!, fullPath));
             }
           }
         } catch {}

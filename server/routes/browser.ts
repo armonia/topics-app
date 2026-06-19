@@ -269,7 +269,7 @@ export function createBrowserRouter(
 
           case "screenshot": {
             const buf = await browserService.screenshot(id, { format: body.format, quality: body.quality, fullPage: body.fullPage });
-            return new Response(buf, { headers: { "Content-Type": body.format === "png" ? "image/png" : "image/jpeg", "Cache-Control": "no-cache" } });
+            return new Response(buf as unknown as BodyInit, { headers: { "Content-Type": body.format === "png" ? "image/png" : "image/jpeg", "Cache-Control": "no-cache" } });
           }
 
           case "snapshot": {
@@ -324,7 +324,7 @@ export function createBrowserRouter(
       try {
         const format = url.searchParams.get("format") === "png" ? "png" : "jpeg";
         const buf = await browserService.screenshot(snapMatch.id, { format });
-        return new Response(buf, { headers: { "Content-Type": format === "png" ? "image/png" : "image/jpeg", "Cache-Control": "no-cache" } });
+        return new Response(buf as unknown as BodyInit, { headers: { "Content-Type": format === "png" ? "image/png" : "image/jpeg", "Cache-Control": "no-cache" } });
       } catch (err: any) {
         return errorResponse(500, `Snapshot failed: ${err.message}`);
       }
@@ -365,7 +365,7 @@ export function createBrowserRouter(
         await browserService.navigate(tempId, targetUrl);
         const buf = await browserService.screenshot(tempId);
         await browserService.destroyContext(tempId);
-        return new Response(buf, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache" } });
+        return new Response(buf as unknown as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache" } });
       } catch (err: any) {
         await browserService.destroyContext(tempId).catch(() => {});
         return errorResponse(500, `Screenshot failed: ${err.message}`);

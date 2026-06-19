@@ -186,9 +186,7 @@ export function purgeOrphanTopicRefs(db: Database): CleanupReport {
            payload_version = 2,
            server_seq = excluded.server_seq,
            updated_at = datetime('now')`,
-        key,
-        nextValue,
-        nextSeq,
+        [key, nextValue, nextSeq],
       );
     }
   });

@@ -883,7 +883,7 @@ const staleStreamTimer = setInterval(() => {
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
       // Finalize partial messages via SQLite
-      db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", sessionKey);
+      db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [sessionKey]);
       const topicsData = loadTopics();
       let topicId: string | undefined;
       for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
@@ -902,7 +902,7 @@ console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/brow
 
 // Phase B · DAEMON-01: finalise state file once Bun.serve owns a port.
 // `server.port` reflects the *actual* port (Bun resolves 0 → ephemeral).
-const daemonState = writeState(server.port);
+const daemonState = writeState(server.port ?? PORT);
 console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonState.port}`);
 
 // Phase 30 BROWSER-CHAT-01 — restore browser contexts in background.
