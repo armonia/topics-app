@@ -1076,9 +1076,38 @@ export interface PaneGroup {
   type: PaneGroupType;
 }
 
+/**
+ * Optional vertical sub-stack inside a single COLUMN of a `GroupLayoutRow`
+ * (the project-window twin of `PanelGridCellStack`). A row's columns are
+ * `groupIds[colIdx]` — one group per column. When the user drops a tab on a
+ * column's top/bottom edge (or hits "Split Down"), we split JUST that column
+ * vertically instead of inserting a full-width row under every column. The
+ * soloed group is appended to `cellStacks[primaryGroupId].groupIds` and the
+ * renderer composes the cell as `[primary, ...stack.groupIds]` stacked
+ * top-to-bottom — leaving the row's sibling columns full-height.
+ *
+ * Invariants (mirrors PanelGridCellStack):
+ *   - `groupIds` holds ONLY the additional groups below the primary; the
+ *     primary (`row.groupIds[colIdx]`) is NOT included.
+ *   - `heights.length === groupIds.length + 1` (primary slot + each member),
+ *     every entry > 0, sum ≈ 1.
+ *   - a column with no vertical split simply has no `cellStacks` entry, so the
+ *     single-group-per-column legacy case stays `cellStacks` being absent.
+ */
+export interface GroupCellStack {
+  groupIds: string[];
+  heights: number[];
+}
+
 export interface GroupLayoutRow {
   groupIds: string[];
   widths: number[];       // fractions summing to 1
+  /**
+   * Optional per-column vertical stacks, keyed by the column's primary
+   * `groupIds[colIdx]`. Present only for columns split vertically; absent for
+   * the legacy single-group-per-column case. Persisted to the project layout.
+   */
+  cellStacks?: Record<string, GroupCellStack>;
 }
 
 /**

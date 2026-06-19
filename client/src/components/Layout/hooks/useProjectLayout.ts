@@ -56,6 +56,13 @@ import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '..
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
 import { splitColumnWidths, appendColumnWidths, keepColumnWidths, chooseSplitOrientation } from '../gridWidths';
+import {
+  addGroupToColumnStack,
+  isColumnStackFull,
+  reconcileCellStacks,
+  pickCellStacks,
+  rowGroupIds,
+} from '../groupLayoutStacks';
 import { setBrowserSpawner, clearBrowserSpawner } from '../../../state/browserSpawner';
 import { MAX_COLS_PER_ROW, MAX_ROWS } from '../constants';
 import { shouldHandleOpenFile } from '../fileOpenScope';
@@ -292,7 +299,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // Pinned each render so the early-mounted browser-split effect can call the
   // latest handleSplitGroup (defined ~1200 lines below). Same pattern as
   // handleAddPaneToGroupRef.
-  const handleSplitGroupRef = useRef<((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom') => void) | null>(null);
+  const handleSplitGroupRef = useRef<((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom', opts?: { fullRow?: boolean }) => void) | null>(null);
   // A browser pane just added to a group, queued to be split OUT into its own
   // space-aware group beside the source (consumed by the effect below once the
   // pane is committed). Mirrors the standalone pendingSoloPanelId pattern.
@@ -674,9 +681,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // `applyChatReconciliation.activateInGroup` (Commit 4) — the layout-side
   // effect that used to live here was redundant and has been removed.
   useEffect(() => {
-    const curRows = rowsRef.current;
     const allGroupIds = new Set(groups.map(g => g.id));
-    let anyRowChanged = false;
+    // First reconcile per-column vertical stacks: drop dead stacked members,
+    // promote a survivor when a column's primary died, prune empty stacks. This
+    // runs BEFORE the column/row pruning below so a promoted primary is seen as
+    // live and a fully-dead column is left for the width-preserving filter to
+    // drop. `cellStacks` then rides through that filter via pickCellStacks.
+    const reconciled = reconcileCellStacks(rowsRef.current, allGroupIds);
+    const curRows = reconciled.rows;
+    let anyRowChanged = reconciled.changed;
     let newRows = curRows.map(r => {
       // Keep the indices of groups that still exist, in order.
       const keepIdx: number[] = [];
@@ -689,7 +702,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // Preserve the surviving columns' manual widths (renormalised) instead of
       // flattening them to equal — dropping a group must not reset its siblings.
       const widths = keepColumnWidths(r.widths, keepIdx);
-      return { groupIds, widths };
+      // Keep the surviving columns' vertical stacks; drop entries keyed by a
+      // pruned primary (reconcile never leaves a dead primary heading a stack).
+      const cellStacks = pickCellStacks(r.cellStacks, groupIds);
+      return { groupIds, widths, ...(cellStacks ? { cellStacks } : {}) };
     });
     // Track which pre-filter row indices survive (== indices into rowHeights),
     // so the surviving rows' manual heights can be preserved below instead of
@@ -703,7 +719,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     });
     if (newRows.length !== beforeLen) anyRowChanged = true;
 
-    const usedAfterClean = new Set(newRows.flatMap(r => r.groupIds));
+    // Count BOTH column primaries and stacked members as "placed" — a stacked
+    // group must not also be re-added as a fresh top-level column (it would
+    // render twice). allGroupIdsInRows walks primaries + every cellStack.
+    const usedAfterClean = new Set(newRows.flatMap(rowGroupIds));
     const newGroupIds = groups.filter(g => !usedAfterClean.has(g.id)).map(g => g.id);
     if (newGroupIds.length > 0) {
       anyRowChanged = true;
@@ -723,7 +742,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // Give the newly-appeared groups a fair share but keep the first
           // row's existing columns in proportion (was `1/n` — reset on every
           // add).
-          rebuilt = [{ groupIds: all, widths: appendColumnWidths(firstRow.widths, toFirst.length) }, ...rebuilt.slice(1)];
+          rebuilt = [{ ...firstRow, groupIds: all, widths: appendColumnWidths(firstRow.widths, toFirst.length) }, ...rebuilt.slice(1)];
         }
         if (overflow.length > 0) {
           rebuilt = [...rebuilt, { groupIds: overflow, widths: overflow.map(() => 1 / overflow.length) }];
@@ -1719,9 +1738,18 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       paneId: string,
       targetGroupId: string,
       edge: 'left' | 'right' | 'top' | 'bottom',
+      // Vertical (top/bottom) splits default to a SINGLE-COLUMN vertical stack
+      // ("in basso a una singola split tab") — the soloed pane lands under just
+      // the target's column. `fullRow: true` (the container's full-width drop
+      // strips) inserts a new row spanning EVERY column ("in basso a tutte le
+      // tab"). Horizontal (left/right) splits ignore this flag.
+      opts?: { fullRow?: boolean },
     ) => {
       const pane = panes.find(p => p.id === paneId);
       if (!pane) return;
+      const isVertical = edge === 'top' || edge === 'bottom';
+      const fullRow = isVertical && !!opts?.fullRow;
+      const columnSplit = isVertical && !fullRow;
 
       if (sourceGroupId === targetGroupId) {
         const sourceGroup = groups.find(g => g.id === sourceGroupId);
@@ -1736,15 +1764,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         }
       }
 
-      // Enforce the same grid limits the standalone PanelGrid applies — the
-      // project layout never imported them, so a project could grow past
-      // MAX_COLS_PER_ROW columns / MAX_ROWS rows into unusable slivers. Reject
-      // BEFORE any state mutation (setGroups below) so we never strand an
-      // orphan group that no row places.
+      // Enforce the grid limits before any state mutation (setGroups below) so
+      // we never strand an orphan group that no row/stack places:
+      //  - left/right: cap columns per row (MAX_COLS_PER_ROW)
+      //  - column vertical split: cap the target column's stack depth
+      //  - full-width row: cap total rows (MAX_ROWS)
       const curRowsForLimit = rowsRef.current;
       if (edge === 'left' || edge === 'right') {
         const targetRow = curRowsForLimit.find(r => r.groupIds.includes(targetGroupId));
         if (targetRow && targetRow.groupIds.length >= MAX_COLS_PER_ROW) return;
+      } else if (columnSplit) {
+        if (isColumnStackFull(curRowsForLimit, targetGroupId)) return;
       } else if (curRowsForLimit.length >= MAX_ROWS) {
         return;
       }
@@ -1787,35 +1817,43 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // other column's width untouched. (Was `1/n` — flattened a manual
           // resize on every split. See gridWidths.ts.)
           const newWidths = splitColumnWidths(row.widths, targetIdx, insertAt);
-          return { groupIds: newGroupIds, widths: newWidths };
+          return { ...row, groupIds: newGroupIds, widths: newWidths };
         }));
+      } else if (columnSplit) {
+        // SINGLE-COLUMN vertical split: stack the soloed group under (bottom)
+        // or over (top) just the target's column via cellStacks. No new row,
+        // no rowHeights change — the stack's own heights live in cellStacks,
+        // so sibling columns stay full-height. This is the fix for "splitting a
+        // tab to the bottom moved it under EVERY column".
+        setRows(prev => addGroupToColumnStack(prev, targetGroupId, newGroupId, edge));
       } else {
-        // Compute the indices OUTSIDE the updaters and queue setRows +
-        // setRowHeights as siblings (handleReorderRows pattern). The old
-        // shape called setRowHeights inside the setRows updater — updaters
-        // must be pure, and StrictMode's double-invocation queued the height
-        // split twice, corrupting rowHeights (rows/heights length mismatch
-        // that the rows-sync effect only repairs when a group is removed).
+        // FULL-WIDTH row insert ("in basso/in alto a tutte le tab"). Compute
+        // the indices OUTSIDE the updaters and queue setRows + setRowHeights as
+        // siblings (handleReorderRows pattern) — updaters must be pure, and
+        // StrictMode's double-invocation would otherwise queue the height split
+        // twice, corrupting rowHeights. `targetGroupId` may be empty (the
+        // container's top/bottom strip, which means "above the first row" /
+        // "below the last row"); fall back to the first/last row then.
         const rowsNow = rowsRef.current;
-        const targetRowIdx = rowsNow.findIndex(row => row.groupIds.includes(targetGroupId));
-        if (targetRowIdx !== -1) {
-          const insertAt = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
-          setRows(prev => {
-            const idx = prev.findIndex(row => row.groupIds.includes(targetGroupId));
-            if (idx === -1) return prev;
-            const at = edge === 'top' ? idx : idx + 1;
-            const newRows = [...prev];
-            newRows.splice(at, 0, { groupIds: [newGroupId], widths: [1] });
-            return newRows;
-          });
-          setRowHeights(prevH => {
-            const newHeights = [...prevH];
-            const halfHeight = (newHeights[targetRowIdx] || 1 / prevH.length) / 2;
-            newHeights[targetRowIdx] = halfHeight;
-            newHeights.splice(insertAt, 0, halfHeight);
-            return newHeights;
-          });
-        }
+        let targetRowIdx = rowsNow.findIndex(row => row.groupIds.includes(targetGroupId));
+        if (targetRowIdx === -1) targetRowIdx = edge === 'top' ? 0 : rowsNow.length - 1;
+        const insertAt = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
+        setRows(prev => {
+          let idx = prev.findIndex(row => row.groupIds.includes(targetGroupId));
+          if (idx === -1) idx = edge === 'top' ? 0 : prev.length - 1;
+          const at = edge === 'top' ? idx : idx + 1;
+          const newRows = [...prev];
+          newRows.splice(at, 0, { groupIds: [newGroupId], widths: [1] });
+          return newRows;
+        });
+        setRowHeights(prevH => {
+          const newHeights = [...prevH];
+          const donorIdx = Math.max(0, Math.min(targetRowIdx, newHeights.length - 1));
+          const halfHeight = (newHeights[donorIdx] || 1 / Math.max(1, prevH.length)) / 2;
+          if (newHeights.length > 0) newHeights[donorIdx] = halfHeight;
+          newHeights.splice(insertAt, 0, halfHeight);
+          return newHeights;
+        });
       }
 
       setFocusedGroupId(newGroupId);

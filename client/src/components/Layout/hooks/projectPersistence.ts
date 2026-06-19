@@ -17,7 +17,7 @@
  *  - `_chatSyncComplete` gate set + `markChatSyncComplete` /
  *    `savePersistedTabState` / `savePersistedLayoutState` save fns.
  */
-import type { Pane, PaneGroup, GroupLayoutRow } from '../../../types';
+import type { Pane, PaneGroup, GroupLayoutRow, GroupCellStack } from '../../../types';
 import {
   createPaneId,
   saveProjectLayout,
@@ -123,6 +123,44 @@ export function unsubscribeFromProjectLayout(projectPath: string): void {
  * to match each row's groupIds, drop empty rows, and align rowHeights to the
  * survivors. Untouched when `rows` is absent (nothing persisted yet).
  */
+/**
+ * Normalize a row's optional per-column `cellStacks` (project-window twin of
+ * sanitizeRow's stack handling). `primaryGroupIds` is the row's surviving
+ * column primaries. Returns undefined when nothing valid remains.
+ */
+function sanitizeCellStacks(
+  raw: unknown,
+  primaryGroupIds: string[],
+): Record<string, GroupCellStack> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const primaries = new Set(primaryGroupIds);
+  const usedMembers = new Set<string>(primaryGroupIds);
+  const out: Record<string, GroupCellStack> = {};
+  for (const [primary, stackRaw] of Object.entries(raw as Record<string, unknown>)) {
+    if (!primaries.has(primary)) continue; // orphan — primary isn't a column
+    if (!stackRaw || typeof stackRaw !== 'object') continue;
+    const s = stackRaw as Partial<GroupCellStack>;
+    if (!Array.isArray(s.groupIds)) continue;
+    const members: string[] = [];
+    for (const id of s.groupIds) {
+      // A member may not shadow a column primary or another stack's member.
+      if (typeof id !== 'string' || usedMembers.has(id)) continue;
+      usedMembers.add(id);
+      members.push(id);
+    }
+    if (members.length === 0) continue;
+    const rawHeights = Array.isArray(s.heights) ? s.heights : [];
+    const heightsLen = members.length + 1; // primary + members
+    const heights = Array.from({ length: heightsLen }, (_, i) => {
+      const h = rawHeights[i];
+      return typeof h === 'number' && Number.isFinite(h) && h > 0 ? h : 1;
+    });
+    const hsum = heights.reduce((sum, h) => sum + h, 0) || 1;
+    out[primary] = { groupIds: members, heights: heights.map(h => h / hsum) };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function sanitizeLayout(layout: PersistedLayoutState | null): PersistedLayoutState | null {
   if (!layout || typeof layout !== 'object' || !Array.isArray(layout.rows)) return layout;
   const rows = layout.rows
@@ -136,7 +174,12 @@ function sanitizeLayout(layout: PersistedLayoutState | null): PersistedLayoutSta
           return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 1 / Math.max(1, groupIds.length);
         }),
       );
-      return { ...r, groupIds, widths };
+      // Normalize per-column vertical sub-stacks (mirror sanitizeRow in
+      // usePanelGridPersistence): drop orphan stacks (primary no longer a
+      // column), dedupe members so a group never renders twice, coerce/renorm
+      // heights to `[primary, ...members]` length summing to 1.
+      const cellStacks = sanitizeCellStacks(r.cellStacks, groupIds);
+      return { ...r, groupIds, widths, ...(cellStacks ? { cellStacks } : { cellStacks: undefined }) };
     })
     .filter(r => r.groupIds.length > 0);
   const rawH = Array.isArray(layout.rowHeights) ? layout.rowHeights : [];
