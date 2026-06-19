@@ -1,6 +1,6 @@
 # Topics
 
-> A desktop workspace for [Claude Code](https://claude.com/claude-code) and other CLI coding agents — organize your sessions into focused topics, each with its own project context, terminal, browser, and task board.
+> A desktop workspace for [Claude Code](https://claude.com/claude-code) and other CLI coding agents — organize your sessions into focused topics, each with its own project context, terminal, and browser.
 >
 > An open, **agent-first** alternative to Cursor, Windsurf & co.: instead of wrapping an editor around a model, Topics is a home for the terminal AI agents you already run.
 
@@ -29,7 +29,7 @@ Topics checks GitHub Releases for new versions. Use **menu → Check for Updates
 
 - **Topic-based organization** — group your Claude Code / agent sessions by project or context, in tabs
 - **Project integration** — file explorer, Git changes, an embedded terminal (run your agent here) and browser per topic
-- **Kanban & agent monitoring** — track tasks on a board and watch your agents work
+- **Agent monitoring** — see every session's state and get notified when an agent finishes or needs you
 - **Context visualization** — see how much context each session is using
 - **Bring your own agent & keys** — works against the Anthropic API directly, or via an optional OpenClaw gateway
 
@@ -53,7 +53,7 @@ You bring your own keys. Topics stores everything locally — see [PRIVACY.md](P
 
 ## Build from source
 
-Requires [Bun](https://bun.sh/) and Node.js 18+.
+Requires [Bun](https://bun.sh/) and Node.js 20+.
 
 ```bash
 git clone https://github.com/armonia/topics-app.git

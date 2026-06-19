@@ -70,9 +70,7 @@ export function createActivityRouter(ctx: AppContext, monitor: ActivityMonitor):
     // REST: GET /api/activity (alias)
     if (method === "GET" && pathname === "/api/activity") {
       const limit = parseInt(url.searchParams.get("limit") || "100");
-      const topicId = url.searchParams.get("topicId");
-      let events = monitor.getRecent(Math.min(limit, 500));
-      // Filtering by topicId is a future feature (requires sessionKey mapping)
+      const events = monitor.getRecent(Math.min(limit, 500));
       return json({ events });
     }
 

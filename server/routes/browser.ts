@@ -38,7 +38,7 @@ export function createBrowserRouter(
     const getMatch = matchRoute(pathname, "/api/browsers/:id");
     if (method === "GET" && getMatch && !pathname.includes("/snapshot") && !pathname.includes("/console") && !pathname.includes("/interact")) {
       const info = browserService.getUrl(getMatch.id);
-      if (!info) return json({ error: "Browser context not found" }, 404);
+      if (!info) return errorResponse(404, "Browser context not found");
       return json(info);
     }
 
@@ -46,7 +46,7 @@ export function createBrowserRouter(
     const navMatch = matchRoute(pathname, "/api/browsers/:id/navigate");
     if (method === "POST" && navMatch) {
       const body = await readJSON(req);
-      if (!body?.url) return json({ error: "url required" }, 400);
+      if (!body?.url) return errorResponse(400, "url required");
       try {
         const result = await browserService.navigate(navMatch.id, body.url);
         return json(result);
@@ -183,17 +183,17 @@ export function createBrowserRouter(
     // DELETE /api/browsers/:id/cdp-target               -> unregisters on view destroy
     const cdpRegisterMatch = matchRoute(pathname, "/api/browsers/:id/cdp-target");
     if (cdpRegisterMatch && method === "POST") {
-      if (!cdpDispatcher) return json({ error: "Electron CDP dispatcher not configured (web mode)" }, 400);
+      if (!cdpDispatcher) return errorResponse(400, "Electron CDP dispatcher not configured (web mode)");
       try {
         const body = (await req.json()) as { cdpTargetId?: string };
         if (typeof body.cdpTargetId !== "string" || !body.cdpTargetId) {
-          return json({ error: "cdpTargetId (string) is required" }, 400);
+          return errorResponse(400, "cdpTargetId (string) is required");
         }
         cdpDispatcher.registerTarget(cdpRegisterMatch.id, body.cdpTargetId);
         return json({ ok: true, contextId: cdpRegisterMatch.id, cdpTargetId: body.cdpTargetId });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        return json({ error: msg }, 500);
+        return errorResponse(500, msg);
       }
     }
     if (cdpRegisterMatch && method === "DELETE") {
@@ -213,11 +213,11 @@ export function createBrowserRouter(
       const x = Number(body?.x);
       const y = Number(body?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        return json({ error: "x and y required" }, 400);
+        return errorResponse(400, "x and y required");
       }
       try {
         const info = await browserService.resolveElementAtPoint(inspectMatch.id, { x, y });
-        if (!info) return json({ error: "Element not found at point" }, 404);
+        if (!info) return errorResponse(404, "Element not found at point");
         return json(info);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -230,26 +230,26 @@ export function createBrowserRouter(
     const interactMatch = matchRoute(pathname, "/api/browsers/:id/interact");
     if (method === "POST" && interactMatch) {
       const body = await readJSON(req);
-      if (!body?.action) return json({ error: "action required" }, 400);
+      if (!body?.action) return errorResponse(400, "action required");
       const id = interactMatch.id;
       try {
         switch (body.action) {
           case "navigate":
-            if (!body.url) return json({ error: "url required" }, 400);
+            if (!body.url) return errorResponse(400, "url required");
             return json(await browserService.navigate(id, body.url));
 
           case "click":
-            if (body.x == null || body.y == null) return json({ error: "x and y required" }, 400);
+            if (body.x == null || body.y == null) return errorResponse(400, "x and y required");
             await browserService.click(id, body.x, body.y, { button: body.button, modifiers: body.modifiers });
             return json({ ok: true });
 
           case "type":
-            if (!body.text) return json({ error: "text required" }, 400);
+            if (!body.text) return errorResponse(400, "text required");
             await browserService.type(id, body.text);
             return json({ ok: true });
 
           case "keypress":
-            if (!body.key) return json({ error: "key required" }, 400);
+            if (!body.key) return errorResponse(400, "key required");
             await browserService.keypress(id, body.key);
             return json({ ok: true });
 
@@ -258,12 +258,12 @@ export function createBrowserRouter(
             return json({ ok: true });
 
           case "hover":
-            if (body.x == null || body.y == null) return json({ error: "x and y required" }, 400);
+            if (body.x == null || body.y == null) return errorResponse(400, "x and y required");
             await browserService.hover(id, body.x, body.y);
             return json({ ok: true });
 
           case "evaluate":
-            if (!body.script) return json({ error: "script required" }, 400);
+            if (!body.script) return errorResponse(400, "script required");
             const evalResult = await browserService.evaluate(id, body.script);
             return json({ result: evalResult });
 
@@ -278,12 +278,12 @@ export function createBrowserRouter(
           }
 
           case "click_selector":
-            if (!body.selector) return json({ error: "selector required" }, 400);
+            if (!body.selector) return errorResponse(400, "selector required");
             await browserService.clickSelector(id, body.selector, { button: body.button });
             return json({ ok: true });
 
           case "fill":
-            if (!body.selector || body.value == null) return json({ error: "selector and value required" }, 400);
+            if (!body.selector || body.value == null) return errorResponse(400, "selector and value required");
             await browserService.fillSelector(id, body.selector, body.value);
             return json({ ok: true });
 
@@ -306,12 +306,12 @@ export function createBrowserRouter(
             return json({ ok: true });
 
           case "resize":
-            if (!body.width || !body.height) return json({ error: "width and height required" }, 400);
+            if (!body.width || !body.height) return errorResponse(400, "width and height required");
             await browserService.resize(id, body.width, body.height);
             return json({ ok: true });
 
           default:
-            return json({ error: `Unknown action: ${body.action}` }, 400);
+            return errorResponse(400, `Unknown action: ${body.action}`);
         }
       } catch (err: any) {
         return errorResponse(500, `Interact failed: ${err.message}`);
@@ -359,7 +359,7 @@ export function createBrowserRouter(
     // --- Legacy screenshot by URL (creates temp context) ---
     if (method === "GET" && pathname === "/api/browser/screenshot") {
       const targetUrl = url.searchParams.get("url");
-      if (!targetUrl) return json({ error: "url parameter required" }, 400);
+      if (!targetUrl) return errorResponse(400, "url parameter required");
       const tempId = `_temp_${Date.now()}`;
       try {
         await browserService.navigate(tempId, targetUrl);

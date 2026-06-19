@@ -20,26 +20,43 @@ interface BrowserSidebarControlProps {
 
 const POLL_INTERVAL_FALLBACK = 30_000; // 30s fallback
 
+// hostname extraction that never throws during render (malformed urls fall back to id)
+function safeHostname(url: string, fallback: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return fallback;
+  }
+}
+
 export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBrowser, openBrowserContextIds, focusedBrowserContextId, onMessage }: BrowserSidebarControlProps) {
   const [contexts, setContexts] = useState<BrowserContext[]>([]);
-  const lastUpdateRef = useRef<number>(0);
+  // monotonic request token — only forward-moving, so a stale (slower) response can never clobber a newer one
+  const reqSeqRef = useRef<number>(0);
+  const appliedSeqRef = useRef<number>(0);
+  const hasLoadedRef = useRef<boolean>(false);
 
   const loadContexts = useCallback(async () => {
+    const seq = ++reqSeqRef.current;
     try {
-      const fetchTime = Date.now();
       const resp = await fetch('/api/browser/status');
       if (resp.ok) {
-        // Only apply if no newer WS-triggered fetch arrived
-        if (lastUpdateRef.current > fetchTime) return;
-        lastUpdateRef.current = fetchTime;
         const data = await resp.json() as { details?: BrowserContext[] };
+        // Only apply if no newer request was issued/applied meanwhile
+        if (seq < appliedSeqRef.current) return;
+        appliedSeqRef.current = seq;
         const details = data.details || [];
+        hasLoadedRef.current = true;
         setContexts(details);
         onContextCount?.(details.length);
       }
     } catch {
-      setContexts([]);
-      onContextCount?.(0);
+      // Transient refresh failure must not wipe a list we already loaded —
+      // only clear on the very first (initial-load) failure.
+      if (!hasLoadedRef.current) {
+        setContexts([]);
+        onContextCount?.(0);
+      }
     }
   }, [onContextCount]);
 
@@ -56,8 +73,6 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
     const unsub = onMessage((msg: WSMessage) => {
       try {
         if (msg.type === 'browser:navigate') {
-          const now = Date.now();
-          lastUpdateRef.current = now;
           loadContexts();
         }
       } catch { /* ignore */ }
@@ -106,7 +121,7 @@ export function BrowserSidebarControl({ enabled = true, onContextCount, onOpenBr
               )}
               <Globe size={12} className={`flex-shrink-0 ${isFocused ? 'opacity-100' : 'opacity-60'}`} />
               <span className="text-[11px] truncate flex-1" title={ctx.url}>
-                {ctx.title || (ctx.url && ctx.url !== 'about:blank' ? new URL(ctx.url).hostname : ctx.id)}
+                {ctx.title || (ctx.url && ctx.url !== 'about:blank' ? safeHostname(ctx.url, ctx.id) : ctx.id)}
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); closeContext(ctx.id); }}

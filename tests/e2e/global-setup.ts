@@ -1,7 +1,7 @@
 /**
  * Playwright global setup — runs BEFORE all test suites.
  *
- * 1. Starts an isolated test server on port 3334 with its own SQLite DB
+ * 1. Starts an isolated test server on port 13334 with its own SQLite DB
  * 2. Cleans up stale E2E test data from previous failed runs
  *
  * The test server uses /tmp/topics-test-data/ for its database,

@@ -19,7 +19,7 @@
  * Design contract: `openspec/changes/topic-context-canonical/design.md`.
  */
 
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 
 import type { ChatMessage } from "../providers/types";
@@ -180,15 +180,11 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   const userMessage = resolveUserMessage(userMessageOverride, stored);
 
   // ── Diagnostics ───────────────────────────────────────────────────────
+  // Informational blocks (not injected by Topics App) STILL count in the budget
+  // bar — the user pays the token cost regardless of who injects them.
   const totalTokens = systemBlocks
-    .filter((b) => b.enabled && b.countInBudget && b.injectedByTopicsApp)
-    .reduce((sum, b) => sum + b.tokens, 0)
-    + systemBlocks
-      .filter((b) => b.enabled && b.countInBudget && !b.injectedByTopicsApp)
-      .reduce((sum, b) => sum + b.tokens, 0);
-  // ↑ Both branches sum the same way; kept split to make explicit that
-  //   informational blocks STILL count in the budget bar (the user pays the
-  //   token cost regardless of who injects them).
+    .filter((b) => b.enabled && b.countInBudget)
+    .reduce((sum, b) => sum + b.tokens, 0);
 
   const budgetLimit = DEFAULT_BUDGET_LIMIT;
   const budgetPercent = Math.round((totalTokens / budgetLimit) * 100);
@@ -281,8 +277,10 @@ function pushOpenClawInformationalBlocks(blocks: SystemBlock[], ctx: AppContext)
             visit(full);
             continue;
           }
-          const c = readSafe(full);
-          if (c) memTokens += estimateTokens(c);
+          // Size-based estimate: avoid reading bytes we immediately discard.
+          // Byte size slightly overestimates vs UTF-8 char length, but the
+          // /4 heuristic is already approximate.
+          memTokens += Math.round(statSync(full).size / 4);
         }
       } catch {
         /* ignore */
@@ -333,7 +331,6 @@ function pushContextFileBlocks(
 ): void {
   if (!topic.contextFiles || topic.contextFiles.length === 0) return;
   for (const filePath of topic.contextFiles) {
-    if (!existsSync(filePath)) continue;
     const content = readSafe(filePath);
     if (content === null) continue;
     const fileName = filePath.split("/").pop() || filePath;
@@ -406,7 +403,6 @@ function pushProjectTemplateBlocks(
         displayName = ".claude/CLAUDE.md";
       }
     }
-    if (!existsSync(filePath)) continue;
     const content = readSafe(filePath);
     if (content === null) continue;
     const id = `template:${name}`;

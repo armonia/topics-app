@@ -106,6 +106,25 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
       AND datetime(started_at) < datetime('now', '-2 minutes')
   `);
 
+  // Prepared once: counts non-terminal sessions for a given agent. Re-used per
+  // affected agent below instead of re-preparing the same SQL each iteration.
+  const activeSessionCountStmt = db.prepare(`
+    SELECT COUNT(*) as cnt FROM agent_sessions WHERE agent_id = ? AND status IN ('active', 'paused')
+  `);
+
+  // Prepared once: agent profiles gone stale per their last_seen_at heartbeat.
+  const staleProfilesStmt = db.prepare(`
+    SELECT id FROM agent_profiles
+    WHERE status NOT IN ('offline', 'paused')
+      AND last_seen_at IS NOT NULL
+      AND datetime(last_seen_at) < datetime('now', '-2 minutes')
+  `);
+
+  // Row shapes returned by the heartbeat queries above.
+  type StaleSessionRow = { id: string; agent_id: string | null; status: string };
+  type AgentCountRow = { cnt: number };
+  type StaleProfileRow = { id: string };
+
   function check() {
     try {
       const now = new Date().toISOString();
@@ -113,7 +132,7 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
       const affectedAgentIds = new Set<string>();
 
       // Check sessions with stale heartbeats
-      const staleSessions = staleSessionsStmt.all() as any[];
+      const staleSessions = staleSessionsStmt.all() as StaleSessionRow[];
       for (const session of staleSessions) {
         if (transitionSessionTo(session, 'stale')) {
           if (session.agent_id) {
@@ -124,7 +143,7 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
       }
 
       // Check sessions that never sent a heartbeat
-      const noHeartbeatSessions = noHeartbeatSessionsStmt.all() as any[];
+      const noHeartbeatSessions = noHeartbeatSessionsStmt.all() as StaleSessionRow[];
       for (const session of noHeartbeatSessions) {
         if (transitionSessionTo(session, 'stale')) {
           if (session.agent_id) {
@@ -136,9 +155,7 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
 
       // Mark affected agent profiles as offline (only if they have no other active sessions)
       for (const agentId of affectedAgentIds) {
-        const activeCount = db.prepare(
-          `SELECT COUNT(*) as cnt FROM agent_sessions WHERE agent_id = ? AND status IN ('active', 'paused')`
-        ).get(agentId) as any;
+        const activeCount = activeSessionCountStmt.get(agentId) as AgentCountRow | null;
 
         if (!activeCount || activeCount.cnt === 0) {
           transitionProfileTo(agentId, 'offline', now);
@@ -146,18 +163,11 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
       }
 
       // Also check agent profiles using last_seen_at (for agent API heartbeats)
-      const staleProfiles = db.prepare(`
-        SELECT id FROM agent_profiles
-        WHERE status NOT IN ('offline', 'paused')
-          AND last_seen_at IS NOT NULL
-          AND datetime(last_seen_at) < datetime('now', '-2 minutes')
-      `).all() as any[];
+      const staleProfiles = staleProfilesStmt.all() as StaleProfileRow[];
 
       for (const profile of staleProfiles) {
         // Only mark offline if no active sessions
-        const activeCount = db.prepare(
-          `SELECT COUNT(*) as cnt FROM agent_sessions WHERE agent_id = ? AND status IN ('active', 'paused')`
-        ).get(profile.id) as any;
+        const activeCount = activeSessionCountStmt.get(profile.id) as AgentCountRow | null;
 
         if (!activeCount || activeCount.cnt === 0) {
           if (transitionProfileTo(profile.id, 'offline', now)) {

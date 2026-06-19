@@ -41,6 +41,12 @@ interface DaemonState {
   startedAt: string;
 }
 
+interface DaemonHealth {
+  pid: number;
+  startedAt: string;
+  uptime_ms: number;
+}
+
 function readDaemonState(): DaemonState | null {
   const path = join(TOPICS_HOME, "daemon-state.json");
   if (!existsSync(path)) return null;
@@ -142,7 +148,7 @@ async function cmdAuth(sub: string) {
     try {
       const { status, body } = await daemonRequest(state, "/__daemon/healthz");
       if (status === 200 && body && typeof body === "object") {
-        const b = body as any;
+        const b = body as DaemonHealth;
         console.log(`status: online`);
         console.log(`pid:    ${b.pid}`);
         console.log(`uptime: ${Math.round((b.uptime_ms ?? 0) / 1000)}s`);
@@ -190,6 +196,32 @@ async function cmdDaemon(sub: string) {
     const child = spawn("bun", ["run", "server.ts"], {
       cwd: repo, detached: true, stdio: "ignore",
     });
+    // Watch for an early crash so we don't claim success on a child that
+    // immediately exits (e.g. port already in use, bad TOPICS_REPO).
+    let earlyExit: number | null = null;
+    child.once("exit", (code) => { earlyExit = code ?? -1; });
+    // Poll the daemon's healthz for a few hundred ms before declaring
+    // success — the child rewrites daemon-state.json once it's listening.
+    const deadline = Date.now() + 4000;
+    let online = false;
+    while (Date.now() < deadline && earlyExit === null) {
+      const fresh = readDaemonState();
+      if (fresh && fresh.pid === child.pid) {
+        try {
+          const { status } = await daemonRequest(fresh, "/__daemon/healthz");
+          if (status === 200) { online = true; break; }
+        } catch {}
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    if (earlyExit !== null) {
+      console.error(`error: server exited early (code ${earlyExit})`);
+      process.exit(1);
+    }
+    if (!online) {
+      console.error(`error: server spawned (pid ${child.pid}) but never became reachable`);
+      process.exit(1);
+    }
     child.unref();
     console.log(`started detached (pid ${child.pid})`);
     return;

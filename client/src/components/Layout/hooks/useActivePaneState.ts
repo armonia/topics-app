@@ -24,6 +24,12 @@ import {
 import { isUtilityPanelId, parseUtilityPanelType } from '../UtilityPanel';
 import type { UseActivePaneStateArgs, UseActivePaneStateReturn } from './standaloneTypes';
 
+// Fixed sentinel timestamp (epoch) for synthetic draft topics, so a draft keeps
+// a stable identity across recomputes — `new Date()` would mint fresh timestamps
+// each time `validatedOrderedIds` changes, breaking referential stability.
+// Module-scoped so it is a single stable reference (no hook dependency).
+const DRAFT_SENTINEL_TS = new Date(0).toISOString();
+
 export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneStateReturn {
   const { validatedOrderedIds, activePaneId, topics } = args;
 
@@ -48,8 +54,8 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
           icon: '💬',
           color: '#0066ff',
           sessionKey: `draft-session:${id}`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: DRAFT_SENTINEL_TS,
+          updatedAt: DRAFT_SENTINEL_TS,
         } as Topic;
       }
     }

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Phase 30 PANE-05 production-strip contract.
-# Asserts that the production client bundle in client/dist/ does NOT contain
+# Asserts that the production client bundle in public/ does NOT contain
 # the dev-only mutation-log symbols. If found, CI must fail.
 #
 # Usage:
-#   ./scripts/assert-dev-overlay-stripped.sh           # uses client/dist
-#   ./scripts/assert-dev-overlay-stripped.sh ./public  # custom dir (if Vite outDir differs)
+#   ./scripts/assert-dev-overlay-stripped.sh             # uses public (Vite outDir)
+#   ./scripts/assert-dev-overlay-stripped.sh ./dist      # custom dir (if Vite outDir differs)
 set -euo pipefail
 
-DIST_DIR="${1:-client/dist}"
+DIST_DIR="${1:-public}"
 
 if [ ! -d "$DIST_DIR" ]; then
   echo "ERROR: bundle dir '$DIST_DIR' does not exist. Run 'cd client && npm run build' first."

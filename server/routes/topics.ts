@@ -317,7 +317,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
   /** Look up the topic owning a sessionKey and resolve its provider. */
   function providerForSessionKey(sessionKey: string): AIProvider {
-    const topic = Object.values(loadTopics().topics).find(t => t.sessionKey === sessionKey);
+    const topic = getTopicBySessionKey(sessionKey);
     return resolveProvider(topic);
   }
 
@@ -571,8 +571,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   function detectAndBroadcastBrowserMarker(content: string, topic: Topic | null): string {
     if (!topic) return content;
 
-    // 1. Check for explicit {{BROWSER:url}} markers (highest priority)
-    const browserMatch = content.match(/\{\{BROWSER:(.*?)\}\}/);
+    // 1. Check for explicit {{BROWSER:url}} markers (highest priority).
+    //    Cheap substring guard before the regex scan — runs on every text
+    //    delta, so we skip the full-content regex unless the marker is present.
+    const browserMatch = content.includes('{{BROWSER:')
+      ? content.match(/\{\{BROWSER:(.*?)\}\}/)
+      : null;
     if (browserMatch) {
       let browserUrl = browserMatch[1];
       if (browserUrl.startsWith("file:///")) {
@@ -590,8 +594,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     }
 
     // 2. Fallback: detect localhost:PORT URLs in response (only once per topic per stream)
-    //    Matches http://localhost:PORT, https://localhost:PORT, or bare localhost:PORT
-    if (!browserNavigatedTopics.has(topic.id)) {
+    //    Matches http://localhost:PORT, https://localhost:PORT, or bare localhost:PORT.
+    //    Cheap substring guard before the regex (the pattern always requires the
+    //    literal "localhost:") so we don't rescan every delta for nothing.
+    if (!browserNavigatedTopics.has(topic.id) && content.includes('localhost:')) {
       const localhostMatch = content.match(/(?:https?:\/\/)?localhost:(\d{4,5})\b/);
       if (localhostMatch) {
         const port = parseInt(localhostMatch[1]);
@@ -1665,7 +1671,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "Topic not found" }, 404);
 
-        const urlParams = new URL(req.url, `http://localhost`).searchParams;
+        const urlParams = url.searchParams;
         const limit = parseInt(urlParams.get("limit") || "200");
         const offset = parseInt(urlParams.get("offset") || "0");
 
@@ -1802,12 +1808,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       console.log(`[HTTP] POST /api/chat received`);
       const body = await readJSON(req);
       if (!body) return json({ error: "body required" }, 400);
-      // Reset browser navigate tracking for this topic so new URLs can trigger
-      const topicsForReset = loadTopics();
-      for (const t of Object.values(topicsForReset.topics)) {
-        if (t.sessionKey === body.sessionKey) { browserNavigatedTopics.delete(t.id); break; }
-      }
       const sessionKey = body.sessionKey;
+      // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
+      const matchedTopic = getTopicBySessionKey(sessionKey);
+      // Reset browser navigate tracking for this topic so new URLs can trigger
+      if (matchedTopic) browserNavigatedTopics.delete(matchedTopic.id);
       const planMode = body.planMode === true;
       // Fast Mode: per-turn flag OR per-topic persisted preference. Either is
       // enough to opt in. Resolution into an actual model id happens after
@@ -1815,9 +1820,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const fastModeRequested = body.fastMode === true;
       const messages = body.messages;
       if (!messages || !Array.isArray(messages) || messages.length === 0) return json({ error: "messages array required" }, 400);
-
-      // O(1) UNIQUE-index lookup — replaces a full topics scan per chat send.
-      const matchedTopic = getTopicBySessionKey(sessionKey);
 
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
@@ -2421,10 +2423,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           // never reset by events. Soft timer arms lazily on first event /
           // when no tools are running.
           hardTimer = setTimeout(handleHardTimeout, STREAM_HARD_TIMEOUT_MS);
-          // Provide a back-compat reference so any future `streamInactivityTimer`
-          // checks (used to exist) won't break — it's now a synthetic getter.
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          let streamInactivityTimer: ReturnType<typeof setTimeout> | null = null;
 
           // Helper: finalize the stream (called on done/error/abort)
           const finalizeStream = async (reason: "done" | "error" | "aborted", errorMsg?: string) => {
@@ -3018,7 +3016,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
             }).catch(async (err: any) => {
               console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
-              if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
               topicProvider.unregisterStreamHandler?.(sessionKey);
               endStream(sessionKey);
               const errorMsg = `⚠️ Failed to send message: ${err.message}`;
@@ -3034,7 +3031,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             });
           } catch (err: any) {
             console.error(`[StreamWS] sync setup error for ${sessionKey}:`, err);
-            if (streamInactivityTimer) clearTimeout(streamInactivityTimer);
             topicProvider.unregisterStreamHandler?.(sessionKey);
             endStream(sessionKey);
             const errorMsg = `⚠️ Failed to send message: ${err.message}`;
@@ -3565,7 +3561,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const sessionKey = matchHistoryRoute(pathname);
       if (sessionKey && (method === "POST" || method === "GET")) {
         const body = method === "POST" ? await readJSON(req) : {};
-        const urlParams = new URL(req.url, `http://localhost`).searchParams;
+        const urlParams = url.searchParams;
         const limit = body?.limit || parseInt(urlParams.get('limit') || '50');
         const offset = body?.offset || parseInt(urlParams.get('offset') || '0');
 
@@ -3825,7 +3821,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         switch (command) {
           case "status": {
             const messages = loadLocalMessages(sessionKey);
-            const topic = Object.values(loadTopics().topics).find(t => t.sessionKey === sessionKey);
+            const topic = getTopicBySessionKey(sessionKey);
             const output = [`📍 Session: ${sessionKey}`, `💬 Messages: ${messages.length}`, topic?.projectPath ? `📁 Project: ${topic.projectPath}` : null, topic?.name ? `📝 Topic: ${topic.name}` : null].filter(Boolean).join('\n');
             return json({ ok: true, command: "status", output });
           }
@@ -3859,7 +3855,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           case "project": {
             const sub = args?.sub || "info"; // create | open | info
             const value = (args?.value || "").trim();
-            const topic = Object.values(loadTopics().topics).find(t => t.sessionKey === sessionKey);
+            const topic = getTopicBySessionKey(sessionKey);
             if (!topic) return json({ error: "No topic found for this session" }, 404);
 
             if (sub === "create") {
@@ -4074,7 +4070,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         broadcastToAll({ type: "open-project", projectPath });
         return json({ ok: true, projectPath });
       } catch (e: any) {
-        return errorResponse(e);
+        return errorResponse(500, e instanceof Error ? e.message : String(e));
       }
     }
 

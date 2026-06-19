@@ -15,7 +15,7 @@
  *     no-op silently until the token exists.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, chmodSync, rmSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
@@ -150,7 +150,6 @@ function uninstall(): void {
 
   // Remove the wrapper directory (keep token file — server may still use it).
   try {
-    const { rmSync } = require("fs");
     rmSync(HOOKS_DEST_DIR, { recursive: true, force: true });
   } catch {}
 

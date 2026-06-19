@@ -21,6 +21,8 @@ interface BrowserContextEntry {
   persistCookies?: boolean;
   /** Cleanup hook for autosave timer + cancel for debounced saver. */
   autoSaveCleanup?: () => void;
+  /** Guard: page event listeners (console/load) already bound by setupPage. */
+  listenersBound?: boolean;
 }
 
 interface BrowserServiceOptions {
@@ -265,6 +267,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   }
 
   async function setupPage(entry: BrowserContextEntry, _id: string) {
+    // Idempotency guard: never bind console/load listeners twice on the same
+    // entry (would double-push console messages + re-fire navigation tracking).
+    if (entry.listenersBound) return;
+    entry.listenersBound = true;
     const page = entry.page;
 
     // Console capture

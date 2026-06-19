@@ -204,11 +204,17 @@ export function createAgentEpochStore(
       FROM agent_epoch_events WHERE epoch_id = ?
     `),
     readSessionTimeline: db.prepare(`
-      SELECT e.id, e.epoch_id, e.sequence, e.event_type, e.payload, e.recorded_at
-      FROM agent_epoch_events e
-      JOIN agent_epochs ep ON ep.id = e.epoch_id
-      WHERE ep.session_id = ?
-      ORDER BY ep.epoch_index ASC, e.sequence ASC
+      SELECT t.id, t.epoch_id, t.sequence, t.event_type, t.payload, t.recorded_at
+      FROM (
+        SELECT e.id, e.epoch_id, e.sequence, e.event_type, e.payload, e.recorded_at,
+               ep.epoch_index AS epoch_index
+        FROM agent_epoch_events e
+        JOIN agent_epochs ep ON ep.id = e.epoch_id
+        WHERE ep.session_id = ?
+        ORDER BY ep.epoch_index DESC, e.sequence DESC
+        LIMIT ?
+      ) t
+      ORDER BY t.epoch_index ASC, t.sequence ASC
     `),
     readSessionTimelineDesc: db.prepare(`
       SELECT e.id, e.epoch_id, e.sequence, e.event_type, e.payload, e.recorded_at
@@ -329,14 +335,16 @@ export function createAgentEpochStore(
 
     readEpochTimeline(sessionId, opts) {
       const ascending = opts?.ascending ?? true;
+      const limit = opts?.limit ?? maxEvents;
       if (ascending) {
-        const rows = stmts.readSessionTimeline.all(sessionId) as Array<{
+        // Bound the ascending read too: take the most-recent `limit` rows
+        // (matching the desc cap) then re-order them ascending.
+        const rows = stmts.readSessionTimeline.all(sessionId, limit) as Array<{
           id: string; epoch_id: string; sequence: number;
           event_type: string; payload: string; recorded_at: string;
         }>;
         return rows.map(rowToEvent);
       }
-      const limit = opts?.limit ?? maxEvents;
       const rows = stmts.readSessionTimelineDesc.all(sessionId, limit) as Array<{
         id: string; epoch_id: string; sequence: number;
         event_type: string; payload: string; recorded_at: string;

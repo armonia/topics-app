@@ -75,6 +75,13 @@ export function createAgentApiRouter(ctx: AppContext): RouteHandler {
     `),
     getApproval: db.prepare(`SELECT * FROM approvals WHERE id = ?`),
     getApprovalForTask: db.prepare(`SELECT id FROM approvals WHERE task_id = ? AND status = 'pending' LIMIT 1`),
+    listPendingApprovals: db.prepare(`
+      SELECT a.*, t.text as task_text, t.status as task_status
+      FROM approvals a
+      JOIN tasks t ON t.id = a.task_id
+      WHERE t.project_id = ? AND a.status = 'pending'
+      ORDER BY a.created_at DESC
+    `),
 
     // Board memory
     listMemory: db.prepare(`SELECT * FROM board_memory WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`),
@@ -588,13 +595,7 @@ export function createAgentApiRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/agent/boards/:projectId/approvals");
       if (params && method === "GET") {
-        const rows = db.prepare(`
-          SELECT a.*, t.text as task_text, t.status as task_status
-          FROM approvals a
-          JOIN tasks t ON t.id = a.task_id
-          WHERE t.project_id = ? AND a.status = 'pending'
-          ORDER BY a.created_at DESC
-        `).all(params.projectId) as any[];
+        const rows = stmts.listPendingApprovals.all(params.projectId) as any[];
 
         return json({
           approvals: rows.map(toApproval),

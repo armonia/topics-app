@@ -103,10 +103,13 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
   // Periodic background checks (every 30s)
   async function runBackgroundChecks() {
     try {
+      // Cron/sessions polling only makes sense when the provider can invoke tools
+      // (e.g. OpenClaw); skip it otherwise so we don't spin no-op async calls.
+      const canInvokeTool = Boolean(getProvider().invokeTool);
       const [health, cron, sessions] = await Promise.all([
         checkGatewayHealth(),
-        fetchCronStatus(),
-        fetchSessionsStatus(),
+        canInvokeTool ? fetchCronStatus() : Promise.resolve(lastCronStatus),
+        canInvokeTool ? fetchSessionsStatus() : Promise.resolve(lastSessionsStatus),
       ]);
       lastGatewayCheck = { ...health, checkedAt: new Date().toISOString() };
       lastCronStatus = cron;
@@ -117,7 +120,11 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     }
   }
 
-  setInterval(runBackgroundChecks, 30000);
+  // Capture the interval id and unref it so the timer never keeps the
+  // process alive on its own (avoids a leaked timer that polls forever,
+  // including on non-OpenClaw setups).
+  const backgroundCheckTimer = setInterval(runBackgroundChecks, 30000);
+  if (typeof backgroundCheckTimer.unref === "function") backgroundCheckTimer.unref();
   runBackgroundChecks();
 
   return async function statusRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {

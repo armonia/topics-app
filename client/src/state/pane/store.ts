@@ -30,6 +30,14 @@ function isServerAuthoritativeAction(action: PaneAction): boolean {
 // shaken from production by `import.meta.env.DEV`.
 const warnedMissingPaneIds = new Set<string>();
 
+// Dev-only: resolve the mutation-log module ONCE and reuse the cached promise.
+// Calling import('./middleware/mutationLog') per dispatch re-walks the module
+// resolution machinery on every tick; the dynamic import already memoises the
+// module, but caching the promise here avoids the per-dispatch call overhead
+// entirely. The whole thing is gated behind `import.meta.env.DEV` so Vite
+// still tree-shakes it (and the module) out of production.
+let _mutationLogPromise: Promise<typeof import('./middleware/mutationLog')> | null = null;
+
 const initialState: PaneState = {
   panes: {},
   groups: {},
@@ -85,9 +93,15 @@ export const usePaneStore = create<PaneStore>()(
         });
         // DEV-only mutation log. Vite tree-shakes this block when import.meta.env.DEV is false.
         if (import.meta.env.DEV) {
-          // Dynamic import keeps the module out of the production graph.
-          import('./middleware/mutationLog').then(({ recordAction }) => {
-            recordAction({ seq: _seq, ts: performance.now(), action });
+          // Dynamic import keeps the module out of the production graph; the
+          // promise is cached (module-level) so we resolve it once, not per
+          // dispatch. Capture seq/ts at dispatch time — `_seq` mutates before
+          // the microtask runs.
+          const seq = _seq;
+          const ts = performance.now();
+          _mutationLogPromise ??= import('./middleware/mutationLog');
+          _mutationLogPromise.then(({ recordAction }) => {
+            recordAction({ seq, ts, action });
           });
         }
       },

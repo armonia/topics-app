@@ -64,8 +64,6 @@ function Shell() {
         {/* sidebar */}
         <aside className="w-[150px] flex-shrink-0 border-r border-app-border flex flex-col p-2 gap-0.5 overflow-hidden">
           <div className="flex items-center gap-2 text-[11px] text-app-text-muted bg-app-surface border border-app-border rounded px-2 py-1.5 mb-2">⌕ Search<span className="ml-auto font-mono text-[9px] border border-app-border rounded px-1">⌘K</span></div>
-          <div className="px-2 py-1 text-[12.5px] text-app-text-secondary rounded">Board</div>
-          <div className="px-2 py-1 text-[12.5px] text-app-text-secondary rounded flex items-center">Master<span className="ml-auto text-[10px] bg-primary/20 text-primary rounded px-1.5">2</span></div>
           <div className="font-mono text-[9px] tracking-widest text-app-text-muted mt-3 mb-1 px-1">TOPICS</div>
           {TOPICS.map((t, i) => (
             <button key={t.n} onClick={() => setTopic(i)}

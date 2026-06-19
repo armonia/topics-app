@@ -215,6 +215,13 @@ export function useChat() {
     }
   }, []);
 
+  // On unmount, clear any outstanding stream watchdog timers and abort in-flight
+  // SSE requests so neither leaks past the hook's lifetime.
+  useEffect(() => () => {
+    for (const id of Object.values(streamingTimeoutRef.current)) clearTimeout(id);
+    for (const c of Object.values(abortControllersRef.current)) c.abort();
+  }, []);
+
   /**
    * Reconcile our local `streaming` flags against the server's authoritative
    * streaming registry (the sessionKeys from GET /api/topics/streaming, fed in
@@ -419,7 +426,7 @@ export function useChat() {
           return {
             ...prev,
             [sessionKey]: [...sessionMessages, {
-              id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              id: generateMessageId(),
               role: 'assistant' as const,
               content: '',
               timestamp: new Date().toISOString(),
@@ -634,12 +641,17 @@ export function useChat() {
         setMessages(prev => {
           const msgs = prev[sessionKey] || [];
           const last = msgs[msgs.length - 1];
-          if (last?.role === 'assistant' && (last.content.includes('{{BROWSER:') || last.content.includes('{{TOPIC_SWITCH:') || last.content.includes('{{TOPIC_NEW:') || last.content.includes('{{PROJECT_'))) {
-            const updated = [...msgs];
-            updated[msgs.length - 1] = { ...last, content: cleanInvisibleMarkers(last.content), partial: false };
-            // Cache after stream finishes
-            cacheMessages(sessionKey, updated);
-            return { ...prev, [sessionKey]: updated };
+          if (last?.role === 'assistant') {
+            // Always run through the centralized cleaner so detection tracks the
+            // full marker set; only rewrite if it actually changed something.
+            const cleaned = cleanInvisibleMarkers(last.content);
+            if (cleaned !== last.content) {
+              const updated = [...msgs];
+              updated[msgs.length - 1] = { ...last, content: cleaned, partial: false };
+              // Cache after stream finishes
+              cacheMessages(sessionKey, updated);
+              return { ...prev, [sessionKey]: updated };
+            }
           }
           // Cache after stream finishes
           cacheMessages(sessionKey, msgs);

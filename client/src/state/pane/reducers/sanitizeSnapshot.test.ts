@@ -99,6 +99,24 @@ describe("sanitizeSnapshot (audit fixes)", () => {
     });
   });
 
+  test("terminal pane preserves terminalType 'codex' through hydrate", () => {
+    // Regression: the sanitizer guard only accepted 'shell' | 'claude-code',
+    // so a Codex terminal lost its terminalType on every HYDRATE_FROM_SNAPSHOT
+    // (the type union and sanitizeTerminal both already allow 'codex').
+    const sanitized = sanitizeSnapshot({
+      panes: {
+        "terminal:cx": {
+          id: "terminal:cx",
+          type: "terminal",
+          title: "Codex",
+          terminalType: "codex",
+        },
+      },
+    });
+
+    expect(sanitized!.panes!["terminal:cx"].terminalType).toBe("codex");
+  });
+
   test("panes with empty-string type are dropped", () => {
     const sanitized = sanitizeSnapshot({
       panes: {

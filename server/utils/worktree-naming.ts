@@ -217,7 +217,10 @@ export function isValidWorktreeName(name: string): boolean {
 }
 
 function pickRandom<T>(list: readonly T[]): T {
-  // crypto.randomBytes for slightly better distribution than Math.random
+  // crypto.randomBytes for slightly better distribution than Math.random.
+  // The modulo introduces a negligible bias (list sizes ≪ 2^32, so at most a
+  // ~10^-7 skew); acceptable for cosmetic name generation — not worth
+  // rejection sampling here.
   const idx = randomBytes(4).readUInt32BE(0) % list.length;
   return list[idx];
 }

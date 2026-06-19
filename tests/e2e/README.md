@@ -1,98 +1,100 @@
 # Topics App — E2E Test Suite
 
-**32 tests, full coverage** across all major features.
+Playwright E2E tests covering all major features (chat, sidebar, panels,
+layout, tabs, terminals, browser, agents, infra). 68 `*.spec.ts` files.
+
+For test-authoring rules (locators, waits, fixtures, test data) see
+[`CONVENTIONS.md`](./CONVENTIONS.md) — the single source of truth.
 
 ## Running
 
 ```bash
-# Run all tests (~3.5 minutes)
-cd "$HOME/.openclaw/workspace"
-bash topics-app/tests/e2e/run-all.sh
-
-# Run a single test
-node skills/e2e-video-test/scripts/e2e-test.mjs \
-  --url "https://localhost:3333" \
-  --script "./topics-app/tests/e2e/<test>.mjs" \
-  --output ./topics-app/uploads/test-recordings/
+# From the repo root. Tests run against http://localhost:13334
+# (a dedicated test server; global-setup.ts starts/seeds it).
+npx playwright test                       # all tests
+npx playwright test chat.spec.ts          # a single file
+npx playwright test --project=chromium    # desktop only
+npx playwright test --project=mobile      # mobile-*.spec.ts at 375px
+npx playwright test -g "sends message"    # by title
+npx playwright show-report test-results/html-report
 ```
 
-## Test Suite
+Config: [`../../playwright.config.ts`](../../playwright.config.ts) —
+`baseURL` `http://localhost:13334`, `video: "on"`, sequential
+(`fullyParallel: false`) to avoid races on the shared DB.
 
-### Core Chat (9 tests)
-| Test | What it covers |
-|------|-------------|
-| `chat-flow-test` | Send message → receive streaming response |
-| `chat-history-test` | Open topic → historical messages load |
-| `chat-abort-test` | Send long message → stop mid-stream |
-| `chat-input-features-test` | Toolbar: attach, voice, tools, plan, send |
-| `chat-multiline-test` | Shift+Enter creates new lines |
-| `message-rendering-test` | Markdown renders: bold, code, lists, links |
-| `scroll-behavior-test` | Scroll-to-bottom button works |
-| `plan-mode-test` | Plan mode toggle on/off |
-| `pinned-messages-test` | Right-click message → context menu |
+## Layout
 
-### Sidebar & Navigation (6 tests)
-| Test | What it covers |
-|------|-------------|
-| `sidebar-navigation-test` | Click topics → panel switches correctly |
-| `sidebar-projects-test` | Expand/collapse project folders |
-| `topic-search-test` | Search filters topics, clear restores |
-| `topic-create-test` | + dropdown → New Chat creates topic |
-| `topic-archive-test` | Right-click → Archive removes from list |
-| `topic-settings-test` | Right-click → context menu with options |
-
-### Panels & Views (11 tests)
-| Test | What it covers |
-|------|-------------|
-| `activity-feed-test` | Activity → Live/Digest tabs |
-| `agents-panel-test` | Agents panel shows content |
-| `board-view-test` | Kanban board renders |
-| `multi-pane-test` | Add Pane creates split view |
-| `dashboard-test` | Digest tab shows usage stats |
-| `terminal-test` | New Terminal opens xterm |
-| `browser-panel-test` | Browser section shows instances |
-| `remote-access-test` | Remote Access panel opens |
-| `file-explorer-test` | Project files browsable |
-| `command-palette-test` | Cmd+K opens searchable palette |
-| `scripts-runner-test` | Scripts API returns project scripts |
-
-### System & Infrastructure (6 tests)
-| Test | What it covers |
-|------|-------------|
-| `websocket-connection-test` | WS connects → "Online" status |
-| `status-bar-test` | Status: latency, memory, fps |
-| `keyboard-shortcuts-test` | Cmd+K, Cmd+B work |
-| `mobile-responsive-test` | 375px viewport → layout adapts |
-| `api-endpoints-test` | 7 API endpoints respond correctly |
-| `error-recovery-test` | Invalid routes/API → graceful handling |
+- `*.spec.ts` — the test files (`testMatch: "*.spec.ts"`).
+- `helpers.ts` — navigation helpers: `goToApp`, `openTopic`,
+  `openTestChat`, `openTopicByClick`, `openTopicByDoubleClick`.
+- `helpers/` — domain utilities: `api-fixtures` (test data + `cleanupAll`),
+  `sse-helpers` (`mockChatStream`), `ws-helpers`, `scroll-helpers`,
+  `dnd-helpers`, `seed-messages`, `gateway-health`.
+- `fixtures/` — page-object fixtures; import `test` from
+  `fixtures/test-fixtures.ts` (merges chat/sidebar/kanban/terminal/… via
+  `mergeTests`).
+- `global-setup.ts` / `global-teardown.ts` — server lifecycle + seeding.
 
 ## Writing New Tests
 
-```javascript
-export default async function runTest({ page, expect }) {
-  await page.goto("https://localhost:3333", { waitUntil: "networkidle" });
-  await page.waitForTimeout(2000);
+```typescript
+import { test } from "./fixtures/test-fixtures";
+import { expect } from "@playwright/test";
+import { goToApp, openTopic } from "./helpers";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { mockChatStream } from "./helpers/sse-helpers";
 
-  // Use role-based selectors (ARIA-first)
-  await page.getByRole('treeitem', { name: /Topic Name/ }).click();
-  await page.getByRole('textbox', { name: /Message input/ }).fill("test");
-  await page.getByRole('button', { name: /Send/ }).click();
+test.describe.serial("My feature", () => {
+  let topicId: string;
+  let topicName: string;
 
-  // Assert
-  const content = await page.locator('[role="main"]').textContent();
-  expect(content).toContain("expected text");
-}
+  test.beforeAll(async ({ request }) => {
+    topicName = "My E2E Test " + Date.now(); // unique name
+    ({ id: topicId } = await createTopic(request, topicName));
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  test("sends a message and sees the streamed response", async ({ page }) => {
+    await goToApp(page);
+    await openTopic(page, new RegExp(topicName));
+
+    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    await textarea.waitFor({ state: "visible" });
+
+    await mockChatStream(page, {
+      chunks: ["Hello ", "from ", "the ", "assistant!"],
+      userMessage: "test message",
+    });
+
+    await textarea.fill("test message");
+    await textarea.press("Enter");
+
+    // Semantic locator + condition-based assertion (auto-retries).
+    await expect(page.locator("body")).toContainText(
+      "Hello from the assistant!",
+    );
+  });
+});
 ```
 
-### Key Selectors
-- Main area: `[role="main"]` (not `main` tag)
-- Sidebar items: `getByRole('treeitem', { name: /.../ })`
-- Chat input: `getByRole('textbox', { name: /Message input/ })`
-- Buttons: `getByRole('button', { name: /.../ })`
-- Messages: `div.message-appear`, `div.message-content`
+Note: prefer semantic locators (`getByRole`/`getByText`/`getByLabel`) and
+condition-based waits. Do not use `page.waitForTimeout()` or
+`waitUntil: "networkidle"` — both are banned (see `CONVENTIONS.md`).
+
+### Common selectors
+- Main area: `page.locator('[role="main"]')`
+- Sidebar: `page.getByRole("treeitem", { name: /…/ })` (use the `openTopic`
+  helper, which also ensures the topic is visible in the tab-driven sidebar)
+- Chat input: `page.getByRole("textbox", { name: /Message input/ })`
+- Buttons: `page.getByRole("button", { name: /…/ })`
 
 ## Output
-Each test produces in `uploads/test-recordings/`:
-- `{timestamp}-recording.webm` — video
-- `{timestamp}-result.json` — pass/fail + timing
-- `{timestamp}-FAILURE.png` — screenshot on failure
+
+Artifacts land under `test-results/` (per `playwright.config.ts`):
+- `test-results/html-report/` — HTML report (`npx playwright show-report`)
+- `test-results/artifacts/` — per-test video (`.webm`), screenshot on
+  failure, and trace on first retry

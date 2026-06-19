@@ -343,8 +343,15 @@ function App() {
   // menu host. No-op outside Electron (selectDirectory is undefined).
   const handleOpenProjectPicker = useCallback(async () => {
     const api = (window as unknown as { electronAPI?: { selectDirectory?: () => Promise<string | null> } }).electronAPI;
-    const path = await api?.selectDirectory?.();
-    if (path) handleProjectClick(path);
+    // Guard the native dialog: a rejected/cancelled IPC must not bubble up as
+    // an unhandled promise rejection. (Toast isn't reachable here — this
+    // component renders ToastProvider, so swallow + log is the safe floor.)
+    try {
+      const path = await api?.selectDirectory?.();
+      if (path) handleProjectClick(path);
+    } catch (err) {
+      console.error('Project picker dialog failed', err);
+    }
   }, [handleProjectClick]);
 
   useEffect(() => {

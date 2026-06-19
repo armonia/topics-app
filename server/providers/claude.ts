@@ -39,6 +39,7 @@ const LEGACY_THINKING_BUDGET = 8000;
 // is the default. Sonnet 4.6 leads because it's the recommended balanced choice.
 const KNOWN_MODELS = [
   "claude-sonnet-4-6",
+  "claude-opus-4-8",
   "claude-opus-4-7",
   "claude-opus-4-6",
   "claude-haiku-4-5",

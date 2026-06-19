@@ -21,6 +21,14 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function isFileStaged(status: string): boolean {
+  return status.length >= 1 && status[0] !== ' ' && status[0] !== '?';
+}
+
+function hasUnstagedChanges(status: string): boolean {
+  return status === '??' || (status.length >= 2 && status[1] !== ' ');
+}
+
 function statusLabel(status: string): { text: string; color: string; bg: string } {
   switch (status) {
     case 'M': return { text: 'M', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
@@ -243,16 +251,8 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   // --- Multi-select helpers ---
   const getFileList = useCallback((group: 'staged' | 'unstaged') => {
     if (!gitStatus) return [];
-    if (group === 'staged') {
-      return gitStatus.files.filter(f => {
-        const s = f.status;
-        return s.length >= 1 && s[0] !== ' ' && s[0] !== '?';
-      });
-    }
-    return gitStatus.files.filter(f => {
-      const s = f.status;
-      return s === '??' || (s.length >= 2 && s[1] !== ' ');
-    });
+    const predicate = group === 'staged' ? isFileStaged : hasUnstagedChanges;
+    return gitStatus.files.filter(f => predicate(f.status));
   }, [gitStatus]);
 
   const handleFileSelect = useCallback((filePath: string, group: 'staged' | 'unstaged', e: React.MouseEvent) => {
@@ -474,14 +474,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       </div>,
       document.body
     );
-  };
-
-  const isFileStaged = (status: string): boolean => {
-    return status.length >= 1 && status[0] !== ' ' && status[0] !== '?';
-  };
-
-  const hasUnstagedChanges = (status: string): boolean => {
-    return status === '??' || (status.length >= 2 && status[1] !== ' ');
   };
 
   // In compact mode, show a minimal header even while loading/error/notGit

@@ -22,5 +22,5 @@ fi
 
 # Start Electron app
 echo "Starting Topics Electron App..."
-echo "CDP will be available at http://127.0.0.1:19222"
+echo "CDP will be available at http://127.0.0.1:19333"
 npm start

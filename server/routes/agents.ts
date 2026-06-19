@@ -274,7 +274,7 @@ export function createAgentsRouter(ctx: AppContext): RouteHandler {
     const historyMatch = pathname.match(/^\/api\/agents\/sessions\/(.+)\/history$/);
     if (method === "GET" && historyMatch) {
       const sessionKey = decodeURIComponent(historyMatch[1]);
-      const limit = parseInt(url.searchParams.get("limit") || "100");
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 1), 500);
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, {
           method: "POST",
@@ -308,7 +308,7 @@ export function createAgentsRouter(ctx: AppContext): RouteHandler {
 
     // GET /api/agents/sessions?activeMinutes=120&messages=0
     if (method === "GET" && pathname === "/api/agents/sessions") {
-      const activeMinutes = parseInt(url.searchParams.get("activeMinutes") || "120");
+      const activeMinutes = Math.min(Math.max(parseInt(url.searchParams.get("activeMinutes") || "120", 10) || 120, 1), 10080);
       const includeMessages = url.searchParams.get("messages") === "1";
 
       // Try fast path first (direct file read)

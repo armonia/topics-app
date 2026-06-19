@@ -67,7 +67,7 @@ count=0
 # Playwright stores videos in per-test dirs like:
 #   test-results/artifacts/spec-name-Test-Title-chromium/video.webm
 # or sometimes nested. We find all .webm files.
-find "$ARTIFACTS" -name '*.webm' -type f | while read -r video; do
+while read -r video; do
   # The parent directory name encodes the test info
   dirbase="$(basename "$(dirname "$video")")"
 
@@ -118,6 +118,6 @@ find "$ARTIFACTS" -name '*.webm' -type f | while read -r video; do
   cp "$video" "$dest"
   ((count++)) || true
   echo "  → $dest"
-done
+done < <(find "$ARTIFACTS" -name '*.webm' -type f)
 
-echo "Organized videos into $OUTDIR/"
+echo "Organized $count video(s) into $OUTDIR/"

@@ -117,7 +117,7 @@ function sanitizePane(raw: unknown): Pane | null {
   if (typeof raw.color === 'string') pane.color = raw.color;
   if (typeof raw.processId === 'string') pane.processId = raw.processId;
   if (typeof raw.sessionKey === 'string') pane.sessionKey = raw.sessionKey;
-  if (raw.terminalType === 'shell' || raw.terminalType === 'claude-code') {
+  if (raw.terminalType === 'shell' || raw.terminalType === 'claude-code' || raw.terminalType === 'codex') {
     pane.terminalType = raw.terminalType;
   }
   return pane;

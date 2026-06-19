@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
 import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
 import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
-import { MODAL_BACKDROP } from '../../lib/modalStyles';
+import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { worktreesApi } from '../../lib/api';
 
 interface TopicSettingsModalProps {
@@ -138,7 +138,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="relative w-full max-w-xl mx-4 bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden max-h-[90vh] sm:max-h-[80vh] flex flex-col focus:outline-none command-palette-enter"
+        className={`relative w-full max-w-xl mx-4 max-h-[90vh] sm:max-h-[80vh] flex flex-col focus:outline-none ${MODAL_PANEL}`}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
