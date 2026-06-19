@@ -448,7 +448,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // Send a follow-up message to the gateway session so the AI generates a response
     // that includes the sub-agent result. The gateway has the completion event in its
     // context already — we just need to trigger a new inference turn.
-    const topic = loadTopics().topics[watched.topicId];
+    const topic = getTopicById(watched.topicId);
     const provider = resolveProvider(topic);
     if (provider.name !== 'openclaw') {
       // /api/inference/chat is OpenClaw-specific — deliver raw result for other providers
@@ -668,8 +668,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     const match = content.match(/\{\{TOPIC_SWITCH:([\w-]+)\}\}/);
     if (!match) return { content, switchedToTopicId: null };
     const targetId = match[1];
-    const data = loadTopics();
-    const target = data.topics[targetId];
+    const target = getTopicById(targetId);
     if (!target || target.archived) {
       return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: null };
     }
@@ -1117,8 +1116,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   }
 
   function getProjectIdForTopic(topicId: string): string | null {
-    const data = loadTopics();
-    const topic = data.topics[topicId];
+    const topic = getTopicById(topicId);
     if (!topic?.projectPath) return null;
     const projectPath = topic.projectPath;
     const pathParts = projectPath.replace(/\/+$/, "").split("/");
@@ -1322,6 +1320,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (params && method === "PATCH") {
         const body = await readJSON(req);
         if (!body) return json({ error: "body required" }, 400);
+        // Loads all topics: the parent/ancestor cycle check below walks
+        // `data.topics[ancestorId]` across the tree, so a single indexed read
+        // would not suffice here.
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "not found" }, 404);
@@ -1637,8 +1638,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (params && method === "POST") {
         const body = await readJSON(req);
         if (!body?.content) return json({ error: "content required" }, 400);
-        const data = loadTopics();
-        const topic = data.topics[params.id];
+        const topic = getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
         const stored = appendLocalMessage(topic.sessionKey, "assistant", body.content);
         broadcastToAll({ type: "message", sessionKey: topic.sessionKey, message: { id: stored.id, role: "assistant", content: body.content, timestamp: stored.timestamp } });
@@ -1656,8 +1656,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!body?.status || !['approved', 'rejected'].includes(body.status)) {
           return json({ error: "status must be 'approved' or 'rejected'" }, 400);
         }
-        const data = loadTopics();
-        const topic = data.topics[params.id];
+        const topic = getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
         const msg = getMessageById(params.msgId);
         if (!msg) return json({ error: "Message not found" }, 404);
@@ -1671,8 +1670,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     {
       const params = matchRoute(pathname, "/api/topics/:id/messages");
       if (params && method === "GET") {
-        const data = loadTopics();
-        const topic = data.topics[params.id];
+        const topic = getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
 
         const urlParams = url.searchParams;
@@ -3977,7 +3975,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const topicId = url.searchParams.get("topicId");
       if (!topicId) return json({ error: "topicId parameter required" }, 400);
       try {
-        const procProvider = resolveProvider(loadTopics().topics[topicId]);
+        const procProvider = resolveProvider(getTopicById(topicId));
         let result: any;
         if (procProvider.listSessions) {
           result = await procProvider.listSessions({ kinds: ["other"], activeMinutes: 30 });
