@@ -1170,6 +1170,12 @@ export interface AppSettings {
   // entry points are hidden and ⌘⇧N is inert. Surfaced in Settings → Features,
   // flagged as a paid feature.
   enableNewChat: boolean;
+  // EXPERIMENTAL, desktop-only. When on, every window split and the sidebar
+  // render as detached, rounded "floating" cards separated by small gaps that
+  // reveal the macOS window vibrancy underneath — making the split layout
+  // easier to read. Gated to Electron (relies on native vibrancy) and ignored
+  // on web/PWA. Surfaced in Settings → Appearance. Defaults OFF.
+  floatingSplits: boolean;
 }
 
 export interface ProcessInfo {
