@@ -1,5 +1,6 @@
 import path from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
+import { createTopic, patchTopic, deleteTopic } from "./helpers/api-fixtures";
 
 test.describe("Context, Memory & Settings", () => {
   test.beforeEach(async ({ contextPage, page }) => {
@@ -457,17 +458,14 @@ test.describe("Context, Memory & Settings", () => {
     request,
   }) => {
     // Create a dedicated topic with contextFiles already set
-    const { createTopic, patchTopic, deleteTopic } = await import(
-      "./helpers/api-fixtures"
-    );
     const ts = Date.now();
     const topic = await createTopic(request, `E2E-Pills-${ts}`);
 
     // Set contextFiles on the topic (use real files that exist on disk)
     await patchTopic(request, topic.id, {
       contextFiles: [
-        path.resolve(import.meta.dirname, "../../CLAUDE.md"),
-        path.resolve(import.meta.dirname, "../../README.md"),
+        path.resolve(process.cwd(), "CLAUDE.md"),
+        path.resolve(process.cwd(), "README.md"),
       ],
     });
 
