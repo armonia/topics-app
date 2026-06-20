@@ -298,7 +298,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
     getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage,
-    switchActiveBranch, getSiblingMessages, loadActiveThread,
+    getSiblingMessages, loadActiveThread,
     activeStreams,
     worktreeStore,
     projectStore,
@@ -3485,32 +3485,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // --- Switch branch ---
-    {
-      const params = matchRoute(pathname, "/api/messages/:id/switch-branch");
-      if (params && method === "POST") {
-        const body = await readJSON(req);
-        if (body?.branchIndex === undefined) return json({ error: "branchIndex required" }, 400);
-
-        const msg = getMessageById(params.id);
-        if (!msg) return json({ error: "message not found" }, 404);
-
-        const sessionKey = getMessageSessionKey(params.id);
-        if (!sessionKey) return json({ error: "session not found" }, 404);
-
-        const parentId = msg.parentId;
-        if (!parentId) {
-          // Root message — switch active root branch
-          ctx.db.prepare(`INSERT OR REPLACE INTO active_branches (parent_id, session_key, active_branch_index) VALUES ('__root__', ?, ?)`).run(sessionKey, body.branchIndex);
-        } else {
-          switchActiveBranch(sessionKey, parentId, body.branchIndex);
-        }
-
-        // Return the new active thread
-        const thread = loadActiveThread(sessionKey);
-        return json({ messages: thread });
-      }
-    }
+    // Switch-branch (POST /api/messages/:id/switch-branch) lives in server/routes/branches.ts now.
 
     // --- History --- (handler extracted to server/routes/history.ts)
     {
