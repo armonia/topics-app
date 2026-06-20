@@ -1082,38 +1082,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     }
   }
 
-  // --- Tasks helpers (SQLite-backed) ---
   const { db } = ctx;
-
-  function loadTasks(projectId: string): any[] {
-    const rows = db.prepare("SELECT * FROM tasks WHERE project_id = ? ORDER BY kanban_order ASC").all(projectId) as any[];
-    return rows.map(r => ({
-      id: r.id, text: r.text, description: r.description || null,
-      status: r.status, priority: r.priority, kanbanOrder: r.kanban_order,
-      assignedTo: r.assigned_to || null, dueDate: r.due_date || null,
-      chatId: r.chat_id || null, createdAt: r.created_at, completedAt: r.completed_at || null,
-      updatedAt: r.updated_at,
-      // Master proposal fields (migration 026). claudeTaskId != null marks a
-      // proposal card; assignedTopicId is the session it targets (jump target).
-      claudeTaskId: r.claude_task_id || null, assignedTopicId: r.assigned_topic_id || null,
-    }));
-  }
-
-  function saveTask(projectId: string, task: any) {
-    // claude_task_id + assigned_topic_id are carried through so a manual edit
-    // (PATCH) of a Master proposal card doesn't strip its proposal marker /
-    // jump target (INSERT OR REPLACE rewrites the whole row). See migration 026.
-    db.prepare(`
-      INSERT OR REPLACE INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, due_date, chat_id, created_at, completed_at, updated_at, claude_task_id, assigned_topic_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      task.id, projectId, task.text, task.description || null,
-      task.status, task.priority ?? 2, task.kanbanOrder ?? 0,
-      task.assignedTo || null, task.dueDate || null, task.chatId || null,
-      task.createdAt, task.completedAt || null, task.updatedAt || new Date().toISOString(),
-      task.claudeTaskId || null, task.assignedTopicId || null
-    );
-  }
 
   function getProjectIdForTopic(topicId: string): string | null {
     const topic = getTopicById(topicId);
@@ -1625,6 +1594,55 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           broadcastToAll({ type: "browser:navigate", topicId: topic.id, url: resolvedUrl });
           browserNavigatedTopics.add(topic.id);
           return json({ url: resolvedUrl, title: result?.title ?? "" });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, 500);
+        }
+      }
+    }
+
+    // POST /api/topics/:id/browser/import-chrome
+    // POST /api/sessions/:sessionKey/browser/import-chrome
+    //
+    // MCP bridge for the `import_chrome` tool (claude-code CLI sessions): seed the
+    // topic's native browser pane with the user's real Chrome cookies. Same handler
+    // as the SDK chat tool path (dispatchBrowserToolCall -> handleBrowserImportChrome),
+    // which requires the Electron native pane (CDP). Needs a real topic pane, so
+    // (unlike open-pane) there is no terminal-session fallback.
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/import-chrome");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/import-chrome");
+      if ((byTopic || bySession) && method === "POST") {
+        // import-chrome decrypts the user's REAL Chrome session cookies — far more
+        // sensitive than open-pane's navigate. The server binds 0.0.0.0, so require
+        // the gateway token (the MCP bridge always sends X-Gateway-Token; the SDK
+        // chat path never hits this route — it dispatches in-process). Stops a LAN
+        // peer / local process from triggering a confused-deputy cookie import.
+        const tok = req.headers.get("x-gateway-token") || "";
+        if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) {
+          return json({ error: "unauthorized" }, 401);
+        }
+        if (!browserService) {
+          return json({ error: "Browser service is not enabled in this build" }, 503);
+        }
+        let topic: Topic | null = null;
+        if (byTopic) topic = getTopicById(byTopic.id);
+        else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+        if (!topic) return json({ error: "Topic not found (import-chrome needs an open topic browser pane)" }, 404);
+
+        const body = (await readJSON(req)) as { domains?: unknown; profile?: unknown; dry_run?: unknown } | null;
+        const domains = Array.isArray(body?.domains) ? body.domains.map(String) : [];
+        const profile = typeof body?.profile === "string" ? body.profile : undefined;
+        const dryRun = !!body?.dry_run;
+        try {
+          const result = await dispatchBrowserToolCall(
+            "browser_import_chrome",
+            { domains, profile, dry_run: dryRun },
+            topic,
+            browserService,
+          ) as { error?: string };
+          if (result?.error) return json({ error: result.error }, 502);
+          return json(result as Record<string, unknown>);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           return json({ error: msg }, 500);
@@ -3988,64 +4006,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const processes = sessions.filter((s: any) => s.sessionKey?.includes("subagent")).map((s: any) => ({ sessionKey: s.sessionKey, label: s.label || s.sessionKey.split(":").pop() || "Sub-agent", status: s.status === "active" ? "running" : "done", startedAt: s.createdAt || new Date().toISOString(), completedAt: s.status !== "active" ? (s.updatedAt || new Date().toISOString()) : undefined }));
         return json(processes);
       } catch { return json([]); }
-    }
-
-    // --- Tasks ---
-    {
-      const params = matchRoute(pathname, "/api/projects/:projectId/tasks");
-      if (params && method === "GET") return json({ tasks: loadTasks(params.projectId) });
-      if (params && method === "POST") {
-        const body = await readJSON(req);
-        if (!body?.text) return json({ error: "text required" }, 400);
-        const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(params.projectId) as any;
-        const now = new Date().toISOString();
-        const task = {
-          id: crypto.randomUUID(), text: body.text, description: body.description || null,
-          status: body.status || "todo", priority: body.priority ?? 2,
-          kanbanOrder: (maxRow?.m ?? 0) + 1,
-          assignedTo: null, dueDate: null,
-          chatId: body.chatId || null, createdAt: now, completedAt: null, updatedAt: now,
-        };
-        saveTask(params.projectId, task);
-        broadcastToAll({ type: "task:created", projectId: params.projectId, task });
-        return json(task, 201);
-      }
-    }
-
-    {
-      const params = matchRoute(pathname, "/api/projects/:projectId/tasks/:taskId");
-      if (params && method === "PATCH") {
-        const body = await readJSON(req);
-        if (!body) return json({ error: "body required" }, 400);
-        const row = db.prepare("SELECT * FROM tasks WHERE id = ? AND project_id = ?").get(params.taskId, params.projectId) as any;
-        if (!row) return json({ error: "Task not found" }, 404);
-        const task = {
-          id: row.id, text: row.text, description: row.description,
-          status: row.status, priority: row.priority, kanbanOrder: row.kanban_order,
-          assignedTo: row.assigned_to, dueDate: row.due_date,
-          chatId: row.chat_id, createdAt: row.created_at, completedAt: row.completed_at,
-          updatedAt: new Date().toISOString(),
-          // Preserve Master proposal fields across manual edits.
-          claudeTaskId: row.claude_task_id, assignedTopicId: row.assigned_topic_id,
-        };
-        if (body.text !== undefined) task.text = body.text;
-        if (body.description !== undefined) task.description = body.description;
-        if (body.status !== undefined) { task.status = body.status; task.completedAt = body.status === "done" ? new Date().toISOString() : null; }
-        if (body.priority !== undefined) task.priority = body.priority;
-        if (body.kanbanOrder !== undefined) task.kanbanOrder = body.kanbanOrder;
-        if (body.assignedTo !== undefined) task.assignedTo = body.assignedTo;
-        if (body.dueDate !== undefined) task.dueDate = body.dueDate;
-        saveTask(params.projectId, task);
-        broadcastToAll({ type: "task:updated", projectId: params.projectId, task });
-        return json(task);
-      }
-      if (params && method === "DELETE") {
-        const row = db.prepare("SELECT id FROM tasks WHERE id = ? AND project_id = ?").get(params.taskId, params.projectId);
-        if (!row) return json({ error: "Task not found" }, 404);
-        db.prepare("DELETE FROM tasks WHERE id = ?").run(params.taskId);
-        broadcastToAll({ type: "task:deleted", projectId: params.projectId, taskId: params.taskId });
-        return json({ ok: true });
-      }
     }
 
     {
