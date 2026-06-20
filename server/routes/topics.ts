@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, ContentBlock, RouteHandler, StoredMessage, ToolCall, Topic } from "../types";
@@ -1712,49 +1712,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return json({ results: searchTranscripts(body.query, body.limit || 50) });
     }
 
-    // --- STT ---
-    if (method === "POST" && pathname === "/api/stt") {
-      try {
-        const formData = await req.formData();
-        const audioFile = formData.get("audio");
-        if (!audioFile || typeof audioFile === "string") return json({ error: "audio file required" }, 400);
-        const ts = Date.now();
-        const tempWebm = `/tmp/stt-${ts}.webm`;
-        const tempWav = `/tmp/stt-${ts}.wav`;
-        const buffer = await (audioFile as File).arrayBuffer();
-        writeFileSync(tempWebm, Buffer.from(buffer));
-        const ffmpeg = Bun.spawnSync(["ffmpeg", "-i", tempWebm, "-ar", "16000", "-ac", "1", tempWav, "-y"], { timeout: 30000, stdout: "pipe", stderr: "pipe" });
-        if (ffmpeg.exitCode !== 0) throw new Error(`ffmpeg conversion failed: ${ffmpeg.stderr.toString()}`);
-        const whisperModel = process.env.WHISPER_MODEL_PATH || `${process.env.HOME || ""}/whisper-models/ggml-large-v3.bin`;
-        const whisper = Bun.spawnSync(["whisper-cli", "-m", whisperModel, "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
-        if (whisper.exitCode !== 0) throw new Error(`Whisper failed: ${whisper.stderr.toString()}`);
-        const transcript = whisper.stdout.toString().split("\n").filter((line: string) => !line.match(/^(whisper|ggml|system|main):/i) && line.trim()).join(" ").trim();
-        try { unlinkSync(tempWebm); } catch {}
-        try { unlinkSync(tempWav); } catch {}
-        return json({ transcript });
-      } catch (err: any) {
-        console.error("STT error:", err);
-        return json({ error: "STT failed: " + err.message }, 500);
-      }
-    }
-
-    // --- TTS ---
-    if (method === "POST" && pathname === "/api/tts") {
-      const body = await readJSON(req);
-      if (!body?.text) return json({ error: "text required" }, 400);
-      if (!process.env.ELEVENLABS_API_KEY) return json({ error: "ELEVENLABS_API_KEY not configured" }, 500);
-      try {
-        const voiceId = body.voiceId || "iP95p4xoKVk53GoZ742B";
-        const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "xi-api-key": process.env.ELEVENLABS_API_KEY || "" },
-          body: JSON.stringify({ text: body.text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.4, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true } }),
-        });
-        if (!resp.ok) { const errText = await resp.text(); return json({ error: "TTS failed: " + errText }, 502); }
-        const audioBuffer = await resp.arrayBuffer();
-        return new Response(audioBuffer, { headers: { "Content-Type": "audio/mpeg", "Content-Length": audioBuffer.byteLength.toString() } });
-      } catch (err: any) { return json({ error: "TTS error: " + err.message }, 500); }
-    }
+    // STT (/api/stt) + TTS (/api/tts) live in server/routes/voice.ts now.
 
     // --- Context file upload ---
     if (method === "POST" && pathname === "/api/context-upload") {
