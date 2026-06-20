@@ -43,7 +43,6 @@ import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders } from "./server/providers";
-import { createAgentApiRouter } from "./server/routes/agent-api";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
@@ -264,7 +263,6 @@ const tagsRouter = createTagsRouter(ctx);
 const agentProfilesRouter = createAgentProfilesRouter(ctx);
 const webhooksRouter = createWebhooksRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
-const agentApiRouter = createAgentApiRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
@@ -594,8 +592,7 @@ const server = Bun.serve<WSData>({
 
     // Route through handlers
     if (isApiRequest) {
-      const response = await agentApiRouter(req, url, pathname, method)
-        || await topicsRouter(req, url, pathname, method)
+      const response = await topicsRouter(req, url, pathname, method)
         || await projectsRouter(req, url, pathname, method)
         || await worktreesRouter(req, url, pathname, method)
         || await machinesRouter(req, url, pathname, method)
