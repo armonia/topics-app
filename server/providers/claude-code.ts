@@ -23,7 +23,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
-import { TOPICS_AGENT_SYSTEM_PROMPT } from "../lib/topics-agent-prompt";
+import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
 
 // ============ Config ============
@@ -980,6 +980,9 @@ export class ClaudeCodeProvider implements AIProvider {
       "--permission-mode", permissionMode,
       "--verbose",
       "--model", model,
+      // Match the effort tier a Warp shell would use ("ultracode" = xhigh);
+      // without this the spawn falls back to settings.json effortLevel (low).
+      ...((): string[] => { const e = resolveClaudeEffort(); return e ? ["--effort", e] : []; })(),
       "--setting-sources", "user,project,local",
       "--mcp-config", mcpConfigPath,
       // When we scoped the global fleet into the config above, tell the CLI to

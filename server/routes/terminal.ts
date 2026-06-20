@@ -14,7 +14,7 @@ import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
-import { TOPICS_AGENT_SYSTEM_PROMPT } from "../lib/topics-agent-prompt";
+import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 
 interface TerminalSession {
   id: string;
@@ -789,6 +789,13 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // --append-system-prompt works in interactive mode and is additive to the
     // project's own CLAUDE.md.
     args.push('--append-system-prompt', TOPICS_AGENT_SYSTEM_PROMPT);
+    // Start the interactive session at the same effort tier a Warp shell would
+    // ("ultracode" = xhigh). The server runs under launchd with no CLAUDE_EFFORT
+    // in its env, and the user's global effortLevel defaults to low, so without
+    // an explicit flag every Topics PTY would start at low effort. Tunable via
+    // TOPICS_CLAUDE_EFFORT (set "off" to defer to the CLI's own settings).
+    const claudeEffort = resolveClaudeEffort();
+    if (claudeEffort) args.push('--effort', claudeEffort);
     // Bridge the Topics MCP server into the interactive CLI so a terminal
     // Claude Code can surface a browser pane next to itself (the chat path
     // does the same in providers/claude-code.ts). We key the config by the
