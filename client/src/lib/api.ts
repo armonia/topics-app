@@ -1299,17 +1299,6 @@ export interface AgentActionLog {
   createdAt: string;
 }
 
-export const agentActionsApi = {
-  async list(projectId: string, opts?: { agentId?: string; limit?: number }): Promise<AgentActionLog[]> {
-    const params = new URLSearchParams();
-    if (opts?.agentId) params.set('agent_id', opts.agentId);
-    if (opts?.limit) params.set('limit', String(opts.limit));
-    const qs = params.toString();
-    const data = await request<{ actions: AgentActionLog[] }>(`/agent/boards/${projectId}/actions${qs ? '?' + qs : ''}`);
-    return data.actions;
-  },
-};
-
 // Providers API
 export interface ProviderListEntry {
   name: string;
