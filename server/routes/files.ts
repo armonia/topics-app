@@ -386,7 +386,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
           if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) { relativePrefix = resolvedDir.slice(gitRoot.length + 1); if (relativePrefix && !relativePrefix.endsWith("/")) relativePrefix += "/"; }
         } catch {}
-        const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({ path: line.substring(3), status: line.substring(0, 2).trim() }));
+        // Emit the RAW 2-char XY porcelain code (do NOT trim): the client parses
+        // it positionally — status[0]=staged (index), status[1]=unstaged (worktree).
+        // Trimming "  M" → "M" misclassified unstaged files as staged.
+        const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({ path: line.substring(3), status: line.substring(0, 2) }));
         const files = relativePrefix ? allFiles.filter((f) => f.path.startsWith(relativePrefix)).map((f) => ({ ...f, path: f.path.slice(relativePrefix.length) })) : allFiles;
         const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
         gitStatusCache.set(resolvedDir, { data: result, timestamp: Date.now() });
