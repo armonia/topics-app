@@ -285,7 +285,7 @@ function purgeTopicFromUiState(
 
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
-    GATEWAY_URL, GATEWAY_TOKEN, UPLOADS_DIR, CONTEXT_DIR, SESSIONS_DIR, MESSAGES_DIR, OPENCLAW_DIR,
+    GATEWAY_URL, GATEWAY_TOKEN, SESSIONS_DIR, MESSAGES_DIR, OPENCLAW_DIR,
     broadcastToAll, broadcast, isTopicFocused,
     loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
     getTopicById, getTopicBySessionKey,
@@ -296,7 +296,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
-    ALLOWED_UPLOAD_MIMES,
     getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage,
     switchActiveBranch, getSiblingMessages, loadActiveThread,
     activeStreams,
@@ -1719,34 +1718,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // STT (/api/stt) + TTS (/api/tts) live in server/routes/voice.ts now.
 
     // --- Context file upload ---
-    if (method === "POST" && pathname === "/api/context-upload") {
-      try {
-        const formData = await req.formData();
-        const file = formData.get("file");
-        const topicId = formData.get("topicId") as string;
-        if (!file || typeof file === "string") return json({ error: "file required" }, 400);
-        if (!topicId) return json({ error: "topicId required" }, 400);
-        const fileType = (file as File).type;
-        if (!ALLOWED_UPLOAD_MIMES.has(fileType)) return json({ error: `File type not allowed: ${fileType}. Allowed types: text, documents, images, audio.` }, 400);
-        const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
-        if ((file as File).size > MAX_UPLOAD_SIZE) return json({ error: "File too large. Maximum size is 10MB." }, 400);
-        const topicDir = join(CONTEXT_DIR, topicId);
-        mkdirSync(topicDir, { recursive: true });
-        const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const filename = `${Date.now()}-${safeName}`;
-        const filepath = join(topicDir, filename);
-        const buffer = await (file as File).arrayBuffer();
-        writeFileSync(filepath, Buffer.from(buffer));
-        const topic = getTopicById(topicId);
-        if (topic) {
-          if (!topic.contextFiles) topic.contextFiles = [];
-          topic.contextFiles.push(filepath);
-          topic.updatedAt = new Date().toISOString();
-          saveSingleTopic(topic);
-        }
-        return json({ path: filepath, filename: (file as File).name, size: (file as File).size });
-      } catch (err: any) { return json({ error: "Upload failed: " + err.message }, 500); }
-    }
+    // /api/context-upload moved to server/routes/media.ts (with the other uploads).
 
     // --- Test: Seed message (for E2E tests — inserts a message directly into DB) ---
     if (method === "POST" && pathname === "/api/test/seed-message") {
@@ -3671,65 +3643,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     }
 
     // --- Media serving ---
-    if (method === "GET" && pathname === "/api/media") {
-      const filePath = url.searchParams.get("path");
-      if (!filePath) return json({ error: "path parameter required" }, 400);
-      // Prefer the media allowlist for cacheable project media; fall back to
-      // resolveProjectPath so sibling images of any openable MD file load.
-      // Symmetric with /api/files/content which also uses resolveProjectPath.
-      let resolved = ctx.isPathAllowed(resolve(filePath)) ? resolve(filePath) : ctx.resolveProjectPath(filePath);
-      if (!resolved) return json({ error: "forbidden: invalid path" }, 403);
-      if (!existsSync(resolved)) return new Response("Not Found", { status: 404 });
-      const file = Bun.file(resolved);
-      const contentType = ctx.getMimeType(resolved);
-      return new Response(file, { headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=3600" } });
-    }
-
-    // --- Base64 image upload ---
-    if (method === "POST" && pathname === "/api/upload-image") {
-      try {
-        const body = await readJSON(req);
-        if (!body?.dataUrl || !body?.mimeType) return json({ error: "dataUrl and mimeType required" }, 400);
-        const { dataUrl, mimeType } = body;
-        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-        if (!match) return json({ error: "Invalid data URL format" }, 400);
-        const ext = mimeType === "image/png" ? "png" : "jpg";
-        mkdirSync(UPLOADS_DIR, { recursive: true });
-        const filename = `${Date.now()}-paste.${ext}`;
-        const filepath = join(UPLOADS_DIR, filename);
-        const buffer = Buffer.from(match[2], "base64");
-        writeFileSync(filepath, buffer);
-        return json({ url: filepath });
-      } catch (err: any) { return json({ error: "Image upload failed: " + err.message }, 500); }
-    }
-
-    // --- File upload ---
-    if (method === "POST" && pathname === "/api/upload") {
-      try {
-        const formData = await req.formData();
-        const file = formData.get("file");
-        if (!file || typeof file === "string") return json({ error: "file required" }, 400);
-        mkdirSync(UPLOADS_DIR, { recursive: true });
-        const safeName = (file as File).name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const filename = `${Date.now()}-${safeName}`;
-        const filepath = join(UPLOADS_DIR, filename);
-        const buffer = await (file as File).arrayBuffer();
-        writeFileSync(filepath, Buffer.from(buffer));
-        return json({ path: filepath, filename: (file as File).name, size: (file as File).size });
-      } catch (err: any) { return json({ error: "Upload failed: " + err.message }, 500); }
-    }
-
-    // --- Context file deletion ---
-    if (method === "DELETE" && pathname === "/api/context-file") {
-      const body = await readJSON(req);
-      if (!body?.topicId || !body?.filePath) return json({ error: "topicId and filePath required" }, 400);
-      const topic = getTopicById(body.topicId);
-      if (!topic) return json({ error: "not found" }, 404);
-      topic.contextFiles = (topic.contextFiles || []).filter(f => f !== body.filePath);
-      topic.updatedAt = new Date().toISOString();
-      saveSingleTopic(topic);
-      return json({ ok: true });
-    }
+    // Media serving + uploads (/api/media, /api/upload, /api/upload-image,
+    // /api/context-upload, DELETE /api/context-file) live in server/routes/media.ts now.
 
     // --- Auto-name --- (handler extracted to server/routes/autoname.ts)
     {
