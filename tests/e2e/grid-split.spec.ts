@@ -638,6 +638,51 @@ test.describe("Grid Split System", () => {
       expect(Math.abs(newBox!.y - initialY), 'Row divider should have moved after drag').toBeGreaterThan(20);
     });
 
+    test("GRID-07: double-click col-resize divider equalizes the two columns", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (equalize)" });
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      // Split right → two side-by-side columns with one col-resize divider.
+      await splitViaContextMenu(page, 'Split Right');
+
+      const cells = page.locator('[role="main"] [data-panel-cell]');
+      await expect(cells).toHaveCount(2, { timeout: 3000 });
+      const widthOf = async (i: number) => {
+        const b = await cells.nth(i).boundingBox();
+        if (!b) throw new Error(`cell ${i} has no bounding box`);
+        return b.width;
+      };
+
+      const divider = page.locator('[role="main"] .cursor-col-resize').first();
+      await expect(divider).toBeVisible({ timeout: 3000 });
+
+      // 1. Drag the divider well off-center so the two columns are clearly unequal.
+      const box = await divider.boundingBox();
+      expect(box).not.toBeNull();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box!.x + box!.width / 2 + 160, box!.y + box!.height / 2, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+
+      const diffBefore = Math.abs((await widthOf(0)) - (await widthOf(1)));
+      expect(diffBefore, 'columns should be unequal after dragging the divider').toBeGreaterThan(80);
+
+      // 2. Double-click the divider → equalize. (No drag movement, so useGridResize
+      //    treats it as a click, not a resize, and onDoubleClick → equalizeHorizontal
+      //    fires — the wiring under test. For two plain chats the weights are [1,1],
+      //    so it resolves to a 50/50 split.)
+      const dBox = await divider.boundingBox();
+      expect(dBox).not.toBeNull();
+      await page.mouse.dblclick(dBox!.x + dBox!.width / 2, dBox!.y + dBox!.height / 2);
+      await page.waitForTimeout(300);
+
+      // 3. The two columns should now be approximately equal width.
+      const diffAfter = Math.abs((await widthOf(0)) - (await widthOf(1)));
+      expect(diffAfter, 'double-click should equalize the two columns to ~50/50').toBeLessThan(30);
+    });
+
     test("GRID-04: Split layout persists after page reload", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
