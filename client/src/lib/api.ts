@@ -669,37 +669,6 @@ export interface BoardSettings {
   autoExpireHours: number;
 }
 
-// Legacy tasks API (backward compat for existing TaskBoard component)
-export const tasksApi = {
-  async list(projectId: string): Promise<{ tasks: Task[] }> {
-    return request<{ tasks: Task[] }>(`/projects/${projectId}/tasks`);
-  },
-
-  async create(projectId: string, text: string, chatId?: string): Promise<Task> {
-    return request<Task>(`/projects/${projectId}/tasks`, {
-      method: 'POST',
-      body: JSON.stringify({ text, chatId }),
-    });
-  },
-
-  async update(projectId: string, taskId: string, updates: { status?: string; text?: string; kanbanOrder?: number }): Promise<Task> {
-    return request<Task>(`/projects/${projectId}/tasks/${taskId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
-    });
-  },
-
-  async remove(projectId: string, taskId: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>(`/projects/${projectId}/tasks/${taskId}`, {
-      method: 'DELETE',
-    });
-  },
-
-  async getProjectId(topicId: string): Promise<{ projectId: string }> {
-    return request<{ projectId: string }>(`/topics/${topicId}/project-id`);
-  },
-};
-
 // Enhanced Boards API (Phase 2)
 export const boardsApi = {
   async listTasks(projectId: string, filters?: { status?: string; priority?: string; assignedTo?: string }): Promise<{ tasks: BoardTask[] }> {
@@ -1475,23 +1444,6 @@ export interface AgentActionLog {
   createdAt: string;
 }
 
-export const boardMemoryApi = {
-  async list(projectId: string, opts?: { isChat?: boolean; limit?: number }): Promise<BoardMemory[]> {
-    const params = new URLSearchParams();
-    if (opts?.isChat !== undefined) params.set('is_chat', String(opts.isChat));
-    if (opts?.limit) params.set('limit', String(opts.limit));
-    const qs = params.toString();
-    const data = await request<{ memory: BoardMemory[] }>(`/boards/${projectId}/memory${qs ? '?' + qs : ''}`);
-    return data.memory;
-  },
-  async create(projectId: string, data: { content: string; tags?: string[]; isChat?: boolean; source?: string }): Promise<BoardMemory> {
-    return request<BoardMemory>(`/boards/${projectId}/memory`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-};
-
 export const agentActionsApi = {
   async list(projectId: string, opts?: { agentId?: string; limit?: number }): Promise<AgentActionLog[]> {
     const params = new URLSearchParams();
@@ -1598,16 +1550,6 @@ export const providersApi = {
 
   async remove(name: string) {
     return request<{ ok: boolean }>(`/providers/${encodeURIComponent(name)}`, { method: 'DELETE' });
-  },
-};
-
-// Global board tasks API (across all projects)
-export const globalBoardApi = {
-  async listTasks(filters?: { status?: string }): Promise<{ tasks: BoardTask[] }> {
-    const params = new URLSearchParams();
-    if (filters?.status) params.set('status', filters.status);
-    const qs = params.toString();
-    return request<{ tasks: BoardTask[] }>(`/boards/tasks${qs ? '?' + qs : ''}`);
   },
 };
 
