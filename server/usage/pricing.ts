@@ -21,7 +21,12 @@ function findPricing(model: string): { input: number; output: number } | null {
   const lower = model.toLowerCase();
   const sortedEntries = Object.entries(MODEL_PRICING).sort((a, b) => b[0].length - a[0].length);
   for (const [key, pricing] of sortedEntries) {
-    if (lower.includes(key.toLowerCase()) || key.toLowerCase().includes(lower)) {
+    // Only match when the MODEL NAME contains a known pricing key. The reverse
+    // direction (key contains model) misclassified short names — e.g. model
+    // "gpt-4o" matched the longer key "gpt-4o-mini" (checked first by length)
+    // and billed at the wrong rate. Short aliases ("opus", "o3") fall through
+    // to the explicit family fallbacks below.
+    if (lower.includes(key.toLowerCase())) {
       return pricing;
     }
   }
