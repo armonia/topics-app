@@ -25,3 +25,31 @@ export const TOPICS_AGENT_SYSTEM_PROMPT = [
   'Only fall back to a bare shell command when no matching package.json script exists',
   'or the command is a short one-off.',
 ].join(' ');
+
+/**
+ * Effort tier for Topics-launched Claude sessions — the "ultracode" tier in the
+ * TUI is just the top effort (`xhigh`) plus dynamic workflows.
+ *
+ * `claude` resolves effort from `--effort` flag → `CLAUDE_EFFORT` env →
+ * settings.json `effortLevel`. Topics spawns `claude` directly: under launchd
+ * the server's env carries no `CLAUDE_EFFORT`, and the user's global
+ * `effortLevel` defaults to "low", so without help every Topics session starts
+ * at low effort — unlike a Warp shell, which exports `CLAUDE_EFFORT=xhigh` and
+ * therefore "starts in ultracode". We pass `--effort` explicitly so the tier is
+ * deterministic and independent of the spawn environment.
+ *
+ * Resolution order: `TOPICS_CLAUDE_EFFORT` (Topics override; "off"/"none"/
+ * "default" disables and lets the CLI's own settings win) → `CLAUDE_EFFORT`
+ * (mirror the shell when present) → `"xhigh"` (the Warp default). Returns null
+ * when disabled or the value is not a recognised tier, in which case no flag is
+ * passed.
+ */
+const VALID_CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+export function resolveClaudeEffort(): string | null {
+  const override = (process.env.TOPICS_CLAUDE_EFFORT ?? '').trim().toLowerCase();
+  if (override === 'off' || override === 'none' || override === 'default') return null;
+  const candidate =
+    override || (process.env.CLAUDE_EFFORT ?? '').trim().toLowerCase() || 'xhigh';
+  return VALID_CLAUDE_EFFORTS.has(candidate) ? candidate : null;
+}
