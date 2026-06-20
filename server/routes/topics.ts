@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import type { AppContext, ContentBlock, RouteHandler, StoredMessage, ToolCall, Topic } from "../types";
+import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, getDefaultProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -9,6 +9,7 @@ import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
 import { createAutoNameRouter } from "./autoname";
+import { createHistoryRouter } from "./history";
 import { calculateCost } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
@@ -285,14 +286,14 @@ function purgeTopicFromUiState(
 
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
-    GATEWAY_URL, GATEWAY_TOKEN, SESSIONS_DIR, MESSAGES_DIR, OPENCLAW_DIR,
+    GATEWAY_URL, GATEWAY_TOKEN, MESSAGES_DIR, OPENCLAW_DIR,
     broadcastToAll, broadcast, isTopicFocused,
     loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
     createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
-    startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
+    startStream, updateStreamActivity, updateStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
@@ -1119,6 +1120,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   // Auto-naming endpoint extracted to its own router; it needs two closure
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
+  const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
 
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -3510,136 +3512,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // --- History ---
+    // --- History --- (handler extracted to server/routes/history.ts)
     {
-      const sessionKey = matchHistoryRoute(pathname);
-      if (sessionKey && (method === "POST" || method === "GET")) {
-        const body = method === "POST" ? await readJSON(req) : {};
-        const urlParams = url.searchParams;
-        const limit = body?.limit || parseInt(urlParams.get('limit') || '50');
-        const offset = body?.offset || parseInt(urlParams.get('offset') || '0');
-
-        const localMsgs = loadLocalMessages(sessionKey);
-        const activeStream = isStreaming(sessionKey);
-        // A message is "real" if it has any of: trimmed text content,
-        // recorded tool calls, or a populated chronological blocks
-        // timeline. Messages with tools-only-no-text were getting nuked
-        // by the cleanup pass below — when a stream crashed mid-flight or
-        // produced only tool calls (no prose), the message got DELETE'd
-        // on the next /api/history request and the user lost their
-        // tools on refresh.
-        const isRealMessage = (m: StoredMessage) =>
-          (m.content && m.content.trim().length > 0) ||
-          (m.toolCalls && m.toolCalls.length > 0) ||
-          (m.blocks && m.blocks.length > 0);
-        // When streaming, keep ALL messages (including empty partials) — filtering them deletes from disk
-        const completeMsgs = activeStream
-          ? localMsgs
-          : localMsgs.filter(m => !m.partial || isRealMessage(m));
-
-        // Clean up stale messages surgically (avoid saveLocalMessages which destroys branch tree)
-        if (!activeStream) {
-          // Delete empty partial messages — re-parent children first to avoid FK constraint.
-          // Preserve messages with tools/blocks even when text is empty.
-          const removedIds = localMsgs.filter(m => m.partial && !isRealMessage(m)).map(m => m.id);
-          for (const id of removedIds) {
-            const parentRow = ctx.db.prepare(`SELECT parent_id FROM messages WHERE id = ?`).get(id) as any;
-            const parentId = parentRow?.parent_id || null;
-            ctx.db.prepare(`UPDATE messages SET parent_id = ? WHERE parent_id = ?`).run(parentId, id);
-            ctx.db.prepare(`DELETE FROM messages WHERE id = ?`).run(id);
-          }
-          // Clear partial flag on messages with content
-          for (const m of completeMsgs) {
-            if (m.partial) {
-              ctx.db.prepare(`UPDATE messages SET partial = 0 WHERE id = ?`).run(m.id);
-              m.partial = false;
-            }
-          }
-        }
-
-        if (completeMsgs.length > 0) {
-          const total = completeMsgs.length;
-          const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-          const result = sliced.slice(-limit);
-          const currentStream = isStreaming(sessionKey);
-
-          // Overlay in-memory stream content onto the last assistant message
-          if (currentStream) {
-            const streamContent = getStreamContent(sessionKey);
-            if (streamContent && result.length > 0) {
-              const last = result[result.length - 1];
-              if (last.role === 'assistant' && last.partial) {
-                last.content = streamContent.content;
-                if (streamContent.thinking) last.thinking = streamContent.thinking;
-              }
-            }
-          }
-
-          const lastMsg = completeMsgs[completeMsgs.length - 1];
-          const hasOrphanedMessage = lastMsg?.role === 'user';
-          return json({ messages: result, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null });
-        }
-
-        // Fallback: Provider history
-        try {
-          const histProvider = providerForSessionKey(sessionKey);
-          let data: any;
-          if (histProvider.invokeTool) {
-            data = await histProvider.invokeTool("sessions_history", { sessionKey, limit: limit + offset, includeTools: false });
-          } else if (histProvider.getHistory) {
-            data = await histProvider.getHistory(sessionKey, limit + offset);
-          }
-          const gatewayMessages = data?.result?.messages || data?.result?.details?.messages || [];
-          if (gatewayMessages.length > 0) {
-            for (const msg of gatewayMessages) {
-              if ((msg.role === "user" || msg.role === "assistant") && msg.content) {
-                const content = typeof msg.content === "string" ? msg.content : Array.isArray(msg.content) ? msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n") : "";
-                if (content.trim() && !content.startsWith("[Chat messages since your last reply")) appendLocalMessage(sessionKey, msg.role, content);
-              }
-            }
-            const migrated = loadLocalMessages(sessionKey);
-            const total = migrated.length;
-            const sliced = offset > 0 ? migrated.slice(0, Math.max(0, total - offset)) : migrated;
-            return json({ messages: sliced.slice(-limit), total });
-          }
-        } catch (err) { console.warn(`[Messages] Gateway migration failed for ${sessionKey}:`, err); }
-
-        // Last resort: JSONL
-        try {
-          const sessionsStorePath = join(SESSIONS_DIR, "sessions.json");
-          if (existsSync(sessionsStorePath)) {
-            const store = JSON.parse(readFileSync(sessionsStorePath, "utf-8"));
-            const entry = store[sessionKey];
-            if (entry?.sessionId) {
-              const jsonlPath = join(SESSIONS_DIR, entry.sessionId + ".jsonl");
-              if (existsSync(jsonlPath)) {
-                const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
-                const messages: any[] = [];
-                for (const line of lines) {
-                  try {
-                    const d = JSON.parse(line);
-                    if (d.type === "message" && d.message) {
-                      const msg = d.message;
-                      if (msg.role === "user" || msg.role === "assistant") {
-                        let text = "";
-                        if (typeof msg.content === "string") text = msg.content;
-                        else if (Array.isArray(msg.content)) text = msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
-                        if (text.trim() && !text.startsWith("[Chat messages since your last reply")) messages.push({ role: msg.role, content: text, timestamp: d.timestamp });
-                      }
-                    }
-                  } catch {}
-                }
-                for (const msg of messages) appendLocalMessage(sessionKey, msg.role, msg.content);
-                const total = messages.length;
-                const sliced = offset > 0 ? messages.slice(0, Math.max(0, total - offset)) : messages;
-                return json({ messages: sliced.slice(-limit), total });
-              }
-            }
-          }
-        } catch (err) { console.warn(`[Messages] JSONL migration failed for ${sessionKey}:`, err); }
-
-        return json({ messages: [], total: 0 });
-      }
+      const historyResp = await historyRouter(req, url, pathname, method);
+      if (historyResp) return historyResp;
     }
 
     // --- Media serving ---
