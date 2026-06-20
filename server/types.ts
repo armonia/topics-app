@@ -8,6 +8,10 @@ export type { ToolCallStatus } from "../shared/types";
 export interface WSData {
   id: string;
   focusedTopicId: string | null;
+  /** P6: topics this connection currently has open; streaming deltas are routed
+   *  only to clients that include the streaming topic. `undefined` until the
+   *  client sends its first `subscribe` frame (such clients receive all deltas). */
+  openTopicIds?: Set<string>;
   lastPong: number;
   terminalId?: string;
   _termHandler?: { message: (data: string | Buffer | ArrayBuffer) => void; close: () => void };
@@ -343,6 +347,7 @@ export interface AppContext {
   broadcast: (message: object, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToAll: (message: object) => void;
   broadcastToTopic: (topicId: string, message: object, exclude?: ServerWebSocket<WSData>) => void;
+  broadcastToTopicSubscribers: (topicId: string, message: object, exclude?: ServerWebSocket<WSData>) => void;
   isTopicFocused: (topicId: string) => boolean;
   loadTopics: () => TopicsData;
   saveTopics: (data: TopicsData) => void;

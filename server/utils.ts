@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
+import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import type {
   WSData, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext,
@@ -425,6 +426,25 @@ export function createAppContext(baseDir: string): AppContext {
       if (ws.data.focusedTopicId === topicId && ws.readyState === 1) return true;
     }
     return false;
+  }
+
+  /**
+   * P6: send to every client that currently has `topicId` open (declared via a
+   * `subscribe` frame), plus any client that hasn't declared an open-set yet.
+   * Preserves multi-window/background streaming while skipping clients that
+   * aren't showing the topic — unlike broadcastToTopic (focused-only) which
+   * drops background-tab deltas. Routing rule is the pure `clientReceivesTopicDelta`.
+   */
+  function broadcastToTopicSubscribers(topicId: string, message: object, exclude?: ServerWebSocket<WSData>) {
+    devValidateOutbound(message);
+    const payload = JSON.stringify(message);
+    for (const ws of wsClients) {
+      if (ws === exclude || ws.readyState !== 1) continue;
+      if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
+      try { ws.send(payload); } catch (err) {
+        console.error(`[WS] Send error to ${ws.data.id}:`, err);
+      }
+    }
   }
 
   // --- Project + Worktree domain (Phase A · migrations 016-018) ---
@@ -1249,7 +1269,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, isTopicFocused,
+    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, isTopicFocused,
     loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,

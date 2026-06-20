@@ -809,6 +809,11 @@ const server = Bun.serve<WSData>({
           case 'focus':
             ws.data.focusedTopicId = data.topicId;
             break;
+          case 'subscribe':
+            // P6: the set of topics this connection currently has open, used to
+            // route streaming deltas only to clients showing that topic.
+            ws.data.openTopicIds = new Set(data.topicIds);
+            break;
           case 'typing':
             broadcastToTopic(data.topicId, { type: 'typing', topicId: data.topicId, clientId: ws.data.id, text: data.text || '' }, ws);
             break;

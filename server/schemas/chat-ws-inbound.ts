@@ -34,6 +34,13 @@ const pingSchema = z.object({
   type: z.literal('ping'),
 });
 
+// P6: client declares the set of topics it currently has open, so streaming
+// deltas can be routed only to clients showing that topic (see ws-topic-routing).
+const subscribeSchema = z.object({
+  type: z.literal('subscribe'),
+  topicIds: z.array(z.string()),
+});
+
 const dragStartSchema = z.object({
   type: z.literal('drag:start'),
   topicId: z.string(),
@@ -67,6 +74,7 @@ export const chatWsInboundSchema = z.discriminatedUnion('type', [
   focusSchema,
   typingSchema,
   pingSchema,
+  subscribeSchema,
   dragStartSchema,
   dragEndSchema,
   dragDropSchema,
