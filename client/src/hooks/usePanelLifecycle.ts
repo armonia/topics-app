@@ -1354,7 +1354,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
   }, [externalDragTopicId, externalDragSourceWindow, openPanels, sendWS, windowId]);
 
+  // In-flight reopen guard, keyed by closed-record id. ⇧⌘T can momentarily fire
+  // from two surfaces at once (the Electron native menu accelerator + the
+  // renderer keydown), and the record isn't popped off the stack until the END
+  // of this async handler (after `await reopenClosedTab`), so two calls used to
+  // both reopen the SAME record → a duplicate tab. Claiming the id synchronously
+  // makes a concurrent call for the same record a no-op. Rapid reopen of
+  // DIFFERENT records is unaffected: each completes, pops its own id, and clears.
+  const reopeningRef = useRef<Set<string>>(new Set());
   const handleReopenClosedTab = useCallback(async (record: ClosedTabRecord) => {
+    if (reopeningRef.current.has(record.id)) return;
+    reopeningRef.current.add(record.id);
     try {
       if (record.level === 'project') {
         // Project-inner records are restored by the OWNING project window —
@@ -1398,6 +1408,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       removeClosedTab(record.id);
     } catch (err) {
       console.warn('Failed to reopen closed tab:', err);
+    } finally {
+      reopeningRef.current.delete(record.id);
     }
   }, [removeClosedTab, archiveTopic]);
 
