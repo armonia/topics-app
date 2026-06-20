@@ -289,6 +289,11 @@ export function GroupLayout({
     onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, edge);
     edgeDropTargetRef.current = null;
     setEdgeDropTarget(null);
+    // Same leak as handleFullRowDrop: stopPropagation + onSplitGroup reparenting
+    // the source defeats both the window 'drop' reset and 'dragend', so the
+    // full-width strips (gated on dragActive) would stay painted after an
+    // edge-split drop too. Clear it here.
+    setDragActive(false);
   }, [onSplitGroup, edgeDropTargetRef, dndScope]);
 
   /* ---- Cross-group tab drop handler ---- */
@@ -340,6 +345,10 @@ export function GroupLayout({
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     fullRowDropRef.current = null;
     setFullRowDrop(null);
+    // This handler stopPropagation()s the drop (below) AND onSplitGroup reparents
+    // the dragged tab — so neither the window 'drop' reset nor 'dragend' fires.
+    // Clear dragActive here or the "Full-width row" strips stay painted forever.
+    setDragActive(false);
     if (!sourcePaneId || !sourceGroupId) return;
     const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
     if (dndScope && sourceScope && sourceScope !== dndScope) return;
