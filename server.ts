@@ -419,7 +419,13 @@ try {
 
 const server = Bun.serve<WSData>({
   port: PORT,
-  hostname: "0.0.0.0",
+  // Dual-stack bind. "::" with net.inet6.ip6.v6only=0 (macOS default) owns
+  // BOTH the IPv6 and the IPv4-mapped address families on PORT, so Topics
+  // occupies localhost on every resolution path. DO NOT revert to "0.0.0.0":
+  // that binds IPv4 only, leaving ::1:PORT free for a stray dev server to
+  // squat — and since macOS resolves `localhost` to ::1 first, clients then
+  // land on the squatter instead of Topics ("connecting forever" / blank app).
+  hostname: "::",
   reusePort: true,
   idleTimeout: 255,
   ...(useTls ? {
