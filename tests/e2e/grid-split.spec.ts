@@ -683,6 +683,51 @@ test.describe("Grid Split System", () => {
       expect(diffAfter, 'double-click should equalize the two columns to ~50/50').toBeLessThan(30);
     });
 
+    test("GRID-08: double-click row-resize divider equalizes the two rows", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (equalize)" });
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      // Split down → two stacked rows with one row-resize divider.
+      await splitViaContextMenu(page, 'Split Down');
+
+      const divider = page.locator('[role="main"] .cursor-row-resize').first();
+      await expect(divider).toBeVisible({ timeout: 3000 });
+
+      // Measure the row-band heights via the divider's offset within the main area.
+      const main = page.locator('[role="main"]');
+      const mainBox = await main.boundingBox();
+      expect(mainBox).not.toBeNull();
+      const topHeight = async () => {
+        const b = await divider.boundingBox();
+        if (!b) throw new Error('divider has no bounding box');
+        return b.y - mainBox!.y; // distance from main top to the divider = top row height
+      };
+
+      // 1. Drag the divider well off-center so the two rows are clearly unequal.
+      const box = await divider.boundingBox();
+      expect(box).not.toBeNull();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 120, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+
+      const topAfterDrag = await topHeight();
+      const half = mainBox!.height / 2;
+      expect(Math.abs(topAfterDrag - half), 'top row should be clearly off 50% after drag').toBeGreaterThan(60);
+
+      // 2. Double-click the divider → equalizeVertical (weights [1,1] → 50/50).
+      const dBox = await divider.boundingBox();
+      expect(dBox).not.toBeNull();
+      await page.mouse.dblclick(dBox!.x + dBox!.width / 2, dBox!.y + dBox!.height / 2);
+      await page.waitForTimeout(300);
+
+      // 3. The divider should return to ~the vertical midpoint (equal row heights).
+      const topAfterEqualize = await topHeight();
+      expect(Math.abs(topAfterEqualize - half), 'double-click should equalize the two rows to ~50/50').toBeLessThan(40);
+    });
+
     test("GRID-04: Split layout persists after page reload", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
