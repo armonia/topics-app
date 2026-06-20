@@ -209,6 +209,7 @@ describe("handleMessage", () => {
     const names = tools.map((t) => t.name);
     expect(names).toEqual([
       "open_browser_pane",
+      "import_chrome",
       "run_script",
       "list_processes",
       "read_process_output",

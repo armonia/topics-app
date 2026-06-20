@@ -107,7 +107,7 @@ describe("MCP stdio server (subprocess)", () => {
     const resp = await client.request(2, "tools/list");
     const names = resp.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "open_browser_pane", "run_script", "list_processes",
+      "open_browser_pane", "import_chrome", "run_script", "list_processes",
       "read_process_output", "stop_process", "list_tasks", "update_task",
     ]);
   });
