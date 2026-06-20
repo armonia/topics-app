@@ -14,9 +14,10 @@ import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
  * resume during the grace period.
  *
  * The leading `\n\n---\n*` and trailing `*` brackets are how we round-trip:
- * `addSlowAnnotation()` appends, `stripSlowAnnotation()` removes by suffix
- * match, with no risk of clobbering legitimate content. Keep the entire
- * substring stable — modifying it requires updating both helpers.
+ * callers append `STREAM_SLOW_ANNOTATION` inline and `stripSlowAnnotation()`
+ * removes it by suffix match, with no risk of clobbering legitimate content.
+ * Keep the entire substring stable — modifying it requires updating the strip
+ * helper too.
  */
 export const STREAM_SLOW_ANNOTATION = "\n\n---\n*[⏱ stream lento — il provider è ancora connesso]*";
 

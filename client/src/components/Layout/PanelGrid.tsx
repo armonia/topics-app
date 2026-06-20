@@ -369,8 +369,11 @@ export function PanelGrid({
   // an outer divider makes the LEAF panes equal — not the top-level cells. Each
   // cell's weight is its project's leaf count (cols for horizontal, rows for
   // vertical) read from the projectGridWeights registry, or 1 for a plain
-  // chat/utility cell. Read lazily inside the equalize closures (rare clicks), so
-  // a project resize never re-renders this grid.
+  // chat/utility cell. The weight arrays are built at render to feed the
+  // onEqualize closures (a few cheap Map lookups), but the registry is a plain
+  // module store — NOT reactive — so a project's internal resize publishing a
+  // new weight never re-renders this grid; the fresh value is simply read on the
+  // next equalize click.
   const cellProjectPath = useCallback((key: string): string | null => {
     const item = itemMap.get(key);
     if (!item) return null;
