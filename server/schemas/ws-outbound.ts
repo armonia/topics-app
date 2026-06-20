@@ -131,76 +131,6 @@ const topicSwitchCompleteSchema = z.object({
   type: z.literal('topic:switch:complete'),
 }).passthrough();
 
-// ---- Task / board lifecycle (project board) --------------------------------
-
-const taskObjectShape = z.object({ id: z.string() }).passthrough();
-
-const taskCreatedSchema = z.object({
-  type: z.literal('task:created'),
-  projectId: z.string(),
-  task: taskObjectShape,
-});
-
-const taskUpdatedSchema = z.object({
-  type: z.literal('task:updated'),
-  projectId: z.string(),
-  task: taskObjectShape,
-});
-
-const taskMovedSchema = z.object({
-  type: z.literal('task:moved'),
-  projectId: z.string(),
-  task: taskObjectShape,
-});
-
-const taskUnarchivedSchema = z.object({
-  type: z.literal('task:unarchived'),
-  projectId: z.string(),
-  task: taskObjectShape,
-});
-
-const taskDeletedSchema = z.object({
-  type: z.literal('task:deleted'),
-  projectId: z.string(),
-  taskId: z.string(),
-});
-
-const taskArchivedSchema = z.object({
-  type: z.literal('task:archived'),
-  projectId: z.string(),
-  taskId: z.string(),
-});
-
-const taskDependencyAddedSchema = z.object({
-  type: z.literal('task:dependency:added'),
-  projectId: z.string(),
-  taskId: z.string(),
-});
-
-const taskDependencyRemovedSchema = z.object({
-  type: z.literal('task:dependency:removed'),
-  projectId: z.string(),
-  taskId: z.string(),
-});
-
-const taskCommentAddedSchema = z.object({
-  type: z.literal('task:comment:added'),
-  projectId: z.string(),
-  taskId: z.string(),
-  comment: z.object({ id: z.string() }).passthrough(),
-});
-
-const boardMemoryAddedSchema = z.object({
-  type: z.literal('board:memory_added'),
-  projectId: z.string(),
-  memory: z.object({ id: z.string() }).passthrough(),
-});
-
-const boardArchivedAllSchema = z.object({
-  type: z.literal('board:archived_all'),
-  projectId: z.string(),
-});
-
 // ---- Worktree events -------------------------------------------------------
 
 const worktreeObjectShape = z.object({ id: z.string() }).passthrough();
@@ -341,19 +271,6 @@ const agentSessionResumedSchema = z.object({
   sessionKey: z.string(),
 }).passthrough();
 
-const agentTaskClaimedSchema = z.object({
-  type: z.literal('agent:task_claimed'),
-  agentId: z.string(),
-  taskId: z.string(),
-  projectId: z.string(),
-}).passthrough();
-
-const agentTaskCompletedSchema = z.object({
-  type: z.literal('agent:task_completed'),
-  agentId: z.string(),
-  taskId: z.string(),
-}).passthrough();
-
 const agentEscalationSchema = z.object({
   type: z.literal('agent:escalation'),
 }).passthrough();
@@ -373,24 +290,6 @@ const agentsSpawnedSchema = z.object({
 const agentsStoppedSchema = z.object({
   type: z.literal('agents:stopped'),
   sessionKey: z.string(),
-}).passthrough();
-
-// ---- Approval cluster ------------------------------------------------------
-
-const approvalCreatedSchema = z.object({
-  type: z.literal('approval:created'),
-  projectId: z.string(),
-  approval: z.object({ id: z.string() }).passthrough(),
-}).passthrough();
-
-const approvalApprovedSchema = z.object({
-  type: z.literal('approval:approved'),
-  approvalId: z.string(),
-}).passthrough();
-
-const approvalRejectedSchema = z.object({
-  type: z.literal('approval:rejected'),
-  approvalId: z.string(),
 }).passthrough();
 
 // ---- Stream cluster (server → client message streaming) -------------------
@@ -558,12 +457,6 @@ const topicsReorderedSchema = z.object({
   order: z.array(z.string()),
 }).passthrough();
 
-const taskUnblockedSchema = z.object({
-  type: z.literal('task:unblocked'),
-  projectId: z.string(),
-  taskId: z.string(),
-}).passthrough();
-
 const uiStateInitSchema = z.object({
   type: z.literal('ui-state:init'),
   data: z.unknown(),
@@ -675,17 +568,6 @@ const OUTBOUND_SCHEMAS = {
   'topic:archived': topicArchivedSchema,
   'topic:switch:complete': topicSwitchCompleteSchema,
   // Task / board
-  'task:created': taskCreatedSchema,
-  'task:updated': taskUpdatedSchema,
-  'task:moved': taskMovedSchema,
-  'task:deleted': taskDeletedSchema,
-  'task:archived': taskArchivedSchema,
-  'task:unarchived': taskUnarchivedSchema,
-  'task:dependency:added': taskDependencyAddedSchema,
-  'task:dependency:removed': taskDependencyRemovedSchema,
-  'task:comment:added': taskCommentAddedSchema,
-  'board:memory_added': boardMemoryAddedSchema,
-  'board:archived_all': boardArchivedAllSchema,
   // Worktree
   'worktree:new': worktreeNewSchema,
   'worktree:updated': worktreeUpdatedSchema,
@@ -713,16 +595,11 @@ const OUTBOUND_SCHEMAS = {
   'agent:heartbeat': agentHeartbeatSchema,
   'agent:session:paused': agentSessionPausedSchema,
   'agent:session:resumed': agentSessionResumedSchema,
-  'agent:task_claimed': agentTaskClaimedSchema,
-  'agent:task_completed': agentTaskCompletedSchema,
   'agent:escalation': agentEscalationSchema,
   'agents:sessions': agentsSessionsSchema,
   'agents:spawned': agentsSpawnedSchema,
   'agents:stopped': agentsStoppedSchema,
   // Approvals
-  'approval:created': approvalCreatedSchema,
-  'approval:approved': approvalApprovedSchema,
-  'approval:rejected': approvalRejectedSchema,
   // Stream cluster (provider streaming)
   'stream:start': streamStartSchema,
   'stream:content_chunk': streamContentChunkSchema,
@@ -752,7 +629,6 @@ const OUTBOUND_SCHEMAS = {
   'memory:updated': memoryUpdatedSchema,
   'open-project': openProjectSchema,
   'topics:reordered': topicsReorderedSchema,
-  'task:unblocked': taskUnblockedSchema,
   'ui-state:init': uiStateInitSchema,
   'scripts:output': scriptsOutputSchema,
   'scripts:updated': scriptsUpdatedSchema,

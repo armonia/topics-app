@@ -156,17 +156,10 @@ describe('outbound registry contract', () => {
       'agent:session:paused',
       'agent:session:resumed',
       'agent:status',
-      'agent:task_claimed',
-      'agent:task_completed',
       'agent:unassigned',
       'agents:sessions',
       'agents:spawned',
       'agents:stopped',
-      'approval:approved',
-      'approval:created',
-      'approval:rejected',
-      'board:archived_all',
-      'board:memory_added',
       'browser:navigate',
       'chat:archived',
       'chat:created',
@@ -216,16 +209,6 @@ describe('outbound registry contract', () => {
       'stream:tool_result',
       'stream:tool_update',
       'stream:tool_user_input_required',
-      'task:archived',
-      'task:comment:added',
-      'task:created',
-      'task:deleted',
-      'task:dependency:added',
-      'task:dependency:removed',
-      'task:moved',
-      'task:unarchived',
-      'task:unblocked',
-      'task:updated',
       'terminal:sessions',
       'topic:archived',
       'topic:created',
@@ -253,8 +236,8 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 96 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
+  test('all 79 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(79);
   });
 });
 
@@ -326,13 +309,6 @@ describe('validateOutbound — agent cluster', () => {
     expect(validateOutbound({ type: 'agent:session:paused' }).ok).toBe(false);
   });
 
-  test('agent:task_claimed requires agentId+taskId+projectId', () => {
-    expect(validateOutbound({
-      type: 'agent:task_claimed', agentId: 'a-1', taskId: 't-1', projectId: 'p-1',
-    }).ok).toBe(true);
-    expect(validateOutbound({ type: 'agent:task_claimed', agentId: 'a-1' }).ok).toBe(false);
-  });
-
   test('agents:spawned requires topicId + sessionKey', () => {
     expect(validateOutbound({
       type: 'agents:spawned', topicId: 't-1', sessionKey: 'sk-1', label: 'task',
@@ -345,21 +321,6 @@ describe('validateOutbound — agent cluster', () => {
   test('agents:sessions requires sessions array', () => {
     expect(validateOutbound({ type: 'agents:sessions', sessions: [] }).ok).toBe(true);
     expect(validateOutbound({ type: 'agents:sessions' }).ok).toBe(false);
-  });
-});
-
-describe('validateOutbound — approval cluster', () => {
-  test('approval:created requires projectId + approval.id', () => {
-    expect(validateOutbound({
-      type: 'approval:created', projectId: 'p-1',
-      approval: { id: 'app-1', status: 'pending' },
-    }).ok).toBe(true);
-  });
-
-  test('approval:approved/rejected require approvalId', () => {
-    expect(validateOutbound({ type: 'approval:approved', approvalId: 'app-1' }).ok).toBe(true);
-    expect(validateOutbound({ type: 'approval:rejected', approvalId: 'app-1' }).ok).toBe(true);
-    expect(validateOutbound({ type: 'approval:approved' }).ok).toBe(false);
   });
 });
 
@@ -495,12 +456,6 @@ describe('validateOutbound — misc domain (browser/cron/machine/memory/open-pro
     }).ok).toBe(false);
   });
 
-  test('task:unblocked requires projectId + taskId', () => {
-    expect(validateOutbound({
-      type: 'task:unblocked', projectId: 'p-1', taskId: 't-1',
-    }).ok).toBe(true);
-    expect(validateOutbound({ type: 'task:unblocked' }).ok).toBe(false);
-  });
 
   test('ui-state:init accepts data + optional meta', () => {
     expect(validateOutbound({
@@ -524,69 +479,6 @@ describe('validateOutbound — misc domain (browser/cron/machine/memory/open-pro
 });
 
 // ----- New schema coverage (clusters added 2026-05-13) ---------------------
-
-describe('validateOutbound — task / board cluster', () => {
-  test('task:created accepts task with id + extra fields', () => {
-    expect(validateOutbound({
-      type: 'task:created',
-      projectId: 'p-1',
-      task: { id: 't-1', text: 'do X', status: 'todo', extra: 'ok' },
-    }).ok).toBe(true);
-  });
-
-  test('task:deleted requires taskId', () => {
-    expect(validateOutbound({ type: 'task:deleted', projectId: 'p-1', taskId: 't-1' }).ok).toBe(true);
-    expect(validateOutbound({ type: 'task:deleted', projectId: 'p-1' }).ok).toBe(false);
-  });
-
-  test('task:created rejects task without id', () => {
-    const r = validateOutbound({
-      type: 'task:created',
-      projectId: 'p-1',
-      task: { text: 'no id' },
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('task.id');
-  });
-
-  test('task:moved accepts standard payload', () => {
-    expect(validateOutbound({
-      type: 'task:moved',
-      projectId: 'p-1',
-      task: { id: 't-1', kanban_order: 5 },
-    }).ok).toBe(true);
-  });
-
-  test('task:comment:added accepts comment with id', () => {
-    expect(validateOutbound({
-      type: 'task:comment:added',
-      projectId: 'p-1',
-      taskId: 't-1',
-      comment: { id: 'c-1', text: 'hello' },
-    }).ok).toBe(true);
-  });
-
-  test('task:dependency:added requires both projectId + taskId', () => {
-    expect(validateOutbound({
-      type: 'task:dependency:added',
-      projectId: 'p-1',
-      taskId: 't-1',
-    }).ok).toBe(true);
-    expect(validateOutbound({ type: 'task:dependency:added', projectId: 'p-1' }).ok).toBe(false);
-  });
-
-  test('board:archived_all accepts projectId-only payload', () => {
-    expect(validateOutbound({ type: 'board:archived_all', projectId: 'p-1' }).ok).toBe(true);
-  });
-
-  test('board:memory_added accepts memory with id', () => {
-    expect(validateOutbound({
-      type: 'board:memory_added',
-      projectId: 'p-1',
-      memory: { id: 'm-1', content: 'note' },
-    }).ok).toBe(true);
-  });
-});
 
 describe('validateOutbound — topic cluster', () => {
   test('topic:created with id-bearing topic', () => {
