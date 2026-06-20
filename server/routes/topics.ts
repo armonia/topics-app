@@ -8,6 +8,7 @@ import { getSnapshotManager } from "../providers/snapshot-manager";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
 import { loadMemoryForTopic } from "./memory";
+import { createAutoNameRouter } from "./autoname";
 import { calculateCost } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
@@ -1115,6 +1116,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         .map(e => join(WORKSPACE_DIR, e.name));
     } catch { return []; }
   }
+
+  // Auto-naming endpoint extracted to its own router; it needs two closure
+  // helpers injected (they close over this scope), so it's instantiated here.
+  const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
 
   return async function topicsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -3726,67 +3731,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return json({ ok: true });
     }
 
-    // --- Auto-name ---
+    // --- Auto-name --- (handler extracted to server/routes/autoname.ts)
     {
-      const params = matchRoute(pathname, "/api/topics/:id/auto-name");
-      if (params && method === "POST") {
-        const topic = getTopicById(params.id);
-        if (!topic) return json({ error: "not found" }, 404);
-        const localMsgs = loadLocalMessages(topic.sessionKey);
-        if (localMsgs.length < 2) return json({ error: "Not enough messages yet" }, 400);
-
-        // Detect project path from messages
-        let suggestedProject: string | null = null;
-        const detectedPath = detectProjectPathFromMessages(localMsgs);
-        if (detectedPath && !topic.projectPath) suggestedProject = detectedPath;
-
-        if (suggestedProject) {
-          // Re-read inside the conditional so two concurrent autoname runs
-          // don't both decide they need to write — whichever lands first
-          // sets projectPath, the loser sees the field already populated.
-          const freshTopic = getTopicById(params.id);
-          if (freshTopic && !freshTopic.projectPath) {
-            freshTopic.projectPath = suggestedProject;
-            freshTopic.updatedAt = new Date().toISOString();
-            saveSingleTopic(freshTopic);
-            broadcastToAll({ type: "topic:updated", topic: freshTopic });
-          }
-        }
-
-        // Background: ask AI for a smart title (single user message to avoid gateway session issues)
-        const topicId = params.id;
-        const recentMsgs = localMsgs.slice(-4);
-        const conversationSummary = recentMsgs.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 150)}`).join('\n');
-        (async () => {
-          try {
-            const aiTopicEarly = getTopicById(topicId);
-            const namingProvider = resolveProvider(aiTopicEarly);
-            const result = await namingProvider.complete([
-              { role: "user", content: `Suggest a short title (3-5 words) and one emoji icon for this conversation. Reply ONLY with valid JSON, nothing else: {"title": "...", "icon": "..."}\n\nConversation:\n${conversationSummary}` },
-            ]);
-            const content = result.content || "";
-            const jsonMatch = content.match(/\{[^}]+\}/);
-            if (!jsonMatch) { console.log("[AutoName] AI did not return JSON:", content.slice(0, 100)); return; }
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (!parsed.title) return;
-            // Re-fetch right before write — between the AI call (~seconds) and
-            // here the user may have manually renamed the topic; preserve
-            // their explicit edit instead of overwriting with the AI guess.
-            const aiTopic = getTopicById(topicId);
-            if (aiTopic) {
-              aiTopic.name = parsed.title;
-              if (parsed.icon) aiTopic.icon = parsed.icon;
-              aiTopic.slug = slugify(parsed.title);
-              aiTopic.updatedAt = new Date().toISOString();
-              saveSingleTopic(aiTopic);
-              broadcastToAll({ type: "topic:updated", topic: aiTopic });
-              console.log(`[AutoName] AI: "${parsed.title}" ${parsed.icon || ''}`);
-            }
-          } catch (err) { console.warn("[AutoName] AI call failed:", err); }
-        })();
-
-        return json({ title: topic.name, icon: topic.icon, suggestedProject });
-      }
+      const autoNameResp = await autoNameRouter(req, url, pathname, method);
+      if (autoNameResp) return autoNameResp;
     }
 
     // --- Slash commands ---
