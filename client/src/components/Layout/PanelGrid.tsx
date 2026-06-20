@@ -1178,6 +1178,11 @@ export function PanelGrid({
 
     e.preventDefault();
     e.stopPropagation(); // Prevent children from also handling this drop
+    // This drop is now consumed — stopPropagation defeats the window 'drop'
+    // reset, and a tab-extract below can unmount the dragged source (swallowing
+    // 'dragend'). Clear the global drag flag here or the InsertDividers keep
+    // their widened hit-zones and drop indicators painted after the drop.
+    setIsAnyDragActive(false);
 
     // Tab drag → create a solo standalone item at the target position
     if (!effectiveKey && sourcePaneTab && sourceTopicId) {
