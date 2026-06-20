@@ -1228,3 +1228,14 @@ html.electron-mac [data-testid="single-terminal-pane"] {
 .floating-splits .cursor-row-resize:not(:hover) {
   background-color: transparent !important;
 }
+/* …EXCEPT a divider INSIDE a card. A project panel's own GroupLayout/PanelGrid
+ * splits are nested cards rendered FLAT (margin:0, no vibrancy gap — see the
+ * nested-card rule above), so their dividers do NOT sit in a gap; nulling them
+ * just erases the project's split line. Restore the resting `bg-app-border`
+ * (var(--border)) line for any divider nested under a card. Higher specificity
+ * (the extra [data-split-card]) wins over the rule above for these only; the
+ * top-level dividers (not inside a card) stay transparent over their gaps. */
+.floating-splits [data-split-card] .cursor-col-resize:not(:hover),
+.floating-splits [data-split-card] .cursor-row-resize:not(:hover) {
+  background-color: var(--border) !important;
+}
