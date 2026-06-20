@@ -26,6 +26,7 @@ import { pointObject } from "./integrations/moondream-client";
 import { isElectronCdpAvailable } from "./electron-cdp-probe";
 import type { ElectronCdpDispatcher } from "./browser-cdp-dispatcher";
 import { playwrightOps, cdpOps, type BrowserOps } from "./browser-ops-adapter";
+import { decryptChromeCookies, listChromeCookieHosts } from "./integrations/chrome-cookies";
 
 const observeCache = new Map<string, IndexedElement[]>();
 
@@ -270,5 +271,60 @@ export async function handleBrowserPoint(
     const target = result.points[0];
     await ops.dispatchInput("click", { x: target.x, y: target.y });
     return { clicked: true as const, point: target };
+  });
+}
+
+/**
+ * Seed the topic's native browser (WebContentsView persistent partition) with the
+ * user's REAL Chrome logins, so it's instantly signed in to whatever Chrome is —
+ * no per-site sign-in. Reads ONLY the Chrome cookie store (never saved passwords);
+ * the macOS Keychain prompt is the consent gate. Requires the Electron native pane
+ * (CDP). Cookies are injected over the page's own CDP session via Network.setCookies
+ * so they land in that exact partition. `dry_run` lists hosts only (no Keychain).
+ */
+export async function handleBrowserImportChrome(
+  service: BrowserService,
+  contextId: string,
+  args: { domains?: string[]; profile?: string; dry_run?: boolean }
+): Promise<unknown> {
+  const domains = Array.isArray(args?.domains) ? args.domains.map(String) : [];
+  const profile = typeof args?.profile === "string" && args.profile ? args.profile : "Default";
+  const dryRun = !!args?.dry_run;
+
+  if (dryRun) {
+    return listChromeCookieHosts({ domains, profile });
+  }
+  if (!domains.length) {
+    throw new Error(
+      'browser_import_chrome: "domains" (non-empty array) is required, e.g. ["youtube.com"]. Use dry_run:true to list importable hosts first.'
+    );
+  }
+  if (!cdpDispatcher || !(await isElectronCdpAvailable()) || !cdpDispatcher.getTargetId(contextId)) {
+    return {
+      error:
+        "browser_import_chrome requires the Topics native browser. Open the browser pane first (open_browser_pane / browser_open), then retry.",
+    };
+  }
+  console.log(`[BrowserTools] browser_import_chrome(${contextId}, domains=${domains.join(",")})`);
+  return withLock(service, contextId, async () => {
+    const { cookies, decrypted, decryptFailed, skippedEmpty, appBoundEncrypted, profile: p } =
+      await decryptChromeCookies({ domains, profile });
+    if (!cookies.length) {
+      return { ok: true, imported: 0, note: "no matching cookies (none found, all expired, or App-Bound encrypted)", appBoundEncrypted };
+    }
+    const page = await cdpDispatcher!.getPage(contextId);
+    const session = await page.context().newCDPSession(page);
+    try {
+      // Inject into THIS page's network/session = the WebContentsView's persistent
+      // partition. setCookies replaces matching cookies; never logs values.
+      await session.send("Network.setCookies", { cookies: cookies as never });
+    } finally {
+      await session.detach().catch(() => { /* ignore */ });
+    }
+    await page.reload().catch(() => { /* harmless if on about:blank */ });
+    clearObserveCache(contextId); // page reloaded -> indices stale
+    const out: Record<string, unknown> = { ok: true, profile: p, imported: decrypted, decryptFailed, skippedEmpty };
+    if (appBoundEncrypted) out.appBoundEncrypted = appBoundEncrypted;
+    return out;
   });
 }

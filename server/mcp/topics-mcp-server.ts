@@ -57,6 +57,20 @@ const TOOLS = [
     },
   },
   {
+    name: "import_chrome",
+    description:
+      "Sign the topic's browser pane into sites the user is ALREADY logged into in their real Chrome, by importing those cookies (macOS) — no per-site sign-in. Reads ONLY cookies, never saved passwords; the one-time macOS Keychain prompt is the user's consent. Open the pane first with open_browser_pane. Call with dry_run:true to list importable hosts (no prompt, no values), then pass the specific domains to import. For a fresh sign-in or registration instead, open the page with open_browser_pane and let the user complete it in the pane (it persists).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        domains: { type: "array", items: { type: "string" }, description: 'Hostnames to import cookies for, e.g. ["youtube.com","github.com"]. Required unless dry_run is true.' },
+        dry_run: { type: "boolean", description: "If true, only list importable hosts + counts (no Keychain prompt, no values)." },
+        profile: { type: "string", description: "Chrome profile directory name (default 'Default')." },
+      },
+      required: [],
+    },
+  },
+  {
     name: "run_script",
     description:
       "Run a package.json script (e.g. 'dev', 'test', 'build') in the current topic's project. Async: returns a processId immediately — poll output with read_process_output, don't wait. The project is resolved from the session, so you only pass the script name. Only declared scripts run; an unknown name is rejected with the available list.",
@@ -199,6 +213,19 @@ export async function callOpenBrowserPane(
     url: typeof body.url === "string" ? body.url : toolArgs.url,
     title: typeof body.title === "string" ? body.title : "",
   };
+}
+
+export async function callImportChrome(
+  args: ParsedArgs,
+  toolArgs: { domains?: unknown; profile?: unknown; dry_run?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const domains = Array.isArray(toolArgs?.domains) ? toolArgs.domains.map(String) : [];
+  const profile = typeof toolArgs?.profile === "string" ? toolArgs.profile : undefined;
+  const dryRun = !!toolArgs?.dry_run;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/import-chrome`;
+  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { domains, profile, dry_run: dryRun }, fetchImpl);
+  return JSON.stringify(body ?? {}, null, 2);
 }
 
 /**
@@ -397,6 +424,7 @@ const TOOL_HANDLERS: Record<
     const r = await callOpenBrowserPane(a, t as { url?: unknown });
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
+  import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),

@@ -21,7 +21,8 @@ export type BrowserToolName =
   | "browser_act"
   | "browser_extract"
   | "browser_screenshot"
-  | "browser_point";
+  | "browser_point"
+  | "browser_import_chrome";
 
 export type BrowserActAction = "click" | "type" | "select";
 
@@ -166,6 +167,32 @@ export const browserTools: Tool[] = [
         },
       },
       required: ["description"],
+    },
+  },
+  {
+    name: "browser_import_chrome",
+    description:
+      "Sign the topic's browser into sites the user is ALREADY logged into in their real Chrome, by importing those cookies (macOS) — no per-site sign-in. Reads ONLY cookies, never saved passwords; the one-time macOS Keychain prompt is the user's consent. Open the browser pane (browser_open) first, then import. Call with dry_run:true to list which hosts are importable (no prompt); then pass the specific domains to import. Use when the user wants to reuse existing logins rather than signing in manually. (Note: a fresh sign-in/registration is a different flow — open the page in the pane and let the user complete it; it persists.)",
+    input_schema: {
+      type: "object",
+      properties: {
+        domains: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Hostnames to import cookies for, e.g. ["youtube.com","github.com"]. Required unless dry_run is true.',
+        },
+        dry_run: {
+          type: "boolean",
+          description:
+            "If true, only list importable hosts + cookie counts (no Keychain prompt, no values).",
+        },
+        profile: {
+          type: "string",
+          description: "Chrome profile directory name (default 'Default').",
+        },
+      },
+      required: [],
     },
   },
 ];

@@ -17,6 +17,7 @@ import {
   handleBrowserExtract,
   handleBrowserScreenshot,
   handleBrowserPoint,
+  handleBrowserImportChrome,
 } from "./browser-tools-handler";
 
 export type ToolCallArgs = Record<string, unknown>;
@@ -70,6 +71,9 @@ export async function dispatchBrowserToolCall(
     case "browser_point":
       // Args validated by handler
       return handleBrowserPoint(browserService, contextId, args as { description: string });
+    case "browser_import_chrome":
+      // Args validated by handler
+      return handleBrowserImportChrome(browserService, contextId, args as { domains?: string[]; profile?: string; dry_run?: boolean });
     default:
       return { error: `Unknown browser tool: ${toolName}` };
   }
