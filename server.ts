@@ -16,6 +16,7 @@ import { createTopicsRouter } from "./server/routes/topics";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createRemoteRouter } from "./server/routes/remote";
 import { createMediaRouter } from "./server/routes/media";
+import { createBranchesRouter } from "./server/routes/branches";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
@@ -250,6 +251,7 @@ const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
 const remoteRouter = createRemoteRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
+const branchesRouter = createBranchesRouter(ctx);
 const browserRouter = createBrowserRouter(ctx, browserService, cdpDispatcher);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
@@ -602,6 +604,7 @@ const server = Bun.serve<WSData>({
         || await voiceRouter(req, url, pathname, method)
         || await remoteRouter(req, url, pathname, method)
         || await mediaRouter(req, url, pathname, method)
+        || await branchesRouter(req, url, pathname, method)
         || await projectsRouter(req, url, pathname, method)
         || await worktreesRouter(req, url, pathname, method)
         || await machinesRouter(req, url, pathname, method)
