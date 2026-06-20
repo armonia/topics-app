@@ -14,6 +14,7 @@ import {
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { createTopicsRouter } from "./server/routes/topics";
 import { createVoiceRouter } from "./server/routes/voice";
+import { createRemoteRouter } from "./server/routes/remote";
 import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
@@ -246,6 +247,7 @@ const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast:
 const topicsRouter = createTopicsRouter(ctx, browserService);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
+const remoteRouter = createRemoteRouter(ctx);
 const browserRouter = createBrowserRouter(ctx, browserService, cdpDispatcher);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
@@ -596,6 +598,7 @@ const server = Bun.serve<WSData>({
     if (isApiRequest) {
       const response = await topicsRouter(req, url, pathname, method)
         || await voiceRouter(req, url, pathname, method)
+        || await remoteRouter(req, url, pathname, method)
         || await projectsRouter(req, url, pathname, method)
         || await worktreesRouter(req, url, pathname, method)
         || await machinesRouter(req, url, pathname, method)
