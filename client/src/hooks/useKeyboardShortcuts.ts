@@ -241,6 +241,14 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         (e.key === 't' || e.key === 'T' || e.key === 'u' || e.key === 'U')
       ) {
         e.preventDefault();
+        // In Electron, ⇧⌘T is ALSO a native menu accelerator (electron-app/main.ts)
+        // that runs this very reopen via IPC — and it fires even when focus is
+        // inside a native pane that swallows the renderer keydown. Handling ⇧⌘T
+        // here too reopened the tab TWICE per press, so let the menu own it. ⇧⌘U
+        // has no accelerator, so its renderer keydown stays the sole trigger on
+        // every platform. (preventDefault already ran above to swallow Chrome's
+        // own reopen-closed-tab in a plain dev-browser tab.)
+        if (isElectron && (e.key === 't' || e.key === 'T')) return;
         const last = closedTabsRef.current[0];
         if (last) handleReopenClosedTab(last);
         return;
