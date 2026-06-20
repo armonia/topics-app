@@ -233,30 +233,6 @@ async function removeTopicFromSidebar(request: APIRequestContext, topicId: strin
 
 // --- Task fixtures ---
 
-export async function createTask(
-  request: APIRequestContext,
-  projectId: string,
-  text: string,
-  opts?: { status?: string; priority?: string | number; assignedTo?: string }
-): Promise<{ id: string; text: string; status: string; priority: string }> {
-  const res = await request.post(`${BASE}/api/boards/${projectId}/tasks`, {
-    data: {
-      text,
-      status: opts?.status || "todo",
-      priority: opts?.priority ?? 2,
-      ...(opts?.assignedTo ? { assignedTo: opts.assignedTo } : {}),
-    },
-    ignoreHTTPSErrors: true,
-  });
-  if (!res.ok()) throw new Error(`Failed to create task: ${res.status()}`);
-  return res.json() as Promise<{
-    id: string;
-    text: string;
-    status: string;
-    priority: string;
-  }>;
-}
-
 export async function deleteTask(
   request: APIRequestContext,
   projectId: string,
@@ -298,53 +274,6 @@ export async function deleteAgentProfile(
     .catch((err) =>
       console.warn(`[cleanup] deleteAgentProfile ${id}:`, err.message)
     );
-}
-
-// --- Approval fixtures ---
-
-export async function createApproval(
-  request: APIRequestContext,
-  projectId: string,
-  taskId: string,
-  opts?: { approvalType?: string; fromStatus?: string; toStatus?: string; confidenceScore?: number; justification?: string; requestedBy?: string }
-): Promise<{ id: string }> {
-  const res = await request.post(`${BASE}/api/boards/${projectId}/approvals`, {
-    data: {
-      taskId,
-      approvalType: opts?.approvalType || "status_change",
-      fromStatus: opts?.fromStatus || "review",
-      toStatus: opts?.toStatus || "done",
-      confidenceScore: opts?.confidenceScore || 85,
-      rubricScores: { quality: 4, completeness: 5 },
-      justification: opts?.justification || "All acceptance criteria met",
-      requestedBy: opts?.requestedBy || "test-agent",
-    },
-    ignoreHTTPSErrors: true,
-  });
-  if (!res.ok()) throw new Error(`Failed to create approval: ${res.status()}`);
-  return res.json() as Promise<{ id: string }>;
-}
-
-// --- Board memory fixtures ---
-
-export async function createBoardMemory(
-  request: APIRequestContext,
-  projectId: string,
-  content: string,
-  opts?: { tags?: string | string[]; source?: string }
-): Promise<{ id: string }> {
-  // Normalize tags to an array (server expects array, stores as JSON)
-  const tags = Array.isArray(opts?.tags) ? opts.tags : (opts?.tags ? opts.tags.split(",").map(t => t.trim()) : ["test"]);
-  const res = await request.post(`${BASE}/api/boards/${projectId}/memory`, {
-    data: {
-      content,
-      tags,
-      source: opts?.source || "manual",
-    },
-    ignoreHTTPSErrors: true,
-  });
-  if (!res.ok()) throw new Error(`Failed to create board memory: ${res.status()}`);
-  return res.json() as Promise<{ id: string }>;
 }
 
 // --- Terminal session fixtures ---
