@@ -298,7 +298,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
-    getMessageById, createBranchMessage, createBranchPartialMessage,
+    getMessageById, createBranchPartialMessage,
     getSiblingMessages, loadActiveThread,
     activeStreams,
     worktreeStore,
