@@ -19,6 +19,8 @@ describe('chatWsInboundSchema — valid messages', () => {
     { type: 'typing', topicId: 'topic-1', text: 'hello' },
     { type: 'typing', topicId: 'topic-1', text: '' },
     { type: 'ping' },
+    { type: 'subscribe', topicIds: [] },
+    { type: 'subscribe', topicIds: ['topic-1', 'topic-2'] },
     { type: 'drag:start', topicId: 'topic-1', windowId: 'win-1' },
     { type: 'drag:end', topicId: 'topic-1', windowId: 'win-1' },
     { type: 'drag:drop', topicId: 'topic-1', windowId: 'win-1' },
@@ -80,8 +82,8 @@ describe('parseChatWsInbound — malformed', () => {
 });
 
 describe('schema completeness', () => {
-  test('exactly 7 variants (6 chat/topic + hello WS-02)', () => {
-    expect(chatWsInboundSchema.options.length).toBe(7);
+  test('exactly 8 variants (6 chat/topic + hello WS-02 + subscribe P6)', () => {
+    expect(chatWsInboundSchema.options.length).toBe(8);
   });
 
   test('variants cover the documented client emit sites', () => {
@@ -91,7 +93,7 @@ describe('schema completeness', () => {
       return shape.type.value;
     });
     expect(new Set(literals)).toEqual(
-      new Set(['focus', 'typing', 'ping', 'drag:start', 'drag:end', 'drag:drop', 'hello']),
+      new Set(['focus', 'typing', 'ping', 'subscribe', 'drag:start', 'drag:end', 'drag:drop', 'hello']),
     );
   });
 });

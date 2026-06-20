@@ -210,8 +210,8 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
 // ----- Contract: chat-ws-inbound (main /ws inbound + handshake hello) -------
 
 describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
-  test('exactly 7 variants in the v3 set', () => {
-    expect(chatWsInboundSchema.options.length).toBe(7);
+  test('exactly 8 variants in the v3 set', () => {
+    expect(chatWsInboundSchema.options.length).toBe(8);
   });
 
   test('discriminator literals are frozen', () => {
@@ -225,6 +225,7 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
       'focus',
       'hello',
       'ping',
+      'subscribe',
       'typing',
     ]);
   });
