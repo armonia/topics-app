@@ -5,6 +5,7 @@ import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
+import { getProjectGridWeight } from '../../state/projectGridWeights';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
@@ -362,6 +363,40 @@ export function PanelGrid({
     for (const item of naturalGridItems) m.set(item.key, item);
     return m;
   }, [naturalGridItems]);
+
+  // Weighted "equalize": a cell that hosts a PROJECT with internal splits should
+  // claim more of the row/column than a single-pane cell, so that double-clicking
+  // an outer divider makes the LEAF panes equal — not the top-level cells. Each
+  // cell's weight is its project's leaf count (cols for horizontal, rows for
+  // vertical) read from the projectGridWeights registry, or 1 for a plain
+  // chat/utility cell. Read lazily inside the equalize closures (rare clicks), so
+  // a project resize never re-renders this grid.
+  const cellProjectPath = useCallback((key: string): string | null => {
+    const item = itemMap.get(key);
+    if (!item) return null;
+    for (const pid of item.panelIds) {
+      const pp = getProjectPathFromPaneId(pid);
+      if (pp) return pp;
+    }
+    return null;
+  }, [itemMap]);
+  const rowColumnWeights = useCallback((row: PanelGridRow): number[] =>
+    row.itemKeys.map((key) => {
+      const pp = cellProjectPath(key);
+      return pp ? getProjectGridWeight(pp)?.cols ?? 1 : 1;
+    }), [cellProjectPath]);
+  const rowHeightWeights = useCallback((rowsForWeight: PanelGridRow[]): number[] =>
+    rowsForWeight.map((row) => {
+      // A row is as tall as its tallest cell wants to be (max leaf rows), so a
+      // project with a deep internal stack pulls its whole row taller.
+      let w = 1;
+      for (const key of row.itemKeys) {
+        const pp = cellProjectPath(key);
+        const r = pp ? getProjectGridWeight(pp)?.rows ?? 1 : 1;
+        if (r > w) w = r;
+      }
+      return w;
+    }), [cellProjectPath]);
 
   /* ---- Grid rows state (initial values come from usePanelGridPersistence above) ---- */
 
@@ -1830,7 +1865,7 @@ export function PanelGrid({
                       widths={row.widths}
                       isDragActive={isAnyDragActive}
                       onResizeStart={startHorizontalResize(rowIdx, colIdx, row.widths)}
-                      onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length)}
+                      onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length, rowColumnWeights(row))}
                       onInsertBetween={handleInsertBetweenColumns}
                     />
                   )}
@@ -1845,7 +1880,7 @@ export function PanelGrid({
               rowIdx={rowIdx}
               isDragActive={isAnyDragActive}
               onResizeStart={startVerticalResize(rowIdx, gridRowHeights)}
-              onEqualize={equalizeVertical(gridRows.length)}
+              onEqualize={equalizeVertical(gridRows.length, rowHeightWeights(gridRows))}
               onInsertBetween={handleInsertBetweenRows}
             />
           )}
