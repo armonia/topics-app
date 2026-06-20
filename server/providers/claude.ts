@@ -57,6 +57,10 @@ export class ClaudeProvider implements AIProvider {
   private client: Anthropic | null = null;
   private config: ClaudeProviderConfig;
   private activeAbortControllers = new Map<string, AbortController>();
+  // runId -> sessionKey, so abort(sessionKey) without a runId can stop ONLY that
+  // session's in-flight runs instead of every session's (the latter meant
+  // "stop" on one chat aborted all active chats).
+  private runIdToSessionKey = new Map<string, string>();
 
   constructor(config: ClaudeProviderConfig) {
     this.config = config;
@@ -78,6 +82,7 @@ export class ClaudeProvider implements AIProvider {
       controller.abort();
     }
     this.activeAbortControllers.clear();
+    this.runIdToSessionKey.clear();
     this.client = null;
   }
 
@@ -93,6 +98,7 @@ export class ClaudeProvider implements AIProvider {
     const runId = crypto.randomUUID();
     const abortController = new AbortController();
     this.activeAbortControllers.set(runId, abortController);
+    this.runIdToSessionKey.set(runId, sessionKey);
 
     const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
     const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -195,6 +201,7 @@ export class ClaudeProvider implements AIProvider {
       }
     } finally {
       this.activeAbortControllers.delete(runId);
+      this.runIdToSessionKey.delete(runId);
     }
 
     return { runId };
@@ -319,19 +326,23 @@ export class ClaudeProvider implements AIProvider {
 
   // --- Abort ---
 
-  async abort(_sessionKey: string, runId?: string): Promise<void> {
+  async abort(sessionKey: string, runId?: string): Promise<void> {
     if (runId) {
       const controller = this.activeAbortControllers.get(runId);
       if (controller) {
         controller.abort();
         this.activeAbortControllers.delete(runId);
+        this.runIdToSessionKey.delete(runId);
       }
     } else {
-      // Abort all
-      for (const controller of this.activeAbortControllers.values()) {
-        controller.abort();
+      // No runId: abort ONLY the in-flight runs for this session (was aborting
+      // every session's stream — "stop" on one chat killed all of them).
+      for (const [rid, sk] of this.runIdToSessionKey) {
+        if (sk !== sessionKey) continue;
+        this.activeAbortControllers.get(rid)?.abort();
+        this.activeAbortControllers.delete(rid);
+        this.runIdToSessionKey.delete(rid);
       }
-      this.activeAbortControllers.clear();
     }
   }
 

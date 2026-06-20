@@ -46,6 +46,9 @@ export class OpenAIProvider implements AIProvider {
 
   private config: OpenAIProviderConfig;
   private active = new Map<string, AbortController>();
+  // runId -> sessionKey, so abort(sessionKey) without a runId stops ONLY that
+  // session's runs (not every session's — see ClaudeProvider for the rationale).
+  private runIdToSessionKey = new Map<string, string>();
   private started = false;
   private cachedModels: string[] | null = null;
 
@@ -64,6 +67,7 @@ export class OpenAIProvider implements AIProvider {
   stop(): void {
     for (const c of this.active.values()) c.abort();
     this.active.clear();
+    this.runIdToSessionKey.clear();
     this.started = false;
   }
 
@@ -83,6 +87,7 @@ export class OpenAIProvider implements AIProvider {
     const runId = crypto.randomUUID();
     const ac = new AbortController();
     this.active.set(runId, ac);
+    this.runIdToSessionKey.set(runId, sessionKey);
 
     const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
     const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -148,6 +153,7 @@ export class OpenAIProvider implements AIProvider {
       }
     } finally {
       this.active.delete(runId);
+      this.runIdToSessionKey.delete(runId);
     }
 
     return { runId };
@@ -250,13 +256,19 @@ export class OpenAIProvider implements AIProvider {
 
   // --- Abort ---
 
-  async abort(_sessionKey: string, runId?: string): Promise<void> {
+  async abort(sessionKey: string, runId?: string): Promise<void> {
     if (runId) {
       this.active.get(runId)?.abort();
       this.active.delete(runId);
+      this.runIdToSessionKey.delete(runId);
     } else {
-      for (const c of this.active.values()) c.abort();
-      this.active.clear();
+      // No runId: abort ONLY this session's in-flight runs.
+      for (const [rid, sk] of this.runIdToSessionKey) {
+        if (sk !== sessionKey) continue;
+        this.active.get(rid)?.abort();
+        this.active.delete(rid);
+        this.runIdToSessionKey.delete(rid);
+      }
     }
   }
 
