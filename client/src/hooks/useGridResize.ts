@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import { equalizeWidths } from '../components/Layout/gridWidths';
+import { equalizeWidths, weightedWidths } from '../components/Layout/gridWidths';
 import { MIN_PANE_FRACTION } from '../components/Layout/constants';
 import { useRefMirror } from './useRefMirror';
 
@@ -113,18 +113,26 @@ export function useGridResize(
   // around the clicked divider) because that's what "make the split even" means
   // to a user. Routed through the same resize callbacks so persistence and
   // re-render behave identically to a drag.
+  //
+  // `weights` (optional): when a cell hosts more leaf panes than its siblings —
+  // e.g. a project window with N internal split columns — the caller passes a
+  // per-cell weight so equalize sizes by leaf count (the project cell gets N
+  // shares), making every *leaf* pane equal rather than every top-level cell.
+  // Omitted / wrong-length → the classic uniform `1/count` split.
   const equalizeHorizontal = useCallback(
-    (rowIdx: number, count: number) => () => {
+    (rowIdx: number, count: number, weights?: number[]) => () => {
       if (count <= 1) return;
-      callbacksRef.current.onHorizontalResize(rowIdx, 0, equalizeWidths(count));
+      const next = weights && weights.length === count ? weightedWidths(weights) : equalizeWidths(count);
+      callbacksRef.current.onHorizontalResize(rowIdx, 0, next);
     },
     [callbacksRef],
   );
 
   const equalizeVertical = useCallback(
-    (count: number) => () => {
+    (count: number, weights?: number[]) => () => {
       if (count <= 1) return;
-      callbacksRef.current.onVerticalResize(0, equalizeWidths(count));
+      const next = weights && weights.length === count ? weightedWidths(weights) : equalizeWidths(count);
+      callbacksRef.current.onVerticalResize(0, next);
     },
     [callbacksRef],
   );

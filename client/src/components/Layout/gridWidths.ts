@@ -67,6 +67,22 @@ export function equalizeWidths(count: number): number[] {
 }
 
 /**
+ * Distribute a row/column band proportionally to integer (or fractional)
+ * `weights` instead of evenly. This is the WEIGHTED form of `equalizeWidths`:
+ * a double-click "equalize" where some cells host more leaf panes than others
+ * (e.g. a project window with 3 internal columns) sizes each cell by its leaf
+ * count so the *leaves* end up equal, not the cells. Degenerate input (empty,
+ * or all weights ≤ 0 / non-finite) falls back to an equal `1/n` split, so it's
+ * always safe to pass through whatever weights the caller computed.
+ */
+export function weightedWidths(weights: readonly number[]): number[] {
+  if (weights.length === 0) return [];
+  const clean = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+  const total = clean.reduce((s, w) => s + w, 0);
+  return total > 0 ? clean.map((w) => w / total) : equalizeWidths(weights.length);
+}
+
+/**
  * Renormalise a set of weights back to sum 1, preserving relative proportions.
  * All-zero / non-finite input falls back to an equal split. `[]` → `[]`.
  */

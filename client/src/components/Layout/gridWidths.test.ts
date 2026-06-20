@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths, chooseSplitOrientation } from './gridWidths';
+import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths, weightedWidths, chooseSplitOrientation } from './gridWidths';
 
 const approx = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length);
@@ -90,6 +90,23 @@ describe('equalizeWidths — even split for double-click reset', () => {
     expect(equalizeWidths(0)).toEqual([]);
     expect(equalizeWidths(-2)).toEqual([]);
   });
+});
+
+describe('weightedWidths — leaf-count-weighted equalize', () => {
+  test('[chat, project-with-3-cols] → 1:3, so every leaf is 1/4', () => {
+    approx(weightedWidths([1, 3]), [0.25, 0.75]);
+  });
+  test('uniform weights collapse to an even split', () => {
+    approx(weightedWidths([1, 1, 1]), [1 / 3, 1 / 3, 1 / 3]);
+  });
+  test('result always sums to 1', () => {
+    expect(weightedWidths([2, 3, 5]).reduce((s, w) => s + w, 0)).toBeCloseTo(1, 6);
+  });
+  test('degenerate weights (all ≤ 0 / non-finite) fall back to even split', () => {
+    approx(weightedWidths([0, 0]), [0.5, 0.5]);
+    approx(weightedWidths([NaN, Infinity]), [0.5, 0.5]);
+  });
+  test('empty → []', () => expect(weightedWidths([])).toEqual([]));
 });
 
 describe('keepColumnWidths — multi-column survivor renormalise', () => {

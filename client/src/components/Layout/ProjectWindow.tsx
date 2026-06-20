@@ -14,6 +14,7 @@ import {
   useClosedTabs,
 } from '../../state/pane/adapters';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -142,6 +143,16 @@ export function ProjectWindowPane({
     onBrowserNavigateUrl: setBrowserNavigateUrl,
   });
   const { panes, groups, rows, rowHeights, focusedGroupId, sidebarCollapsed } = layout.state;
+
+  // Publish this project's internal split extent (leaf columns/rows) into the
+  // module registry so the STANDALONE grid can weight this project's cell when
+  // the user double-clicks an outer divider to equalize — see projectGridWeights.
+  // Keyed by projectPath; cleared on unmount / path change so a closed project
+  // never lingers with a stale weight.
+  useEffect(() => {
+    setProjectGridWeight(projectPath, computeProjectGridWeight(rows));
+    return () => clearProjectGridWeight(projectPath);
+  }, [projectPath, rows]);
   const { setRows, setRowHeights, setSidebarCollapsed } = layout.setters;
   const pinPaneById = layout.handlers.pinPaneById;
   const handleOpenFile = layout.handlers.openFile;
