@@ -99,7 +99,9 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
 
     const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({
       path: line.substring(3),
-      status: line.substring(0, 2).trim(),
+      // RAW 2-char XY code (no trim) — the client parses it positionally; see
+      // routes/files.ts. Trimming misclassified staged vs unstaged.
+      status: line.substring(0, 2),
     }));
     const files = relativePrefix
       ? allFiles.filter((f) => f.path.startsWith(relativePrefix)).map((f) => ({ ...f, path: f.path.slice(relativePrefix.length) }))

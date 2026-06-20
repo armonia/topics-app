@@ -30,7 +30,11 @@ function hasUnstagedChanges(status: string): boolean {
 }
 
 function statusLabel(status: string): { text: string; color: string; bg: string } {
-  switch (status) {
+  // `status` is the raw 2-char XY porcelain code (e.g. " M", "M ", "MM", "??").
+  // The staged/unstaged predicates read it positionally; for the label we
+  // collapse the padding so " M"/"M " both render as "M".
+  const s = status.trim();
+  switch (s) {
     case 'M': return { text: 'M', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
     case 'A': return { text: 'A', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
     case 'D': return { text: 'D', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' };
@@ -38,7 +42,7 @@ function statusLabel(status: string): { text: string; color: string; bg: string 
     case '??': return { text: 'U', color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-900/30' };
     case 'MM': return { text: 'MM', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' };
     case 'AM': return { text: 'AM', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
-    default: return { text: status, color: 'text-gray-500 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' };
+    default: return { text: s || status, color: 'text-gray-500 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' };
   }
 }
 
