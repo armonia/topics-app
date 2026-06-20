@@ -202,7 +202,12 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       // identify itself on `pagehide`.
       const headerCid = req.headers.get("x-client-id");
       const queryCid = _url.searchParams.get("cid");
-      const sourceClientId = headerCid && headerCid.length > 0 ? headerCid : queryCid;
+      // Coerce to undefined (not null): the outbound contract is
+      // `sourceClientId: z.string().optional()`, which accepts undefined but
+      // REJECTS null. `searchParams.get`/`headers.get` return null when absent,
+      // so a write with no client id (e.g. a server-internal or header-less API
+      // PUT) would otherwise emit a contract-violating broadcast.
+      const sourceClientId = (headerCid && headerCid.length > 0 ? headerCid : queryCid) || undefined;
       let body: unknown;
       try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
 
@@ -254,7 +259,12 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       // Finding #10: same client-id propagation contract as the single-key PUT.
       const headerCid = req.headers.get("x-client-id");
       const queryCid = _url.searchParams.get("cid");
-      const sourceClientId = headerCid && headerCid.length > 0 ? headerCid : queryCid;
+      // Coerce to undefined (not null): the outbound contract is
+      // `sourceClientId: z.string().optional()`, which accepts undefined but
+      // REJECTS null. `searchParams.get`/`headers.get` return null when absent,
+      // so a write with no client id (e.g. a server-internal or header-less API
+      // PUT) would otherwise emit a contract-violating broadcast.
+      const sourceClientId = (headerCid && headerCid.length > 0 ? headerCid : queryCid) || undefined;
       let body: unknown;
       try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
 
