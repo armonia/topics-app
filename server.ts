@@ -338,7 +338,7 @@ const stopUiStateBackup = startUiStateBackupTicker(ctx.db);
 // Initialize VAPID keys on startup
 initVapid();
 // Start agent heartbeat checker
-startHeartbeatChecker(db, broadcastToAll);
+const stopHeartbeatChecker = startHeartbeatChecker(db, broadcastToAll);
 
 // NOTE: the session attention monitor is NOT auto-started. It runs only when
 // the user enables it from Topics (POST /api/master/monitor) — nothing runs
@@ -918,6 +918,9 @@ async function gracefulShutdown(signal: string) {
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
   clearInterval(staleStreamTimer);
+  stopHeartbeatChecker();      // agent FSM stale-checker (was an unstoppable leak)
+  activityMonitor.destroy();   // closes the log fs.watch + batch/persist timers
+  journalCollector.stop();     // clears the journal collection interval
   stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
   await browserService.close();

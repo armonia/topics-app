@@ -11,7 +11,7 @@ import {
 const HEARTBEAT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 
-export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object) => void): void {
+export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object) => void): () => void {
   const staleSessionsStmt = db.prepare(`
     SELECT id, agent_id, session_key, last_heartbeat, status
     FROM agent_sessions
@@ -187,7 +187,10 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
 
   // Run immediately once, then on interval
   check();
-  setInterval(check, HEARTBEAT_CHECK_INTERVAL_MS);
+  const timer = setInterval(check, HEARTBEAT_CHECK_INTERVAL_MS);
 
   console.log("[Heartbeat] Checker started (every 30s, stale threshold: 2min)");
+  // Return a disposer so the caller can stop the checker on shutdown — the
+  // interval was previously discarded and leaked (one per call, incl. tests).
+  return () => clearInterval(timer);
 }
