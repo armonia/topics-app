@@ -7,7 +7,6 @@ import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
-import { loadMemoryForTopic } from "./memory";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter } from "./history";
 import { createEditRouter } from "./edit";
@@ -19,7 +18,6 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
 import { getTerminalSessionById } from "./terminal";
-import { buildProviderHistory } from "../utils/build-provider-history";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
@@ -298,8 +296,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     readJSON, json, matchRoute, errorResponse, slugify,
     resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
     searchTranscripts, getMessagesPath,
-    getMessageById, createBranchPartialMessage,
-    getSiblingMessages, loadActiveThread,
+    getMessageById,
     activeStreams,
     worktreeStore,
     projectStore,
