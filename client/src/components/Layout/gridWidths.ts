@@ -74,6 +74,12 @@ export function equalizeWidths(count: number): number[] {
  * count so the *leaves* end up equal, not the cells. Degenerate input (empty,
  * or all weights ≤ 0 / non-finite) falls back to an equal `1/n` split, so it's
  * always safe to pass through whatever weights the caller computed.
+ *
+ * Like `equalizeWidths`, this does NOT clamp to `MIN_PANE_FRACTION`: a
+ * heavily-split neighbor can legitimately shrink a cell below the drag-time
+ * floor, which is the correct result of "make every leaf equal". The floor is
+ * enforced on the resize-DRAG path; equalize is a deliberate reset (mirrors VS
+ * Code "Even Editor Widths", which can also make a pane small).
  */
 export function weightedWidths(weights: readonly number[]): number[] {
   if (weights.length === 0) return [];
