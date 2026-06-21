@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/topic-management.fixture";
-import { createTopic, cleanupAll } from "./helpers/api-fixtures";
+import { createTopic, patchTopic, cleanupAll } from "./helpers/api-fixtures";
 
 test.describe("Topic Management", () => {
   const TS = Date.now();
@@ -109,7 +109,7 @@ test.describe("Topic Management", () => {
 
     // Open command palette (sidebar search redirects here since c9d168e refactor)
     await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
-    const paletteInput = page.getByPlaceholder(/Search topics/);
+    const paletteInput = page.getByPlaceholder(/Cerca.*topic/i);
     await expect(paletteInput).toBeVisible({ timeout: 5000 });
 
     // Scope to the palette's result list (role=listbox / option, with the input's
@@ -168,6 +168,64 @@ test.describe("Topic Management", () => {
     await expect(topicPage.findTopic(/E2E-Disposable/)).toBeHidden({
       timeout: 5000,
     });
+  });
+
+  // TOPIC-04b: unarchive (reopen) round-trip — the reverse half of the 2-state
+  // invariant (open ⟺ non-archived). Opening an archived topic must BOTH re-show
+  // it as active AND flip archived→false server-side. Previously uncovered: the
+  // suite only tested archive, never the de-archive-on-open path.
+  test("TOPIC-04b: opening an archived topic unarchives it (active + archived:false)", async ({
+    topicPage,
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
+    // Seed an archived (= closed) topic via API.
+    const name = `E2E-Reopen-${Date.now()}`;
+    const disp = await createTopic(request, name);
+    topicIds.push(disp.id);
+    await patchTopic(request, disp.id, { archived: true });
+
+    await topicPage.goto();
+    // Wait for the app to be interactive before the ⌘K chord (a keypress fired
+    // before the sidebar mounts is dropped). Alpha is seeded in beforeAll.
+    await expect(topicPage.findTopic(new RegExp(`E2E-Alpha-${TS}`))).toBeVisible({
+      timeout: 15000,
+    });
+    // NB: archived topics still render in the sidebar's closed ("Chiusi") section
+    // — the 2-state model hides them from the OPEN tabs, not the sidebar — so we
+    // assert on the open-tab transition + the server flag, not sidebar presence.
+
+    // Open it from the ⌘K palette — it lists archived topics (labeled "chiuso")
+    // and unarchives + opens on click (usePanelLifecycle de-archive-on-open).
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+k" : "Control+k");
+    const paletteInput = page.getByPlaceholder(/Cerca.*topic/i);
+    await expect(paletteInput).toBeVisible({ timeout: 5000 });
+    await paletteInput.fill(name);
+    const palette = page.locator('[data-testid="command-palette"]');
+    const option = palette.getByText(new RegExp(name)).first();
+    await expect(option).toBeVisible({ timeout: 5000 });
+    await option.click();
+
+    // (a) It opens as an active tab in a panel tab bar (not merely listed).
+    await expect(
+      page.locator('[data-testid="panel-tab-bar"]').getByText(new RegExp(name)).first()
+    ).toBeVisible({ timeout: 10000 });
+
+    // (b) The server record is archived:false — the de-archive half of the
+    // invariant. Polled because the unarchive PATCH is fire-and-forget client-side.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get("http://localhost:13334/api/topics", {
+            ignoreHTTPSErrors: true,
+          });
+          const data = await res.json();
+          return data?.topics?.[disp.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(false);
   });
 
   // TOPIC-05: rename topic via context menu
