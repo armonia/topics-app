@@ -257,6 +257,15 @@ export function GroupLayout({
     }
   }, [edgeDropTargetRef]);
 
+  // True while a same-scope tab is being dragged anywhere over this layout —
+  // gates the full-width drop strips so they only intercept events during a
+  // drag (otherwise their top/bottom bands would swallow normal clicks on the
+  // first row's tab bar). Set on the container's capture-phase dragenter,
+  // cleared by resetDndOverlays (window dragend/drop). Declared here, above
+  // handleGroupContentDrop, so the setter isn't referenced before its
+  // declaration (react-hooks/no-use-before-declare).
+  const [dragActive, setDragActive] = useState(false);
+
   const handleGroupContentDrop = useCallback((groupId: string) => (e: React.DragEvent) => {
     // Validate this is a tab drop before consuming the event.
     const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
@@ -311,12 +320,6 @@ export function GroupLayout({
    * first / below the last row). */
   const [fullRowDrop, setFullRowDrop] = useState<'top' | 'bottom' | null>(null);
   const fullRowDropRef = useRefMirror(fullRowDrop);
-  // True while a same-scope tab is being dragged anywhere over this layout —
-  // gates the full-width drop strips so they only intercept events during a
-  // drag (otherwise their top/bottom bands would swallow normal clicks on the
-  // first row's tab bar). Set on the container's capture-phase dragenter,
-  // cleared by resetDndOverlays (window dragend/drop).
-  const [dragActive, setDragActive] = useState(false);
 
   const isPaneTabDrag = useCallback((e: React.DragEvent) =>
     e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) &&
