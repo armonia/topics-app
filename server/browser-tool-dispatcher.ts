@@ -50,8 +50,28 @@ export async function dispatchBrowserToolCall(
   topic: Topic,
   browserService: BrowserService,
 ): Promise<unknown> {
-  const contextId = resolveContextIdForTopic(topic);
+  return dispatchBrowserToolCallByContext(
+    toolName,
+    args,
+    resolveContextIdForTopic(topic),
+    browserService,
+  );
+}
 
+/**
+ * Same as `dispatchBrowserToolCall` but keyed on a raw BrowserService/CDP
+ * contextId instead of a Topic. Used by the MCP bridge routes so a session
+ * that is NOT a chat topic (a Claude Code *terminal* tab, whose pane is
+ * registered under `term-<terminalId>`) can drive the very same pane. The
+ * handlers already resolve CDP-vs-Playwright purely by contextId, so this is
+ * the honest seam — no synthetic Topic needed.
+ */
+export async function dispatchBrowserToolCallByContext(
+  toolName: string,
+  args: ToolCallArgs,
+  contextId: string,
+  browserService: BrowserService,
+): Promise<unknown> {
   switch (toolName) {
     case "browser_open":
       // Args validated by handler

@@ -799,6 +799,13 @@ export interface WSBrowserNavigateMessage {
 export interface WSBrowserOpenNearPaneMessage {
   type: 'browser:open-near-pane';
   paneId: string;
+  /**
+   * Deterministic browser contextId the pane must register under (e.g.
+   * `term-<terminalId>`). Lets the server's observe/act/import-chrome routes
+   * resolve the SAME pane the terminal opened — so a terminal can drive it,
+   * not just open it. Absent → legacy behaviour (singleton picks an id).
+   */
+  contextId?: string;
   url: string;
 }
 /**

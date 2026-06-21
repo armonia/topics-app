@@ -12,7 +12,7 @@ import { createChatRouter } from "./chat";
 // which imports it from this module — keeps working unchanged.
 export { computeCleanBroadcastDelta } from "./stream-markers";
 import type { BrowserService } from "../browser-service";
-import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
+import { dispatchBrowserToolCall, dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
@@ -247,6 +247,34 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   function providerForSessionKey(sessionKey: string): AIProvider {
     const topic = getTopicBySessionKey(sessionKey);
     return resolveProvider(topic);
+  }
+
+  /**
+   * Resolve the browser-pane contextId for an MCP bridge call addressed by
+   * topic id OR session key. Handles BOTH Claude Code surfaces:
+   *   - chat topic   → contextId = the topic's own browser contextId (topic.id)
+   *   - terminal tab → contextId = `term-<terminalId>` (the deterministic id the
+   *     client registers the near-terminal pane under, see open-pane below)
+   * Returns null when neither matches (genuinely unbound session). `topic` is
+   * returned when present so callers that still need it (broadcasts) have it.
+   */
+  function resolveBrowserContext(
+    byTopic: Record<string, string> | null,
+    bySession: Record<string, string> | null,
+  ): { contextId: string; topic: Topic | null } | null {
+    if (byTopic) {
+      const topic = getTopicById(byTopic.id);
+      if (!topic) return null;
+      return { contextId: resolveContextIdForTopic(topic), topic };
+    }
+    if (bySession) {
+      const key = decodeURIComponent(bySession.sessionKey);
+      const topic = getTopicBySessionKey(key);
+      if (topic) return { contextId: resolveContextIdForTopic(topic), topic };
+      const term = getTerminalSessionById(key);
+      if (term) return { contextId: `term-${term.id}`, topic: null };
+    }
+    return null;
   }
 
   // ── Sub-agent completion polling via JSONL transcript ──────────────────
@@ -1312,7 +1340,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             const body = (await readJSON(req)) as { url?: unknown } | null;
             const url = typeof body?.url === "string" ? body.url : "";
             if (!url) return json({ error: "url (string) is required" }, 400);
-            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, url });
+            // contextId is deterministic (`term-<id>`) so the client registers
+            // the pane's CDP target under the SAME id the observe/act routes
+            // resolve to — that's what lets a terminal drive the pane, not just
+            // open it.
+            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: `term-${term.id}`, url });
             return json({ url, title: "" });
           }
         }
@@ -1456,8 +1488,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // MCP bridge for the `import_chrome` tool (claude-code CLI sessions): seed the
     // topic's native browser pane with the user's real Chrome cookies. Same handler
     // as the SDK chat tool path (dispatchBrowserToolCall -> handleBrowserImportChrome),
-    // which requires the Electron native pane (CDP). Needs a real topic pane, so
-    // (unlike open-pane) there is no terminal-session fallback.
+    // which requires the Electron native pane (CDP). Resolves the pane by topic
+    // OR terminal session (resolveBrowserContext), so a Claude Code terminal tab
+    // can seed its own near-terminal pane too.
     {
       const byTopic = matchRoute(pathname, "/api/topics/:id/browser/import-chrome");
       const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/import-chrome");
@@ -1474,20 +1507,18 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!browserService) {
           return json({ error: "Browser service is not enabled in this build" }, 503);
         }
-        let topic: Topic | null = null;
-        if (byTopic) topic = getTopicById(byTopic.id);
-        else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
-        if (!topic) return json({ error: "Topic not found (import-chrome needs an open topic browser pane)" }, 404);
+        const target = resolveBrowserContext(byTopic, bySession);
+        if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
 
         const body = (await readJSON(req)) as { domains?: unknown; profile?: unknown; dry_run?: unknown } | null;
         const domains = Array.isArray(body?.domains) ? body.domains.map(String) : [];
         const profile = typeof body?.profile === "string" ? body.profile : undefined;
         const dryRun = !!body?.dry_run;
         try {
-          const result = await dispatchBrowserToolCall(
+          const result = await dispatchBrowserToolCallByContext(
             "browser_import_chrome",
             { domains, profile, dry_run: dryRun },
-            topic,
+            target.contextId,
             browserService,
           ) as { error?: string };
           if (result?.error) return json({ error: result.error }, 502);
@@ -1510,14 +1541,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const tok = req.headers.get("x-gateway-token") || "";
         if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        let topic: Topic | null = null;
-        if (byTopic) topic = getTopicById(byTopic.id);
-        else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
-        if (!topic) return json({ error: "Topic not found (open a browser pane first)" }, 404);
+        const target = resolveBrowserContext(byTopic, bySession);
+        if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
         const body = (await readJSON(req)) as { max_elements?: unknown } | null;
         const max_elements = typeof body?.max_elements === "number" ? body.max_elements : undefined;
         try {
-          const result = await dispatchBrowserToolCall("browser_observe", { max_elements }, topic, browserService) as Record<string, unknown> & { error?: string };
+          const result = await dispatchBrowserToolCallByContext("browser_observe", { max_elements }, target.contextId, browserService) as Record<string, unknown> & { error?: string };
           if (result?.error) return json({ error: result.error }, 502);
           // Drop the heavy base64 screenshot — the user sees the pane; the agent
           // acts via the element list. Keeps the MCP response token-light.
@@ -1538,16 +1567,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const tok = req.headers.get("x-gateway-token") || "";
         if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        let topic: Topic | null = null;
-        if (byTopic) topic = getTopicById(byTopic.id);
-        else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
-        if (!topic) return json({ error: "Topic not found (open a browser pane first)" }, 404);
+        const target = resolveBrowserContext(byTopic, bySession);
+        if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
         const body = (await readJSON(req)) as { element_id?: unknown; action?: unknown; text?: unknown } | null;
         try {
-          const result = await dispatchBrowserToolCall(
+          const result = await dispatchBrowserToolCallByContext(
             "browser_act",
             { element_id: body?.element_id, action: body?.action, text: body?.text },
-            topic,
+            target.contextId,
             browserService,
           ) as Record<string, unknown> & { error?: string };
           if (result?.error) return json({ error: result.error }, 502);
