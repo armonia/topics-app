@@ -35,6 +35,10 @@ interface BrowserServiceOptions {
   cdpPort?: number;
   /** Callback invoked after successful navigate(); used to persist topic.browserState. */
   onNavigate?: (contextId: string, url: string, viewport: { width: number; height: number }) => void;
+  /** Callback invoked after a context is destroyed; used to flush per-context
+   *  caches (e.g. the browser_observe IndexedElement cache) so a recreated
+   *  same-id context can't act on stale element coordinates. */
+  onDestroy?: (contextId: string) => void;
   /** Override Chromium executable path (highest priority). Falls back to env CHROMIUM_PATH, then chromium.executablePath(), then legacy macOS hardcoded path. */
   chromiumPath?: string;
   /** Phase 30 BROWSER-CHAT-03 — broadcast a message to all WS clients
@@ -372,10 +376,18 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // Capture explicit targetId via CDP (replaces the legacy DOM title-marker hack).
         try {
           const session = await context.newCDPSession(page);
-          const info = await session.send("Target.getTargetInfo") as { targetInfo: { targetId: string } };
-          if (info?.targetInfo?.targetId) {
-            targetIds.set(id, info.targetInfo.targetId);
-            console.log(`[BrowserService] Captured targetId for ${id}: ${info.targetInfo.targetId}`);
+          try {
+            const info = await session.send("Target.getTargetInfo") as { targetInfo: { targetId: string } };
+            if (info?.targetInfo?.targetId) {
+              targetIds.set(id, info.targetInfo.targetId);
+              console.log(`[BrowserService] Captured targetId for ${id}: ${info.targetInfo.targetId}`);
+            }
+          } finally {
+            // This session exists only to read the targetId — detach it so it
+            // doesn't linger attached to the page for the whole context lifetime
+            // (mirrors the try/finally capture in browser-cdp-dispatcher.ts).
+            // Detach failure is non-fatal (the context may already be closing).
+            await session.detach().catch(() => {});
           }
         } catch (err: any) {
           // Non-fatal: getTargetId() will fall back to /json/list query.
@@ -459,6 +471,13 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       try { await entry.context.close(); } catch {}
       contexts.delete(id);
       targetIds.delete(id);
+      // Flush per-context caches (e.g. the browser_observe element cache).
+      // Without this, the cleanup-timer auto-close + a later getOrCreate(id)
+      // recreate a blank context under the same id while a stale IndexedElement[]
+      // survives, so browser_act could click an old bbox on the fresh page.
+      try { opts.onDestroy?.(id); } catch (err: any) {
+        console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
+      }
       console.log(`[BrowserService] Context destroyed: ${id} (remaining: ${contexts.size})`);
     },
 
@@ -761,13 +780,34 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       //   - everyNthFrame 2 → effective 30 → 15 FPS (Nyquist floor)
       //   - maxWidth/maxHeight clamp to viewport (no upscale)
       const viewport = entry.page.viewportSize() || { width: 1280, height: 720 };
-      await cdpSession.send("Page.startScreencast", {
-        format: opts?.format ?? "jpeg",
-        quality: opts?.quality ?? 70,
-        maxWidth: opts?.maxWidth ?? viewport.width,
-        maxHeight: opts?.maxHeight ?? viewport.height,
-        everyNthFrame: opts?.everyNthFrame ?? 2,
-      });
+      try {
+        await cdpSession.send("Page.startScreencast", {
+          format: opts?.format ?? "jpeg",
+          quality: opts?.quality ?? 70,
+          maxWidth: opts?.maxWidth ?? viewport.width,
+          maxHeight: opts?.maxHeight ?? viewport.height,
+          everyNthFrame: opts?.everyNthFrame ?? 2,
+        });
+      } catch (err) {
+        // startScreencast failed (page closed / browser disconnected in the
+        // window between newCDPSession and this send) — detach the orphaned
+        // session so it doesn't leak, then surface the error to the caller.
+        await cdpSession.detach().catch(() => {});
+        throw err;
+      }
+
+      // Lost a concurrent first-start race? Another startScreencast for this id
+      // may have registered while we awaited getOrCreate/startScreencast — the
+      // `existing` fan-out check at the top is a TOCTOU gap before this set.
+      // Join the winner's subscriber set and tear down our duplicate session
+      // instead of leaking an untracked, never-detached CDP session.
+      const winner = screencastSessions.get(id);
+      if (winner) {
+        winner.subscribers.add(onFrame);
+        try { await cdpSession.send("Page.stopScreencast"); } catch { /* best effort */ }
+        await cdpSession.detach().catch(() => {});
+        return;
+      }
 
       screencastSessions.set(id, { cdpSession, subscribers: new Set([onFrame]) });
       console.log(`[BrowserService] Screencast started for ${id} (q=${opts?.quality ?? 70}, everyNthFrame=${opts?.everyNthFrame ?? 2})`);
