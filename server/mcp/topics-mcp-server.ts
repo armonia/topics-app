@@ -137,6 +137,18 @@ const TOOLS = [
       required: ["task_id", "project_id", "status"],
     },
   },
+  {
+    name: "move_session_to_project",
+    description:
+      "Move THIS Claude Code tab into a project window, de-duplicated (one tool call, not manual ui_state edits). Adds the tab to the project's membership AND removes it from the standalone app-level store, so it ends up inside the project only — never duplicated inside-and-outside. Opens/focuses the project window. Pass an absolute project path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_path: { type: "string", description: "Absolute path of the target project (e.g. /Users/me/Projects/foo)." },
+      },
+      required: ["project_path"],
+    },
+  },
 ];
 
 interface ParsedArgs {
@@ -317,6 +329,21 @@ export async function callRunScript(
   return `started · processId=${body.processId} · pid=${body.pid ?? "?"} — read output with read_process_output(process_id="${body.processId}")`;
 }
 
+export async function callMoveToProject(
+  args: ParsedArgs,
+  toolArgs: { project_path?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.project_path !== "string" || !toolArgs.project_path) {
+    throw new Error("move_session_to_project: 'project_path' (string) is required");
+  }
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/move-to-project`;
+  const body = await httpJson<{ ok?: boolean; paneId?: string; projectPath?: string }>(
+    args, "POST", path, { projectPath: toolArgs.project_path }, fetchImpl,
+  );
+  return `moved ${body?.paneId ?? "tab"} into project ${body?.projectPath ?? toolArgs.project_path} (de-duplicated)`;
+}
+
 export async function callListProcesses(
   args: ParsedArgs,
   _toolArgs: Record<string, unknown>,
@@ -431,6 +458,7 @@ const TOOL_HANDLERS: Record<
   stop_process: (a, t) => callStopProcess(a, t),
   list_tasks: (a, t) => callListTasks(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
+  move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
 };
 
 export async function handleMessage(

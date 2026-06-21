@@ -1341,6 +1341,115 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/sessions/:sessionKey/move-to-project
+    //
+    // Single authoritative op to relocate a Claude Code terminal tab INTO a
+    // project window, de-duplicated. A membership-only add leaves the tab BOTH
+    // inside the project and standalone (the app-level store still owns it), so
+    // this endpoint does the whole move server-side:
+    //   1. add the pane to the project's server-synced membership
+    //      (`topics-project-panes-<projectHash(path)>`)
+    //   2. splice it out of the app-level standalone store (`pane-store-v2`:
+    //      its `panes` entry + every `groups.*.paneIds` ref)
+    //   3. open/focus the project window
+    // Both ui_state writes get a fresh monotonic server_seq + `ui-state:updated`
+    // broadcast so live clients converge to exactly ONE instance. Device-local
+    // split geometry (`project-layout-<hash>`) is intentionally NOT touched.
+    // Chat topics use bindTopicToProject instead; this is the terminal-tab path
+    // (a tab is not a chat-topic).
+    {
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/move-to-project");
+      if (bySession && method === "POST") {
+        const body = (await readJSON(req)) as { projectPath?: unknown } | null;
+        const rawPath = typeof body?.projectPath === "string" ? body.projectPath : "";
+        if (!rawPath) return json({ error: "projectPath (string) is required" }, 400);
+        const dir = resolveProjectRef(rawPath, { trustRawPaths: true });
+        if (!dir) return json({ error: "project path does not exist" }, 404);
+
+        const sk = decodeURIComponent(bySession.sessionKey);
+        const term = getTerminalSessionById(sk);
+        if (!term) {
+          return json({ error: "move-to-project supports terminal tabs only; use bind-project for chat topics" }, 400);
+        }
+        const paneId = `terminal:${term.id}`;
+
+        // djb2 — MUST match client projectHash() in
+        // client/src/state/pane/adapters/projectLayoutSync.ts so the membership
+        // key lines up with what the renderer reads.
+        const projectHash = (p: string): string => {
+          let h = 0;
+          for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
+          return Math.abs(h).toString(36);
+        };
+        const membershipKey = `topics-project-panes-${projectHash(dir)}`;
+        const APP_KEY = "pane-store-v2";
+
+        const readUi = (key: string): Record<string, unknown> | null => {
+          const row = db.query("SELECT value FROM ui_state WHERE key = ?").get(key) as { value?: string } | undefined;
+          if (!row?.value) return null;
+          try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
+        };
+        const writes: Array<{ key: string; value: unknown }> = [];
+
+        // 1. Splice the pane out of the app-level standalone store, capturing its
+        //    full pane object so the project membership carries the same shape.
+        let paneObj: Record<string, unknown> | null = null;
+        const app = readUi(APP_KEY);
+        if (app) {
+          const panes = app.panes as Record<string, Record<string, unknown>> | undefined;
+          if (panes && panes[paneId]) {
+            const { scrollOffset: _drop, ...rest } = panes[paneId];
+            paneObj = rest;
+            delete panes[paneId];
+          }
+          const groups = app.groups as Record<string, { paneIds?: string[] }> | undefined;
+          if (groups) {
+            for (const g of Object.values(groups)) {
+              if (g && Array.isArray(g.paneIds)) g.paneIds = g.paneIds.filter((x) => x !== paneId);
+            }
+          }
+          writes.push({ key: APP_KEY, value: app });
+        }
+
+        // 2. Add the pane to the project's server-synced membership (idempotent).
+        const mem = (readUi(membershipKey) as { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } | null)
+          || { nonChatPanes: [], openChatTopicIds: [] };
+        if (!Array.isArray(mem.nonChatPanes)) mem.nonChatPanes = [];
+        if (!Array.isArray(mem.openChatTopicIds)) mem.openChatTopicIds = [];
+        if (!mem.nonChatPanes.some((p) => (p as { id?: string })?.id === paneId)) {
+          mem.nonChatPanes.push(paneObj || { id: paneId, type: "terminal", title: term.name || "Claude Code", preview: false, terminalType: "claude-code" });
+        }
+        writes.push({ key: membershipKey, value: mem });
+
+        // 3. Persist with fresh monotonic server_seq each (BEGIN IMMEDIATE so two
+        //    writers can't collide on seq — same rule as the ui-state PUT route),
+        //    then broadcast each so live clients converge.
+        const stamped = db.transaction(() => {
+          const out: Array<{ key: string; value: unknown; seq: number }> = [];
+          for (const w of writes) {
+            const { maxSeq } = db.query("SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state").get() as { maxSeq: number };
+            const seq = maxSeq + 1;
+            db.run(
+              `INSERT INTO ui_state (key, value, payload_version, server_seq, updated_at)
+               VALUES (?, ?, 2, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET
+                 value = excluded.value, payload_version = 2,
+                 server_seq = excluded.server_seq, updated_at = datetime('now')`,
+              [w.key, JSON.stringify(w.value), seq],
+            );
+            out.push({ key: w.key, value: w.value, seq });
+          }
+          return out;
+        }).immediate() as Array<{ key: string; value: unknown; seq: number }>;
+
+        for (const s of stamped) {
+          broadcastToAll({ type: "ui-state:updated", key: s.key, value: s.value, payload_version: 2, server_seq: s.seq });
+        }
+        broadcastToAll({ type: "open-project", projectPath: dir });
+        return json({ ok: true, paneId, projectPath: dir, membershipKey });
+      }
+    }
+
     // POST /api/topics/:id/browser/import-chrome
     // POST /api/sessions/:sessionKey/browser/import-chrome
     //
