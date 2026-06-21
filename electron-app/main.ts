@@ -503,6 +503,41 @@ function destroyNativeBrowser(viewId: string): void {
 
 // ============ Window Management ============
 
+let screenWatchRegistered = false;
+
+// Keep the main window on a CONNECTED display. When a monitor it lived on is
+// unplugged or sleeps, macOS leaves the window at coordinates no visible display
+// covers, so it vanishes ("I don't see the windows"). Re-centre it on the
+// primary display's work area when its centre is off every screen.
+function ensureWindowOnScreen(win: BrowserWindow | null): void {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const { screen } = require('electron') as typeof import('electron');
+    const b = win.getBounds();
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    const onScreen = screen.getAllDisplays().some((d) => {
+      const wa = d.workArea;
+      return cx >= wa.x && cx < wa.x + wa.width && cy >= wa.y && cy < wa.y + wa.height;
+    });
+    if (onScreen) return;
+    const wa = screen.getPrimaryDisplay().workArea;
+    const width = Math.min(b.width, wa.width);
+    const height = Math.min(b.height, wa.height);
+    win.setBounds({
+      x: Math.round(wa.x + (wa.width - width) / 2),
+      y: Math.round(wa.y + (wa.height - height) / 2),
+      width,
+      height,
+    });
+    if (!win.isVisible()) win.show();
+    win.focus();
+    console.log('[Topics Electron] Main window was off-screen — recentred on the primary display');
+  } catch (err) {
+    console.warn('[Topics Electron] ensureWindowOnScreen failed:', err);
+  }
+}
+
 function createWindow(): void {
   console.log('[Topics Electron] Creating main window...');
   const isMac = process.platform === 'darwin';
@@ -660,6 +695,17 @@ function createWindow(): void {
   let appLoaded = false;
   mainWindow.loadURL(LOADING_PAGE).catch(() => { /* data URL never fails */ });
   mainWindow.show(); // visible right away, regardless of server state
+
+  // Recover the window if a display it's on disappears (unplug / sleep) — macOS
+  // would otherwise strand it off-screen. Registered once (guarded) since the
+  // screen module is process-global.
+  if (!screenWatchRegistered) {
+    screenWatchRegistered = true;
+    const { screen } = require('electron') as typeof import('electron');
+    const onDisplayChange = () => ensureWindowOnScreen(mainWindow);
+    screen.on('display-removed', onDisplayChange);
+    screen.on('display-metrics-changed', onDisplayChange);
+  }
 
   const connectWhenReady = async () => {
     if (!mainWindow || mainWindow.isDestroyed() || appLoaded) return;
@@ -2071,7 +2117,12 @@ ipcMain.handle('browser-native:set-bounds', async (
   _evt, viewId: string, bounds: { x: number; y: number; width: number; height: number }
 ): Promise<void> => {
   const entry = nativeBrowsers.get(viewId);
-  if (!entry) throw new Error(`browser-native:set-bounds — view ${viewId} not found`);
+  // No-op (do NOT throw) for a missing view. set-bounds fires repeatedly from
+  // the renderer's ResizeObserver/poll, so a stale viewId after a destroy used
+  // to flood main with thrown IPC errors — observed as 2.3MB of logs + a frozen
+  // app while the renderer↔main pane state was momentarily desynced. A gone
+  // view just means the pane closed; there's nothing to position.
+  if (!entry) return;
   // Round to integers — Electron's setBounds expects integer pixels.
   const safe = {
     x: Math.round(bounds.x),
