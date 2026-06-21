@@ -468,32 +468,27 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
   }, [projectPath, topics, terminalSessions, live, hydrated, agent, term, phaseActive, phaseResting]);
 }
 
-/** Reactive rollup: is any child of this project parked awaiting the user? A
- *  chat topic under the project in awaitingFeedbackTopics, or a claude-code
- *  terminal whose cwd lives under it in claudePhaseAwaitingTermIds. Mirrors
- *  useProjectLoading so the project tab and sidebar project row agree, and
- *  lets the blue fill roll up to the project (matches "all tabs"). */
-export function useProjectAwaitingFeedback(projectPath: string | undefined): boolean {
-  const topics = useTopics();
-  const terminalSessions = useTerminalSessions();
-  const { awaitingTopics, awaitingTerms } = useSignalsStore(
-    useShallow((s) => ({
-      awaitingTopics: s.awaitingFeedbackTopics,
-      awaitingTerms: s.claudePhaseAwaitingTermIds,
-    })),
-  );
-  return useMemo(() => {
-    if (!projectPath) return false;
-    for (const t of Object.values(topics)) {
-      if (t.projectPath === projectPath && awaitingTopics.has(t.id)) return true;
-    }
-    for (const ts of terminalSessions) {
-      if (ts.type === 'shell') continue;
-      if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-      if (awaitingTerms.has(ts.id)) return true;
-    }
-    return false;
-  }, [projectPath, topics, terminalSessions, awaitingTopics, awaitingTerms]);
+/** Pure rollup: is any child of this project parked awaiting the user? A chat
+ *  topic under the project in `awaitingTopics`, or a claude-code terminal whose
+ *  cwd lives under it in `awaitingTerms`. Shared by the tab bar (synchronous, in
+ *  the panes.map loop) and the sidebar (the hook below + the project row), so
+ *  every awaiting surface agrees. Mirrors useProjectLoading's child-walk. */
+export function projectHasAwaitingChild(
+  projectPath: string,
+  topics: Record<string, Topic>,
+  terminalSessions: TerminalSessionInfo[],
+  awaitingTopics: ReadonlySet<string>,
+  awaitingTerms: ReadonlySet<string>,
+): boolean {
+  for (const t of Object.values(topics)) {
+    if (t.projectPath === projectPath && awaitingTopics.has(t.id)) return true;
+  }
+  for (const ts of terminalSessions) {
+    if (ts.type === 'shell') continue;
+    if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+    if (awaitingTerms.has(ts.id)) return true;
+  }
+  return false;
 }
 
 /** Is this pane producing output right now? Single entry point for every
