@@ -155,11 +155,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     setZoom: (viewId: string, delta: number | 'reset') =>
       ipcRenderer.invoke('browser-native:set-zoom', viewId, delta) as Promise<number>,
-    onPermissionGranted: (callback: (info: { permission: string; url: string; partitionId: string }) => void) => {
-      const listener = (_evt: unknown, info: { permission: string; url: string; partitionId: string }) => callback(info);
-      ipcRenderer.on('browser-native:permission-granted', listener);
-      return () => ipcRenderer.removeListener('browser-native:permission-granted', listener);
+    onPermissionRequest: (callback: (info: { requestId: string; permission: string; url: string; partitionId: string }) => void) => {
+      const listener = (_evt: unknown, info: { requestId: string; permission: string; url: string; partitionId: string }) => callback(info);
+      ipcRenderer.on('browser-native:permission-request', listener);
+      return () => ipcRenderer.removeListener('browser-native:permission-request', listener);
     },
+    respondPermission: (requestId: string, granted: boolean) =>
+      ipcRenderer.send('browser-native:permission-response', { requestId, granted }),
     onDownloadStart: (callback: (info: { id: string; url: string; filename: string; totalBytes: number }) => void) => {
       const listener = (_evt: unknown, info: { id: string; url: string; filename: string; totalBytes: number }) => callback(info);
       ipcRenderer.on('browser-native:download-start', listener);

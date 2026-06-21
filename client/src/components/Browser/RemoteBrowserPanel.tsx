@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
 import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { DownloadStrip } from './DownloadStrip';
+import { PermissionBar } from './PermissionBar';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import type { Topic } from '../../types';
@@ -597,6 +598,7 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
           onClose={() => setSelectMode(false)}
         />
       )}
+      <PermissionBar />
       <DownloadStrip />
     </div>
   );
