@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { splitColumnWidths, removeColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths, weightedWidths, chooseSplitOrientation } from './gridWidths';
+import { splitColumnWidths, appendColumnWidths, normalizeWidths, keepColumnWidths, equalizeWidths, weightedWidths, chooseSplitOrientation } from './gridWidths';
 
 const approx = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length);
@@ -53,18 +53,6 @@ describe('appendColumnWidths — preserves existing proportions', () => {
   });
   test('newCount <= 0 is a no-op copy', () => {
     approx(appendColumnWidths([0.4, 0.6], 0), [0.4, 0.6]);
-  });
-});
-
-describe('removeColumnWidths — renormalises survivors', () => {
-  test('removing a column keeps the others in proportion', () => {
-    approx(removeColumnWidths([0.2, 0.3, 0.5], 0), [0.375, 0.625]);
-  });
-  test('removing the last remaining column yields []', () => {
-    expect(removeColumnWidths([1], 0)).toEqual([]);
-  });
-  test('all-zero survivors fall back to equal', () => {
-    approx(removeColumnWidths([0, 0, 1], 2), [0.5, 0.5]);
   });
 });
 

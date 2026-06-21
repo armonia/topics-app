@@ -122,21 +122,9 @@ export function chooseSplitOrientation(
 }
 
 /**
- * Drop a column at `removeIdx` and renormalise the survivors, preserving their
- * relative proportions. Returns `[]` for a row that empties out (caller decides
- * whether to drop the row).
- */
-export function removeColumnWidths(
-  widths: readonly number[],
-  removeIdx: number,
-): number[] {
-  return normalizeWidths(widths.filter((_, i) => i !== removeIdx));
-}
-
-/**
- * Keep only the columns at `keepIdx` (in order) and renormalise — the
- * multi-column version of removeColumnWidths, used when a row loses one or more
- * groups at once and the survivors must keep their manual proportions.
+ * Keep only the columns at `keepIdx` (in order) and renormalise — used when a
+ * row loses one or more groups at once and the survivors must keep their manual
+ * proportions. Covers the single-column drop too (keep all but the removed idx).
  */
 export function keepColumnWidths(
   widths: readonly number[],
