@@ -366,8 +366,11 @@ test.describe("Split Screen Sync & Correctness", () => {
       }
     }
 
+    // Hard-assert the setup produced enough panes to split — a broken add-pane
+    // flow must FAIL here, not silently skip the whole split assertion below.
     const tabCount = await tabs.count();
-    if (tabCount >= 3) {
+    expect(tabCount).toBeGreaterThanOrEqual(3);
+    {
       // Split Right first
       await tabs.first().click({ button: "right" });
       let menu = page.locator(".fixed.z-\\[9999\\]");
@@ -399,9 +402,10 @@ test.describe("Split Screen Sync & Correctness", () => {
 
       // Should have at least 2 tab bars from the splits
       const finalTabBars = await countTabBars(page);
-      // If the splits worked, we'll have multiple tab bars.
-      // If context menu didn't offer split (non-chat panes), we still verify the layout didn't break.
-      expect(finalTabBars).toBeGreaterThanOrEqual(1);
+      // The split flow (2 added panes → Split Right → Split Down) yields 3 tab
+      // bars in the harness. Assert the splits MATERIALISED (>=2), not the
+      // always-true >=1 that passed even if the layout never split.
+      expect(finalTabBars).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -448,9 +452,12 @@ test.describe("Split Screen Sync & Correctness", () => {
     // Re-open project
     await openProjectInSidebar(page, /e2e-split-sync/i);
 
-    // Verify at least some panels restored
+    // Persistence: the layout must not SHRINK across reload (the old >=1 was
+    // always true even if every panel was lost). >= before catches a reload
+    // that drops the restored panels down to the empty-shell floor.
     const tabBarsAfter = await countTabBars(page);
-    expect(tabBarsAfter).toBeGreaterThanOrEqual(1);
+    expect(tabBarsBefore).toBeGreaterThanOrEqual(1);
+    expect(tabBarsAfter).toBeGreaterThanOrEqual(tabBarsBefore);
   });
 
   // ── 3.4: Multi-row top-level grid ──
