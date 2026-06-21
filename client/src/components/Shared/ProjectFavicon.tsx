@@ -21,7 +21,13 @@ import { useState, useEffect, type ReactNode } from 'react';
 //                it within a day.
 //   - unknown  → probe with a ZERO-width <img> (no reserved gap); promote to
 //                'has' on load or 'none' on error.
-const CACHE_KEY = 'topics-project-icon-cache';
+// v2: the v1 cache was poisoned by transient server failures (a restart /
+// unreachable window made every favicon <img> error → cached 'none' for the
+// 12h TTL, so real icons vanished). Bumping the key drops those stale 'none'
+// entries so every project re-probes once against a healthy server. The
+// onError handler below now also refuses to persist 'none' on a non-404, so
+// this can't recur.
+const CACHE_KEY = 'topics-project-icon-cache-v2';
 const NONE_TTL_MS = 12 * 60 * 60 * 1000;
 type IconStatus = 'has' | 'none';
 interface CacheEntry { s: IconStatus; t: number }
@@ -92,7 +98,19 @@ export function ProjectFavicon({
         marginRight: reserve ? undefined : 0,
       }}
       onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
-      onError={() => { setStatus('none'); remember(path, 'none'); }}
+      onError={() => {
+        // Hide this slot now, but DON'T blindly persist 'none': an <img> error
+        // can't distinguish a real 404 ("no icon") from a transient failure
+        // (server restarting / unreachable, or a 403 during a momentarily-empty
+        // allowlist). Persisting 'none' for a transient failure poisoned the
+        // cache and hid real favicons for the whole TTL. Verify with a fetch and
+        // remember 'none' ONLY on a definitive 404; anything else stays
+        // un-cached so the next mount re-probes once the server is healthy.
+        setStatus('none');
+        fetch(`/api/projects/icon?path=${encodeURIComponent(path)}`)
+          .then((r) => { if (r.status === 404) remember(path, 'none'); })
+          .catch(() => { /* unreachable → transient, leave the cache clean */ });
+      }}
     />
   );
 }
