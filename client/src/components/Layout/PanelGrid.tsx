@@ -1885,7 +1885,7 @@ export function PanelGrid({
                       widths={row.widths}
                       isDragActive={isAnyDragActive}
                       onResizeStart={startHorizontalResize(rowIdx, colIdx, row.widths)}
-                      onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length, rowColumnWeights(row))}
+                      onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length, () => rowColumnWeights(row))}
                       onInsertBetween={handleInsertBetweenColumns}
                     />
                   )}
@@ -1900,7 +1900,7 @@ export function PanelGrid({
               rowIdx={rowIdx}
               isDragActive={isAnyDragActive}
               onResizeStart={startVerticalResize(rowIdx, gridRowHeights)}
-              onEqualize={equalizeVertical(gridRows.length, rowHeightWeights(gridRows))}
+              onEqualize={equalizeVertical(gridRows.length, () => rowHeightWeights(gridRows))}
               onInsertBetween={handleInsertBetweenRows}
             />
           )}

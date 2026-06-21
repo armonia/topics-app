@@ -119,19 +119,28 @@ export function useGridResize(
   // per-cell weight so equalize sizes by leaf count (the project cell gets N
   // shares), making every *leaf* pane equal rather than every top-level cell.
   // Omitted / wrong-length → the classic uniform `1/count` split.
+  //
+  // Pass a THUNK (`() => number[]`) to sample the (non-reactive) weight registry
+  // at CLICK time — a plain array is captured at render, so a project that
+  // re-splits after the last PanelGrid render would equalize with a stale leaf
+  // count (the documented "fresh value on the next equalize click" contract).
+  const resolveWeights = (weights?: number[] | (() => number[])) =>
+    typeof weights === 'function' ? weights() : weights;
   const equalizeHorizontal = useCallback(
-    (rowIdx: number, count: number, weights?: number[]) => () => {
+    (rowIdx: number, count: number, weights?: number[] | (() => number[])) => () => {
       if (count <= 1) return;
-      const next = weights && weights.length === count ? weightedWidths(weights) : equalizeWidths(count);
+      const w = resolveWeights(weights);
+      const next = w && w.length === count ? weightedWidths(w) : equalizeWidths(count);
       callbacksRef.current.onHorizontalResize(rowIdx, 0, next);
     },
     [callbacksRef],
   );
 
   const equalizeVertical = useCallback(
-    (count: number, weights?: number[]) => () => {
+    (count: number, weights?: number[] | (() => number[])) => () => {
       if (count <= 1) return;
-      const next = weights && weights.length === count ? weightedWidths(weights) : equalizeWidths(count);
+      const w = resolveWeights(weights);
+      const next = w && w.length === count ? weightedWidths(w) : equalizeWidths(count);
       callbacksRef.current.onVerticalResize(0, next);
     },
     [callbacksRef],
