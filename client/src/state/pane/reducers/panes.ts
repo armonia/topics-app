@@ -266,6 +266,14 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           }
         }
       }
+      // Snapshot each local group's split config BEFORE the overwrite below, so
+      // a group we have to recreate during re-injection (draft or local-kept,
+      // when the remote snapshot omitted it) restores the user's real divider
+      // position instead of resetting to the 0.5/horizontal default.
+      const localGroupSplit: Record<string, { splitRatio: number; splitAxis: 'horizontal' | 'vertical' }> = {};
+      for (const [gid, group] of Object.entries(state.groups)) {
+        localGroupSplit[gid] = { splitRatio: group.splitRatio, splitAxis: group.splitAxis };
+      }
       if (clean.panes) state.panes = clean.panes;
       if (clean.groups) state.groups = clean.groups;
       // `clean.projects` is intentionally ignored — see selectors.ts for the
@@ -295,8 +303,18 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         state.panes[id] = pane;
       }
       for (const [gid, drafts] of Object.entries(localDraftsByGroup)) {
-        const group = state.groups[gid];
-        if (!group) continue;
+        let group = state.groups[gid];
+        if (!group) {
+          // The draft's group was local-only and the remote snapshot dropped it.
+          // Recreate it (mirroring the local-kept path below) instead of
+          // `continue`-ing — otherwise the draft pane lands in state.panes with
+          // no group.paneIds entry and silently vanishes from every tab bar
+          // while the user is mid-edit, exactly the erase the capture above guards against.
+          const split = localGroupSplit[gid];
+          group = { id: gid, paneIds: [], splitRatio: split?.splitRatio ?? 0.5, splitAxis: split?.splitAxis ?? 'horizontal' };
+          state.groups[gid] = group;
+          if (!state.groupOrder.includes(gid)) state.groupOrder.push(gid);
+        }
         for (const draftId of drafts) {
           if (!group.paneIds.includes(draftId)) group.paneIds.push(draftId);
         }
@@ -310,7 +328,8 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       for (const [gid, ids] of Object.entries(localKeptByGroup)) {
         let group = state.groups[gid];
         if (!group) {
-          group = { id: gid, paneIds: [], splitRatio: 0.5, splitAxis: 'horizontal' };
+          const split = localGroupSplit[gid];
+          group = { id: gid, paneIds: [], splitRatio: split?.splitRatio ?? 0.5, splitAxis: split?.splitAxis ?? 'horizontal' };
           state.groups[gid] = group;
           if (!state.groupOrder.includes(gid)) state.groupOrder.push(gid);
         }

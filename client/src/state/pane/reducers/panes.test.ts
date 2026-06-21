@@ -973,4 +973,48 @@ describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () =
     expect(state.panes["draft:abc"]).toBeDefined();
     expect(state.groups["group:default"].paneIds).toContain("draft:abc");
   });
+
+  test("a draft whose group is OMITTED from the remote snapshot is recreated, not lost", () => {
+    // The draft lives in a local-only split group the other client never saw.
+    // A naive `continue` re-adds the draft to state.panes but to no group, so it
+    // vanishes from every tab bar mid-edit — the recreation path prevents that.
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["draft:xyz"] = mkPane("draft:xyz", "chat");
+    state.groups["group:local"] = { id: "group:local", paneIds: ["draft:xyz"], splitRatio: 0.5, splitAxis: "horizontal" as const };
+    state.groupOrder = ["group:local"];
+
+    hydrate(state, {
+      panes: { "chat:R": mkPane("chat:R", "chat") },
+      groups: { "group:default": grp(["chat:R"]) },   // remote knows nothing of group:local
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+
+    expect(state.panes["draft:xyz"]).toBeDefined();
+    expect(state.groups["group:local"]).toBeDefined();
+    expect(state.groups["group:local"].paneIds).toContain("draft:xyz");
+    expect(state.groupOrder).toContain("group:local");
+  });
+
+  test("a recreated local-kept group restores its real split config, not the 0.5 default", () => {
+    // THIS client resized a project split to 0.3/vertical; a remote snapshot
+    // omits that group. Re-injection must recreate it with the user's real
+    // divider position, not reset to the 0.5/horizontal placeholder.
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["project:P"] = mkPane("project:P");
+    state.groups["group:proj"] = { id: "group:proj", paneIds: ["project:P"], splitRatio: 0.3, splitAxis: "vertical" as const };
+    state.groupOrder = ["group:proj"];
+
+    hydrate(state, {
+      panes: { "chat:R": mkPane("chat:R", "chat") },
+      groups: { "group:default": grp(["chat:R"]) },
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+
+    expect(state.groups["group:proj"]).toBeDefined();
+    expect(state.groups["group:proj"].splitRatio).toBe(0.3);
+    expect(state.groups["group:proj"].splitAxis).toBe("vertical");
+    expect(state.groups["group:proj"].paneIds).toContain("project:P");
+  });
 });
