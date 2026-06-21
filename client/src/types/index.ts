@@ -845,12 +845,11 @@ export interface WSMachineMessage {
  * so reads require explicit casts — visible churn is the point.
  */
 /**
- * Catch-all kept OUTSIDE the `WSMessage` union below. Including it in the
- * union widens `WSMessage['type']` to plain `string` (the `string & {}`
- * brand trick collapses back to `string` once it touches another string-
- * literal field, see microsoft/TypeScript#29729) and destroys literal
- * narrowing on every handler — `msg.task` becomes `unknown` because the
- * post-narrow type still contains `WSUnknownMessage`.
+ * Catch-all kept OUTSIDE the `WSMessage` union below. Its `type: string`
+ * would widen `WSMessage['type']` to plain `string` if it were a union
+ * member, which destroys literal narrowing on every handler — after a
+ * `msg.type === '<literal>'` check the narrowed type would still contain
+ * `WSUnknownMessage`, so fields like `msg.task` collapse to `unknown`.
  *
  * Forward-compatibility is preserved without it: at runtime the server
  * can emit any `{type, ...}` shape, and handlers already gate on
@@ -964,10 +963,11 @@ export type WSMessage =
   | WSWorktreeMessage
   | WSMachineMessage
   | WSSessionStateMessage;
-// (Historical note: an earlier shape had `WSUnknownMessage.type: string`
-// which widened the union's `type` to plain `string` and broke literal
-// narrowing across every handler. The `string & {}` brand above fixed it
-// without losing the catch-all behavior.)
+// (Historical note: an earlier shape included `WSUnknownMessage` as a
+// union member, whose `type: string` widened the union's `type` to plain
+// `string` and broke literal narrowing across every handler. Keeping the
+// catch-all OUT of the union — see its doc comment above — preserves
+// narrowing without losing forward-compat catch-all behavior.)
 // This was the contract before Phase A and the consumers we don't own
 // (useBoard.ts, useChat.ts, …) still assume the wider shape. The new
 // typed members above (WSProjectMessage, WSWorktreeMessage, …) are
@@ -1146,7 +1146,12 @@ export interface PanelGridRow {
   cellStacks?: Record<string, PanelGridCellStack>;
 }
 
-export type SidebarTab = 'agents' | 'activity' | 'journal' | 'remote' | 'system' | 'browser' | 'terminal';
+// Discriminant for the topics-menu "expanded tool" popover. Only `'remote'`
+// is ever produced (the other former menu entries open as full pages via
+// handleOpenAsPage, not as an expanded tool), so the union is intentionally
+// a single literal — widening it back to the old 7-member set just creates
+// dead, untyped surface.
+export type SidebarTab = 'remote';
 
 export interface AppSettings {
   fontSize: number;       // 12-18
