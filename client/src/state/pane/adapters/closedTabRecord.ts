@@ -89,7 +89,13 @@ export function getTerminalTombstones(): Set<string> {
 // before the page unloads. Without this, a reload within the grace
 // window leaks the server-side session — and the terminal-sync effect
 // re-injects a phantom pane on the next load.
-if (typeof window !== 'undefined' && !(window as unknown as { __termCleanupHooked?: boolean }).__termCleanupHooked) {
+// `typeof window.addEventListener === 'function'` guards a partial-window test
+// environment: under `bun test` (no DOM) another test file can leave a stub
+// `globalThis.window` object without `addEventListener`, and module-load order
+// across the combined run is filesystem-dependent (passes on macOS, threw on
+// CI's Linux). The check is always true in a real browser, so behavior is
+// unchanged there.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !(window as unknown as { __termCleanupHooked?: boolean }).__termCleanupHooked) {
   (window as unknown as { __termCleanupHooked: boolean }).__termCleanupHooked = true;
   window.addEventListener('beforeunload', () => {
     for (const [id, timer] of cleanupTimers.entries()) {
