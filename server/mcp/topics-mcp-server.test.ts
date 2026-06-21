@@ -216,6 +216,7 @@ describe("handleMessage", () => {
       "stop_process",
       "list_tasks",
       "update_task",
+      "move_session_to_project",
     ]);
     const browser = tools.find((t) => t.name === "open_browser_pane")!;
     expect(browser.inputSchema.required).toEqual(["url"]);
