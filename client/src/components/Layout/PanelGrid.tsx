@@ -1383,8 +1383,21 @@ export function PanelGrid({
             movedStack = res.detachedStack;
             return res.row;
           }).filter(r => r.itemKeys.length > 0);
-          // Append to last row
+          // Append to last row — but respect MAX_COLS_PER_ROW. The bottom cap
+          // guard sits after this branch's early return, so the fallback was the
+          // one insert site that could push the last row past the column cap
+          // (producing slivers the rest of the code assumes can't exist). If the
+          // last row is full, spill into a new single-cell row when there's room,
+          // else drop the move — mirroring the other insert sites.
           const lastRow = rows[rows.length - 1];
+          if (lastRow.itemKeys.length >= MAX_COLS_PER_ROW) {
+            if (rows.length >= MAX_ROWS) return prev;
+            return [...rows, {
+              itemKeys: [effectiveKey],
+              widths: [1],
+              ...(movedStack ? { cellStacks: { [effectiveKey]: movedStack } } : {}),
+            }];
+          }
           const newKeys = [...lastRow.itemKeys, effectiveKey];
           rows = rows.map((r, i) => {
             if (i !== rows.length - 1) return r;

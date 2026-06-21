@@ -158,12 +158,18 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     }
   }, [projectPath, loadRemotes, toast]);
 
-  // Load remotes when we have a valid git status
+  // Load remotes ONCE when the repo first becomes valid (per projectPath) —
+  // not on every poll. useGitStatus hands back a fresh gitStatus object each
+  // ~15s poll, so depending on its identity refetched remotes every cycle for
+  // the panel's lifetime. Remotes change rarely and are reloaded explicitly
+  // after init/add/remove.
+  const remotesLoadedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!notGit && gitStatus) {
-      loadRemotes();
-    }
-  }, [notGit, gitStatus, loadRemotes]);
+    if (notGit || !gitStatus) return;
+    if (remotesLoadedForRef.current === projectPath) return;
+    remotesLoadedForRef.current = projectPath;
+    loadRemotes();
+  }, [projectPath, notGit, gitStatus, loadRemotes]);
 
   const handleFileClick = useCallback(async (filePath: string) => {
     if (compact) {

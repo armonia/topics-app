@@ -3,7 +3,7 @@ import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
-import { loadSettings } from '../../lib/settings';
+import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageBubble } from './MessageBubble';
 import { clampScrollOffset } from '../../state/pane/adapters';
@@ -93,8 +93,28 @@ export function MessageList({
   // Guard: ignore atBottomStateChange for a brief period after forced scrolls
   // to prevent Virtuoso's layout measurement from falsely setting isScrolledUp=true
   const scrollGuardRef = useRef(false);
-  const settings = loadSettings();
+  // Read settings into state instead of calling loadSettings() in the render
+  // body — MessageList re-renders on every streaming token, so the old inline
+  // read ran a synchronous localStorage.getItem + JSON.parse per token on the
+  // hottest component. Refresh only when settings actually change.
+  const [settings, setSettings] = useState(loadSettings);
+  useEffect(() => {
+    const reload = () => setSettings(loadSettings());
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
   const isCompact = settings.messageDensity === 'compact';
+
+  // Stable Virtuoso `components` map: a fresh object + Footer fn identity every
+  // render defeats Virtuoso's bailout, so the footer churned per streaming
+  // token. The footer only depends on inputAreaHeight.
+  const virtuosoComponents = useMemo(() => ({
+    Footer: () => inputAreaHeight > 0 ? <div style={{ height: inputAreaHeight }} /> : null,
+  }), [inputAreaHeight]);
 
   // Memoize filtered messages
   const filteredMessages = useMemo(() =>
@@ -433,9 +453,7 @@ export function MessageList({
               </div>
             );
           }}
-          components={{
-            Footer: () => inputAreaHeight > 0 ? <div style={{ height: inputAreaHeight }} /> : null,
-          }}
+          components={virtuosoComponents}
           style={{ height: '100%' }}
         />
       )}
