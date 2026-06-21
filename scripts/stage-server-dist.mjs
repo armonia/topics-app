@@ -156,7 +156,12 @@ try {
   ], { stdio: 'inherit' });
   console.log('[stage] generated self-signed localhost cert');
 } catch (e) {
-  console.warn('[stage] openssl cert gen failed — the server will need NO_TLS=1:', e.message);
+  // HARD FAIL: the packaged server binds https://127.0.0.1 and nothing sets
+  // NO_TLS=1 at runtime, so a missing cert means the bundled server never
+  // becomes healthy and the app ships broken. Better to fail the build than
+  // publish a non-starting installer.
+  console.error('[stage] openssl cert gen FAILED — refusing to stage a server that cannot bind TLS:', e.message);
+  process.exit(1);
 }
 
 console.log('[stage] done ->', out);

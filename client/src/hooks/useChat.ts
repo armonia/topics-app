@@ -152,6 +152,12 @@ export function useChat() {
   // fresh between fetches, so a short skip window is safe. After the
   // window elapses the next mount refetches normally.
   const lastHistoryFetchAtRef = useRef<Map<string, number>>(new Map());
+  // Sessions with a loadHistory request in flight RIGHT NOW. The timestamp
+  // dedup above only blocks SEQUENTIAL re-fetches (it's written after the await
+  // resolves), so on WS reconnect the per-panel loop + ChatPane's mount effect
+  // can fire two concurrent fetches for the same session in one tick. This
+  // collapses those onto one request.
+  const inFlightHistoryRef = useRef<Set<string>>(new Set());
   const HISTORY_DEDUP_MS = 5_000;
   // Sessions whose `messages[sessionKey]` map has been populated at least
   // once from the server's authoritative history endpoint (or an equivalent
@@ -1152,6 +1158,10 @@ export function useChat() {
       if (cached && cached.length > 0) return true;
     }
 
+    // Collapse concurrent callers onto the in-flight request.
+    if (inFlightHistoryRef.current.has(sessionKey)) return true;
+    inFlightHistoryRef.current.add(sessionKey);
+
     try {
       setError(null);
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
@@ -1254,6 +1264,7 @@ export function useChat() {
       }
       return false;
     } finally {
+      inFlightHistoryRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
     }
   }, [resetStreamTimeout, messagesRef]);
