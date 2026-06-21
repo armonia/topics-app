@@ -41,6 +41,7 @@ describe('validateOutbound — valid registered messages', () => {
     {
       type: 'topic:switch',
       fromTopicId: 'topic-1',
+      fromSessionKey: 'sk-1',
       toTopicId: 'topic-2',
       toSessionKey: 'sk-2',
     },
@@ -175,7 +176,7 @@ describe('outbound registry contract', () => {
       'drag:start',
       'error',
       'gateway:status',
-      'git-status:updated',
+      'git:status',
       'machine:updated',
       'machine:upserted',
       'memory:updated',
@@ -185,8 +186,9 @@ describe('outbound registry contract', () => {
       'message:plan-status',
       'open-project',
       'pong',
-      'project:created',
+      'project:archived',
       'project:deleted',
+      'project:new',
       'project:updated',
       'provider:changed',
       'provider:current',
@@ -236,8 +238,8 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 79 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(79);
+  test('all 80 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(80);
   });
 });
 
@@ -257,10 +259,10 @@ describe('validateOutbound — final 100% coverage cluster', () => {
     expect(validateOutbound({ type: 'provider:changed', name: 'claude' }).ok).toBe(true);
   });
 
-  test('git-status:updated minimal payload (passthrough)', () => {
-    expect(validateOutbound({ type: 'git-status:updated' }).ok).toBe(true);
+  test('git:status minimal payload (passthrough)', () => {
+    expect(validateOutbound({ type: 'git:status' }).ok).toBe(true);
     expect(validateOutbound({
-      type: 'git-status:updated', projectId: 'p-1', dirty: true,
+      type: 'git:status', projectId: 'p-1', dirty: true,
     }).ok).toBe(true);
   });
 });
@@ -557,9 +559,9 @@ describe('validateOutbound — ui-state cluster', () => {
 });
 
 describe('validateOutbound — project + provider + error', () => {
-  test('project:created with payload_version', () => {
+  test('project:new with payload_version', () => {
     expect(validateOutbound({
-      type: 'project:created',
+      type: 'project:new',
       project: { id: 'p-1', name: 'Demo' },
       payload_version: 1,
     }).ok).toBe(true);
