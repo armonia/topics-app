@@ -58,6 +58,11 @@ jobs:
           bun run build
         working-directory: client
 
+      # PANE-05: fail the release if dev-only mutation-log symbols leaked into
+      # the production bundle (the script existed but was wired into no workflow).
+      - name: Assert dev-overlay stripped from production bundle
+        run: ./scripts/assert-dev-overlay-stripped.sh public
+
       - name: Install electron-app deps
         run: bun install --frozen-lockfile
         working-directory: electron-app

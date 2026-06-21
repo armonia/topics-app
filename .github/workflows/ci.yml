@@ -69,3 +69,30 @@ jobs:
       # the entire suite (see the context-settings ESM/require fix).
       - name: E2E spec collection
         run: npx playwright test --list
+
+  # The Electron main process (main.ts/preload.ts/overlay-*) is strict:true and
+  # was only ever typechecked inside release.yml — so a type error there passed
+  # every PR/merge gate and broke the build only AFTER auto-tag cut the release.
+  # Typecheck it on every push/PR like the client and server.
+  electron:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install electron-app deps
+        run: bun install --frozen-lockfile
+        working-directory: electron-app
+
+      - name: Typecheck Electron main (strict tsc, no emit)
+        run: ./node_modules/.bin/tsc --noEmit
+        working-directory: electron-app
