@@ -205,6 +205,18 @@ export function useCompletionNotifier({
   useWSSubscription(onWSMessage, 'agents:sessions', (msg) => {
       const sessions = msg.sessions;
 
+      // Bound cooldownRef (shared with the phase notifier below): it's keyed by
+      // topic/session and was only ever written, so it grew for the lifetime of
+      // this always-mounted hook. The cooldown window is 10s, so evicting
+      // entries older than 5 min never drops a live one. This tick (one per
+      // agents:sessions broadcast) is a natural place to prune.
+      {
+        const cutoff = Date.now() - 300_000;
+        for (const [k, t] of cooldownRef.current) {
+          if (t < cutoff) cooldownRef.current.delete(k);
+        }
+      }
+
       const cfg = settingsRef.current;
       if (!cfg.notificationsEnabled) {
         // Still update prev statuses so we don't emit a burst when the

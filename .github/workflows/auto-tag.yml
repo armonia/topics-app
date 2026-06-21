@@ -35,7 +35,17 @@ jobs:
           TAG: v${{ steps.v.outputs.version }}
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "$TAG already exists — nothing to release."
+            # Tag exists. If a release for it is ALSO published, there's nothing
+            # to do. But if the tag was pushed yet the release is missing (a
+            # transient `gh workflow run` failure last time), re-dispatch — the
+            # old code exited 0 here, so a failed dispatch permanently skipped
+            # the release with no recovery short of deleting the tag.
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "$TAG already released — nothing to do."
+              exit 0
+            fi
+            echo "$TAG tag exists but no release found — re-dispatching."
+            gh workflow run release.yml --ref "$TAG"
             exit 0
           fi
           git config user.name "github-actions[bot]"
