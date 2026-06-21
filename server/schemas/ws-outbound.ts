@@ -194,8 +194,14 @@ const streamCatchupSchema = z.object({
 
 const projectObjectShape = z.object({ id: z.string() }).passthrough();
 
-const projectCreatedSchema = z.object({
-  type: z.literal('project:created'),
+const projectNewSchema = z.object({
+  type: z.literal('project:new'),
+  project: projectObjectShape,
+  payload_version: z.number().optional(),
+}).passthrough();
+
+const projectArchivedSchema = z.object({
+  type: z.literal('project:archived'),
   project: projectObjectShape,
   payload_version: z.number().optional(),
 }).passthrough();
@@ -514,10 +520,10 @@ const providerChangedSchema = z.object({
   type: z.literal('provider:changed'),
 }).passthrough();
 
-// ---- Git status (legacy plan, kept for forward compat) --------------------
+// ---- Git status -----------------------------------------------------------
 
-const gitStatusUpdatedSchema = z.object({
-  type: z.literal('git-status:updated'),
+const gitStatusSchema = z.object({
+  type: z.literal('git:status'),
 }).passthrough();
 
 // ---- Claude session state + events (highest-traffic live path) ------------
@@ -580,8 +586,9 @@ const OUTBOUND_SCHEMAS = {
   // UI state
   'ui-state:updated': uiStateUpdatedSchema,
   'ui-state:patch': uiStatePatchSchema,
-  // Project
-  'project:created': projectCreatedSchema,
+  // Project — the live events the server actually emits (projects.ts).
+  'project:new': projectNewSchema,
+  'project:archived': projectArchivedSchema,
   'project:updated': projectUpdatedSchema,
   'project:deleted': projectDeletedSchema,
   // Provider
@@ -646,8 +653,8 @@ const OUTBOUND_SCHEMAS = {
   // Provider niche
   'provider:current': providerCurrentSchema,
   'provider:changed': providerChangedSchema,
-  // Git status (legacy/forward compat)
-  'git-status:updated': gitStatusUpdatedSchema,
+  // Git status — the live event git-watcher actually emits.
+  'git:status': gitStatusSchema,
   // Claude session state + events (highest-traffic live path)
   'session:state': sessionStateSchema,
   'claude-event': claudeEventSchema,
