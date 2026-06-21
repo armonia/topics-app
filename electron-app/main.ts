@@ -2306,22 +2306,23 @@ const PLIST_PATH = path.join(process.env.HOME || '', 'Library', 'LaunchAgents', 
 
 function buildDaemonPlist(serverDir: string, bunPath: string): string {
   const logsPath = path.join(TOPICS_HOME_DIR, 'logs', 'daemon.log');
-  // Hand-rolled XML keeps the dep tree small and the output diff-friendly.
-  // We escape *paths* (the only externally-influenced field) by relying on
-  // the fact that we control them server-side: serverDir comes from
-  // app.getAppPath(), bunPath from `which bun`.
+  // Hand-rolled XML keeps the dep tree small and the output diff-friendly, but
+  // every interpolated path MUST be XML-escaped: HOME and the install dir are
+  // user-controlled and macOS folder names may legally contain & < >, which
+  // would otherwise emit malformed XML that `launchctl bootstrap` rejects.
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${DAEMON_LABEL}</string>
+  <key>Label</key><string>${esc(DAEMON_LABEL)}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${bunPath}</string>
+    <string>${esc(bunPath)}</string>
     <string>run</string>
-    <string>${path.join(serverDir, 'server.ts')}</string>
+    <string>${esc(path.join(serverDir, 'server.ts'))}</string>
   </array>
-  <key>WorkingDirectory</key><string>${serverDir}</string>
+  <key>WorkingDirectory</key><string>${esc(serverDir)}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key>
   <dict>
@@ -2329,13 +2330,13 @@ function buildDaemonPlist(serverDir: string, bunPath: string): string {
     <key>Crashed</key><true/>
   </dict>
   <key>ThrottleInterval</key><integer>5</integer>
-  <key>StandardOutPath</key><string>${logsPath}</string>
-  <key>StandardErrorPath</key><string>${logsPath}</string>
+  <key>StandardOutPath</key><string>${esc(logsPath)}</string>
+  <key>StandardErrorPath</key><string>${esc(logsPath)}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>NODE_ENV</key><string>production</string>
-    <key>HOME</key><string>${process.env.HOME || ''}</string>
-    <key>PATH</key><string>${path.dirname(bunPath)}:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key><string>${esc(process.env.HOME || '')}</string>
+    <key>PATH</key><string>${esc(path.dirname(bunPath))}:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
 </dict>
 </plist>
@@ -3637,6 +3638,12 @@ async function checkForUpdatesManual(): Promise<void> {
 
 const SERVER_PORT = Number(process.env.PORT) || 3333;
 let serverChild: import('child_process').ChildProcess | null = null;
+// Crash-restart backoff: respawn the bundled server if it dies abnormally, but
+// cap restarts within a window so a crash-loop doesn't spin forever.
+const SERVER_RESTART_MAX = 5;
+const SERVER_RESTART_WINDOW_MS = 60_000;
+let serverRestartCount = 0;
+let serverRestartWindowStart = 0;
 
 function resolveServerRuntime(): { serverDir: string; binDir: string; bunPath: string } {
   const serverDir = path.join(process.resourcesPath, 'server');
@@ -3738,6 +3745,28 @@ async function startBundledServer(): Promise<void> {
   serverChild.on('exit', (code, sig) => {
     console.error(`[Server] child exited code=${code} sig=${sig}`);
     serverChild = null;
+    // Don't respawn on a clean exit or while the app is quitting.
+    const quitting = (app as unknown as { isQuitting: boolean }).isQuitting;
+    const abnormal = code !== 0 || sig != null;
+    if (quitting || !abnormal) return;
+    const now = Date.now();
+    if (now - serverRestartWindowStart > SERVER_RESTART_WINDOW_MS) {
+      serverRestartWindowStart = now;
+      serverRestartCount = 0;
+    }
+    if (serverRestartCount >= SERVER_RESTART_MAX) {
+      console.error(`[Server] restart cap (${SERVER_RESTART_MAX}/${SERVER_RESTART_WINDOW_MS}ms) reached — not respawning. The renderer will surface connection errors.`);
+      return;
+    }
+    serverRestartCount++;
+    const delay = Math.min(500 * 2 ** (serverRestartCount - 1), 8000);
+    console.error(`[Server] respawning in ${delay}ms (attempt ${serverRestartCount}/${SERVER_RESTART_MAX})`);
+    // Reuse startBundledServer: its serverAlreadyUp() guard no-ops if something
+    // else is already serving, and the quarantine-strip / chmod steps are
+    // idempotent. Skip if a quit started during the backoff.
+    setTimeout(() => {
+      if (!(app as unknown as { isQuitting: boolean }).isQuitting) void startBundledServer();
+    }, delay);
   });
 
   const healthy = await waitForServer(30_000);
