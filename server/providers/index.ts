@@ -282,10 +282,19 @@ export async function initProviders(): Promise<AIProvider[]> {
   // Codex — auto-detect (CLI installed or Codex.app present)
   if (!_providers.has("codex") && await detectCodexCli()) {
     try {
+      // Validate against the known union instead of `as any` — a typo like
+      // CODEX_APPROVAL_MODE=full_access would otherwise pass through as a
+      // fake-valid value and SILENTLY downgrade Codex to sandboxed (the
+      // consumer only grants full access on an exact "full-access" match).
+      const rawApprovalMode = process.env.CODEX_APPROVAL_MODE;
+      const approvalMode = rawApprovalMode === "auto" || rawApprovalMode === "full-access" ? rawApprovalMode : undefined;
+      if (rawApprovalMode && !approvalMode) {
+        console.warn(`[Providers] Ignoring invalid CODEX_APPROVAL_MODE=${rawApprovalMode} (expected 'auto' | 'full-access')`);
+      }
       const config: CodexProviderConfig = {
         type: "codex",
         model: process.env.CODEX_MODEL || undefined,
-        approvalMode: (process.env.CODEX_APPROVAL_MODE as any) || undefined,
+        approvalMode,
         defaultWorkspace: process.env.CODEX_WORKSPACE || undefined,
       };
       const p = createProvider(config);

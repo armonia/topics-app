@@ -17,14 +17,15 @@
  * is always honoured (the underlying `onWSMessage` thunk returns an
  * unsubscribe function that must be called on unmount — easy to forget).
  *
- * Handler stability: we intentionally do NOT add `handler` to the deps
- * array — callers pass an inline arrow function in most cases. The
- * useEffect re-runs only when `onWSMessage` or the type changes (both
- * stable in practice). If a caller needs the handler to read fresh
- * state, use `useRefMirror` to bridge — same idiom as elsewhere.
+ * Handler stability: the subscription is created once per (onWSMessage, type)
+ * and the LATEST handler is invoked through a ref updated each render. So an
+ * inline arrow closing over reactive props/state always reads fresh values —
+ * no `useRefMirror` discipline required at the call site, and no stale-closure
+ * footgun hidden behind an eslint-disable.
  */
 
 import { useEffect } from 'react';
+import { useRefMirror } from './useRefMirror';
 import type { WSMessage } from '../types';
 
 /**
@@ -40,12 +41,13 @@ export function useWSSubscription<T extends WSMessage['type']>(
   type: T,
   handler: (msg: Extract<WSMessage, { type: T }>) => void,
 ): void {
+  // Keep the latest handler in a ref so the stable subscription below always
+  // calls the freshest closure without re-subscribing on every render.
+  const handlerRef = useRefMirror(handler);
   useEffect(() => {
     return onWSMessage((msg) => {
       if (msg.type !== type) return;
-      handler(msg as Extract<WSMessage, { type: T }>);
+      handlerRef.current(msg as Extract<WSMessage, { type: T }>);
     });
-    // handler intentionally omitted from deps — see file header.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onWSMessage, type]);
+  }, [onWSMessage, type, handlerRef]);
 }
