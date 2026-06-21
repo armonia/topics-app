@@ -297,13 +297,21 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   function startCleanup() {
     cleanupTimer = setInterval(() => {
       const now = Date.now();
+      // Snapshot the stale ids first — destroyContext mutates `contexts`
+      // asynchronously, so we must not delete mid-iteration.
+      const stale: string[] = [];
       for (const [id, entry] of contexts) {
-        if (now - entry.lastActivity > inactivityTimeoutMs) {
-          console.log(`[BrowserService] Auto-closing inactive context: ${id} (inactive ${Math.round((now - entry.lastActivity) / 60000)}min)`);
-          if (entry.persistCookies) service.saveCookies(id).catch(() => {});
-          entry.context.close().catch(() => {});
-          contexts.delete(id);
-        }
+        if (now - entry.lastActivity > inactivityTimeoutMs) stale.push(id);
+      }
+      for (const id of stale) {
+        const entry = contexts.get(id);
+        const mins = entry ? Math.round((now - entry.lastActivity) / 60000) : 0;
+        console.log(`[BrowserService] Auto-closing inactive context: ${id} (inactive ${mins}min)`);
+        // Use the full teardown path: destroyContext stops the screencast,
+        // clears the targetIds mapping and runs the autosave/cookie flush.
+        // The old inline close() leaked the CDP screencast session + targetId,
+        // which froze the pane (black frame) when the context was re-created.
+        service.destroyContext(id).catch(() => {});
       }
     }, cleanupIntervalMs);
   }

@@ -99,6 +99,11 @@ const dragAcceptedBroadcastSchema = z.object({
 const topicSwitchSchema = z.object({
   type: z.literal('topic:switch'),
   fromTopicId: z.string(),
+  // The originating stream's session key — the client uses isOwnStream() on
+  // this to scope the open+focus side-effect to ONLY the window that drove the
+  // switch (without it, every connected client steals focus). Mirrors the
+  // fromSessionKey already carried by topic:switch:complete.
+  fromSessionKey: z.string(),
   toTopicId: z.string(),
   toSessionKey: z.string(),
 });

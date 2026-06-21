@@ -110,20 +110,27 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
   );
 }
 
+// The git watcher stores the raw 2-char porcelain XY code (e.g. "A ", " D",
+// "M ", "MM"). Trim before classifying — otherwise staged-added ("A ") and
+// deleted (" D"/"D ") never match the single-char cases and fall through to
+// the amber/'M' fallback, mislabeling adds & deletes as Modified. Mirrors
+// GitChanges.statusLabel.
 function getGitStatusColor(status: string): string {
-  if (status === '??' || status === 'A' || status === 'AM') return 'text-green-400';
-  if (status === 'M' || status === 'MM') return 'text-amber-400';
-  if (status === 'D') return 'text-red-400';
-  if (status === 'R' || status.startsWith('R')) return 'text-blue-400';
+  const s = status.trim();
+  if (s === '??' || s === 'A' || s === 'AM') return 'text-green-400';
+  if (s === 'M' || s === 'MM') return 'text-amber-400';
+  if (s === 'D') return 'text-red-400';
+  if (s === 'R' || s.startsWith('R')) return 'text-blue-400';
   return 'text-amber-400'; // fallback for other statuses
 }
 
 function getGitStatusLabel(status: string): string {
-  if (status === '??') return 'U';
-  if (status === 'A' || status === 'AM') return 'A';
-  if (status === 'D') return 'D';
-  if (status === 'R' || status.startsWith('R')) return 'R';
-  if (status === 'M' || status === 'MM') return 'M';
+  const s = status.trim();
+  if (s === '??') return 'U';
+  if (s === 'A' || s === 'AM') return 'A';
+  if (s === 'D') return 'D';
+  if (s === 'R' || s.startsWith('R')) return 'R';
+  if (s === 'M' || s === 'MM') return 'M';
   return 'M';
 }
 
