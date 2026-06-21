@@ -210,6 +210,8 @@ describe("handleMessage", () => {
     expect(names).toEqual([
       "open_browser_pane",
       "import_chrome",
+      "browser_observe",
+      "browser_act",
       "run_script",
       "list_processes",
       "read_process_output",
