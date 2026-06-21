@@ -2851,7 +2851,14 @@ app.on('will-quit', () => {
 // Allow self-signed TLS certificates for localhost
 app.commandLine.appendSwitch('ignore-certificate-errors-spki-list', '');
 app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
-  if (new URL(url).hostname === 'localhost') {
+  // The main window loads https://127.0.0.1:3333 (deliberately 127.0.0.1, not
+  // localhost, to dodge the IPv4/IPv6 happy-eyeballs WS bug), so the bypass must
+  // cover the loopback hosts the app actually uses — not just 'localhost', which
+  // the window never loads. Rejecting 127.0.0.1 here made the cert trust hinge
+  // on an Electron cache quirk (ERR_CERT_AUTHORITY_INVALID on a fresh profile or
+  // Electron upgrade).
+  const host = new URL(url).hostname;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
     event.preventDefault();
     callback(true);
   } else {
@@ -3007,8 +3014,13 @@ ipcMain.handle('caffeinate:get-mode', () => ({
   lastReleaseReason: caffeinateLastReleaseReason,
 }));
 
-// Clean up on quit.
+// Clean up on quit — ONLY on a real quit. The other before-quit handler
+// preventDefault()s Cmd+Q and hides to tray instead of quitting, so killing
+// caffeinate here unconditionally defeated "always stay awake" on every Cmd+Q
+// and fired a misleading caffeinate:released toast for a release the user never
+// asked for.
 app.on('before-quit', () => {
+  if (!(app as unknown as { isQuitting: boolean }).isQuitting) return;
   if (caffeinateProc) {
     try { caffeinateProc.kill(); } catch {}
     caffeinateProc = null;
