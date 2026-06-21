@@ -12,7 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTopicLoading, useTopicAwaitingFeedback } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { GridLoader } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, AWAITING_FEEDBACK_FILL } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 
@@ -171,7 +171,7 @@ export const TopicItem = memo(function TopicItem({
         // sidebar row type. No border (hairlines read as dividing lines); a
         // filled inset rounded surface makes each row a tab-like card.
         `group flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
-        sidebarRowCard({ focused: isFocused, open: isOpen }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, awaiting: isAwaitingFeedback }),
         // Preview panels show italic name
         isPreview && 'italic',
         isArchived && 'opacity-60',
@@ -189,15 +189,8 @@ export const TopicItem = memo(function TopicItem({
         <PendingActionProgressOverlay status={pendingArchiveStatus} />
       )}
 
-      {/* Blue "awaiting feedback" wash — chat parked waiting for the user.
-          Translucent overlay over the row content (mirrors the chat tab), so it
-          layers atop the neutral selection fill without clobbering it. */}
-      {isAwaitingFeedback && (
-        <div
-          aria-hidden
-          className={`absolute inset-0 rounded-lg pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
-        />
-      )}
+      {/* "Awaiting feedback" is the row's own electric-blue background now
+          (see sidebarRowCard awaiting flag), not an overlay. */}
 
       {/* Toggle button — only show if has children */}
       {hasChildren && (

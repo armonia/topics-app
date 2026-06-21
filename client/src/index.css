@@ -1012,15 +1012,15 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .animate-grid-lit { animation: grid-lit 1.1s linear infinite; }
 
-/* Blue "awaiting feedback" tab/row fill — a gentle 2s breathe so a chat parked
- * waiting for the user reads as "alive, expecting you" without the urgency of a
- * fast pulse. Opacity-only (the overlay is translucent, painted over content),
- * so it never reflows and never fully hides the label underneath. */
+/* Electric-blue "awaiting feedback" tab/row — a gentle brightness breathe so a
+ * session parked waiting for the user reads as "alive, expecting you". Pulses
+ * `filter: brightness` (NOT opacity) so it works on the SOLID electric-blue
+ * background without fading the white label underneath, and never reflows. */
 @keyframes awaiting-pulse {
-  0%, 100% { opacity: 0.5; }
-  50%      { opacity: 1; }
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.16); }
 }
-.animate-awaiting-pulse { animation: awaiting-pulse 2s ease-in-out infinite; }
+.animate-awaiting-pulse { animation: awaiting-pulse 1.8s ease-in-out infinite; }
 
 /* Material easing curves as CSS custom properties so components can opt in
  * without re-deriving them. */

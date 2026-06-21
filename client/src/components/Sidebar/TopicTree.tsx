@@ -19,10 +19,10 @@ import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
-import { useAttentionSignals, signalsActions, useTerminalAwaitingFeedback, useProjectAwaitingFeedback } from '@/state/signals';
+import { useAttentionSignals, signalsActions, useTerminalAwaitingFeedback, useSignalsStore, projectHasAwaitingChild } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, AWAITING_FEEDBACK_FILL } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -138,6 +138,10 @@ export function TopicTree({
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[] } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
+  // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
+  // closure can derive a project's electric-blue rollup synchronously.
+  const awaitingTopics = useSignalsStore((s) => s.awaitingFeedbackTopics);
+  const awaitingTermIds = useSignalsStore((s) => s.claudePhaseAwaitingTermIds);
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -359,7 +363,7 @@ export function TopicTree({
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
           className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
-            sidebarRowCard({ focused: folderFilled })
+            sidebarRowCard({ focused: folderFilled, awaiting: projectHasAwaitingChild(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds) })
           }`}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -368,7 +372,6 @@ export function TopicTree({
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
-          <ProjectRowAwaitingOverlay projectPath={pp} />
           {/* Chevron is its own control — toggles the accordion ONLY (expand /
               collapse), never moves focus. Separating it from the name button
               means clicking the row to focus a project can't accidentally
@@ -670,6 +673,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
   const pendingClose = useTerminalPendingStatus(s.id);
+  // Electric-blue background when this Claude-Code session is awaiting the user.
+  const isAwaiting = useTerminalAwaitingFeedback(s.id);
 
   return (
     <div
@@ -678,12 +683,11 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
       className={[
         `group/terminal flex items-center h-11 md:h-8 ${ROW_PX}`,
-        sidebarRowCard({ focused: isFocused, open: isOpen }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, awaiting: isAwaiting }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
-      {(s.type === 'claude-code' || s.type === 'claude-code-team') && <TerminalRowAwaitingOverlay sessionId={s.id} />}
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
@@ -904,21 +908,6 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
   return <PendingActionProgressOverlay status={status} />;
 }
 
-/** Blue "awaiting feedback" wash for a Claude-Code terminal sidebar row —
- *  twin of the chat row overlay (TopicItem), keyed by terminal session id. */
-function TerminalRowAwaitingOverlay({ sessionId }: { sessionId: string }) {
-  const awaiting = useTerminalAwaitingFeedback(sessionId);
-  if (!awaiting) return null;
-  return <div aria-hidden className={`absolute inset-0 rounded-lg pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`} />;
-}
-
-/** Blue "awaiting feedback" wash for a project folder row — rollup: blue if any
- *  descendant chat/Claude-Code terminal under this project awaits the user. */
-function ProjectRowAwaitingOverlay({ projectPath }: { projectPath: string }) {
-  const awaiting = useProjectAwaitingFeedback(projectPath);
-  if (!awaiting) return null;
-  return <div aria-hidden className={`absolute inset-0 rounded-lg pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`} />;
-}
 
 /**
  * The project window's position mini-map for its sidebar row. Reads the

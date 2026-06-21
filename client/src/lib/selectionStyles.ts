@@ -36,19 +36,21 @@ export const RESTING_SURFACE =
   'bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]';
 
 /**
- * Blue "awaiting feedback" wash — a chat whose Claude session is parked waiting
- * for YOU (awaiting-user / -approval / paused). NOT selection (which is neutral)
- * and NOT loading (the blue spinner): it's a translucent fill painted as an
- * absolute overlay OVER the tab/row content, mirroring PaneTabPendingOverlay, so
- * it coexists with SELECTED_SURFACE underneath without clobbering its bg. Shared
- * by the tab bar AND the sidebar row so the two surfaces can't drift. Pair it
- * with `animate-awaiting-pulse` (index.css) for the gentle 2s breathe.
+ * Electric-blue "awaiting feedback" surface — a session (chat / Claude-Code
+ * terminal / project rollup) parked waiting for YOU (awaiting-user / -approval /
+ * paused). This is the ACTUAL background of the tab/row (not a translucent
+ * overlay): a solid vivid blue with white text, breathing via
+ * `animate-awaiting-pulse` (a brightness pulse). It takes visual priority over
+ * the neutral [[SELECTED_SURFACE]] — "needs you" outranks "is current". Shared
+ * by the tab bar AND the sidebar row so the two surfaces can't drift.
  *
  * NB: loading (running/tool-running) and awaiting are mutually exclusive in
- * time, so this blue fill never shows at the same instant as the blue spinner.
+ * time, so this never shows at the same instant as the blue loading spinner.
+ * The hex is a vivid electric blue (brighter than --primary #0066ff); change it
+ * here and every awaiting surface moves together.
  */
-export const AWAITING_FEEDBACK_FILL =
-  'bg-primary/12 dark:bg-primary/22 ring-1 ring-inset ring-primary/30';
+export const AWAITING_SURFACE =
+  'bg-[#0a84ff] text-white animate-awaiting-pulse';
 
 /**
  * Canonical horizontal padding for a "row of content" — a tab-bar tab AND a
@@ -89,7 +91,7 @@ export const SIDEBAR_INDENT_STEP = 16;
  * Pass the row's selection state; returns the full set of state classes. Each
  * caller keeps its own height / padding-left (depth indent) / content.
  */
-export function sidebarRowCard({ focused, open }: { focused?: boolean; open?: boolean }): string {
+export function sidebarRowCard({ focused, open, awaiting }: { focused?: boolean; open?: boolean; awaiting?: boolean }): string {
   // Card SHAPE (rounded, inset, spaced) is always on; the FILL follows the old
   // color system — background only when selected (SELECTED_SURFACE) or on hover.
   // At rest the card is transparent, so the sidebar stays calm and only the
@@ -100,6 +102,9 @@ export function sidebarRowCard({ focused, open }: { focused?: boolean; open?: bo
   // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
   // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
   const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
+  // Awaiting (electric-blue solid) outranks selection: "this row needs you"
+  // is more urgent than "this is the current row".
+  if (awaiting) return `${base} ${AWAITING_SURFACE}`;
   if (focused) return `${base} ${SELECTED_SURFACE}`;
   if (open) return `${base} text-app-text hover:bg-app-hover`;
   return `${base} text-app-text-secondary hover:bg-app-hover hover:text-app-text`;

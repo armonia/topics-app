@@ -7,7 +7,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
-import { signalsActions, useTopicAwaitingFeedback, useTerminalAwaitingFeedback, useProjectAwaitingFeedback } from '../../state/signals';
+import { signalsActions, useSignalsStore, projectHasAwaitingChild } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -17,7 +17,7 @@ import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_FEEDBACK_FILL } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_SURFACE } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -135,6 +135,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Terminal glyph — i.e. Claude Code shown without its own icon. The sidebar
   // already keys off the roster `type`; the tab bar now matches it.
   const terminalSessions = useTerminalSessions();
+  // Awaiting-feedback sets, read once here (not per-pane in the map below, which
+  // would break the rules-of-hooks). Each pane derives its blue electric-bg
+  // state synchronously from these in the loop.
+  const awaitingTopics = useSignalsStore((s) => s.awaitingFeedbackTopics);
+  const awaitingTermIds = useSignalsStore((s) => s.claudePhaseAwaitingTermIds);
   const claudeCodeSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of terminalSessions) {
@@ -556,6 +561,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const isSelected = activePaneId === pane.id;
         const isFullyActive = isSelected && groupIsFocused && isAppFocused;
         const isActiveDimmed = isSelected && !(groupIsFocused && isAppFocused);
+        // Electric-blue "awaiting feedback" background: a chat / Claude-Code
+        // terminal parked waiting for the user, or a project rolling up such a
+        // child. Codex/shell never qualify (no Claude phase). Takes priority over
+        // the neutral selection surface.
+        const isAwaiting =
+          pane.type === 'chat'
+            ? (!!pane.topicId && awaitingTopics.has(pane.topicId))
+            : pane.type === 'terminal'
+              ? (isClaudeCodeTab && !!termSid && awaitingTermIds.has(termSid))
+              : pane.type === 'project'
+                ? (!!pane.projectPath && projectHasAwaitingChild(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds))
+                : false;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
@@ -589,11 +606,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // sum past the fixed 150px and spill into the next tab. The label
             // already truncates; this guarantees the rest can't escape either.
             className={`group flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
-              isFullyActive
-                ? SELECTED_SURFACE
-                : isActiveDimmed
-                  ? SELECTED_SURFACE_SOFT
-                  : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
+              isAwaiting
+                ? AWAITING_SURFACE
+                : isFullyActive
+                  ? SELECTED_SURFACE
+                  : isActiveDimmed
+                    ? SELECTED_SURFACE_SOFT
+                    : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
@@ -620,19 +639,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 don't re-render every other tab. It self-guards on a null
                 pending status, so it's safe to mount for every pane type. */}
             <PaneTabPendingOverlay paneId={pane.id} />
-            {/* Blue "awaiting feedback" wash for a chat parked waiting for the
-                user (Claude awaiting-user/-approval/paused). Sub-component so the
-                hook stays out of this map loop; self-guards to null otherwise.
-                Same translucent-overlay slot as the pending overlay → coexists
-                with the neutral selection surface underneath. */}
-            {pane.type === 'chat' && pane.topicId && <PaneTabAwaitingOverlay topicId={pane.topicId} />}
-            {/* Same blue wash for a Claude-Code terminal session parked awaiting
-                the user, and for a PROJECT tab as a rollup (blue if any child
-                chat/terminal awaits). Codex/shell never qualify (no Claude phase
-                plumbing → empty by construction); the isClaudeCodeTab gate is
-                belt-and-suspenders. */}
-            {pane.type === 'terminal' && termSid && isClaudeCodeTab && <PaneTabAwaitingOverlayTerminal sessionId={termSid} />}
-            {pane.type === 'project' && pane.projectPath && <PaneTabAwaitingOverlayProject projectPath={pane.projectPath} />}
+            {/* "Awaiting feedback" is now the tab's own electric-blue background
+                (see isAwaiting + AWAITING_SURFACE above), not an overlay. */}
             {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
                 in a fixed 14×14 box so labels line up across tabs. The project
                 branch deliberately does NOT: a project without a shipped
@@ -988,39 +996,4 @@ function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
  * `panes.map(...)` loop. Translucent fill + gentle pulse, painted over the tab
  * content so it layers atop the neutral selection surface without clobbering it.
  */
-function PaneTabAwaitingOverlay({ topicId }: { topicId: string }) {
-  const awaiting = useTopicAwaitingFeedback(topicId);
-  if (!awaiting) return null;
-  return (
-    <div
-      aria-hidden
-      className={`absolute inset-0 rounded-md pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
-    />
-  );
-}
 
-/** Awaiting overlay for a Claude-Code terminal tab — twin of the chat one,
- *  keyed by terminal session id. */
-function PaneTabAwaitingOverlayTerminal({ sessionId }: { sessionId: string }) {
-  const awaiting = useTerminalAwaitingFeedback(sessionId);
-  if (!awaiting) return null;
-  return (
-    <div
-      aria-hidden
-      className={`absolute inset-0 rounded-md pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
-    />
-  );
-}
-
-/** Awaiting overlay for a PROJECT tab — rollup: blue if any descendant chat or
- *  Claude-Code terminal under this project is parked awaiting the user. */
-function PaneTabAwaitingOverlayProject({ projectPath }: { projectPath: string }) {
-  const awaiting = useProjectAwaitingFeedback(projectPath);
-  if (!awaiting) return null;
-  return (
-    <div
-      aria-hidden
-      className={`absolute inset-0 rounded-md pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
-    />
-  );
-}
