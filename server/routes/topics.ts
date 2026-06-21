@@ -1499,6 +1499,65 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/{topics/:id,sessions/:sessionKey}/browser/observe
+    // MCP bridge: read the pane's actionable elements (a11y + indexed elements)
+    // so an MCP-driven (claude-code) session can click/type, not just navigate.
+    // Same handler as the SDK chat path. Token-gated like import-chrome.
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/observe");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/observe");
+      if ((byTopic || bySession) && method === "POST") {
+        const tok = req.headers.get("x-gateway-token") || "";
+        if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
+        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
+        let topic: Topic | null = null;
+        if (byTopic) topic = getTopicById(byTopic.id);
+        else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+        if (!topic) return json({ error: "Topic not found (open a browser pane first)" }, 404);
+        const body = (await readJSON(req)) as { max_elements?: unknown } | null;
+        const max_elements = typeof body?.max_elements === "number" ? body.max_elements : undefined;
+        try {
+          const result = await dispatchBrowserToolCall("browser_observe", { max_elements }, topic, browserService) as Record<string, unknown> & { error?: string };
+          if (result?.error) return json({ error: result.error }, 502);
+          // Drop the heavy base64 screenshot — the user sees the pane; the agent
+          // acts via the element list. Keeps the MCP response token-light.
+          const { screenshot_annotated, ...lean } = result;
+          return json(lean);
+        } catch (e: unknown) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+        }
+      }
+    }
+
+    // POST /api/{topics/:id,sessions/:sessionKey}/browser/act
+    // MCP bridge: click/type/select an element by id from the latest observe.
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/act");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/act");
+      if ((byTopic || bySession) && method === "POST") {
+        const tok = req.headers.get("x-gateway-token") || "";
+        if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
+        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
+        let topic: Topic | null = null;
+        if (byTopic) topic = getTopicById(byTopic.id);
+        else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+        if (!topic) return json({ error: "Topic not found (open a browser pane first)" }, 404);
+        const body = (await readJSON(req)) as { element_id?: unknown; action?: unknown; text?: unknown } | null;
+        try {
+          const result = await dispatchBrowserToolCall(
+            "browser_act",
+            { element_id: body?.element_id, action: body?.action, text: body?.text },
+            topic,
+            browserService,
+          ) as Record<string, unknown> & { error?: string };
+          if (result?.error) return json({ error: result.error }, 502);
+          return json(result);
+        } catch (e: unknown) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+        }
+      }
+    }
+
     // POST /api/topics/:id/system-message
     {
       const params = matchRoute(pathname, "/api/topics/:id/system-message");
