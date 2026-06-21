@@ -36,6 +36,21 @@ export const RESTING_SURFACE =
   'bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08]';
 
 /**
+ * Blue "awaiting feedback" wash — a chat whose Claude session is parked waiting
+ * for YOU (awaiting-user / -approval / paused). NOT selection (which is neutral)
+ * and NOT loading (the blue spinner): it's a translucent fill painted as an
+ * absolute overlay OVER the tab/row content, mirroring PaneTabPendingOverlay, so
+ * it coexists with SELECTED_SURFACE underneath without clobbering its bg. Shared
+ * by the tab bar AND the sidebar row so the two surfaces can't drift. Pair it
+ * with `animate-awaiting-pulse` (index.css) for the gentle 2s breathe.
+ *
+ * NB: loading (running/tool-running) and awaiting are mutually exclusive in
+ * time, so this blue fill never shows at the same instant as the blue spinner.
+ */
+export const AWAITING_FEEDBACK_FILL =
+  'bg-primary/12 dark:bg-primary/22 ring-1 ring-inset ring-primary/30';
+
+/**
  * Canonical horizontal padding for a "row of content" — a tab-bar tab AND a
  * sidebar row — so the content inset reads identically on both surfaces. Tabs
  * used to be `px-2.5` (10px) while every sidebar row is `px-2` (8px), which made

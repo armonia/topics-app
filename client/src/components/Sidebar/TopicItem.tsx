@@ -9,10 +9,10 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useTopicLoading } from '@/state/signals';
+import { useTopicLoading, useTopicAwaitingFeedback } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { GridLoader } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, AWAITING_FEEDBACK_FILL } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 
@@ -86,6 +86,9 @@ export const TopicItem = memo(function TopicItem({
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
   const isStreaming = useTopicLoading(topic.id);
+  // Blue "awaiting feedback" wash — same signal/look the chat tab uses, so the
+  // sidebar row and the tab can't drift (tabbar ≡ sidebar invariant).
+  const isAwaitingFeedback = useTopicAwaitingFeedback(topic.id);
   // Where this topic's pane sits in the standalone split grid (undefined unless
   // it's open AND the grid is split). Rendered as the same proportional
   // mini-map the tab shows, so the sidebar card mirrors the tab's position cue.
@@ -184,6 +187,16 @@ export const TopicItem = memo(function TopicItem({
           index) so the sidebar accent border + content render on top. */}
       {pendingArchiveStatus && (
         <PendingActionProgressOverlay status={pendingArchiveStatus} />
+      )}
+
+      {/* Blue "awaiting feedback" wash — chat parked waiting for the user.
+          Translucent overlay over the row content (mirrors the chat tab), so it
+          layers atop the neutral selection fill without clobbering it. */}
+      {isAwaitingFeedback && (
+        <div
+          aria-hidden
+          className={`absolute inset-0 rounded-lg pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
+        />
       )}
 
       {/* Toggle button — only show if has children */}

@@ -7,7 +7,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
-import { signalsActions } from '../../state/signals';
+import { signalsActions, useTopicAwaitingFeedback } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -17,7 +17,7 @@ import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_FEEDBACK_FILL } from '../../lib/selectionStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -620,6 +620,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 don't re-render every other tab. It self-guards on a null
                 pending status, so it's safe to mount for every pane type. */}
             <PaneTabPendingOverlay paneId={pane.id} />
+            {/* Blue "awaiting feedback" wash for a chat parked waiting for the
+                user (Claude awaiting-user/-approval/paused). Sub-component so the
+                hook stays out of this map loop; self-guards to null otherwise.
+                Same translucent-overlay slot as the pending overlay → coexists
+                with the neutral selection surface underneath. */}
+            {pane.type === 'chat' && pane.topicId && <PaneTabAwaitingOverlay topicId={pane.topicId} />}
             {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
                 in a fixed 14×14 box so labels line up across tabs. The project
                 branch deliberately does NOT: a project without a shipped
@@ -967,4 +973,21 @@ function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
   const status = usePanePendingStatus(paneId);
   if (!status) return null;
   return <PendingActionProgressOverlay status={status} className="rounded-md" />;
+}
+
+/**
+ * Blue "awaiting feedback" overlay for a chat tab. Co-located (like
+ * PaneTabPendingOverlay) so the per-topic signal hook stays out of the parent's
+ * `panes.map(...)` loop. Translucent fill + gentle pulse, painted over the tab
+ * content so it layers atop the neutral selection surface without clobbering it.
+ */
+function PaneTabAwaitingOverlay({ topicId }: { topicId: string }) {
+  const awaiting = useTopicAwaitingFeedback(topicId);
+  if (!awaiting) return null;
+  return (
+    <div
+      aria-hidden
+      className={`absolute inset-0 rounded-md pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
+    />
+  );
 }
