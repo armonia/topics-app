@@ -2,7 +2,7 @@
   "name": "topics-app",
   "version": "1.2.0",
   "description": "Topics App - Electron",
-  "author": "Armonia <security@armonia.io>",
+  "author": "Armonia <hi@armonia.io>",
   "homepage": "https://github.com/armonia/topics-app",
   "main": "dist/main.js",
   "scripts": {
