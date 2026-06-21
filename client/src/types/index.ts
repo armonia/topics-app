@@ -434,7 +434,9 @@ export interface WSTopicUpdatedMessage {
 
 export interface WSTopicsReorderedMessage {
   type: 'topics:reordered';
-  topicIds: string[];
+  // Wire field is `order` (the server emits { order: string[] } — topics.ts).
+  // Was mislabeled `topicIds`, which would read undefined in any consumer.
+  order: string[];
 }
 
 export interface WSTopicSwitchCompleteMessage {
@@ -808,8 +810,11 @@ export interface WSUIStateInitMessage {
   type: 'ui-state:init';
   /** Full snapshot keyed by `useServerState` key. */
   data?: Record<string, unknown>;
-  seq?: number;
-  originId?: string;
+  // Wire fields are server_seq / sourceClientId (ui-state.ts + ws-outbound).
+  // Were mislabeled seq/originId — a future LWW/echo consumer would read
+  // undefined and reintroduce duplicate-echo / stale-ordering bugs.
+  server_seq?: number;
+  sourceClientId?: string;
 }
 export interface WSUIStateUpdatedMessage {
   type: 'ui-state:updated';
@@ -817,8 +822,8 @@ export interface WSUIStateUpdatedMessage {
   key: string;
   /** The new value for that key. Opaque to the type system. */
   value: unknown;
-  seq?: number;
-  originId?: string;
+  server_seq?: number;
+  sourceClientId?: string;
 }
 
 // --- Project + Worktree (Phase A · migrations 016-018) ----------------------
