@@ -39,7 +39,8 @@ export interface BrowserNativeAPI {
   stopFind(viewId: string): Promise<void>;
   onFindResult(viewId: string, callback: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
   setZoom(viewId: string, delta: number | 'reset'): Promise<number>;
-  onPermissionGranted(callback: (info: { permission: string; url: string; partitionId: string }) => void): () => void;
+  onPermissionRequest(callback: (info: { requestId: string; permission: string; url: string; partitionId: string }) => void): () => void;
+  respondPermission(requestId: string, granted: boolean): void;
   onDownloadStart(callback: (info: { id: string; url: string; filename: string; totalBytes: number }) => void): () => void;
   onDownloadProgress(callback: (info: { id: string; state: string; received: number; total: number; isPaused: boolean }) => void): () => void;
   onDownloadDone(callback: (info: { id: string; state: string; savedPath: string }) => void): () => void;

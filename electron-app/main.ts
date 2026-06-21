@@ -302,6 +302,17 @@ async function resolveCdpTargetIdForView(view: WebContentsView): Promise<string>
   );
 }
 
+// Native-browser permission requests awaiting a user decision in the renderer
+// permission bar, keyed by requestId → the setPermissionRequestHandler callback.
+// Sensitive permissions (camera/mic/geo/display-capture) are default-DENIED and
+// only granted when the user clicks Allow in the bar — never auto-granted.
+const pendingBrowserPermissions = new Map<string, (granted: boolean) => void>();
+let browserPermSeq = 0;
+ipcMain.on('browser-native:permission-response', (_e, payload: { requestId?: string; granted?: boolean }) => {
+  const settle = payload?.requestId ? pendingBrowserPermissions.get(payload.requestId) : undefined;
+  if (settle) settle(Boolean(payload?.granted));
+});
+
 function createNativeBrowser(
   topicId: string,
   partitionId: string,
@@ -333,16 +344,29 @@ function createNativeBrowser(
     }
 
     if (askUser.has(permission)) {
-      // Forward to renderer for user decision. For MVP we allow without
-      // prompting (matches Chrome's "remember this site" behaviour for
-      // partitioned sessions). Future: render a React permission bar via
-      // IPC and await user click.
+      // DEFAULT-DENY: never grant camera/mic/geolocation/display-capture without
+      // an explicit user click. Forward the request to the renderer permission
+      // bar and resolve the callback from its response; fail CLOSED if there is
+      // no window or the user doesn't decide in time.
       const url = (details && (details as { requestingUrl?: string }).requestingUrl) || wc.getURL();
-      console.log(`[BrowserNativeManager] Permission '${permission}' auto-granted for ${url} (partition ${partitionId})`);
-      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send(`browser-native:permission-granted`, { permission, url, partitionId });
+      if (!mainWindow || mainWindow.webContents.isDestroyed()) {
+        console.warn(`[BrowserNativeManager] Permission '${permission}' denied for ${url} (no window to prompt)`);
+        callback(false);
+        return;
       }
-      callback(true);
+      const requestId = `perm-${Date.now().toString(36)}-${browserPermSeq++}`;
+      let settled = false;
+      const settle = (granted: boolean) => {
+        if (settled) return;
+        settled = true;
+        pendingBrowserPermissions.delete(requestId);
+        console.log(`[BrowserNativeManager] Permission '${permission}' ${granted ? 'granted' : 'denied'} for ${url} (partition ${partitionId})`);
+        callback(granted);
+      };
+      pendingBrowserPermissions.set(requestId, settle);
+      mainWindow.webContents.send('browser-native:permission-request', { requestId, permission, url, partitionId });
+      // Fail closed if the user ignores the bar (it also auto-dismisses).
+      setTimeout(() => settle(false), 30_000);
       return;
     }
 
