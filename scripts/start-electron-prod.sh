@@ -63,6 +63,10 @@ echo "[start-electron-prod] Building Electron TypeScript..."
 cd "$APP_DIR/electron-app" && npx tsc
 cd "$APP_DIR"
 
-# --- Launch Electron ---
+# --- Launch Electron (foreground, NOT exec) ---
+# `exec` would replace this shell image and DISCARD the EXIT trap, so `cleanup`
+# (kill the background server + remove the lockfile) would never run when
+# Electron later quits — orphaning the bun server under launchd. Run Electron in
+# the foreground so the trap stays armed and fires on exit.
 echo "[start-electron-prod] Starting Electron..."
-exec "$APP_DIR/electron-app/node_modules/.bin/electron" "$APP_DIR/electron-app"
+"$APP_DIR/electron-app/node_modules/.bin/electron" "$APP_DIR/electron-app"
