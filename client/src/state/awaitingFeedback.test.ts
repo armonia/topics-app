@@ -12,7 +12,7 @@
  *   - the set holds TOPIC ids, keyed via each topic's sessionKey.
  */
 import { describe, test, expect } from "bun:test";
-import { deriveAwaitingFeedbackTopics, AWAITING_FEEDBACK_PHASES } from "./signals";
+import { deriveAwaitingFeedbackTopics, derivePhaseTerminals, AWAITING_FEEDBACK_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
 import type { Topic, ClaudeSessionState, ClaudeSessionPhase } from "../types";
 
 // Minimal Topic factory — only id + sessionKey are read by the derivation.
@@ -96,5 +96,75 @@ describe("deriveAwaitingFeedbackTopics", () => {
       const sessions = new Map([["k", session(phase)]]);
       expect(deriveAwaitingFeedbackTopics(topics, sessions).has("t")).toBe(true);
     }
+  });
+});
+
+// ── Terminal twin: derivePhaseTerminals' `awaiting` set ────────────────────
+// Terminal Claude-Code sessions key on claudeSessionId (NOT topic.sessionKey).
+// `awaiting` must be a subset of `resting` and exclude active/codex/shell.
+
+const rosterEntry = (id: string, type: string, claudeSessionId?: string | null): TerminalRosterTypeEntry =>
+  ({ id, type, claudeSessionId });
+const phaseLite = (phase: ClaudeSessionPhase): TerminalPhaseLite => ({ phase });
+
+describe("derivePhaseTerminals — awaiting set", () => {
+  test("a claude-code terminal awaiting the user lands in awaiting AND resting, not active", () => {
+    const roster = [rosterEntry("t1", "claude-code", "c1")];
+    const byCsid = new Map([["c1", phaseLite("awaiting-user")]]);
+    const { active, resting, awaiting } = derivePhaseTerminals(roster, byCsid);
+    expect(awaiting.has("t1")).toBe(true);
+    expect(resting.has("t1")).toBe(true); // awaiting ⊂ resting (no spinner)
+    expect(active.has("t1")).toBe(false);
+  });
+
+  test("claude-code-team with paused is awaiting too", () => {
+    const roster = [rosterEntry("t1", "claude-code-team", "c1")];
+    const byCsid = new Map([["c1", phaseLite("paused")]]);
+    expect(derivePhaseTerminals(roster, byCsid).awaiting.has("t1")).toBe(true);
+  });
+
+  test("running/tool-running are active, never awaiting", () => {
+    for (const phase of ["running", "tool-running"] as ClaudeSessionPhase[]) {
+      const roster = [rosterEntry("t1", "claude-code", "c1")];
+      const byCsid = new Map([["c1", phaseLite(phase)]]);
+      const { active, awaiting } = derivePhaseTerminals(roster, byCsid);
+      expect(active.has("t1")).toBe(true);
+      expect(awaiting.has("t1")).toBe(false);
+    }
+  });
+
+  test("completed/error/dormant are resting but NOT awaiting", () => {
+    for (const phase of ["completed", "error", "dormant"] as ClaudeSessionPhase[]) {
+      const roster = [rosterEntry("t1", "claude-code", "c1")];
+      const byCsid = new Map([["c1", phaseLite(phase)]]);
+      const { resting, awaiting } = derivePhaseTerminals(roster, byCsid);
+      expect(resting.has("t1")).toBe(true);
+      expect(awaiting.has("t1")).toBe(false);
+    }
+  });
+
+  test("codex and shell terminals are excluded from every set (no Claude phase plumbing)", () => {
+    const roster = [
+      rosterEntry("cdx", "codex", "c1"),
+      rosterEntry("sh", "shell", "c2"),
+    ];
+    const byCsid = new Map([
+      ["c1", phaseLite("awaiting-user")],
+      ["c2", phaseLite("awaiting-user")],
+    ]);
+    const { active, resting, awaiting } = derivePhaseTerminals(roster, byCsid);
+    for (const set of [active, resting, awaiting]) {
+      expect(set.has("cdx")).toBe(false);
+      expect(set.has("sh")).toBe(false);
+    }
+  });
+
+  test("a claude-code terminal with no claudeSessionId or no phase entry is excluded", () => {
+    const roster = [
+      rosterEntry("noCsid", "claude-code", null),
+      rosterEntry("noPhase", "claude-code", "missing"),
+    ];
+    const { awaiting } = derivePhaseTerminals(roster, new Map());
+    expect(awaiting.size).toBe(0);
   });
 });

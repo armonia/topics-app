@@ -134,6 +134,11 @@ interface SignalsState {
   // otherwise opening a fresh Claude Code session flashes "loading" for no
   // reason. pty still drives plain shells and any session with no phase yet.
   claudePhaseRestingTermIds: Set<string>;
+  // claude-code terminals whose phase is specifically awaiting the user
+  // (awaiting-user/-approval/paused) — subset of resting. Drives the blue
+  // "awaiting feedback" fill on terminal tabs/rows, the terminal twin of
+  // awaitingFeedbackTopics. By terminal session id.
+  claudePhaseAwaitingTermIds: Set<string>;
   // attention inputs
   claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
   // chat Claude parked awaiting human input (awaiting-user/-approval/paused) —
@@ -148,7 +153,7 @@ interface SignalsState {
   markTerminalFinished: (id: string) => void;
   clearTerminalFinished: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>) => void;
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>) => void;
 }
 
 /** Minimal shape the reconciler reads from the server session roster. */
@@ -261,6 +266,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   browserBusyPaneIds: new Set(),
   claudePhaseActiveTermIds: new Set(),
   claudePhaseRestingTermIds: new Set(),
+  claudePhaseAwaitingTermIds: new Set(),
   claudeAttentionTopics: new Set(),
   awaitingFeedbackTopics: new Set(),
   terminalFinishedIds: new Set(),
@@ -299,14 +305,16 @@ export const useSignalsStore = create<SignalsState>((set) => ({
       return { terminalBusyIds: busy, terminalFinishedIds: finished };
     }),
 
-  setClaudePhaseTerminals: (active, resting) =>
+  setClaudePhaseTerminals: (active, resting, awaiting) =>
     set((s) => {
       const activeChanged = !setsEqual(active, s.claudePhaseActiveTermIds);
       const restingChanged = !setsEqual(resting, s.claudePhaseRestingTermIds);
-      if (!activeChanged && !restingChanged) return s;
+      const awaitingChanged = !setsEqual(awaiting, s.claudePhaseAwaitingTermIds);
+      if (!activeChanged && !restingChanged && !awaitingChanged) return s;
       return {
         ...(activeChanged ? { claudePhaseActiveTermIds: active } : {}),
         ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
+        ...(awaitingChanged ? { claudePhaseAwaitingTermIds: awaiting } : {}),
       };
     }),
 }));
@@ -324,7 +332,7 @@ export const signalsActions = {
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
   clearTerminalFinished: (id: string) => useSignalsStore.getState().clearTerminalFinished(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting),
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting),
 };
 
 /**
@@ -379,19 +387,26 @@ export interface TerminalRosterTypeEntry {
 export function derivePhaseTerminals(
   roster: TerminalRosterTypeEntry[],
   byCsid: Map<string, TerminalPhaseLite>,
-): { active: Set<string>; resting: Set<string> } {
+): { active: Set<string>; resting: Set<string>; awaiting: Set<string> } {
   const active = new Set<string>();
   const resting = new Set<string>();
+  // `awaiting` is a SUBSET of `resting` (AWAITING_FEEDBACK_PHASES ⊂
+  // RESTING_CLAUDE_PHASES): the session is idle (no spinner) AND specifically
+  // parked waiting for the user → drives the blue terminal-tab/row fill.
+  const awaiting = new Set<string>();
   for (const ts of roster) {
     if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
     if (!ts.claudeSessionId) continue;
     const st = byCsid.get(ts.claudeSessionId);
     if (!st) continue;
     if (ACTIVE_CLAUDE_PHASES.has(st.phase)) active.add(ts.id);
-    else if (RESTING_CLAUDE_PHASES.has(st.phase)) resting.add(ts.id);
+    else if (RESTING_CLAUDE_PHASES.has(st.phase)) {
+      resting.add(ts.id);
+      if (AWAITING_FEEDBACK_PHASES.has(st.phase)) awaiting.add(ts.id);
+    }
     // `starting` / unknown → neither set → pty heuristic decides.
   }
-  return { active, resting };
+  return { active, resting, awaiting };
 }
 
 // ---- Key derivation --------------------------------------------------------
@@ -451,6 +466,34 @@ export function useProjectLoading(projectPath: string | undefined): boolean {
     }
     return false;
   }, [projectPath, topics, terminalSessions, live, hydrated, agent, term, phaseActive, phaseResting]);
+}
+
+/** Reactive rollup: is any child of this project parked awaiting the user? A
+ *  chat topic under the project in awaitingFeedbackTopics, or a claude-code
+ *  terminal whose cwd lives under it in claudePhaseAwaitingTermIds. Mirrors
+ *  useProjectLoading so the project tab and sidebar project row agree, and
+ *  lets the blue fill roll up to the project (matches "all tabs"). */
+export function useProjectAwaitingFeedback(projectPath: string | undefined): boolean {
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const { awaitingTopics, awaitingTerms } = useSignalsStore(
+    useShallow((s) => ({
+      awaitingTopics: s.awaitingFeedbackTopics,
+      awaitingTerms: s.claudePhaseAwaitingTermIds,
+    })),
+  );
+  return useMemo(() => {
+    if (!projectPath) return false;
+    for (const t of Object.values(topics)) {
+      if (t.projectPath === projectPath && awaitingTopics.has(t.id)) return true;
+    }
+    for (const ts of terminalSessions) {
+      if (ts.type === 'shell') continue;
+      if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+      if (awaitingTerms.has(ts.id)) return true;
+    }
+    return false;
+  }, [projectPath, topics, terminalSessions, awaitingTopics, awaitingTerms]);
 }
 
 /** Is this pane producing output right now? Single entry point for every
@@ -513,6 +556,12 @@ export function useTerminalLoading(sessionId: string | undefined): boolean {
   return useSignalsStore((s) =>
     !!sessionId && terminalLoadingFrom(sessionId, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
   );
+}
+
+/** A claude-code terminal session parked awaiting human input — the terminal
+ *  twin of useTopicAwaitingFeedback. Drives the blue fill on terminal tabs/rows. */
+export function useTerminalAwaitingFeedback(sessionId: string | undefined): boolean {
+  return useSignalsStore((s) => !!sessionId && s.claudePhaseAwaitingTermIds.has(sessionId));
 }
 
 /** A claude-code session finished a turn and the user hasn't looked yet. */

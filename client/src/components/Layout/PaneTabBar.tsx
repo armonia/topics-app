@@ -7,7 +7,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
-import { signalsActions, useTopicAwaitingFeedback } from '../../state/signals';
+import { signalsActions, useTopicAwaitingFeedback, useTerminalAwaitingFeedback, useProjectAwaitingFeedback } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -626,6 +626,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 Same translucent-overlay slot as the pending overlay → coexists
                 with the neutral selection surface underneath. */}
             {pane.type === 'chat' && pane.topicId && <PaneTabAwaitingOverlay topicId={pane.topicId} />}
+            {/* Same blue wash for a Claude-Code terminal session parked awaiting
+                the user, and for a PROJECT tab as a rollup (blue if any child
+                chat/terminal awaits). Codex/shell never qualify (no Claude phase
+                plumbing → empty by construction); the isClaudeCodeTab gate is
+                belt-and-suspenders. */}
+            {pane.type === 'terminal' && termSid && isClaudeCodeTab && <PaneTabAwaitingOverlayTerminal sessionId={termSid} />}
+            {pane.type === 'project' && pane.projectPath && <PaneTabAwaitingOverlayProject projectPath={pane.projectPath} />}
             {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
                 in a fixed 14×14 box so labels line up across tabs. The project
                 branch deliberately does NOT: a project without a shipped
@@ -983,6 +990,32 @@ function PaneTabPendingOverlay({ paneId }: { paneId: string }) {
  */
 function PaneTabAwaitingOverlay({ topicId }: { topicId: string }) {
   const awaiting = useTopicAwaitingFeedback(topicId);
+  if (!awaiting) return null;
+  return (
+    <div
+      aria-hidden
+      className={`absolute inset-0 rounded-md pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
+    />
+  );
+}
+
+/** Awaiting overlay for a Claude-Code terminal tab — twin of the chat one,
+ *  keyed by terminal session id. */
+function PaneTabAwaitingOverlayTerminal({ sessionId }: { sessionId: string }) {
+  const awaiting = useTerminalAwaitingFeedback(sessionId);
+  if (!awaiting) return null;
+  return (
+    <div
+      aria-hidden
+      className={`absolute inset-0 rounded-md pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`}
+    />
+  );
+}
+
+/** Awaiting overlay for a PROJECT tab — rollup: blue if any descendant chat or
+ *  Claude-Code terminal under this project is parked awaiting the user. */
+function PaneTabAwaitingOverlayProject({ projectPath }: { projectPath: string }) {
+  const awaiting = useProjectAwaitingFeedback(projectPath);
   if (!awaiting) return null;
   return (
     <div
