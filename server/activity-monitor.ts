@@ -51,6 +51,10 @@ export class ActivityMonitor {
   private persistPath: string;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
   private rolloverTimer: ReturnType<typeof setInterval> | null = null;
+  // Poll that waits for the log file to appear when it's missing at startup.
+  // Stored so destroy() can clear it — otherwise a hot reload (or shutdown)
+  // before the file ever appears orphans a live interval pinning this instance.
+  private fileWaitTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(logDir = "/tmp/openclaw", persistPath?: string) {
     this.logDir = logDir;
@@ -124,10 +128,14 @@ export class ActivityMonitor {
 
   private startWatching() {
     if (!existsSync(this.logPath)) {
-      // Check periodically until file appears
-      const checkInterval = setInterval(() => {
+      // Check periodically until file appears. Clear any prior poll first so
+      // repeated startWatching() calls (e.g. via date rollover) never stack
+      // intervals, and keep the handle so destroy() can stop it.
+      if (this.fileWaitTimer) clearInterval(this.fileWaitTimer);
+      this.fileWaitTimer = setInterval(() => {
         if (existsSync(this.logPath)) {
-          clearInterval(checkInterval);
+          if (this.fileWaitTimer) clearInterval(this.fileWaitTimer);
+          this.fileWaitTimer = null;
           this.readInitialTail();
           this.startWatching();
         }
@@ -373,6 +381,7 @@ export class ActivityMonitor {
     if (this.batchTimer) clearTimeout(this.batchTimer);
     if (this.persistTimer) clearInterval(this.persistTimer);
     if (this.rolloverTimer) clearInterval(this.rolloverTimer);
+    if (this.fileWaitTimer) clearInterval(this.fileWaitTimer);
     this.persistBuffer();
     this.subscribers.clear();
   }

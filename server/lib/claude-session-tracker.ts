@@ -342,6 +342,20 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
         changed += 1;
       }
     }
+    // Reap stale dedup/rate-limit bookkeeping. These maps are keyed by
+    // claudeSessionId (unbounded over the process lifetime) and are only ever
+    // written, never deleted, so without this sweep they grow for every session
+    // ever seen. An entry is useless once its window has elapsed: a dedup entry
+    // older than dedupWindowMs can no longer suppress a duplicate, and a rate
+    // bucket older than its 1s window is recreated on the next event. A live
+    // session simply re-adds its entry on the next hook, so dropping stale ones
+    // is safe. (Deleting during Map for-of iteration is well-defined in JS.)
+    for (const [k, e] of dedupMap) {
+      if (t - e.lastEventAt >= dedupWindowMs) dedupMap.delete(k);
+    }
+    for (const [k, b] of rateBuckets) {
+      if (t - b.windowStart >= 1000) rateBuckets.delete(k);
+    }
     return changed;
   }
 
