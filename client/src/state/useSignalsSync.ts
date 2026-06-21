@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
 import { signalsActions, derivePhaseTerminals, useSignalsStore, type TerminalPhaseLite } from './signals';
-import { NOTABLE_CLAUDE_PHASES } from './signals';
+import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics } from './signals';
 
 interface Args {
   topics: Record<string, Topic>;
@@ -40,6 +40,13 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
       if (st && NOTABLE_CLAUDE_PHASES.has(st.phase)) ids.add(t.id);
     }
     signalsActions.setClaudeAttentionTopics(ids);
+  }, [topics, claudeSessions]);
+
+  // Claude "stopped, waiting for YOU" phases → blue awaiting-feedback fill by
+  // topic. Subset of the attention set above (drops `error`); kept as its own
+  // signal so the blue tab/row is decoupled from the badge.
+  useEffect(() => {
+    signalsActions.setAwaitingFeedbackTopics(deriveAwaitingFeedbackTopics(topics, claudeSessions));
   }, [topics, claudeSessions]);
 
   // Live chat streams (useChat) → by topic.

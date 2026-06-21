@@ -25,7 +25,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import type { Pane, Topic, TerminalSessionInfo, ClaudeSessionPhase } from '../types';
+import type { Pane, Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId, getProjectPathFromPaneId } from './pane/adapters';
 
@@ -43,6 +43,37 @@ export const NOTABLE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<Cl
   'paused',
   'error',
 ]);
+
+/** Phases that mean "Claude STOPPED and is waiting for YOU" — the subset of
+ *  NOTABLE that warrants a blue "awaiting feedback" tab/row highlight.
+ *
+ *  It is NOTABLE minus `error`: an errored session is a failure, not a chat
+ *  parked for your input, so it keeps the (red-ish) badge but never goes blue.
+ *  `paused` stays in (a timed-out approval whose question is still on screen —
+ *  see NOTABLE_CLAUDE_PHASES). Loading phases (running / tool-running) are the
+ *  opposite axis and, being mutually exclusive with these in time, never show a
+ *  blue fill and a spinner at once. */
+export const AWAITING_FEEDBACK_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
+  'awaiting-user',
+  'awaiting-approval',
+  'paused',
+]);
+
+/** Pure: topic ids whose bound Claude session is parked awaiting human input.
+ *  Mirror of the `claudeAttentionTopics` derivation but keyed on
+ *  AWAITING_FEEDBACK_PHASES. Extracted (and unit-tested) so the blue-tab signal
+ *  is provable without standing up the store / WS. */
+export function deriveAwaitingFeedbackTopics(
+  topics: Record<string, Topic>,
+  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const t of Object.values(topics)) {
+    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
+    if (st && AWAITING_FEEDBACK_PHASES.has(st.phase)) ids.add(t.id);
+  }
+  return ids;
+}
 
 /** Phases that mean "Claude is actively working".
  *
@@ -105,6 +136,10 @@ interface SignalsState {
   claudePhaseRestingTermIds: Set<string>;
   // attention inputs
   claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
+  // chat Claude parked awaiting human input (awaiting-user/-approval/paused) —
+  // the subset that drives the blue "awaiting feedback" tab/row fill. Separate
+  // from claudeAttentionTopics because `error` belongs to the badge, not blue.
+  awaitingFeedbackTopics: Set<string>;
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
@@ -122,7 +157,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics';
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
@@ -227,6 +262,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   claudePhaseActiveTermIds: new Set(),
   claudePhaseRestingTermIds: new Set(),
   claudeAttentionTopics: new Set(),
+  awaitingFeedbackTopics: new Set(),
   terminalFinishedIds: new Set(),
 
   setTopicSet: (key, ids) =>
@@ -282,6 +318,7 @@ export const signalsActions = {
   setHydratedStreamTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('hydratedStreamTopics', ids),
   setAgentActiveTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('agentActiveTopics', ids),
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
+  setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
@@ -459,6 +496,14 @@ export function useTopicLoading(topicId: string | undefined): boolean {
   return useSignalsStore((s) =>
     !!topicId && (s.liveStreamTopics.has(topicId) || s.hydratedStreamTopics.has(topicId) || s.agentActiveTopics.has(topicId)),
   );
+}
+
+/** A chat topic whose bound Claude session is parked awaiting human input
+ *  (awaiting-user / awaiting-approval / paused) — drives the blue "awaiting
+ *  feedback" tab/row fill. Distinct from loading (the spinner axis) and from
+ *  the attention badge (which also counts `error` + unread). */
+export function useTopicAwaitingFeedback(topicId: string | undefined): boolean {
+  return useSignalsStore((s) => !!topicId && s.awaitingFeedbackTopics.has(topicId));
 }
 
 /** A terminal session is loading when its claude phase is active, or (for
