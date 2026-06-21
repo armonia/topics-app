@@ -74,6 +74,21 @@ export function GroupLayout({
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Track drag-ghost DOM nodes so they can be drained on unmount. The rAF that
+  // removes a ghost can be throttled indefinitely on a backgrounded tab, so a
+  // ghost appended to document.body would otherwise accumulate across drags.
+  // Mirrors PanelGrid's "ISSUE 19 FIX".
+  const activeGhostsRef = useRef<Set<HTMLElement>>(new Set());
+  useEffect(() => {
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional unmount-time read: activeGhostsRef holds one stable Set (never reassigned, only mutated); cleanup must drain whatever ghosts are live AT unmount
+      for (const ghost of activeGhostsRef.current) {
+        if (ghost.parentElement) ghost.parentElement.removeChild(ghost);
+      }
+      activeGhostsRef.current.clear();
+    };
+  }, []);
+
   const { getBadgeCount, clearPane } = useTabNotifications();
 
   const paneMap = useMemo(() => {
@@ -382,8 +397,12 @@ export function GroupLayout({
     `;
     ghost.textContent = `Row ${rowIdx + 1}`;
     document.body.appendChild(ghost);
+    activeGhostsRef.current.add(ghost);
     e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => document.body.removeChild(ghost));
+    requestAnimationFrame(() => {
+      if (ghost.parentElement) document.body.removeChild(ghost);
+      activeGhostsRef.current.delete(ghost);
+    });
   }, [onReorderRows]);
 
   const handleRowDragOver = useCallback((rowIdx: number) => (e: React.DragEvent) => {

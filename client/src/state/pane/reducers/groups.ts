@@ -42,9 +42,11 @@ export function groupsReducer(state: PaneState, action: PaneAction): void {
         (id) => state.panes[id] && currentSet.has(id),
       );
       // If the payload dropped any current panes, append them at the end so
-      // we never silently lose a tab from the bar.
+      // we never silently lose a tab from the bar. Use a Set for the membership
+      // test — `next.includes` would make this loop O(n²) over the tab count.
+      const nextSet = new Set(next);
       for (const id of g.paneIds) {
-        if (!next.includes(id)) next.push(id);
+        if (!nextSet.has(id)) { next.push(id); nextSet.add(id); }
       }
       g.paneIds = next;
       break;
