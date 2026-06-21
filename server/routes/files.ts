@@ -502,9 +502,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
+        // Batch all pathspecs into one `git add` — git accepts many at once,
+        // so a large stage is a single process spawn instead of N serialized
+        // ones. Only fall back to per-file spawns (to attribute the failures)
+        // when the batch exits non-zero.
+        const batch = Bun.spawn(["git", "add", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        await batch.exited;
+        if (batch.exitCode === 0) return json({ ok: true });
         const failed: string[] = [];
         for (const f of files) {
-          const proc = Bun.spawn(["git", "add", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const proc = Bun.spawn(["git", "add", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
           await proc.exited;
           if (proc.exitCode !== 0) failed.push(f);
         }
@@ -579,9 +586,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
+        // Batch into one `git reset HEAD --` (see /api/git/stage); fall back to
+        // per-file only on a non-zero batch exit to attribute the failures.
+        const batch = Bun.spawn(["git", "reset", "HEAD", "--", ...files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+        await batch.exited;
+        if (batch.exitCode === 0) return json({ ok: true });
         const failed: string[] = [];
         for (const f of files) {
-          const proc = Bun.spawn(["git", "reset", "HEAD", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+          const proc = Bun.spawn(["git", "reset", "HEAD", "--", f], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
           await proc.exited;
           if (proc.exitCode !== 0) failed.push(f);
         }
@@ -633,14 +645,20 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(body.path);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        if (body.files && Array.isArray(body.files)) {
-          const failed: string[] = [];
-          for (const file of body.files) {
-            const addProc = Bun.spawn(["git", "add", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-            await addProc.exited;
-            if (addProc.exitCode !== 0) failed.push(file);
+        if (body.files && Array.isArray(body.files) && body.files.length > 0) {
+          // One batched `git add` for the whole commit set; per-file fallback
+          // only on a non-zero batch exit.
+          const batch = Bun.spawn(["git", "add", "--", ...body.files], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+          await batch.exited;
+          if (batch.exitCode !== 0) {
+            const failed: string[] = [];
+            for (const file of body.files) {
+              const addProc = Bun.spawn(["git", "add", "--", file], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
+              await addProc.exited;
+              if (addProc.exitCode !== 0) failed.push(file);
+            }
+            if (failed.length > 0) return json({ ok: false, error: "Failed to stage some files", failed }, 400);
           }
-          if (failed.length > 0) return json({ ok: false, error: "Failed to stage some files", failed }, 400);
         }
         const proc = Bun.spawn(["git", "commit", "-m", body.message], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         await proc.exited;
@@ -1004,6 +1022,11 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           return json({ error: "Gateway not configured" }, 503);
         }
 
+        // Bound the gateway call — a hung upstream model would otherwise wedge
+        // this request handler indefinitely (every other provider call here
+        // guards with an AbortController+timeout; this one-shot was the gap).
+        const aiAbort = new AbortController();
+        const aiTimeout = setTimeout(() => aiAbort.abort(), 30_000);
         const resp = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` },
@@ -1015,7 +1038,8 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
               { role: "user", content: `Staged files:\n${statusText || '(no staged files)'}\n\nStaged diff:\n${diffText || '(no staged diff)'}` },
             ],
           }),
-        });
+          signal: aiAbort.signal,
+        }).finally(() => clearTimeout(aiTimeout));
 
         if (!resp.ok) {
           const errText = await resp.text();
@@ -1027,6 +1051,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const message = typeof rawContent === "string" && rawContent.trim() ? rawContent.trim() : "chore: update files";
         return json({ message });
       } catch (err: any) {
+        if (err?.name === "AbortError") return json({ error: "AI commit message timed out" }, 504);
         return json({ error: "AI commit message error: " + err.message }, 500);
       }
     }

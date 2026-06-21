@@ -930,29 +930,13 @@ export function createAppContext(baseDir: string): AppContext {
     return stream;
   }
 
-  // CHAT-REL-05: Periodic cleanup of stale active streams (every 60s)
-  const STREAM_CLEANUP_INTERVAL_MS = 60000;
-  const STREAM_MAX_AGE_MS = 3 * 60 * 1000; // 3 minutes
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, stream] of activeStreams) {
-      // If the DB already says this stream's message is finalized, drop the
-      // in-memory entry silently. No broadcast — nobody is mid-stream to
-      // notify, and leaving the entry causes ghost `stream:catchup` events
-      // on future WS reconnects.
-      const partial = getMessageById(stream.messageId);
-      if (!partial || partial.partial !== true) {
-        activeStreams.delete(key);
-        continue;
-      }
-      const lastActivity = new Date(stream.lastActivity).getTime();
-      if (now - lastActivity > STREAM_MAX_AGE_MS) {
-        console.log(`[StreamCleanup] Removing stale stream for ${key} (last activity: ${stream.lastActivity})`);
-        activeStreams.delete(key);
-        broadcastToAll({ type: "stream:end", sessionKey: key, messageId: stream.messageId });
-      }
-    }
-  }, STREAM_CLEANUP_INTERVAL_MS);
+  // NOTE: the periodic stale-active-stream sweeper lives in server.ts
+  // (`staleStreamTimer`, 30s). It is the authoritative one — it finalizes the
+  // partial DB row and broadcasts stream:end with topicId+reason, and it is
+  // cleared in gracefulShutdown. A second sweeper used to run here too, but it
+  // duplicated/raced the server.ts logic with weaker side effects AND its
+  // interval handle was never stored, so it leaked one live 60s timer per
+  // `bun --watch` hot reload. Removed — don't reintroduce a sweeper here.
 
   // --- Request helpers (unchanged) ---
   async function readJSON(req: Request): Promise<any> {

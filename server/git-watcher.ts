@@ -56,30 +56,30 @@ function resolveGitDir(projectPath: string): string | null {
 
 async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> {
   try {
-    const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+    const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
     const statusText = await new Response(statusProc.stdout).text();
     await statusProc.exited;
 
-    const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+    const branchProc = Bun.spawn(["git", "branch", "--show-current"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
     let branch = (await new Response(branchProc.stdout).text()).trim();
     await branchProc.exited;
 
     if (!branch) {
       try {
-        const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+        const headProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
         branch = (await new Response(headProc.stdout).text()).trim() || "HEAD";
         await headProc.exited;
       } catch { branch = "HEAD"; }
     }
 
-    const logProc = Bun.spawn(["git", "log", "-1", "--format=%H|%s|%an|%ar"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+    const logProc = Bun.spawn(["git", "log", "-1", "--format=%H|%s|%an|%ar"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
     const logText = (await new Response(logProc.stdout).text()).trim();
     await logProc.exited;
     const [hash = "", message = "", author = "", ago = ""] = logText.split("|");
 
     let ahead = 0, behind = 0;
     try {
-      const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${branch}...@{upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+      const revProc = Bun.spawn(["git", "rev-list", "--left-right", "--count", `${branch}...@{upstream}`], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
       const revText = (await new Response(revProc.stdout).text()).trim();
       await revProc.exited;
       const parts = revText.split(/\s+/);
@@ -88,7 +88,7 @@ async function computeGitStatus(resolvedDir: string): Promise<GitStatus | null> 
 
     let relativePrefix = "";
     try {
-      const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
+      const toplevelProc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "ignore" });
       const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
       await toplevelProc.exited;
       if (gitRoot && resolvedDir !== gitRoot && resolvedDir.startsWith(gitRoot)) {

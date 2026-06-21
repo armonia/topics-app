@@ -50,6 +50,7 @@ export class ActivityMonitor {
   private dedupeTitle = '';
   private persistPath: string;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
+  private rolloverTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(logDir = "/tmp/openclaw", persistPath?: string) {
     this.logDir = logDir;
@@ -70,8 +71,11 @@ export class ActivityMonitor {
     this.readInitialTail();
     // Watch for changes
     this.startWatching();
-    // Check for date rollover every minute
-    setInterval(() => this.checkDateRollover(), 60_000);
+    // Check for date rollover every minute. Store the handle so destroy()
+    // (called on graceful shutdown AND every `bun --watch` hot reload) can
+    // clear it — otherwise each reload orphans a live interval pinning the
+    // dead instance.
+    this.rolloverTimer = setInterval(() => this.checkDateRollover(), 60_000);
     // Persist buffer every 30s so restarts lose at most 30s of events
     this.persistTimer = setInterval(() => this.persistBuffer(), 30_000);
   }
@@ -368,6 +372,7 @@ export class ActivityMonitor {
     if (this.watcher) this.watcher.close();
     if (this.batchTimer) clearTimeout(this.batchTimer);
     if (this.persistTimer) clearInterval(this.persistTimer);
+    if (this.rolloverTimer) clearInterval(this.rolloverTimer);
     this.persistBuffer();
     this.subscribers.clear();
   }
