@@ -890,7 +890,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   // handleClosePanel (stable identity via ref-backed impl)
   const handleClosePanelRef = useRef<(topicId: string) => void>(() => {});
-  // eslint-disable-next-line react-hooks/refs -- intentional ref-backed stable-callback pattern: handleClosePanel (below, deps []) stays stable while .current always holds the latest closure; only invoked from event handlers / undo, never read during render
+  // Intentional ref-backed stable-callback pattern: handleClosePanel (below, deps [])
+  // stays stable while .current always holds the latest closure; only invoked from
+  // event handlers / undo, never read during render.
   handleClosePanelRef.current = (topicId: string) => {
     const closingTopic = topicsRef.current[topicId];
     // 2-state model: a USER-closed chat tab archives the topic (closed ⟺
