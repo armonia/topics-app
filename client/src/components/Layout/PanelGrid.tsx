@@ -1472,7 +1472,11 @@ export function PanelGrid({
     setDraggingGridKey(null);
     setGridDropTarget(null);
     gridDropTargetRef.current = null;
-  }, [itemMap, gridDropTargetRef, gridRowsRef, setGridRows, setSoloCells]);
+    // soloCells IS read directly (sourceCell lookup), so it must be a dep —
+    // omitting it captured a stale soloCells in the drop handler. The handler is
+    // only a JSX prop / wrapped by other callbacks (never an effect dep), so
+    // recreating it on soloCells change has no re-render/loop cost.
+  }, [itemMap, gridDropTargetRef, gridRowsRef, setGridRows, setSoloCells, soloCells]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *

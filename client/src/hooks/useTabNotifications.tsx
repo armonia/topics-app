@@ -183,7 +183,11 @@ export function TabNotificationProvider({
         touchTopic(msg.topicId);
       }
     });
-  }, [onWSMessage, notifyPane, touchTopic, badgePrefixes]);
+    // focusedRef / openPanelsRef are stable useRefMirror objects (read via
+    // .current inside), so listing them is behaviorally a no-op — it just
+    // satisfies exhaustive-deps, matching the notifyPane effect above which
+    // already lists them.
+  }, [onWSMessage, notifyPane, touchTopic, badgePrefixes, focusedRef, openPanelsRef]);
 
   const getBadgeCount = useCallback((paneId: string, topicId?: string, isActive?: boolean): number => {
     // Claude "needs you" attention (approval / finished reply / error) persists

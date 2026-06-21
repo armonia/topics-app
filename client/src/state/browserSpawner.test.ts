@@ -5,7 +5,7 @@
  * via clearBrowserSpawner. We can't re-import to get a clean instance because
  * sessionStorage is checked once at module load.
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 
 // Minimal sessionStorage shim — the module reads on import and writes on every
 // mutation. A plain Record-backed implementation is sufficient.
@@ -24,6 +24,18 @@ function installFakeStorage(): void {
 }
 
 installFakeStorage();
+
+// Clean up the globals this file installs at module-load. `bun test` runs every
+// file in one process, so a partial `window`/`sessionStorage` left on
+// `globalThis` leaks into other test files loaded later (load order is
+// filesystem-dependent — passed on macOS, broke CI Linux). In particular a stub
+// `window` WITHOUT `addEventListener` made modules that register listeners at
+// import throw (closedTabRecord.ts). Mirrors the cleanup the sibling DOM-stub
+// tests (bootstrap/syncServer/openExternal/browserNavUrl) already do.
+afterAll(() => {
+  delete (globalThis as unknown as { window?: unknown }).window;
+  delete (globalThis as unknown as { sessionStorage?: unknown }).sessionStorage;
+});
 
 const {
   setBrowserSpawner,
