@@ -65,6 +65,10 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
   const [selectedTemplate, setSelectedTemplate] = useState<TopicTemplate | null>(null);
   const [showTemplates, setShowTemplates] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  // False once the modal unmounts — lets the waitForReady poll chain bail
+  // instead of firing setTimeout for up to 15s against a dead component.
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
 
   // ── Phase A: Worktree picker state ──────────────────────────────────────
   const [project, setProject] = useState<Project | null>(null);
@@ -126,6 +130,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessag
     return new Promise((resolve, reject) => {
       const start = Date.now();
       const tick = () => {
+        if (!aliveRef.current) { reject(new Error('Modal closed')); return; }
         const wt = worktreeById(id);
         if (wt && wt.status === 'ready') { resolve(wt); return; }
         if (wt && wt.status === 'error') { reject(new Error(wt.errorMessage || 'Worktree creation failed')); return; }
