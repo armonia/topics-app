@@ -454,8 +454,13 @@ export interface WSTopicSwitchCompleteMessage {
 
 export interface WSTopicSwitchMessage {
   type: 'topic:switch';
-  fromSessionKey?: string;
+  fromTopicId: string;
   toTopicId: string;
+  toSessionKey: string;
+  // Originating stream's session key — scopes the open+focus side-effect to the
+  // window that drove the switch via isOwnStream(). Required on the wire (the
+  // server always stamps it); inbound zod keeps it optional for version skew.
+  fromSessionKey?: string;
 }
 
 export interface WSOpenProjectMessage {

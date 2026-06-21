@@ -582,7 +582,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         saveSingleTopic(newTopic);
         broadcastToAll({ type: "topic:created", topic: newTopic });
         console.log(`[TopicSwitch] Created new topic "${topicName}" and switching from "${currentTopic.name}"`);
-        broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
+        broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, fromSessionKey: currentTopic.sessionKey, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
         const cleaned = content.replace(/\{\{TOPIC_NEW:[^}]+\}\}/g, '');
         return { content: cleaned, switchedToTopicId: newTopic.id };
       }
@@ -597,7 +597,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: null };
     }
     console.log(`[TopicSwitch] Switching from "${currentTopic.name}" to "${target.name}"`);
-    broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, toTopicId: target.id, toSessionKey: target.sessionKey });
+    broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, fromSessionKey: currentTopic.sessionKey, toTopicId: target.id, toSessionKey: target.sessionKey });
     return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: target.id };
   }
 

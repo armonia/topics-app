@@ -106,6 +106,9 @@ const topicArchivedSchema = z.object({
 const topicSwitchSchema = z.object({
   type: z.literal('topic:switch'),
   fromTopicId: z.string(),
+  // Optional inbound for forward/backward compat with a server that predates
+  // the field; the open+focus guard degrades to "no origin scoping" if absent.
+  fromSessionKey: z.string().optional(),
   toTopicId: z.string(),
   toSessionKey: z.string(),
 }).passthrough();
