@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onNavigateToTopic: (callback: (topicId: string) => void) => {
     ipcRenderer.on('navigate-to-topic', (_event, topicId) => callback(topicId));
   },
+  removeNavigateToTopicListener: () => {
+    ipcRenderer.removeAllListeners('navigate-to-topic');
+  },
 
   // Native "Reopen Closed Tab" menu accelerator (⇧⌘T) → renderer. The renderer
   // reopens the most recently closed tab via the same shared handler the

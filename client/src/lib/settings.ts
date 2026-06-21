@@ -30,9 +30,15 @@ export function loadSettings(): AppSettings {
 
 let settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Event name fired on every settings write so live consumers can re-read
+// without polling localStorage on every render (see MessageList).
+export const SETTINGS_CHANGED_EVENT = 'app-settings-changed';
+
 export function saveSettings(settings: AppSettings) {
   // Write localStorage immediately (fast paint)
   localStorage.setItem('app-settings', JSON.stringify(settings));
+  // Notify in-process consumers (cross-tab is covered by the 'storage' event).
+  try { window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT)); } catch {}
 
   // Debounced server sync (1s for resize-heavy changes)
   if (settingsSaveTimer) clearTimeout(settingsSaveTimer);
