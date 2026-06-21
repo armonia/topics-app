@@ -71,6 +71,31 @@ const TOOLS = [
     },
   },
   {
+    name: "browser_observe",
+    description:
+      "Read the current Topics browser pane: returns its actionable elements (each with an integer id, role, name, bbox) + a11y tree + url/title, so you can then click/type with browser_act. Open/navigate the pane first with open_browser_pane. Use this to drive the user's own web apps in the pane (forms, buttons), not just navigate.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        max_elements: { type: "number", description: "Max indexed elements to return (default 50, range 1-100)." },
+      },
+    },
+  },
+  {
+    name: "browser_act",
+    description:
+      "Act on an element in the Topics browser pane by its id from the latest browser_observe: action 'click' | 'type' | 'select' (text required for type/select). Use to fill forms and click buttons in the user's web apps. Do NOT type passwords or other credentials — authentication (login/signup/2FA) is the user's step; for the user's own apps prefer a token/dev-login link instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        element_id: { type: "number", description: "id of the element from the latest browser_observe." },
+        action: { type: "string", enum: ["click", "type", "select"], description: "Interaction to perform." },
+        text: { type: "string", description: "Text to type / option to select (required for type/select)." },
+      },
+      required: ["element_id", "action"],
+    },
+  },
+  {
     name: "run_script",
     description:
       "Run a package.json script (e.g. 'dev', 'test', 'build') in the current topic's project. Async: returns a processId immediately — poll output with read_process_output, don't wait. The project is resolved from the session, so you only pass the script name. Only declared scripts run; an unknown name is rejected with the available list.",
@@ -237,6 +262,27 @@ export async function callImportChrome(
   const dryRun = !!toolArgs?.dry_run;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/import-chrome`;
   const body = await httpJson<Record<string, unknown>>(args, "POST", path, { domains, profile, dry_run: dryRun }, fetchImpl);
+  return JSON.stringify(body ?? {}, null, 2);
+}
+
+export async function callBrowserObserve(
+  args: ParsedArgs,
+  toolArgs: { max_elements?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const max = typeof toolArgs?.max_elements === "number" ? toolArgs.max_elements : undefined;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/observe`;
+  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { max_elements: max }, fetchImpl);
+  return JSON.stringify(body ?? {}, null, 2);
+}
+
+export async function callBrowserAct(
+  args: ParsedArgs,
+  toolArgs: { element_id?: unknown; action?: unknown; text?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/act`;
+  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { element_id: toolArgs?.element_id, action: toolArgs?.action, text: toolArgs?.text }, fetchImpl);
   return JSON.stringify(body ?? {}, null, 2);
 }
 
@@ -452,6 +498,8 @@ const TOOL_HANDLERS: Record<
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown }),
+  browser_observe: (a, t) => callBrowserObserve(a, t as { max_elements?: unknown }),
+  browser_act: (a, t) => callBrowserAct(a, t as { element_id?: unknown; action?: unknown; text?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),

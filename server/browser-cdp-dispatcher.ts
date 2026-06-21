@@ -21,6 +21,34 @@
  */
 import { chromium, type Browser as PwBrowser, type Page } from 'playwright-core';
 import { getElectronCdpEndpoint } from './electron-cdp-probe';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, dirname } from 'node:path';
+
+// Persist the contextId -> cdpTargetId map so it survives a SERVER restart.
+// cdpTargetIds are stable for the life of the Electron process — a server bounce
+// (e.g. launchd) doesn't touch Electron — so the persisted map is still valid when
+// the server comes back, WITHOUT waiting for the renderer to re-register. Stale
+// entries (e.g. after an Electron restart) self-clean in getPage when the target
+// no longer resolves. Lives next to the app's other ~/.topics state.
+const CDP_TARGETS_FILE = join(homedir(), '.topics', 'browser-cdp-targets.json');
+
+function loadTargetMap(): Map<string, string> {
+  try {
+    if (existsSync(CDP_TARGETS_FILE)) {
+      const obj = JSON.parse(readFileSync(CDP_TARGETS_FILE, 'utf8')) as Record<string, string>;
+      return new Map(Object.entries(obj));
+    }
+  } catch { /* ignore — start empty */ }
+  return new Map();
+}
+
+function saveTargetMap(map: Map<string, string>): void {
+  try {
+    mkdirSync(dirname(CDP_TARGETS_FILE), { recursive: true });
+    writeFileSync(CDP_TARGETS_FILE, JSON.stringify(Object.fromEntries(map)), 'utf8');
+  } catch { /* best-effort persistence */ }
+}
 
 export interface CdpDispatcherDeps {
   /**
@@ -45,7 +73,7 @@ export interface ElectronCdpDispatcher {
 }
 
 export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispatcher {
-  const targetMap = new Map<string, string>(); // contextId -> cdpTargetId
+  const targetMap = loadTargetMap(); // contextId -> cdpTargetId (persisted; survives server restart)
   let browser: PwBrowser | null = null;
 
   async function ensureBrowser(): Promise<PwBrowser> {
@@ -102,12 +130,13 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
         throw new Error('registerTarget: cdpTargetId is required');
       }
       targetMap.set(contextId, cdpTargetId);
+      saveTargetMap(targetMap);
     },
     getTargetId(contextId) {
       return targetMap.get(contextId) ?? null;
     },
     unregisterTarget(contextId) {
-      targetMap.delete(contextId);
+      if (targetMap.delete(contextId)) saveTargetMap(targetMap);
     },
     async getPage(contextId) {
       const targetId = targetMap.get(contextId);
@@ -120,9 +149,14 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
       const b = await ensureBrowser();
       const page = await findPageByTargetId(b, targetId);
       if (!page) {
+        // Stale mapping (e.g. Electron restarted → this targetId no longer exists).
+        // Drop it so we don't keep returning a dead target; the renderer re-registers
+        // a fresh targetId when the pane next mounts.
+        targetMap.delete(contextId);
+        saveTargetMap(targetMap);
         throw new Error(
-          `ElectronCdpDispatcher.getPage: no Playwright page matches cdpTargetId=${targetId}. ` +
-          `View may have been destroyed.`
+          `ElectronCdpDispatcher.getPage: no Playwright page matches cdpTargetId=${targetId} ` +
+          `(stale mapping dropped). Re-open the browser pane so it re-registers.`
         );
       }
       return page;
