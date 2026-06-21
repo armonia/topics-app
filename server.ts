@@ -374,6 +374,25 @@ const wsHeartbeatTimer = setInterval(() => {
     }
     if (ws.readyState === 1) { try { ws.ping(); } catch {} }
   }
+  // Browser screencast sockets are kept OUT of wsClients, so reap them here too.
+  // Without this, a half-open TCP break (laptop sleep / network drop) never
+  // fires `close`, so _browserCleanup never runs and the CDP screencast keeps
+  // streaming JPEG frames into a dead socket — this watchdog is the only thing
+  // that releases the CDP session. _browserCleanup is idempotent, so calling it
+  // here and again in the close handler is safe.
+  for (const [ctxId, set] of browserWsClients) {
+    for (const ws of set) {
+      if (now - ws.data.lastPong > WS_TIMEOUT_MS) {
+        console.log(`[WS][browser] Reaping stale browser client for ctx ${ctxId} (no pong for ${Math.round((now - ws.data.lastPong) / 1000)}s)`);
+        void ws.data._browserCleanup?.();
+        set.delete(ws);
+        try { ws.close(1001, "Connection timeout"); } catch {}
+        continue;
+      }
+      if (ws.readyState === 1) { try { ws.ping(); } catch {} }
+    }
+    if (set.size === 0) browserWsClients.delete(ctxId);
+  }
 }, WS_HEARTBEAT_INTERVAL_MS);
 
 // Startup cleanup: remove orphaned unread entries
@@ -666,16 +685,13 @@ const server = Bun.serve<WSData>({
           browserWsClients.set(ctxId, bset);
         }
         bset.add(ws);
-        ws.data._browserCleanup = async () => {
-          await browserService.stopScreencast(ctxId).catch(err =>
-            console.warn(`[WS][browser] stopScreencast failed for ${ctxId}:`, err.message)
-          );
-        };
-        // Inline screencast start. Backpressure: if the WS isn't OPEN, drop
-        // the frame. Bun's ServerWebSocket exposes readyState directly
-        // (1 = OPEN) — same pattern already used in the heartbeat ticker
-        // around the file (no `as any` needed).
-        browserService.startScreencast(ctxId, (data, metadata) => {
+        // This WS's own frame consumer. Hoisted to a const so we pass the SAME
+        // identity to stopScreencast — with fan-out, that removes only THIS
+        // viewer and leaves the shared CDP screencast running for the others
+        // (the old stopScreencast(ctxId) detached the session, blacking out
+        // every other client viewing the same browser).
+        const onFrame = (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => {
+          // Backpressure: if the WS isn't OPEN (1), drop the frame.
           if (ws.readyState !== 1) return;
           sendBrowserWsMessage(ws, {
             type: 'frame',
@@ -687,7 +703,13 @@ const server = Bun.serve<WSData>({
               deviceHeight: metadata.deviceHeight,
             },
           });
-        }).catch(err => {
+        };
+        ws.data._browserCleanup = async () => {
+          await browserService.stopScreencast(ctxId, onFrame).catch(err =>
+            console.warn(`[WS][browser] stopScreencast failed for ${ctxId}:`, err.message)
+          );
+        };
+        browserService.startScreencast(ctxId, onFrame).catch(err => {
           console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
           try {
             ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));

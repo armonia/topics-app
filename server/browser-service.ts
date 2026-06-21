@@ -54,6 +54,9 @@ export interface AccessibilityNode {
   ref?: number;
 }
 
+/** A screencast frame consumer (one per connected viewer WS). */
+export type ScreencastOnFrame = (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => void;
+
 export interface BrowserService {
   launch(): Promise<void>;
   close(): Promise<void>;
@@ -85,14 +88,14 @@ export interface BrowserService {
   loadCookies(id: string): Promise<void>;
   /** Restore BrowserContext for every topic with browserState. Best-effort — never throws. */
   restoreAllContexts(topics: Topic[]): Promise<{ restored: number; failed: number }>;
-  /** Phase 30 BROWSER-CHAT-02 — start CDP screencast, fire onFrame for every JPEG frame. Returns once startScreencast resolves. Idempotent (calling twice on same id swaps the onFrame handler in place). */
+  /** Phase 30 BROWSER-CHAT-02 — start CDP screencast, fire onFrame for every JPEG frame. Returns once startScreencast resolves. Fan-out: additional viewers of the same context add their onFrame to the shared CDP session (Page.startScreencast runs only on the first). */
   startScreencast(
     id: string,
-    onFrame: (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => void,
+    onFrame: ScreencastOnFrame,
     opts?: { format?: 'jpeg' | 'png'; quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number }
   ): Promise<void>;
-  /** Phase 30 BROWSER-CHAT-02 — stop CDP screencast for a context. Idempotent. */
-  stopScreencast(id: string): Promise<void>;
+  /** Phase 30 BROWSER-CHAT-02 — stop CDP screencast. Pass the same onFrame to remove just that viewer; omit it to tear the whole session down. The CDP session detaches only when no viewers remain. Idempotent. */
+  stopScreencast(id: string, onFrame?: ScreencastOnFrame): Promise<void>;
   /** Phase 30 BROWSER-CHAT-02 — dispatch input action via Playwright page.mouse.* / page.keyboard.* / page.mouse.wheel. */
   dispatchInput(
     id: string,
@@ -149,7 +152,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // BrowserContext is torn down.
   const screencastSessions = new Map<string, {
     cdpSession: import("playwright-core").CDPSession;
-    onFrame: (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => void;
+    // Fan-out: one shared CDP session, N viewer callbacks. A 2nd viewer of the
+    // same context joins the set (instead of stealing the single onFrame), and
+    // the session is torn down only when the LAST viewer detaches.
+    subscribers: Set<ScreencastOnFrame>;
   }>();
   let browser: Browser | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -711,11 +717,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     //
     // CDP doc: https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast
     async startScreencast(id, onFrame, opts) {
-      // Idempotent: if already streaming, swap the onFrame handler in place
-      // (lets a re-attach use the existing CDP session without restart).
+      // Fan-out: if already streaming, ADD this viewer to the subscriber set
+      // (reuses the existing CDP session, no restart). The old code SWAPPED the
+      // single onFrame, so a 2nd viewer stole frames from the 1st.
       const existing = screencastSessions.get(id);
       if (existing) {
-        existing.onFrame = onFrame;
+        existing.subscribers.add(onFrame);
         return;
       }
 
@@ -731,17 +738,21 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           console.warn(`[BrowserService] screencastFrameAck failed for ${id}:`, err.message);
           return;
         }
-        try {
-          const session = screencastSessions.get(id);
-          if (!session) return;  // stopScreencast was called between ACK and onFrame
-          session.onFrame(payload.data, {
-            timestamp: payload.metadata?.timestamp ?? Date.now(),
-            pageScaleFactor: payload.metadata?.pageScaleFactor,
-            deviceWidth: payload.metadata?.deviceWidth,
-            deviceHeight: payload.metadata?.deviceHeight,
-          });
-        } catch (err: any) {
-          console.warn(`[BrowserService] onFrame handler threw for ${id}:`, err.message);
+        const session = screencastSessions.get(id);
+        if (!session) return;  // stopScreencast was called between ACK and frame
+        const meta = {
+          timestamp: payload.metadata?.timestamp ?? Date.now(),
+          pageScaleFactor: payload.metadata?.pageScaleFactor,
+          deviceWidth: payload.metadata?.deviceWidth,
+          deviceHeight: payload.metadata?.deviceHeight,
+        };
+        // Fan the frame out to every viewer; one throwing must not starve the rest.
+        for (const cb of session.subscribers) {
+          try {
+            cb(payload.data, meta);
+          } catch (err: any) {
+            console.warn(`[BrowserService] onFrame handler threw for ${id}:`, err.message);
+          }
         }
       });
 
@@ -758,13 +769,19 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         everyNthFrame: opts?.everyNthFrame ?? 2,
       });
 
-      screencastSessions.set(id, { cdpSession, onFrame });
+      screencastSessions.set(id, { cdpSession, subscribers: new Set([onFrame]) });
       console.log(`[BrowserService] Screencast started for ${id} (q=${opts?.quality ?? 70}, everyNthFrame=${opts?.everyNthFrame ?? 2})`);
     },
 
-    async stopScreencast(id) {
+    async stopScreencast(id, onFrame) {
       const session = screencastSessions.get(id);
       if (!session) return;  // Idempotent
+      if (onFrame) {
+        // Remove just this viewer; keep the shared session alive for the others.
+        session.subscribers.delete(onFrame);
+        if (session.subscribers.size > 0) return;
+      }
+      // No viewers left (or a full teardown was requested): stop + detach.
       try {
         await session.cdpSession.send("Page.stopScreencast");
       } catch (err: any) {
