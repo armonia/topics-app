@@ -1,36 +1,4 @@
-import { useShallow } from 'zustand/react/shallow';
-import { usePaneStore } from './store';
 import type { Pane, Group, PaneState, ClosedPaneRecord } from './types';
-
-export function usePanesInGroup(groupId: string): Pane[] {
-  return usePaneStore(
-    useShallow((s) =>
-      (s.groups[groupId]?.paneIds ?? [])
-        .map((id) => s.panes[id])
-        .filter((p): p is Pane => Boolean(p)),
-    ),
-  );
-}
-
-export function useFocusedPaneId(): string | null {
-  return usePaneStore((s) => s.focusedPaneId);
-}
-
-export function useGroupOrder(): string[] {
-  return usePaneStore(useShallow((s) => s.groupOrder));
-}
-
-export function useGroup(groupId: string): Group | undefined {
-  return usePaneStore((s) => s.groups[groupId]);
-}
-
-export function usePane(id: string): Pane | undefined {
-  return usePaneStore((s) => s.panes[id]);
-}
-
-export function useClosedStackSize(): number {
-  return usePaneStore((s) => s.closedStack.length);
-}
 
 function isDraftId(id: string): boolean {
   return id.startsWith('draft:');

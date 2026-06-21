@@ -215,8 +215,3 @@ export function getFileIconDef(name: string, isDirectory = false, isOpen = false
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
   return EXT_MAP[ext] || DEFAULT_ICON;
 }
-
-/** Legacy compat — returns the Lucide icon component */
-export function getFileIcon(name: string): LucideIcon {
-  return getFileIconDef(name).icon;
-}
