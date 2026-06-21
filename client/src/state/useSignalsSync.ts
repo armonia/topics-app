@@ -133,8 +133,8 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   useEffect(() => {
     const byCsid = new Map<string, TerminalPhaseLite>();
     for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
-    const { active, resting } = derivePhaseTerminals(terminalSessions, byCsid);
-    signalsActions.setClaudePhaseTerminals(active, resting);
+    const { active, resting, awaiting } = derivePhaseTerminals(terminalSessions, byCsid);
+    signalsActions.setClaudePhaseTerminals(active, resting, awaiting);
   }, [terminalSessions, claudeSessions]);
 
   // Reconcile busy/finished against the authoritative session roster. The

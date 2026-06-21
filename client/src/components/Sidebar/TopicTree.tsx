@@ -19,10 +19,10 @@ import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
-import { useAttentionSignals, signalsActions } from '@/state/signals';
+import { useAttentionSignals, signalsActions, useTerminalAwaitingFeedback, useProjectAwaitingFeedback } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, AWAITING_FEEDBACK_FILL } from '@/lib/selectionStyles';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -368,6 +368,7 @@ export function TopicTree({
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
+          <ProjectRowAwaitingOverlay projectPath={pp} />
           {/* Chevron is its own control — toggles the accordion ONLY (expand /
               collapse), never moves focus. Separating it from the name button
               means clicking the row to focus a project can't accidentally
@@ -682,6 +683,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
+      {(s.type === 'claude-code' || s.type === 'claude-code-team') && <TerminalRowAwaitingOverlay sessionId={s.id} />}
       <button
         onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
@@ -900,6 +902,22 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
   const status = usePendingActionStatus(`archive-project:${projectPath}`);
   if (!status) return null;
   return <PendingActionProgressOverlay status={status} />;
+}
+
+/** Blue "awaiting feedback" wash for a Claude-Code terminal sidebar row —
+ *  twin of the chat row overlay (TopicItem), keyed by terminal session id. */
+function TerminalRowAwaitingOverlay({ sessionId }: { sessionId: string }) {
+  const awaiting = useTerminalAwaitingFeedback(sessionId);
+  if (!awaiting) return null;
+  return <div aria-hidden className={`absolute inset-0 rounded-lg pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`} />;
+}
+
+/** Blue "awaiting feedback" wash for a project folder row — rollup: blue if any
+ *  descendant chat/Claude-Code terminal under this project awaits the user. */
+function ProjectRowAwaitingOverlay({ projectPath }: { projectPath: string }) {
+  const awaiting = useProjectAwaitingFeedback(projectPath);
+  if (!awaiting) return null;
+  return <div aria-hidden className={`absolute inset-0 rounded-lg pointer-events-none ${AWAITING_FEEDBACK_FILL} animate-awaiting-pulse`} />;
 }
 
 /**
