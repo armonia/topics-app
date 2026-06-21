@@ -44,7 +44,15 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         mkdirSync(UPLOADS_DIR, { recursive: true });
         const filename = `${Date.now()}-paste.${ext}`;
         const filepath = join(UPLOADS_DIR, filename);
-        const buffer = Buffer.from(match[2], "base64");
+        // Cap the payload like /api/upload and /api/context-upload do (10MB) —
+        // this base64 path had no size limit, so a huge dataUrl was decoded into
+        // memory and written straight to disk (asymmetric memory/disk-fill).
+        const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+        const b64 = match[2];
+        // base64 inflates ~4:3 — cheap pre-decode guard before buffering.
+        if (b64.length > MAX_UPLOAD_SIZE * 1.4) return json({ error: "Image too large. Maximum size is 10MB." }, 413);
+        const buffer = Buffer.from(b64, "base64");
+        if (buffer.byteLength > MAX_UPLOAD_SIZE) return json({ error: "Image too large. Maximum size is 10MB." }, 413);
         writeFileSync(filepath, buffer);
         return json({ url: filepath });
       } catch (err: any) { return json({ error: "Image upload failed: " + err.message }, 500); }

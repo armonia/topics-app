@@ -27,8 +27,13 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 
     const body = method === "POST" ? await readJSON(req) : {};
     const urlParams = url.searchParams;
-    const limit = body?.limit || parseInt(urlParams.get('limit') || '50');
-    const offset = body?.offset || parseInt(urlParams.get('offset') || '0');
+    // Parse defensively: a malformed query param (?limit=abc) yields NaN, and
+    // `sliced.slice(-NaN)` coerces to slice(0) → the ENTIRE thread ships,
+    // silently defeating pagination. Clamp to a finite, sane range instead.
+    const limitN = Number(body?.limit ?? urlParams.get('limit') ?? '50');
+    const offsetN = Number(body?.offset ?? urlParams.get('offset') ?? '0');
+    const limit = Number.isFinite(limitN) ? Math.min(Math.max(1, Math.trunc(limitN)), 500) : 50;
+    const offset = Number.isFinite(offsetN) ? Math.max(0, Math.trunc(offsetN)) : 0;
 
     const localMsgs = loadLocalMessages(sessionKey);
     const activeStream = isStreaming(sessionKey);

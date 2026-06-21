@@ -307,16 +307,20 @@ export class GatewayWS {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify(req));
-      
-      // Timeout after 30s for non-streaming requests
-      if (method !== "chat.send") {
-        setTimeout(() => {
-          if (this.pending.has(id)) {
-            this.pending.delete(id);
-            reject(new Error(`request timeout: ${method}`));
-          }
-        }, 30000);
-      }
+
+      // Bound EVERY request so a silent (half-open) gateway can't leak the
+      // pending entry — and its awaiting caller — forever. chat.send can run
+      // long (its res may not arrive until the streamed turn finishes), so it
+      // gets a generous 30-min cap rather than the 30s used for quick RPCs;
+      // but it is no longer unbounded (the old `!== chat.send` skip leaked the
+      // pending entry on a lost res frame over a still-open socket).
+      const timeoutMs = method === "chat.send" ? 30 * 60_000 : 30_000;
+      setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          reject(new Error(`request timeout: ${method}`));
+        }
+      }, timeoutMs);
     });
   }
 

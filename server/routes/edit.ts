@@ -188,10 +188,26 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         abortController.signal.addEventListener("abort", onAbort, { once: true });
         const decoder = new TextDecoder();
         let sseBuffer = "";
+        // Inactivity timeout (60s per chunk) — mirrors chat.ts consumeGateway.
+        // Without it a gateway that stalls mid-stream (partial data then silence
+        // without closing the socket) leaves reader.read() blocked forever:
+        // isStreaming stays true, the partial message never finalizes, and
+        // stream:end never broadcasts. The abort flows through to the finally.
+        const INACTIVITY_TIMEOUT_MS = 60000;
+        let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+        const resetInactivityTimer = () => {
+          if (inactivityTimer) clearTimeout(inactivityTimer);
+          inactivityTimer = setTimeout(() => {
+            console.warn(`[Stream:Edit] Inactivity timeout (${INACTIVITY_TIMEOUT_MS / 1000}s) for ${sessionKey}`);
+            abortController.abort();
+          }, INACTIVITY_TIMEOUT_MS);
+        };
+        resetInactivityTimer();
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            resetInactivityTimer();
             await forwardToClient(value);
             sseBuffer += decoder.decode(value, { stream: true });
             const lines = sseBuffer.split("\n");
@@ -202,6 +218,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         } catch (err) {
           console.warn(`[Stream:Edit] Gateway read error for ${sessionKey}:`, err);
         } finally {
+          if (inactivityTimer) clearTimeout(inactivityTimer);
           abortController.signal.removeEventListener("abort", onAbort);
           reader.releaseLock();
           await closeClient();

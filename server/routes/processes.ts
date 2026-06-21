@@ -229,7 +229,7 @@ export async function getListeningPorts(): Promise<{ port: number; pid: number; 
   if (now - cachedPortsAt < PORT_CACHE_TTL) return cachedPorts;
 
   try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["/usr/sbin/lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "ignore" });
     const output = await new Response(proc.stdout).text();
     await proc.exited;
 
@@ -271,7 +271,7 @@ async function getProcTable(): Promise<Map<number, number[]>> {
   if (now - _procTableAt < PROC_TABLE_TTL && _childrenByPpid.size) return _childrenByPpid;
   const children = new Map<number, number[]>();
   try {
-    const proc = Bun.spawn(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["ps", "-axo", "pid=,ppid="], { stdout: "pipe", stderr: "ignore" });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     for (const line of text.split("\n")) {
@@ -472,7 +472,7 @@ function isNoiseCommand(cmd: string): boolean {
 /** Full argv of a pid (`ps -o command=`), for a readable label. Falls back to "". */
 async function getCommandForPid(pid: number): Promise<string> {
   try {
-    const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["ps", "-o", "command=", "-p", String(pid)], { stdout: "pipe", stderr: "ignore" });
     const out = (await new Response(proc.stdout).text()).trim();
     await proc.exited;
     return out.split("\n")[0] || "";
@@ -504,7 +504,7 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     let cur = 0;
