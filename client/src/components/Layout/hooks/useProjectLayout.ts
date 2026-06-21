@@ -291,7 +291,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // Forward-declared ref so the browser-navigate useEffect (mounted near the
   // top of this hook) can call `handleAddPaneToGroup`, which is itself
   // defined ~500 lines further down. Pure plumbing — no behavior on its own.
-  const handleAddPaneToGroupRef = useRef<((groupId: string, type: PaneType, subType?: string) => Promise<string | undefined>) | null>(null);
+  const handleAddPaneToGroupRef = useRef<((groupId: string, type: PaneType, subType?: string, paneKey?: string) => Promise<string | undefined>) | null>(null);
   // Pinned each render so the early-mounted browser-split effect can call the
   // latest handleSplitGroup (defined ~1200 lines below). Same pattern as
   // handleAddPaneToGroupRef.
@@ -457,7 +457,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // panel consumes it via `onNavigateConsumed`. If the broadcast races the
   // pane mount, the navigateUrl prop will be honoured on first render.
   useEffect(() => {
-    const ensureBrowserPaneAndNavigate = (url: string, targetGroupId?: string, spawnerKey?: string) => {
+    const ensureBrowserPaneAndNavigate = (url: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => {
       if (!url) return;
       // Default to the focused group (chat-driven navigation), but allow an
       // explicit target so a terminal-originated open lands beside the SAME
@@ -486,7 +486,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // of sitting hidden as a tab. The split effect below consumes this once
       // the pane is committed and picks side-by-side vs stacked by space.
       queueMicrotask(async () => {
-        const newId = await handleAddPaneToGroupRef.current?.(fgid, 'browser');
+        const newId = await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId);
         if (newId) {
           const ctx = getBrowserContextFromPaneId(newId);
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
@@ -510,7 +510,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     };
 
     const unsubWS = onWSMessage((msg: WSMessage) => {
-      const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string };
+      const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
       if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
         ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId);
       }
@@ -520,7 +520,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // key is the terminal pane id so its tab gets the "opened a browser" cue.
       if (m.type === 'browser:open-near-pane' && m.url && m.paneId) {
         const g = groupsRef.current.find(gr => gr.paneIds.includes(m.paneId!));
-        if (g) ensureBrowserPaneAndNavigate(m.url, g.id, m.paneId);
+        if (g) ensureBrowserPaneAndNavigate(m.url, g.id, m.paneId, m.contextId);
       }
     });
 
@@ -1200,7 +1200,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   }, [wrapperPaneId, focusedGroupIdRef, groupsRef]);
 
   const handleAddPaneToGroup = useCallback(
-    async (groupId: string, type: PaneType, subType?: string) => {
+    async (groupId: string, type: PaneType, subType?: string, paneKey?: string) => {
       const config = getPaneConfig(type);
       if (config.singleton) {
         const targetGroup = groups.find(g => g.id === groupId);
@@ -1236,7 +1236,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           return;
         }
       } else {
-        paneId = createPaneId(type);
+        // paneKey makes the id deterministic (browser panes use it so a
+        // terminal-originated open registers its CDP target under the same
+        // `term-<id>` the server's observe/act routes resolve to).
+        paneId = createPaneId(type, paneKey);
         paneTitle = config.label;
       }
 

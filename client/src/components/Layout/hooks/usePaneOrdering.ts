@@ -378,7 +378,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
         setOrderedIds(prev => {
           if (!prev.includes(msg.paneId)) return prev; // terminal not in this group
-          const { next, resolvedId } = browserSingletonReducer(prev);
+          // Pass the server-supplied deterministic contextId (`term-<id>`) so the
+          // pane registers its CDP target under the id the observe/act routes
+          // resolve to — that's what makes the terminal able to DRIVE the pane.
+          const { next, resolvedId } = browserSingletonReducer(prev, msg.contextId);
           if (resolvedId) {
             persistBrowserPane(resolvedId);
             queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
