@@ -2082,7 +2082,12 @@ ipcMain.handle('browser-native:navigate', async (
   _evt, viewId: string, url: string
 ): Promise<{ url: string; title: string }> => {
   const entry = nativeBrowsers.get(viewId);
-  if (!entry) throw new Error(`browser-native:navigate — view ${viewId} not found`);
+  // No-op (do NOT throw) for a missing view — same race as set-bounds below:
+  // the renderer (useNativeBrowser.ts) fires navigate/go-back/go-forward/reload
+  // without a .catch(), so a stale viewId after a destroy would surface as an
+  // unhandled promise rejection (and, like set-bounds, a thrown-IPC flood). The
+  // op is a no-op anyway once the view is gone, so return a benign shape.
+  if (!entry) return { url: '', title: '' };
   if (typeof url !== 'string' || !url) throw new Error('browser-native:navigate — url required');
   await entry.view.webContents.loadURL(url);
   return {
@@ -2093,7 +2098,7 @@ ipcMain.handle('browser-native:navigate', async (
 
 ipcMain.handle('browser-native:go-back', async (_evt, viewId: string): Promise<void> => {
   const entry = nativeBrowsers.get(viewId);
-  if (!entry) throw new Error(`browser-native:go-back — view ${viewId} not found`);
+  if (!entry) return;  // no-op on a stale viewId — see browser-native:navigate
   const nav = (entry.view.webContents as unknown as { navigationHistory?: { goBack(): void } }).navigationHistory;
   if (nav?.goBack) nav.goBack();
   else (entry.view.webContents as unknown as { goBack(): void }).goBack?.();
@@ -2101,7 +2106,7 @@ ipcMain.handle('browser-native:go-back', async (_evt, viewId: string): Promise<v
 
 ipcMain.handle('browser-native:go-forward', async (_evt, viewId: string): Promise<void> => {
   const entry = nativeBrowsers.get(viewId);
-  if (!entry) throw new Error(`browser-native:go-forward — view ${viewId} not found`);
+  if (!entry) return;  // no-op on a stale viewId — see browser-native:navigate
   const nav = (entry.view.webContents as unknown as { navigationHistory?: { goForward(): void } }).navigationHistory;
   if (nav?.goForward) nav.goForward();
   else (entry.view.webContents as unknown as { goForward(): void }).goForward?.();
@@ -2109,7 +2114,7 @@ ipcMain.handle('browser-native:go-forward', async (_evt, viewId: string): Promis
 
 ipcMain.handle('browser-native:reload', async (_evt, viewId: string): Promise<void> => {
   const entry = nativeBrowsers.get(viewId);
-  if (!entry) throw new Error(`browser-native:reload — view ${viewId} not found`);
+  if (!entry) return;  // no-op on a stale viewId — see browser-native:navigate
   entry.view.webContents.reload();
 });
 
