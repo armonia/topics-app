@@ -432,8 +432,22 @@ export async function evalOnPage(
   if (typeof repl === "function") {
     r = await repl.call(page, expression);
   } else {
-    const wrapped = `(async () => { ${expression} })()`;
-    r = await page.evaluate(wrapped);
+    // Web / Playwright fallback (no replMode available). page.evaluate(string)
+    // treats the string as an EXPRESSION, so a bare `document.title` already
+    // returns its value — try that first. Only if it's a SyntaxError (the code
+    // is statements, e.g. `const x = 1; x + 2`) wrap it in an async IIFE (which
+    // discards the completion value unless the caller wrote `return`). This
+    // keeps the {} → value fix even off the native CDP path.
+    try {
+      r = await page.evaluate(expression);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/SyntaxError|Illegal return|Unexpected (token|identifier|end)/i.test(msg)) {
+        r = await page.evaluate(`(async () => { ${expression} })()`);
+      } else {
+        throw err;
+      }
+    }
   }
   let result: unknown = r;
   if (typeof r === "string") {
