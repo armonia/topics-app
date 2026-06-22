@@ -305,6 +305,15 @@ export async function actByRefOnPage(
 ): Promise<void> {
   const loc = page.locator(`[data-topics-ref="${ref}"]`).first();
   const timeout = ACTION_TIMEOUT;
+  // Fail fast (and clearly) on a stale/unknown ref instead of waiting the full
+  // action timeout for an element that will never appear.
+  try {
+    await loc.waitFor({ state: "attached", timeout: 3000 });
+  } catch {
+    throw new Error(
+      `ref ${ref} not found on the page (stale snapshot? call browser_observe again, then act)`,
+    );
+  }
   switch (action) {
     case "click":
       await loc.click({ timeout });
