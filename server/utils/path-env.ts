@@ -11,6 +11,8 @@
  * `Bun.spawn` / `child_process.spawn`.
  */
 
+import { execFileSync } from "child_process";
+
 const HOME = process.env.HOME || "";
 
 // Order matters: earlier entries win. User-installed tools first, then
@@ -33,13 +35,54 @@ export const EXTRA_PATHS: string[] = [
 ];
 
 /**
- * Build an augmented PATH by prepending common dev tool locations to the
- * current process PATH. De-duplicates entries while preserving order.
+ * The user's REAL interactive PATH, captured by running their login shell.
+ *
+ * WHY: the hardcoded EXTRA_PATHS only cover the common fixed locations. Tools
+ * installed via a version manager (nvm / fnm / asdf / mise / volta shims) or any
+ * custom dir live wherever the user's `.zshrc`/`.zprofile` puts them — so a
+ * GUI-launched server (minimal PATH, no rc files) can't find them even though
+ * the user runs them fine in Terminal. This is exactly why a Topics "Claude" tab
+ * opened blank on a fresh download: `claude` was installed but not on any path we
+ * knew. We ask the login shell for its `$PATH` once (cached) and merge it in.
+ *
+ * Sentinels bracket the value so any noise a chatty `.zshrc` prints can't corrupt
+ * it. Best-effort: on timeout/error we fall back to EXTRA_PATHS only (prior
+ * behavior). Runs at most once per process.
+ */
+let _loginShellPath: string | undefined;
+export function loginShellPath(): string {
+  if (_loginShellPath !== undefined) return _loginShellPath;
+  let result = "";
+  if (process.platform !== "win32") {
+    try {
+      const shell = process.env.SHELL || "/bin/zsh";
+      // -l (login) + -i (interactive) so BOTH .zprofile and .zshrc are sourced —
+      // version managers usually export PATH from .zshrc (interactive only).
+      const out = String(
+        execFileSync(shell, ["-lic", 'printf "__TP__%s__TP__" "$PATH"'], {
+          timeout: 5000,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
+      );
+      const m = out.match(/__TP__([\s\S]*?)__TP__/);
+      if (m && m[1]) result = m[1].trim();
+    } catch {
+      /* shell missing / slow rc / non-zero exit — keep the EXTRA_PATHS fallback */
+    }
+  }
+  _loginShellPath = result;
+  return result;
+}
+
+/**
+ * Build an augmented PATH: common dev-tool locations + the user's real
+ * login-shell PATH + the current process PATH. De-dups, preserving order.
  */
 export function augmentPath(currentPath: string = process.env.PATH || ""): string {
   const seen = new Set<string>();
   const parts: string[] = [];
-  for (const p of [...EXTRA_PATHS, ...currentPath.split(":")]) {
+  for (const p of [...EXTRA_PATHS, ...loginShellPath().split(":"), ...currentPath.split(":")]) {
     if (!p || seen.has(p)) continue;
     seen.add(p);
     parts.push(p);
