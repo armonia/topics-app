@@ -978,16 +978,21 @@ let trayWS: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectDelay = 1000;
 let topicCacheTimer: ReturnType<typeof setInterval> | null = null;
+// Log hygiene: during an outage the bridge retries forever; without this it
+// logs connecting/error/disconnected on EVERY cycle (the .err file had 800+
+// such lines). Log the first failure of an outage once, then go quiet until
+// the next successful connect.
+let wsOutageLogged = false;
 
 function startWSBridge(): void {
   if (trayWS) return;
   const wsUrl = SERVER_URL.replace(/^http/, 'ws') + '/ws';
-  console.log('[Topics Electron] WS bridge connecting to', wsUrl);
+  if (!wsOutageLogged) console.log('[Topics Electron] WS bridge connecting to', wsUrl);
 
   try {
     trayWS = new WebSocket(wsUrl, { rejectUnauthorized: false });
   } catch (err: unknown) {
-    console.error('[Topics Electron] WS bridge connection error:', (err as Error).message);
+    if (!wsOutageLogged) { console.error('[Topics Electron] WS bridge connection error:', (err as Error).message); wsOutageLogged = true; }
     scheduleWSReconnect();
     return;
   }
@@ -995,6 +1000,7 @@ function startWSBridge(): void {
   trayWS.on('open', () => {
     console.log('[Topics Electron] WS bridge connected');
     wsReconnectDelay = 1000;
+    wsOutageLogged = false;
     fetchTopicCache();
     // Bootstrap Claude phase from the authoritative snapshot. session:state is
     // transition-only, so without this the tray would show no Claude status
@@ -1013,13 +1019,13 @@ function startWSBridge(): void {
   });
 
   trayWS.on('close', () => {
-    console.log('[Topics Electron] WS bridge disconnected');
+    if (!wsOutageLogged) { console.log('[Topics Electron] WS bridge disconnected'); wsOutageLogged = true; }
     trayWS = null;
     scheduleWSReconnect();
   });
 
   trayWS.on('error', (err) => {
-    console.error('[Topics Electron] WS bridge error:', err.message);
+    if (!wsOutageLogged) { console.error('[Topics Electron] WS bridge error:', err.message); wsOutageLogged = true; }
     if (trayWS) { try { trayWS.close(); } catch (_e) { /* ignore */ } }
     trayWS = null;
     scheduleWSReconnect();
