@@ -99,9 +99,17 @@ Napi::Value SetRegions(const Napi::CallbackInfo& info) {
       v.state = NSVisualEffectStateActive;
       v.autoresizingMask = NSViewNotSizable;
       v.wantsLayer = YES;
-      // Bottom of the hierarchy so the web content (and any WebContentsView
-      // browser panes) composite ON TOP — never covered by the blur.
+      // Pin the frost BEHIND the web content + any WebContentsView browser
+      // panes. Subview ORDER alone is NOT enough: Electron re-orders its managed
+      // child views (the main renderer content + each browser pane) whenever one
+      // is added/removed (e.g. opening a browser tab), which pushes these raw
+      // NSVisualEffectView subviews ABOVE the content — the frost then covers the
+      // panes and they look blank, even though the renderer keeps painting. A
+      // negative layer zPosition keeps the frost behind regardless of how the
+      // sibling subview array is later reordered. (addSubview positioned:Below is
+      // kept as the initial placement; zPosition is the durable guarantee.)
       [content addSubview:v positioned:NSWindowBelow relativeTo:nil];
+      v.layer.zPosition = -1.0;
     } else {
       v.frame = regions[i].frame;
       v.material = material;
