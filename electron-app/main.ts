@@ -3829,6 +3829,45 @@ function waitForServer(timeoutMs = 30_000): Promise<boolean> {
   });
 }
 
+/** Kill whatever process is LISTENING on `port`. Best-effort, cross-platform.
+ *  Used to clear a STALE Topics server left holding :3333 by a previous (crashed
+ *  or older-version) launch — the reuse guard runs first, so by the time we call
+ *  this nothing healthy answered on 127.0.0.1 and any port holder is stale. A
+ *  leftover server (esp. an old build bound "::" while we now bind 0.0.0.0)
+ *  otherwise makes Bun.serve EADDRINUSE and the app can never start. */
+async function killProcessOnPort(port: number): Promise<boolean> {
+  try {
+    const { execFile } = await import('child_process');
+    const run = (cmd: string, args: string[]) => new Promise<string>((resolve) => {
+      try {
+        execFile(cmd, args, { timeout: 5000 }, (_err, stdout) => resolve(stdout ? String(stdout) : ''));
+      } catch { resolve(''); }
+    });
+    let killedAny = false;
+    if (process.platform === 'win32') {
+      const out = await run('netstat', ['-ano', '-p', 'tcp']);
+      const pids = new Set<string>();
+      for (const line of out.split(/\r?\n/)) {
+        if (line.includes(`:${port}`) && /LISTENING/i.test(line)) {
+          const pid = line.trim().split(/\s+/).pop();
+          if (pid && pid !== '0') pids.add(pid);
+        }
+      }
+      for (const pid of pids) { await run('taskkill', ['/PID', pid, '/T', '/F']); killedAny = true; }
+    } else {
+      const out = await run('/usr/sbin/lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN']);
+      for (const pid of out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) {
+        try { process.kill(Number(pid), 'SIGKILL'); killedAny = true; } catch { /* gone already */ }
+      }
+    }
+    if (killedAny) {
+      console.log(`[Server] Cleared a stale process holding :${port}`);
+      await new Promise((r) => setTimeout(r, 600)); // let the port free up
+    }
+    return killedAny;
+  } catch { return false; }
+}
+
 async function startBundledServer(): Promise<void> {
   // Dev / external-server guard — only manage a server in a packaged build
   // with no externally-provided URL.
@@ -3851,6 +3890,13 @@ async function startBundledServer(): Promise<void> {
     });
     return;
   }
+
+  // Reaching here means the reuse guard found NO healthy server on 127.0.0.1, yet
+  // a previous (crashed or older-version) launch may still hold :3333 — which
+  // would make our Bun.serve EADDRINUSE and wedge startup forever. Clear any such
+  // stale listener before spawning so the app self-heals instead of requiring a
+  // reboot. (No-op when the port is free; in dev this whole function returns early.)
+  await killProcessOnPort(SERVER_PORT);
 
   // A freshly-DOWNLOADED unsigned app has the `com.apple.quarantine` xattr on
   // EVERY nested file, and macOS Gatekeeper SIGKILLs a quarantined executable
