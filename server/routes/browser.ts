@@ -9,6 +9,8 @@ import {
   handleBrowserGetText,
   handleBrowserEval,
   handleBrowserReadScreen,
+  handleBrowserSaveState,
+  handleBrowserLoadState,
   handleBrowserScreenshot,
   handleBrowserPoint,
 } from "../browser-tools-handler";
@@ -219,6 +221,37 @@ export function createBrowserRouter(
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[Routes/browser] /agent/eval failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentSaveStateMatch = matchRoute(pathname, "/api/browsers/:id/agent/save-state");
+    if (agentSaveStateMatch && method === "POST") {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { handle?: unknown };
+        const result = await handleBrowserSaveState(browserService, agentSaveStateMatch.id, {
+          handle: typeof body.handle === "string" ? body.handle : undefined,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/save-state failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentLoadStateMatch = matchRoute(pathname, "/api/browsers/:id/agent/load-state");
+    if (agentLoadStateMatch && method === "POST") {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { handle?: unknown; from_jarvis?: unknown };
+        const result = await handleBrowserLoadState(browserService, agentLoadStateMatch.id, {
+          handle: typeof body.handle === "string" ? body.handle : undefined,
+          from_jarvis: typeof body.from_jarvis === "boolean" ? body.from_jarvis : undefined,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/load-state failed:`, msg);
         return json({ error: msg }, 500);
       }
     }

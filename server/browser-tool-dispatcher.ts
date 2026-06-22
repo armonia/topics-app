@@ -18,6 +18,8 @@ import {
   handleBrowserGetText,
   handleBrowserEval,
   handleBrowserReadScreen,
+  handleBrowserSaveState,
+  handleBrowserLoadState,
   handleBrowserScreenshot,
   handleBrowserPoint,
   handleBrowserImportChrome,
@@ -98,6 +100,12 @@ export async function dispatchBrowserToolCallByContext(
     case "browser_read_screen":
       // Args validated by handler
       return handleBrowserReadScreen(browserService, contextId, args as { question?: string; full_page?: boolean });
+    case "browser_save_state":
+      // Args validated by handler
+      return handleBrowserSaveState(browserService, contextId, args as { handle?: string });
+    case "browser_load_state":
+      // Args validated by handler
+      return handleBrowserLoadState(browserService, contextId, args as { handle?: string; from_jarvis?: boolean });
     case "browser_screenshot":
       // Args validated by handler
       return handleBrowserScreenshot(browserService, contextId, args as { full_page?: boolean });

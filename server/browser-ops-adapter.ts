@@ -26,6 +26,11 @@ import {
   type RefAction,
   type ExtractFields,
 } from './browser-snapshot';
+import {
+  exportStateFromContext,
+  applyStateToPage,
+  type StorageState,
+} from './browser-login-state';
 
 export interface BrowserOps {
   navigate(url: string): Promise<{ url: string; title: string }>;
@@ -50,6 +55,12 @@ export interface BrowserOps {
   extractFields(fields: ExtractFields): Promise<Record<string, unknown>>;
   /** Run JS in the page sandbox (page context only). */
   evalExpression(expression: string): Promise<{ result: unknown }>;
+
+  // --- Login-state sharing (Jarvis-interop via Playwright storageState) ---
+  /** Export the live context's cookies + visited-origin localStorage. */
+  exportStorageState(): Promise<StorageState>;
+  /** Inject a saved storageState (cookies + localStorage) into the live pane. */
+  importStorageState(state: StorageState): Promise<{ cookies: number; origins: number }>;
 }
 
 /** Adapter wrapping BrowserService (Phase 30 path). */
@@ -75,6 +86,8 @@ export function playwrightOps(service: BrowserService, contextId: string): Brows
     getText: async (opts) => getTextOnPage(await page(), opts?.ref, opts?.max),
     extractFields: async (fields) => extractFieldsOnPage(await page(), fields),
     evalExpression: async (expression) => evalOnPage(await page(), expression),
+    exportStorageState: async () => exportStateFromContext((await service.getOrCreate(contextId)).context),
+    importStorageState: async (state) => applyStateToPage(await page(), state),
   };
 }
 
@@ -158,5 +171,7 @@ export function cdpOps(
     getText: async (opts) => getTextOnPage(await dispatcher.getPage(contextId), opts?.ref, opts?.max),
     extractFields: async (fields) => extractFieldsOnPage(await dispatcher.getPage(contextId), fields),
     evalExpression: async (expression) => evalOnPage(await dispatcher.getPage(contextId), expression),
+    exportStorageState: async () => exportStateFromContext((await dispatcher.getPage(contextId)).context()),
+    importStorageState: async (state) => applyStateToPage(await dispatcher.getPage(contextId), state),
   };
 }
