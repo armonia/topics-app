@@ -85,6 +85,19 @@ function requestBrowserSolo(paneId: string): void {
   } catch { /* SSR / no window — no-op */ }
 }
 
+/** Any browser pane already open at the app level (group:default), regardless of
+ *  which solo cell renders it. Browser panes always persist here via
+ *  persistBrowserPane, so this is the single source of truth for "is there
+ *  already a browser pane anywhere?" — see browserSingletonReducer case 2b. */
+function findGlobalBrowserPaneId(): string | null {
+  try {
+    const ids = usePaneStore.getState().groups['group:default']?.paneIds ?? [];
+    return ids.find(isBrowserPaneId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Singleton reducer shared by `ensureBrowserPane` op and the WS
  * browser:navigate listener. Keeps the swap/reuse/create logic DRY.
@@ -98,7 +111,7 @@ function browserSingletonReducer(
   if (targetId && prev.includes(targetId)) {
     return { next: prev, resolvedId: targetId };
   }
-  // 2. Any browser pane exists.
+  // 2. Any browser pane exists in THIS instance's ordered ids.
   const existing = prev.find(id => isBrowserPaneId(id));
   if (existing) {
     if (targetId) {
@@ -109,7 +122,19 @@ function browserSingletonReducer(
     }
     return { next: prev, resolvedId: existing };
   }
-  // 3. No browser pane → create one.
+  // 2b. A browser pane already exists ELSEWHERE in the app — e.g. one was solo'd
+  // into another cell, or this is a solo'd chat cell whose `prev` only holds its
+  // own topic. Each StandaloneChatGroup runs this reducer over its OWN `prev`,
+  // so without a global check two instances could each "create" and we'd get a
+  // duplicate browser pane (each createPaneId('browser') mints a fresh UUID).
+  // Reuse the existing one instead — mirrors the project path's
+  // `find(p => p.type === 'browser')`. Only for the non-contextId path; a
+  // contextId open is deterministic and already deduped by case 1.
+  if (!targetId) {
+    const globalBrowser = findGlobalBrowserPaneId();
+    if (globalBrowser) return { next: prev, resolvedId: globalBrowser };
+  }
+  // 3. No browser pane anywhere → create one.
   const newId = targetId ?? createPaneId('browser');
   return { next: [...prev, newId], resolvedId: newId };
 }
