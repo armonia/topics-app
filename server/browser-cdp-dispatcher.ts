@@ -75,6 +75,12 @@ export interface ElectronCdpDispatcher {
 export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispatcher {
   const targetMap = loadTargetMap(); // contextId -> cdpTargetId (persisted; survives server restart)
   let browser: PwBrowser | null = null;
+  // cdpTargetId -> Page resolution cache. findPageByTargetId opens+detaches a
+  // CDP session per page per lookup; getPage runs on EVERY observe/act (2 walks
+  // per act), so without this the agent pays an O(pages) CDP round-trip storm on
+  // the hot path. Keyed by the stable targetId (not contextId, so a re-registered
+  // target for the same contextId still resolves), with a per-page self-clean.
+  const pageCache = new Map<string, Page>();
 
   async function ensureBrowser(): Promise<PwBrowser> {
     if (browser && browser.isConnected()) return browser;
@@ -85,6 +91,7 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
     browser.on('disconnected', () => {
       if (browser && !browser.isConnected()) {
         browser = null;
+        pageCache.clear();
       }
     });
     return browser;
@@ -146,6 +153,11 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
           `Client must POST /api/browsers/:id/cdp-target first.`
         );
       }
+      // Fast path: a still-open page already resolved for this targetId.
+      const cached = pageCache.get(targetId);
+      if (cached && !cached.isClosed()) return cached;
+      if (cached) pageCache.delete(targetId);
+
       const b = await ensureBrowser();
       const page = await findPageByTargetId(b, targetId);
       if (!page) {
@@ -159,6 +171,12 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
           `(stale mapping dropped). Re-open the browser pane so it re-registers.`
         );
       }
+      // Memoize and self-invalidate when the page closes, so the walk runs once
+      // per pane lifetime instead of once per op.
+      pageCache.set(targetId, page);
+      page.once('close', () => {
+        if (pageCache.get(targetId) === page) pageCache.delete(targetId);
+      });
       return page;
     },
     async close() {
@@ -167,6 +185,7 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
       }
       browser = null;
       targetMap.clear();
+      pageCache.clear();
     },
   };
 }
