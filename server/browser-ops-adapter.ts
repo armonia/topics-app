@@ -8,6 +8,7 @@
  * `broadcastAgentActive` is excluded — it's a service-level concern (the
  * single registry) and stays a separate dep on the handler factory.
  */
+import type { Page } from 'playwright-core';
 import type { BrowserService } from './browser-service';
 import type { ElectronCdpDispatcher } from './browser-cdp-dispatcher';
 import type { IndexedElement } from './browser-tools';
@@ -15,22 +16,45 @@ import {
   extractIndexedElementsOnPage,
   captureAnnotatedScreenshotOnPage,
 } from './browser-dom-walker';
+import {
+  snapshotPage,
+  actByRefOnPage,
+  getTextOnPage,
+  extractFieldsOnPage,
+  evalOnPage,
+  type Snapshot,
+  type RefAction,
+  type ExtractFields,
+} from './browser-snapshot';
 
 export interface BrowserOps {
   navigate(url: string): Promise<{ url: string; title: string }>;
   screenshot(opts: { format?: 'jpeg' | 'png'; quality?: number; fullPage?: boolean }): Promise<Buffer>;
   dispatchInput(
-    type: 'click' | 'type' | 'scroll',
-    payload: { x?: number; y?: number; text?: string; deltaX?: number; deltaY?: number },
+    type: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
+    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number },
   ): Promise<void>;
   extractIndexedElements(opts: { maxElements?: number }): Promise<IndexedElement[]>;
   captureAnnotatedScreenshot(elements: IndexedElement[]): Promise<string>;
   accessibilitySnapshot(): Promise<{ url: string; title: string; ariaSnapshot: string }>;
   viewport(): { width: number; height: number };
+
+  // --- Ref-based parity surface (vendored Jarvis snapshot model) ---
+  /** Compact ref-based a11y snapshot; stamps `data-topics-ref` on the page. */
+  snapshot(opts?: { max?: number }): Promise<Snapshot>;
+  /** Act on the element carrying `data-topics-ref="ref"` from the latest snapshot. */
+  actByRef(ref: number, action: RefAction, payload?: { text?: string; value?: string; key?: string }): Promise<void>;
+  /** Read readable text — one element (by ref) or the whole page. */
+  getText(opts?: { ref?: number; max?: number }): Promise<{ text: string; truncated: boolean; length: number }>;
+  /** Deterministic CSS-selector scrape (0 LLM tokens). */
+  extractFields(fields: ExtractFields): Promise<Record<string, unknown>>;
+  /** Run JS in the page sandbox (page context only). */
+  evalExpression(expression: string): Promise<{ result: unknown }>;
 }
 
 /** Adapter wrapping BrowserService (Phase 30 path). */
 export function playwrightOps(service: BrowserService, contextId: string): BrowserOps {
+  const page = async (): Promise<Page> => (await service.getOrCreate(contextId)).page;
   return {
     navigate: (url) => service.navigate(contextId, url),
     screenshot: (opts) => service.screenshot(contextId, opts),
@@ -45,6 +69,12 @@ export function playwrightOps(service: BrowserService, contextId: string): Brows
       // viewport read via service.getOrCreate, so this is a safe default.
       return { width: 1280, height: 720 };
     },
+    // Ref-based parity surface — page-portable helpers run on the server page.
+    snapshot: async (opts) => snapshotPage(await page(), opts),
+    actByRef: async (ref, action, payload) => actByRefOnPage(await page(), ref, action, payload),
+    getText: async (opts) => getTextOnPage(await page(), opts?.ref, opts?.max),
+    extractFields: async (fields) => extractFieldsOnPage(await page(), fields),
+    evalExpression: async (expression) => evalOnPage(await page(), expression),
   };
 }
 
@@ -94,6 +124,10 @@ export function cdpOps(
         await page.keyboard.type(payload.text ?? '');
       } else if (type === 'scroll') {
         await page.mouse.wheel(payload.deltaX ?? 0, payload.deltaY ?? 0);
+      } else if (type === 'mousemove') {
+        await page.mouse.move(payload.x ?? 0, payload.y ?? 0);
+      } else if (type === 'keypress') {
+        await page.keyboard.press(payload.key ?? '');
       }
     },
     // Observe/extract now run on the REAL WebContentsView (the CDP-resolved
@@ -117,5 +151,12 @@ export function cdpOps(
       };
     },
     viewport: () => ({ width: 1280, height: 720 }), // Electron uses native size; renderer-bound
+    // Ref-based parity surface — same helpers, run on the REAL WebContentsView.
+    snapshot: async (opts) => snapshotPage(await dispatcher.getPage(contextId), opts),
+    actByRef: async (ref, action, payload) =>
+      actByRefOnPage(await dispatcher.getPage(contextId), ref, action, payload),
+    getText: async (opts) => getTextOnPage(await dispatcher.getPage(contextId), opts?.ref, opts?.max),
+    extractFields: async (fields) => extractFieldsOnPage(await dispatcher.getPage(contextId), fields),
+    evalExpression: async (expression) => evalOnPage(await dispatcher.getPage(contextId), expression),
   };
 }
