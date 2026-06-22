@@ -299,6 +299,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // latest handleSplitGroup (defined ~1200 lines below). Same pattern as
   // handleAddPaneToGroupRef.
   const handleSplitGroupRef = useRef<((sourceGroupId: string, paneId: string, targetGroupId: string, edge: 'left' | 'right' | 'top' | 'bottom', opts?: { fullRow?: boolean }) => void) | null>(null);
+  // Pinned each render so the early-mounted browser-navigate effect can call the
+  // latest updatePane (defined ~1800 lines below) to persist a project browser
+  // pane's URL deterministically at open. Same pattern as handleAddPaneToGroupRef.
+  const updatePaneRef = useRef<((paneId: string, updates: Partial<Pane>) => void) | null>(null);
   // A browser pane just added to a group, queued to be split OUT into its own
   // space-aware group beside the source (consumed by the effect below once the
   // pane is committed). Mirrors the standalone pendingSoloPanelId pattern.
@@ -471,6 +475,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // Reuse ANY existing browser in this project — refresh it in place rather
       // than spawning a second. A project shares one browser context across its
       // panes, so a duplicate would fight over the same Electron view.
+      // Persist the URL onto the project pane deterministically at open — the
+      // standalone path does this (usePaneOrdering persistBrowserPaneUrl) but the
+      // project path relied solely on the timing-fragile onUrlChange render, so a
+      // fast open could restore the tab to about:blank after a window restart.
+      // updatePane (not persistBrowserPaneUrl, which no-ops for non-store project
+      // panes) is the project-side persistence seam; round-trips via projectLayoutSync.
+      const seedPaneUrl = (paneId: string): void => {
+        if (url && url !== 'about:blank') updatePaneRef.current?.(paneId, { url });
+      };
+
       const existing = panesRef.current.find(p => p.type === 'browser');
       if (existing) {
         const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
@@ -480,6 +494,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         }
         const ctx = getBrowserContextFromPaneId(existing.id);
         if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
+        seedPaneUrl(existing.id);
         onBrowserNavigateUrl?.(url);
         return;
       }
@@ -493,6 +508,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         if (newId) {
           const ctx = getBrowserContextFromPaneId(newId);
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
+          seedPaneUrl(newId);
           setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
         }
       });
@@ -2131,6 +2147,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const updatePane = useCallback((paneId: string, updates: Partial<Pane>) => {
     setPanes(prev => prev.map(p => (p.id === paneId ? { ...p, ...updates } : p)));
   }, []);
+  updatePaneRef.current = updatePane;
 
   // Pin the latest reopenChatPane into the forward-declared ref so the
   // pendingFocusTopicId effect (mounted earlier in this hook) can invoke
