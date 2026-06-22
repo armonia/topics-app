@@ -29,7 +29,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     }
   });
 
-  test("browser_observe returns >=1 indexed element + base64 annotated screenshot [BROWSER-CHAT-03 / @plan-30-05]", async ({ request }) => {
+  test("browser_observe returns a compact ref snapshot (incremental) + opt-in annotated screenshot [BROWSER-CHAT-03 / @plan-30-05]", async ({ request }) => {
     const topic = await createTopic(request, `E2E-AgentObserve-${Date.now()}`);
     const ctxId = topic.id;
     try {
@@ -39,63 +39,62 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       });
       expect(openRes.ok()).toBe(true);
 
+      // Default observe: ref-based snapshot text, NO heavy screenshot.
       const obsRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/observe`, {
-        data: {},
+        data: { full: true },
         headers: { "Content-Type": "application/json" },
       });
       expect(obsRes.ok()).toBe(true);
-
-      // B2 FIX NOTE: server/browser-tools.ts:37 IndexedElement.bbox declares
-      // { x, y, width, height } at the type-export boundary, BUT the runtime
-      // shape rendered by browser-tools-handler / SelectElementOverlay uses
-      // {x, y, w, h}. Phase 30-05 plan says "bbox shape consistently {x,y,w,h}
-      // -- matches production contract". Be tolerant: accept either set of
-      // keys at the API boundary so tests don't lock the implementation
-      // into one shape until both surfaces converge.
       const obs = (await obsRes.json()) as {
-        elements?: Array<{
-          id: number;
-          role: string;
-          name: string;
-          bbox: { x: number; y: number; w?: number; h?: number; width?: number; height?: number };
-          text?: string;
-          tagName?: string;
-        }>;
-        screenshot_annotated?: string;
-        url?: string;
-        title?: string;
-        error?: string;
+        snapshot?: string; count?: number; full?: boolean;
+        url?: string; title?: string; screenshot_annotated?: string; error?: string;
       };
       expect(obs.error).toBeUndefined();
-      expect(Array.isArray(obs.elements)).toBe(true);
-      expect(obs.elements!.length).toBeGreaterThanOrEqual(1);
-
-      // First element shape check.
-      const first = obs.elements![0];
-      expect(typeof first.id).toBe("number");
-      expect(typeof first.role).toBe("string");
-      expect(typeof first.name).toBe("string");
-      expect(typeof first.bbox.x).toBe("number");
-      expect(typeof first.bbox.y).toBe("number");
-      // B2 FIX: prefer w/h; fall back to width/height for transitional period.
-      const w = first.bbox.w ?? first.bbox.width;
-      const h = first.bbox.h ?? first.bbox.height;
-      expect(typeof w).toBe("number");
-      expect(typeof h).toBe("number");
-      expect(w as number).toBeGreaterThanOrEqual(4); // 4x4 minimum per 30-03
-      expect(h as number).toBeGreaterThanOrEqual(4);
-
-      // Screenshot annotated: base64, decodes to non-empty buffer with JPEG/PNG magic.
-      expect(typeof obs.screenshot_annotated).toBe("string");
-      expect(obs.screenshot_annotated!.length).toBeGreaterThan(100);
-      const buf = Buffer.from(obs.screenshot_annotated!, "base64");
-      expect(buf.length).toBeGreaterThan(50);
-      // JPEG: 0xff 0xd8; PNG: 0x89 0x50.
-      expect([0xff, 0x89]).toContain(buf[0]);
-
+      expect(typeof obs.snapshot).toBe("string");
+      // Compact ref lines like `[1] link "..."`.
+      expect(obs.snapshot!).toMatch(/\[\d+\]\s+\w+/);
+      expect(obs.count!).toBeGreaterThanOrEqual(1);
+      expect(obs.full).toBe(true);
       expect(typeof obs.url).toBe("string");
       expect(obs.url!.length).toBeGreaterThan(0);
-      expect(typeof obs.title).toBe("string");
+      // Heavy annotated screenshot is OPT-IN — absent by default.
+      expect(obs.screenshot_annotated).toBeUndefined();
+
+      // Second observe (no full): incremental diff — stable structure costs ~0.
+      const obs2Res = await request.post(`${BASE}/api/browsers/${ctxId}/agent/observe`, {
+        data: {},
+        headers: { "Content-Type": "application/json" },
+      });
+      const obs2 = (await obs2Res.json()) as { snapshot?: string; full?: boolean };
+      expect(obs2.full).toBe(false);
+      expect(obs2.snapshot).toMatch(/no element changes|same structure|navigated/);
+
+      // Opt-in screenshot path still produces a base64 annotated JPEG/PNG.
+      const shotRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/observe`, {
+        data: { screenshot: true },
+        headers: { "Content-Type": "application/json" },
+      });
+      const shot = (await shotRes.json()) as { screenshot_annotated?: string };
+      expect(typeof shot.screenshot_annotated).toBe("string");
+      const buf = Buffer.from(shot.screenshot_annotated!, "base64");
+      expect(buf.length).toBeGreaterThan(50);
+      expect([0xff, 0x89]).toContain(buf[0]); // JPEG 0xff / PNG 0x89
+
+      // get_text reads page content.
+      const txtRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/get-text`, {
+        data: {}, headers: { "Content-Type": "application/json" },
+      });
+      const txt = (await txtRes.json()) as { text?: string };
+      expect(typeof txt.text).toBe("string");
+      expect(txt.text!.length).toBeGreaterThan(0);
+
+      // extract: deterministic CSS scrape.
+      const exRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/extract`, {
+        data: { fields: { heading: "h1" } }, headers: { "Content-Type": "application/json" },
+      });
+      const ex = (await exRes.json()) as { extracted?: { heading?: string }; error?: string };
+      expect(ex.error).toBeUndefined();
+      expect(typeof ex.extracted!.heading).toBe("string");
     } finally {
       await request.delete(`${BASE}/api/browsers/${ctxId}`).catch(() => {});
       await deleteTopic(request, ctxId).catch(() => {});
