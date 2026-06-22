@@ -59,6 +59,14 @@ export interface Pane {
   projectPath?: string;
   filePath?: string;
   terminalSessionId?: string;
+  /**
+   * Browser pane's last-visited URL. The browser tab's restorable state — the
+   * analogue of a chat pane's `topicId`. Persisted via the pane snapshot so the
+   * tab reopens to its page after a window restart (instead of about:blank).
+   * Updated (debounced) as the pane navigates; consumed as `initialUrl` on
+   * mount. Whitelisted in sanitizePane.
+   */
+  url?: string;
   // Legacy pane-shape fields — carried through sync so a round-trip through
   // the server doesn't silently erase tab metadata. Every field here must
   // also appear in sanitizePane's whitelist (reducers/sanitizeSnapshot.ts).
@@ -174,6 +182,12 @@ export type PaneAction =
       payload: { snapshot: Partial<PaneState> & { seq: number; server_seq?: number } };
     }
   | { type: 'PANE_ID_REMAP'; payload: { from: string; to: string; updates?: Partial<Pane> } }
+  /**
+   * Merge a partial update into an existing pane (no-op if the id is unknown).
+   * Used to persist a browser pane's `url` as it navigates so the tab restores
+   * to its page after a restart. Bumps lastSeq via the dispatch wrapper → syncs.
+   */
+  | { type: 'UPDATE_PANE'; payload: { id: string; updates: Partial<Pane> } }
   | { type: 'CLEAR_CLOSED_RECORD'; payload: { id: string } }
   | { type: 'CLEAR_CLOSED_STACK' }
   /**

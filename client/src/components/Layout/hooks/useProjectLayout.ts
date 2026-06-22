@@ -174,6 +174,9 @@ export interface UseProjectLayoutReturn {
     stopStreaming: (paneId: string) => void;
     paneSettings: (paneId: string) => void;
     panePopOut: (paneId: string) => void;
+    /** Merge a partial update into a project pane (change-gated by caller).
+     *  Used to persist a browser pane's `url` so the tab restores its page. */
+    updatePane: (paneId: string, updates: Partial<Pane>) => void;
     /** File-event handlers — also wired to window listeners internally. */
     openFile: (path: string) => void;
     openProcessLog: (processId: string, scriptName: string) => void;
@@ -2122,6 +2125,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     [groupsRef, focusedGroupIdRef, panesRef],
   );
 
+  // Merge a partial update into a project pane (e.g. persist a browser pane's
+  // url so it restores after restart). Change-gated by the caller; the new pane
+  // object round-trips through projectLayoutSync (full-state JSON).
+  const updatePane = useCallback((paneId: string, updates: Partial<Pane>) => {
+    setPanes(prev => prev.map(p => (p.id === paneId ? { ...p, ...updates } : p)));
+  }, []);
+
   // Pin the latest reopenChatPane into the forward-declared ref so the
   // pendingFocusTopicId effect (mounted earlier in this hook) can invoke
   // it without re-registering on every render. See the docstring on the
@@ -2164,6 +2174,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       stopStreaming: handleStopStreaming,
       paneSettings: handlePaneSettings,
       panePopOut: handlePanePopOut,
+      updatePane,
       openFile: handleOpenFile,
       openProcessLog: handleOpenProcessLog,
       openDiff: handleOpenDiff,

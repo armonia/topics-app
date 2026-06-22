@@ -58,6 +58,18 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       }
       break;
     }
+    case 'UPDATE_PANE': {
+      // Merge a partial update into an existing pane. No-op if unknown (the pane
+      // may live in a project layout / local state, not the global store). Never
+      // lets the merge change `id` or `type`.
+      const { id, updates } = action.payload;
+      const pane = state.panes[id];
+      if (!pane) break;
+      const { id: _ignoreId, type: _ignoreType, ...safe } = updates;
+      void _ignoreId; void _ignoreType;
+      state.panes[id] = { ...pane, ...safe };
+      break;
+    }
     case 'CLOSE_PANE': {
       const { id, groupId, groupIndex } = action.payload;
       const pane = state.panes[id];

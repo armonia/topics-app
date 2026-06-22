@@ -111,6 +111,9 @@ function sanitizePane(raw: unknown): Pane | null {
   if (typeof raw.projectPath === 'string') pane.projectPath = raw.projectPath;
   if (typeof raw.filePath === 'string') pane.filePath = raw.filePath;
   if (typeof raw.terminalSessionId === 'string') pane.terminalSessionId = raw.terminalSessionId;
+  // Browser pane restorable URL — must round-trip so the tab reopens to its
+  // page after restart (the browser analogue of chat's topicId).
+  if (typeof raw.url === 'string') pane.url = raw.url;
   if (typeof raw.diff === 'boolean') pane.diff = raw.diff;
   if (typeof raw.diffProjectPath === 'string') pane.diffProjectPath = raw.diffProjectPath;
   if (typeof raw.preview === 'boolean') pane.preview = raw.preview;

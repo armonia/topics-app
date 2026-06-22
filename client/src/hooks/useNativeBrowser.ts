@@ -51,6 +51,12 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
 
   const cleanupsRef = useRef<Array<() => void>>([]);
   const mountedRef = useRef(true);
+  // `initialUrl` is the page to open the view at on mount (e.g. a persisted
+  // pane URL restored after restart). It is MOUNT-ONLY: captured into a ref so
+  // later changes (the consumer persisting live url updates back onto the pane)
+  // do NOT re-run the create effect and recreate the WebContentsView. Live
+  // navigation flows through navigate()/navigateUrl, not this.
+  const initialUrlRef = useRef(initialUrl);
   // Navigation requested before the WebContentsView/viewId resolved. The
   // create() round-trip is async (it awaits first paint + CDP target
   // resolution), but a navigateUrl can arrive on the very first render —
@@ -72,10 +78,11 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
 
     let createdViewId: string | null = null;
     const partitionId = `persist:topic-${contextId}`;
+    const startUrl = initialUrlRef.current ?? 'about:blank';
 
     (async () => {
       try {
-        const result = await api.create({ topicId: contextId, partitionId, initialUrl: initialUrl ?? 'about:blank' });
+        const result = await api.create({ topicId: contextId, partitionId, initialUrl: startUrl });
         if (!mountedRef.current) {
           // Unmounted before create resolved — destroy now and bail.
           await api.destroy(result.viewId).catch(() => {});
@@ -113,7 +120,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
         const pending = pendingNavigateRef.current;
         if (pending) {
           pendingNavigateRef.current = null;
-          if (pending !== (initialUrl ?? 'about:blank')) {
+          if (pending !== startUrl) {
             api.navigate(result.viewId, pending).catch((err) => {
               console.warn('[useNativeBrowser] pending navigate failed:', err);
             });
@@ -155,7 +162,11 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
         fetch(`/api/browsers/${contextId}/cdp-target`, { method: 'DELETE' }).catch(() => {});
       }
     };
-  }, [contextId, initialUrl]);
+    // initialUrl intentionally NOT a dep — it's mount-only (initialUrlRef).
+    // Re-running on its change would destroy+recreate the view on every
+    // persisted url update. Live nav uses navigate()/navigateUrl.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextId]);
 
   // Subscribe to /ws/browser/:contextId for agent_active broadcast.
   // Uses the same protocol as Phase 30 — single source of truth for lock UX.
