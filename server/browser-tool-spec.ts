@@ -178,6 +178,33 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     surfaces: { passthrough: true, mcp: true },
   },
   {
+    name: "browser_save_state",
+    description:
+      "Export this pane's authenticated state (cookies + localStorage) under a handle — a PORTABLE login cache that browser_load_state and Jarvis can reuse. Save right after a login while still ON the site; pass extra `origins` for token-in-localStorage SPAs (Firebase/Supabase/Auth0).",
+    schema: {
+      type: "object",
+      properties: {
+        handle: { type: "string", description: "Name to store the login under (reusable here and by Jarvis)." },
+      },
+      required: ["handle"],
+    },
+    surfaces: { passthrough: true, mcp: true },
+  },
+  {
+    name: "browser_load_state",
+    description:
+      "Seed this pane from a saved login handle (injects cookies + localStorage, then returns to the page — now logged in). Reuse an existing local login cache without re-authenticating. Set from_jarvis:true to load a handle saved by a Jarvis browser session.",
+    schema: {
+      type: "object",
+      properties: {
+        handle: { type: "string", description: "A saved login handle to inject." },
+        from_jarvis: { type: "boolean", description: "Load from a Jarvis-saved state of this handle." },
+      },
+      required: ["handle"],
+    },
+    surfaces: { passthrough: true, mcp: true },
+  },
+  {
     name: "browser_point",
     description:
       "Vision fallback: locate an element by natural-language description (Moondream) and click it. Use ONLY when browser_observe returned too few elements (canvas, captcha, cross-origin iframe).",

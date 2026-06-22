@@ -33,6 +33,11 @@ import {
   type RefAction,
   type ExtractFields,
 } from "./browser-snapshot";
+import {
+  saveStateToStores,
+  loadStateFromStores,
+  safeHandle,
+} from "./browser-login-state";
 
 const observeCache = new Map<string, IndexedElement[]>();
 /** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
@@ -343,6 +348,70 @@ export async function handleBrowserExtract(
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { error: `browser_extract failed: ${msg}` };
+    }
+  });
+}
+
+export async function handleBrowserSaveState(
+  service: BrowserService,
+  contextId: string,
+  args: { handle?: string }
+): Promise<
+  | { ok: true; handle: string; cookies: number; origins: number; localStorageCaptured: boolean; warning?: string }
+  | { error: string }
+> {
+  if (typeof args?.handle !== "string" || !args.handle.trim()) {
+    throw new Error("browser_save_state: 'handle' (string) is required");
+  }
+  const handle = safeHandle(args.handle);
+  console.log(`[BrowserTools] browser_save_state(${contextId}, ${handle})`);
+  const ops = await resolveOps(service, contextId);
+  return withLock(service, contextId, async () => {
+    try {
+      const state = await ops.exportStorageState();
+      const { localStorageCaptured } = saveStateToStores(handle, state);
+      const out: { ok: true; handle: string; cookies: number; origins: number; localStorageCaptured: boolean; warning?: string } = {
+        ok: true,
+        handle,
+        cookies: state.cookies?.length ?? 0,
+        origins: state.origins?.length ?? 0,
+        localStorageCaptured,
+      };
+      if (!localStorageCaptured) {
+        out.warning =
+          "No localStorage captured — for token-in-localStorage logins (Firebase/Supabase/Auth0), save while ON the site so its origin is captured.";
+      }
+      return out;
+    } catch (err: unknown) {
+      return { error: `browser_save_state failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
+}
+
+export async function handleBrowserLoadState(
+  service: BrowserService,
+  contextId: string,
+  args: { handle?: string; from_jarvis?: boolean }
+): Promise<{ ok: true; handle: string; source: string; cookies: number; origins: number } | { error: string }> {
+  if (typeof args?.handle !== "string" || !args.handle.trim()) {
+    throw new Error("browser_load_state: 'handle' (string) is required");
+  }
+  const handle = safeHandle(args.handle);
+  const loaded = loadStateFromStores(handle, { fromJarvis: !!args.from_jarvis });
+  if (!loaded) {
+    return {
+      error: `browser_load_state: no saved state for handle "${handle}"${args.from_jarvis ? " in the Jarvis store" : ""}.`,
+    };
+  }
+  console.log(`[BrowserTools] browser_load_state(${contextId}, ${handle}, source=${loaded.source})`);
+  const ops = await resolveOps(service, contextId);
+  return withLock(service, contextId, async () => {
+    try {
+      const applied = await ops.importStorageState(loaded.state);
+      clearBrowserCaches(contextId); // page reloaded -> refs stale
+      return { ok: true as const, handle, source: loaded.source, cookies: applied.cookies, origins: applied.origins };
+    } catch (err: unknown) {
+      return { error: `browser_load_state failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   });
 }

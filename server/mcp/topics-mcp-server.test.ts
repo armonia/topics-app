@@ -218,6 +218,8 @@ describe("handleMessage", () => {
       "browser_screenshot",
       "browser_read_screen",
       "browser_eval",
+      "browser_save_state",
+      "browser_load_state",
       "run_script",
       "list_processes",
       "read_process_output",

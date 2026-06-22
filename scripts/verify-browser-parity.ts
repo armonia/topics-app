@@ -107,6 +107,38 @@ try {
   const actRes = await handleBrowserAct(svc, ctx, { action: "get_text" });
   check("act get_text via handler", typeof actRes.text === "string" && /Hello/.test(actRes.text!));
 
+  // 12. login-state round-trip on a REAL origin (local server → cookie+localStorage)
+  const srv = Bun.serve({
+    port: 0,
+    fetch: () =>
+      new Response("<!doctype html><title>Login</title><body>ok</body>", {
+        headers: { "content-type": "text/html", "set-cookie": "sid=ROUNDTRIP; Path=/" },
+      }),
+  });
+  try {
+    const origin = `http://127.0.0.1:${srv.port}`;
+    await ops.navigate(origin + "/");
+    await ops.evalExpression("localStorage.setItem('tok','LSVAL'); return true");
+    const exported = await ops.exportStorageState();
+    check("export captured cookie", exported.cookies.some((c) => c.name === "sid" && c.value === "ROUNDTRIP"),
+      `cookies=${JSON.stringify(exported.cookies)}`);
+    check("export captured localStorage origin",
+      exported.origins.some((o) => o.localStorage.some((l) => l.name === "tok" && l.value === "LSVAL")),
+      `origins=${JSON.stringify(exported.origins)}`);
+
+    // Fresh context, import the exported state, verify it lands.
+    const ctx2 = "verify-parity-2";
+    await svc.createContext(ctx2);
+    const ops2 = playwrightOps(svc, ctx2);
+    await ops2.navigate(origin + "/");
+    await ops2.importStorageState(exported);
+    const tok = await ops2.evalExpression("return localStorage.getItem('tok')");
+    check("import restored localStorage", (tok as { result?: unknown }).result === "LSVAL", `got: ${JSON.stringify(tok)}`);
+    await svc.destroyContext(ctx2).catch(() => {});
+  } finally {
+    srv.stop(true);
+  }
+
   void refOf;
 } finally {
   await svc.destroyContext(ctx).catch(() => {});
