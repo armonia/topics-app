@@ -3914,6 +3914,11 @@ async function startBundledServer(): Promise<void> {
       ...process.env,
       NODE_ENV: 'production',
       PORT: String(SERVER_PORT),
+      // Bind all IPv4 (incl. 127.0.0.1 + the LAN address) instead of the server's
+      // default "::". On some Bun/macOS combos "::" is effectively IPv6-only, so
+      // the app's 127.0.0.1 readiness probe + page load never reach it → the
+      // splash hangs and a relaunch hits EADDRINUSE against the live instance.
+      SERVER_HOST: '0.0.0.0',
       // Route ALL mutable state out of the read-only bundle (see server/lib/data-dir.ts).
       TOPICS_DATA_DIR: userDataDir,
       DATA_DIR: serverDataDir,

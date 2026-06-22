@@ -449,13 +449,20 @@ try {
 
 const server = Bun.serve<WSData>({
   port: PORT,
-  // Dual-stack bind. "::" with net.inet6.ip6.v6only=0 (macOS default) owns
-  // BOTH the IPv6 and the IPv4-mapped address families on PORT, so Topics
-  // occupies localhost on every resolution path. DO NOT revert to "0.0.0.0":
-  // that binds IPv4 only, leaving ::1:PORT free for a stray dev server to
-  // squat — and since macOS resolves `localhost` to ::1 first, clients then
-  // land on the squatter instead of Topics ("connecting forever" / blank app).
-  hostname: "::",
+  // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
+  // default) it owns BOTH the IPv6 and the IPv4-mapped families on PORT, so
+  // Topics occupies localhost on every resolution path — important on a DEV box
+  // where a stray server could otherwise squat ::1:PORT and clients using
+  // `localhost` (resolved to ::1 first) land on it ("connecting forever").
+  //
+  // BUT on some Bun/macOS combos a "::" bind is effectively IPv6-only, so a
+  // client connecting to 127.0.0.1 (which the packaged Electron app and its
+  // readiness probe deliberately use) cannot reach it → the app hangs on the
+  // splash and a relaunch hits EADDRINUSE against the still-running instance.
+  // The packaged launcher therefore sets SERVER_HOST="0.0.0.0" (all IPv4 incl.
+  // 127.0.0.1 and the LAN address for mobile/PWA access); IPv6 ::1 is unused by
+  // the app. Override via SERVER_HOST; default stays "::" so dev is unchanged.
+  hostname: process.env.SERVER_HOST || "::",
   reusePort: true,
   idleTimeout: 255,
   ...(useTls ? {
