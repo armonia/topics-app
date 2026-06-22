@@ -23,14 +23,23 @@ export function usePushNotifications() {
       return;
     }
 
-    // Check current state
+    // Check current state. Wrap in try/catch: if serviceWorker.ready or
+    // getSubscription() rejects, an unhandled rejection here would strand
+    // `state` at its initial "unsupported" and dead-end subscribe(). Fall back
+    // to "default" (not "unsupported") so a supported-but-init-failed
+    // environment can still attempt to subscribe.
     (async () => {
-      const permission = Notification.permission;
-      if (permission === "denied") { setState("denied"); return; }
+      try {
+        const permission = Notification.permission;
+        if (permission === "denied") { setState("denied"); return; }
 
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      setState(sub ? "subscribed" : permission === "granted" ? "granted" : "default");
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setState(sub ? "subscribed" : permission === "granted" ? "granted" : "default");
+      } catch (err) {
+        console.error("[Push] init state check failed:", err);
+        setState(Notification.permission === "denied" ? "denied" : "default");
+      }
     })();
   }, []);
 

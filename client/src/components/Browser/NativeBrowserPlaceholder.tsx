@@ -198,7 +198,8 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       // remove it shortly after).
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
-  }, [browser.viewId, browser.agentActive, dragging, isVisible, browser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: depend on the specific fields the effect reads (viewId/agentActive/setBounds — grep-verified the only browser.* uses), NOT the whole `browser` object. useNativeBrowser rebuilds that object every render, so depending on it re-ran this ResizeObserver/MutationObserver/rAF-poll/listener effect on EVERY render. setBounds is useCallback([viewId]) so its identity only changes with viewId (already a dep). The rule can't see the member coverage and asks for the parent object.
+  }, [browser.viewId, browser.agentActive, browser.setBounds, dragging, isVisible]);
 
   return (
     <div
