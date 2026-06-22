@@ -25,6 +25,17 @@
 @property (nonatomic, assign) NSInteger regionIndex;
 @end
 @implementation RegionVibrancyView
+// Decorative frost ONLY — must never be in the mouse hit-test path. We pin the
+// frost visually behind the web content with `layer.zPosition = -1`, but AppKit
+// hit-testing IGNORES zPosition and walks the SUBVIEW ARRAY order. Electron
+// reorders its managed child views (the renderer content + each WebContentsView
+// browser pane) whenever a pane is added/removed, which can push these views
+// ABOVE the content in the array. When that happens the frost keeps DRAWING
+// behind (so it's invisible) but starts SWALLOWING every physical click over its
+// rect — tabs, sidebar, panes all go dead — while CDP-injected clicks (which go
+// straight to the web contents, bypassing AppKit hit-testing) still work. Return
+// nil so this view is transparent to the cursor regardless of subview order.
+- (NSView *)hitTest:(NSPoint)point { return nil; }
 @end
 
 static NSView* ViewFromHandle(const Napi::Value& val) {
