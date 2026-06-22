@@ -32,6 +32,7 @@ import {
   topicsStatePath,
   jarvisStatePath,
   safeHandle,
+  jarvisSanitizeHandle,
   type StorageState,
 } from "./browser-login-state";
 
@@ -80,5 +81,35 @@ describe("login-state file store", () => {
 
   it("returns null for an unknown handle", () => {
     expect(loadStateFromStores("does-not-exist")).toBeNull();
+  });
+
+  // --- Jarvis interop parity (dot-bearing handles) -------------------------
+  // The whole point of the shared ~/.claude/jarvis/state/browser-states dir is
+  // that `jbrowser load-state <h>` finds a Topics-written state. Jarvis's daemon
+  // sanitize STRIPS dots (github.com -> github_com); Topics' safeHandle KEEPS
+  // them. The Jarvis-copy filename MUST use the Jarvis rule or interop silently
+  // breaks for the common case (logins are named after sites).
+  it("jarvisSanitizeHandle mirrors the Jarvis daemon rule (strips dots)", () => {
+    const ref = (s: string) =>
+      String(s || "default").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default";
+    for (const h of ["github.com", "app.example.com", "my.login", "weird name!", "a".repeat(80)]) {
+      expect(jarvisSanitizeHandle(h)).toBe(ref(h));
+      expect(jarvisSanitizeHandle(h)).not.toContain(".");
+    }
+  });
+
+  it("a dotted handle round-trips to Topics (dots kept) and Jarvis (dots stripped)", () => {
+    saveStateToStores("github.com", sample);
+    // Topics-local keeps the liberal name.
+    expect(topicsStatePath("github.com")).toContain("github.com.json");
+    expect(existsSync(topicsStatePath("github.com"))).toBe(true);
+    // Jarvis copy lands under the name jbrowser load-state will look for.
+    expect(jarvisStatePath("github.com")).toContain("github_com.json");
+    expect(jarvisStatePath("github.com")).not.toContain("github.com.json");
+    expect(existsSync(jarvisStatePath("github.com"))).toBe(true);
+    // from_jarvis (the jbrowser-equivalent path) resolves the same file.
+    const loaded = loadStateFromStores("github.com", { fromJarvis: true });
+    expect(loaded?.source).toBe("jarvis");
+    expect(loaded?.state.cookies[0].name).toBe("sid");
   });
 });

@@ -21,6 +21,7 @@ import {
   chmodSync,
 } from "node:fs";
 import type { Page, BrowserContext } from "playwright-core";
+import { resolveStateDir } from "./lib/data-dir";
 
 export interface StorageCookie {
   name: string;
@@ -48,10 +49,39 @@ export function safeHandle(handle: string): string {
   return h.slice(0, 128);
 }
 
+/**
+ * Sanitize a handle EXACTLY the way the Jarvis daemon does
+ * (`jarvis-browser/daemon.mjs`: `String(s||"default").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,64)`),
+ * so a handle written to the SHARED Jarvis store lands under the same filename
+ * `jbrowser load-state <handle>` will look for. Topics' own `safeHandle` keeps
+ * dots (so "github.com" → "github.com.json" locally), but Jarvis strips them
+ * ("github.com" → "github_com.json"). Using safeHandle for the Jarvis copy
+ * silently broke cross-tool reuse for site-named handles; this keeps the two
+ * sides byte-identical on the interop path. Mirror daemon.mjs verbatim.
+ */
+export function jarvisSanitizeHandle(handle: string): string {
+  return (
+    String(handle || "default")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 64) || "default"
+  );
+}
+
+/** True only for http/https origins — the schemes that carry web localStorage
+ *  and the only ones we'll auto-navigate to when applying a saved state. */
+function isHttpOrigin(url: string): boolean {
+  try {
+    const p = new URL(url).protocol.toLowerCase();
+    return p === "http:" || p === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function topicsStatesDir(): string {
   const base = process.env.DATA_DIR
     ? join(process.env.DATA_DIR, "browser-state")
-    : join(process.cwd(), "data", "browser-state");
+    : join(resolveStateDir(process.cwd()), "data", "browser-state");
   return join(base, "_handles");
 }
 
@@ -65,7 +95,10 @@ export function topicsStatePath(handle: string): string {
   return join(topicsStatesDir(), `${safeHandle(handle)}.json`);
 }
 export function jarvisStatePath(handle: string): string {
-  return join(jarvisStatesDir(), `${safeHandle(handle)}.json`);
+  // Validate for traversal via safeHandle, then map to the JARVIS filename so
+  // the shared store stays interoperable with `jbrowser load-state`.
+  safeHandle(handle);
+  return join(jarvisStatesDir(), `${jarvisSanitizeHandle(handle)}.json`);
 }
 
 /** Atomic, 0600 write of a storageState JSON (it holds decrypted cookies). */
@@ -132,6 +165,10 @@ export async function applyStateToPage(
   let originCount = 0;
   for (const o of state.origins ?? []) {
     if (!o.origin || !Array.isArray(o.localStorage) || !o.localStorage.length) continue;
+    // A storageState file is agent/peer-supplied data: never navigate to a
+    // non-web origin (e.g. a planted `file:///etc/passwd`) just to seed its
+    // localStorage. Only http(s) origins carry web localStorage anyway.
+    if (!isHttpOrigin(o.origin)) continue;
     try {
       await page.goto(o.origin, { waitUntil: "domcontentloaded", timeout: 20_000 });
       await page.evaluate((items: Array<{ name: string; value: string }>) => {
@@ -147,7 +184,7 @@ export async function applyStateToPage(
 
   // Return to where the pane was (now logged in), or reload if it was blank.
   try {
-    if (origUrl && !origUrl.startsWith("about:") && !origUrl.startsWith("data:")) {
+    if (origUrl && isHttpOrigin(origUrl)) {
       await page.goto(origUrl, { waitUntil: "domcontentloaded", timeout: 20_000 });
     } else {
       await page.reload().catch(() => {});
