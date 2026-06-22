@@ -173,6 +173,15 @@ describe("dispatchBrowserToolCall", () => {
     ).rejects.toThrow(/url.*required/i);
   });
 
+  test("browser_open rejects disallowed schemes (file://) for agent navigation", async () => {
+    const { service } = makeMockService();
+    const topic = makeTopic();
+
+    await expect(
+      dispatchBrowserToolCall("browser_open", { url: "file:///etc/passwd" }, topic, service)
+    ).rejects.toThrow(/scheme.*not allowed/i);
+  });
+
   test("agent_active broadcast still fires false when navigate throws", async () => {
     const { service, calls } = makeMockService({
       navigateImpl: async () => { throw new Error("network down"); },
