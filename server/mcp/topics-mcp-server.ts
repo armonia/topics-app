@@ -22,6 +22,10 @@
  * No external deps — keeps the spawn cold-start under 50ms.
  */
 import { createInterface } from "readline";
+import {
+  mcpBrowserTools,
+  BRIDGED_BROWSER_ENDPOINTS,
+} from "../browser-tool-spec";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -70,31 +74,10 @@ const TOOLS = [
       required: [],
     },
   },
-  {
-    name: "browser_observe",
-    description:
-      "Read the current Topics browser pane: returns its actionable elements (each with an integer id, role, name, bbox) + a11y tree + url/title, so you can then click/type with browser_act. Open/navigate the pane first with open_browser_pane. Use this to drive the user's own web apps in the pane (forms, buttons), not just navigate.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        max_elements: { type: "number", description: "Max indexed elements to return (default 50, range 1-100)." },
-      },
-    },
-  },
-  {
-    name: "browser_act",
-    description:
-      "Act on an element in the Topics browser pane by its id from the latest browser_observe: action 'click' | 'type' | 'select' (text required for type/select). Use to fill forms and click buttons in the user's web apps. Do NOT type passwords or other credentials — authentication (login/signup/2FA) is the user's step; for the user's own apps prefer a token/dev-login link instead.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        element_id: { type: "number", description: "id of the element from the latest browser_observe." },
-        action: { type: "string", enum: ["click", "type", "select"], description: "Interaction to perform." },
-        text: { type: "string", description: "Text to type / option to select (required for type/select)." },
-      },
-      required: ["element_id", "action"],
-    },
-  },
+  // Ref-based browser interaction/read tools — projected from the single source
+  // of truth (server/browser-tool-spec.ts) so MCP, passthrough, and REST stay
+  // in lockstep: observe, act, extract, get_text, screenshot, eval.
+  ...mcpBrowserTools(),
   {
     name: "run_script",
     description:
@@ -265,24 +248,20 @@ export async function callImportChrome(
   return JSON.stringify(body ?? {}, null, 2);
 }
 
-export async function callBrowserObserve(
+/**
+ * Generic bridge for the ref-based browser tools (observe/act/extract/get_text/
+ * screenshot/eval and, later, read_screen/save_state/load_state). Forwards the
+ * tool args verbatim to /api/sessions/:key/browser/:endpoint — the server-side
+ * handler validates. One function for all of them keeps the 3 surfaces in sync.
+ */
+export async function callBrowserBridge(
   args: ParsedArgs,
-  toolArgs: { max_elements?: unknown },
+  toolArgs: Record<string, unknown>,
+  endpoint: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  const max = typeof toolArgs?.max_elements === "number" ? toolArgs.max_elements : undefined;
-  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/observe`;
-  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { max_elements: max }, fetchImpl);
-  return JSON.stringify(body ?? {}, null, 2);
-}
-
-export async function callBrowserAct(
-  args: ParsedArgs,
-  toolArgs: { element_id?: unknown; action?: unknown; text?: unknown },
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
-  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/act`;
-  const body = await httpJson<Record<string, unknown>>(args, "POST", path, { element_id: toolArgs?.element_id, action: toolArgs?.action, text: toolArgs?.text }, fetchImpl);
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/${endpoint}`;
+  const body = await httpJson<Record<string, unknown>>(args, "POST", path, toolArgs, fetchImpl);
   return JSON.stringify(body ?? {}, null, 2);
 }
 
@@ -498,8 +477,6 @@ const TOOL_HANDLERS: Record<
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown }),
-  browser_observe: (a, t) => callBrowserObserve(a, t as { max_elements?: unknown }),
-  browser_act: (a, t) => callBrowserAct(a, t as { element_id?: unknown; action?: unknown; text?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),
@@ -508,6 +485,13 @@ const TOOL_HANDLERS: Record<
   update_task: (a, t) => callUpdateTask(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
 };
+
+// Register the ref-based browser tools (observe/act/extract/get_text/screenshot/
+// eval/…) generically from the single source of truth, so adding a browser tool
+// = one entry in browser-tool-spec.ts (no edit here).
+for (const [endpoint, toolName] of Object.entries(BRIDGED_BROWSER_ENDPOINTS)) {
+  TOOL_HANDLERS[toolName] = (a, t) => callBrowserBridge(a, t, endpoint);
+}
 
 export async function handleMessage(
   raw: JsonRpcRequest,

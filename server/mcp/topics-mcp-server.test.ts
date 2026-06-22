@@ -210,8 +210,13 @@ describe("handleMessage", () => {
     expect(names).toEqual([
       "open_browser_pane",
       "import_chrome",
+      // Ref-based browser tools — projected from browser-tool-spec.ts.
       "browser_observe",
       "browser_act",
+      "browser_extract",
+      "browser_get_text",
+      "browser_screenshot",
+      "browser_eval",
       "run_script",
       "list_processes",
       "read_process_output",

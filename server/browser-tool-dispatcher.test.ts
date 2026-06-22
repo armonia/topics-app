@@ -134,8 +134,10 @@ describe("dispatchBrowserToolCall", () => {
     expect(broadcasts[0].args).toEqual(["ctx-9", true]);
     expect(broadcasts[1].args).toEqual(["ctx-9", false]);
 
-    // Expected: handler returns the navigate result verbatim.
-    expect(result).toEqual({ url: "https://example.com/final", title: "Example Domain" });
+    // Expected: handler returns the navigate result + a best-effort snapshot
+    // (empty here — the mock service has no real page to snapshot).
+    expect(result).toMatchObject({ url: "https://example.com/final", title: "Example Domain" });
+    expect((result as { snapshot?: unknown }).snapshot).toBe("");
   });
 
   test("browser_open uses topic.id when browserState absent", async () => {
