@@ -31,18 +31,22 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
     if (!isElectron || !api) return;
 
     let frozen = false;
-    let rafId = 0;
     let lastKey = '';
+
+    const topLevelCards = (): HTMLElement[] =>
+      // Top-level panels only (skip cards nested inside a project panel).
+      Array.from(document.querySelectorAll<HTMLElement>('[data-split-card]'))
+        .filter((el) => !(el.parentElement && el.parentElement.closest('[data-split-card]')));
+    const sidebarEl = (): HTMLElement | null =>
+      document.querySelector<HTMLElement>('[role="navigation"][aria-label="Topics sidebar"]');
 
     const collect = (): Array<{ x: number; y: number; w: number; h: number; radius: number }> => {
       if (!floatingSplits) {
         // One full-window region → frost the whole chrome (vibrancy parity).
         return [{ x: 0, y: 0, w: window.innerWidth, h: window.innerHeight, radius: 0 }];
       }
-      // Top-level panels only (skip cards nested inside a project panel) + sidebar.
-      const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-split-card]'))
-        .filter((el) => !(el.parentElement && el.parentElement.closest('[data-split-card]')));
-      const sidebar = document.querySelector<HTMLElement>('[role="navigation"][aria-label="Topics sidebar"]');
+      const cards = topLevelCards();
+      const sidebar = sidebarEl();
       const els = sidebar ? [sidebar, ...cards] : cards;
       return els
         .map((el) => {
@@ -52,18 +56,44 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
         .filter((r) => r.w > 1 && r.h > 1);
     };
 
+    // Re-point the ResizeObserver at the CURRENT top-level cards + sidebar. A
+    // RO fires precisely when one of those boxes changes size (divider settle,
+    // sidebar collapse, window resize) — so we no longer need to watch attribute
+    // mutations across the whole tree to notice geometry changes.
+    const ro = new ResizeObserver(() => schedule());
+    let observed: Element[] = [];
+    const retarget = () => {
+      const sidebar = sidebarEl();
+      const next: Element[] = [document.body, ...(sidebar ? [sidebar] : []), ...topLevelCards()];
+      if (next.length === observed.length && next.every((el, i) => el === observed[i])) return;
+      ro.disconnect();
+      next.forEach((el) => ro.observe(el));
+      observed = next;
+    };
+
     const push = () => {
       if (frozen) return;
+      retarget();
       const rects = collect();
       const key = JSON.stringify(rects);
       if (key === lastKey) return; // dedupe — don't spam IPC when nothing moved
       lastKey = key;
       api.setRegions(rects);
     };
+
+    // Coalesce every passive layout signal into AT MOST one collect() per window.
+    // The previous rAF-per-mutation drove a forced-reflow getBoundingClientRect
+    // sweep every frame; with 9 DOM-rendered terminals + chat streaming mutating
+    // the tree thousands of times a second, that pegged the main thread. Now a
+    // mutation storm can drive no more than ~1 reflow read per SETTLE_MS.
+    const SETTLE_MS = 120;
+    let settle = 0;
     const schedule = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(push);
+      if (frozen || settle) return; // already pending → coalesce, do no work
+      settle = window.setTimeout(() => { settle = 0; push(); }, SETTLE_MS);
     };
+    // Bypass the debounce for end-of-gesture snaps so the frost lands instantly.
+    const flush = () => { if (settle) { clearTimeout(settle); settle = 0; } push(); };
 
     // Divider resize: the panes resize live (direct DOM width mutation), so we
     // TRACK the frost live too — a per-frame loop re-reads the panel rects and
@@ -78,17 +108,21 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
       liveRaf = requestAnimationFrame(liveLoop);
     };
     const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop); };
-    const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; schedule(); };
+    const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; flush(); };
 
     // Free-form tab drag is bigger/laggier than a divider drag — freeze it (the
     // frost holds, then snaps on drop) rather than chase it frame-by-frame.
     const freeze = () => { frozen = true; };
-    const unfreeze = () => { frozen = false; lastKey = ''; setTimeout(schedule, 60); };
+    const unfreeze = () => { frozen = false; lastKey = ''; setTimeout(flush, 60); };
 
-    const ro = new ResizeObserver(schedule);
-    ro.observe(document.body);
-    const mo = new MutationObserver(schedule);
-    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+    // No MutationObserver: observing body's subtree (even childList-only) forces
+    // the engine to QUEUE a MutationRecord for every node a streaming terminal
+    // adds/removes — thousands per second — which costs real main-thread time
+    // regardless of how cheap our callback is. We don't need it: when a top-level
+    // card is opened/closed its siblings reflow to make room, so the per-card
+    // ResizeObserver already fires and `push()` re-targets onto the new set. The
+    // 700ms safety poll below backstops any structural change that resized nothing.
+    retarget();
 
     window.addEventListener('resize', schedule);
     window.addEventListener('topics:pane-resize-start', startLive);
@@ -103,7 +137,6 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
 
     return () => {
       ro.disconnect();
-      mo.disconnect();
       window.removeEventListener('resize', schedule);
       window.removeEventListener('topics:pane-resize-start', startLive);
       window.removeEventListener('topics:pane-resize-end', stopLive);
@@ -111,7 +144,7 @@ export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean
       document.removeEventListener('dragend', unfreeze, true);
       document.removeEventListener('drop', unfreeze, true);
       window.clearInterval(poll);
-      cancelAnimationFrame(rafId);
+      if (settle) clearTimeout(settle);
       cancelAnimationFrame(liveRaf);
       api.clear();
     };

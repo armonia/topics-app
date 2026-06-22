@@ -1012,15 +1012,35 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .animate-grid-lit { animation: grid-lit 1.1s linear infinite; }
 
-/* Electric-blue "awaiting feedback" tab/row — a gentle brightness breathe so a
- * session parked waiting for the user reads as "alive, expecting you". Pulses
- * `filter: brightness` (NOT opacity) so it works on the SOLID electric-blue
- * background without fading the white label underneath, and never reflows. */
+/* Electric-blue "awaiting feedback" tab/row — a gentle breathe so a session
+ * parked waiting for the user reads as "alive, expecting you".
+ *
+ * Implementation: a white overlay pseudo-element whose OPACITY breathes, rather
+ * than a `filter: brightness` on the element itself. Both look like a brightness
+ * pulse on the solid electric-blue fill (white light added on top → the white
+ * label stays white, nothing fades or reflows) — but `filter` is NOT a
+ * compositor-animatable property here, so the old version drove a main-thread
+ * style-recalc + repaint on EVERY frame for EVERY parked session (measured ~one
+ * RecalcStyle per frame per element; with many sessions parked it capped the
+ * whole app's frame rate). An `opacity` animation on a promoted layer runs
+ * entirely on the compositor thread → zero per-frame main-thread cost. The hosts
+ * are already `position: relative; overflow: hidden`, so the overlay anchors and
+ * clips to the rounded corners for free. */
 @keyframes awaiting-pulse {
-  0%, 100% { filter: brightness(1); }
-  50%      { filter: brightness(1.16); }
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 0.14; }
 }
-.animate-awaiting-pulse { animation: awaiting-pulse 1.8s ease-in-out infinite; }
+.animate-awaiting-pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: awaiting-pulse 1.8s ease-in-out infinite;
+  will-change: opacity;
+}
 
 /* Material easing curves as CSS custom properties so components can opt in
  * without re-deriving them. */
