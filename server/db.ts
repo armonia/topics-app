@@ -8,10 +8,12 @@ let _db: Database | null = null;
  * Initialize SQLite database with WAL mode and run pending migrations.
  * Returns a singleton Database instance.
  */
-export function initDatabase(baseDir: string): Database {
+export function initDatabase(baseDir: string, dataRoot: string = baseDir): Database {
   if (_db) return _db;
 
-  const dataDir = process.env.DATA_DIR || join(baseDir, "data");
+  // DB file lives under the WRITABLE dataRoot (STATE_DIR); migrations are read
+  // from baseDir (the bundle) below. In dev dataRoot === baseDir (unchanged).
+  const dataDir = process.env.DATA_DIR || join(dataRoot, "data");
   mkdirSync(dataDir, { recursive: true });
 
   const dbPath = join(dataDir, "topics.db");

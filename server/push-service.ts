@@ -2,6 +2,7 @@ import webpush from "web-push";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { getDatabase } from "./db";
+import { resolveStateDir } from "./lib/data-dir";
 
 interface VapidKeys {
   publicKey: string;
@@ -13,7 +14,10 @@ let vapidKeys: VapidKeys | null = null;
 export function initVapid(): VapidKeys {
   if (vapidKeys) return vapidKeys;
 
-  const keysPath = join(import.meta.dir, "vapid-keys.json");
+  // Written on first run when absent → must go to a writable dir, not the
+  // read-only app bundle (the file is gitignored and NOT staged, so a fresh
+  // download always hits the generate+write path).
+  const keysPath = join(resolveStateDir(import.meta.dir), "vapid-keys.json");
 
   if (existsSync(keysPath)) {
     vapidKeys = JSON.parse(readFileSync(keysPath, "utf-8"));

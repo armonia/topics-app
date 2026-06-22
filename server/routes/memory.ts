@@ -24,7 +24,7 @@ function releaseLock(filepath: string) {
 
 export function createMemoryRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll } = ctx;
-  const MEMORY_DIR = join(ctx.BASE_DIR, "memory");
+  const MEMORY_DIR = join(ctx.STATE_DIR, "memory");
   mkdirSync(MEMORY_DIR, { recursive: true });
 
   function getMemoryPath(topicId: string): string {

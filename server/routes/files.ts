@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSy
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
+import { resolveStateDir } from "../lib/data-dir";
 
 // ── Git status server-side cache (5s TTL, invalidated by git-watcher) ──
 const GIT_STATUS_CACHE_TTL = 5000;
@@ -39,7 +40,7 @@ let BACKUPS_DIR = "";
 
 function getBackupsDir(): string {
   if (!BACKUPS_DIR) {
-    BACKUPS_DIR = join(process.cwd(), ".backups");
+    BACKUPS_DIR = join(resolveStateDir(process.cwd()), ".backups");
     mkdirSync(BACKUPS_DIR, { recursive: true });
   }
   return BACKUPS_DIR;

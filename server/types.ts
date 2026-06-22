@@ -338,6 +338,10 @@ export interface AppContext {
   SESSIONS_DIR: string;
   MESSAGES_DIR: string;
   BASE_DIR: string;
+  /** Writable root for mutable state. Equals BASE_DIR in dev / under the prod
+   *  LaunchAgent; in a packaged app it is a writable per-user dir because
+   *  BASE_DIR (inside the read-only .app bundle) cannot be written. */
+  STATE_DIR: string;
 
   // State
   activeStreams: Map<string, ActiveStream>;
