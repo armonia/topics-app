@@ -32,6 +32,7 @@ import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTyp
 import { usePaneStore } from '../../../state/pane/store';
 import { openPane } from '../../../state/pane/actions';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
+import { persistBrowserPaneUrl } from '../../../state/pane/browserPaneUrl';
 
 /**
  * Phase 30.1 polish — persist a browser pane in the global pane store so
@@ -359,6 +360,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           if (resolvedId) {
             queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
             persistBrowserPane(resolvedId);
+            // Persist the URL onto the pane NOW (deterministic) so the tab
+            // restores to its page after reload — the onUrlChange render path is
+            // timing-fragile on a fresh open. The pane exists post-persist.
+            persistBrowserPaneUrl(resolvedId, navigateUrl);
             // Record spawner relationship: chat → browser. Lets the chat
             // header surface a jump-to-browser button and the browser
             // toolbar surface a jump-back-to-chat button.
@@ -384,6 +389,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           const { next, resolvedId } = browserSingletonReducer(prev, msg.contextId);
           if (resolvedId) {
             persistBrowserPane(resolvedId);
+            persistBrowserPaneUrl(resolvedId, navigateUrl);
             queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
             // Spawner key = the terminal pane id, so its tab gets the
             // "opened a browser" cue (same registry as chat-driven opens).
@@ -413,6 +419,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         if (resolvedId) {
           queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
           persistBrowserPane(resolvedId);
+          persistBrowserPaneUrl(resolvedId, navigateUrl);
           const ctx = getBrowserContextFromPaneId(resolvedId);
           if (ctx && ce.detail?.topicId) setBrowserSpawner(ctx, ce.detail.topicId);
         }
