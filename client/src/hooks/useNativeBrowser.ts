@@ -144,23 +144,18 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
       }
     })();
 
-    // Phase 30.1 polish — beforeunload listener fires the destroy IPC
-    // synchronously when the user navigates / refreshes / closes the tab,
-    // BEFORE React has a chance to run its async cleanup. Combined with
-    // the main-process did-finish-load orphan sweep, this prevents
-    // WebContentsView leaks on hot-reload.
-    const onBeforeUnload = () => {
-      if (createdViewId && api) {
-        // sendBeacon-style — fire and forget; main may not finish before unload
-        // but the orphan sweep on next render's did-finish-load is the safety net.
-        try { api.destroy(createdViewId); } catch { /* ignore */ }
-      }
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
+    // NOTE: intentionally NO `beforeunload` destroy. A window reload (Cmd+R /
+    // Vite HMR / dev-server restart) must KEEP this native WebContentsView alive
+    // so the tab restores its page after the refresh and the agent's CDP
+    // targetId stays valid (no stale-target 500s). The view is a child
+    // WebContents and survives the renderer reload on its own; the main process
+    // hides it during the reload and re-claims it when this hook remounts
+    // (create()-reuse by topicId), destroying it only if it's never re-claimed
+    // (deferred reclaim sweep). A genuine tab close still destroys the view via
+    // the React unmount cleanup below.
 
     return () => {
       mountedRef.current = false;
-      window.removeEventListener('beforeunload', onBeforeUnload);
       for (const fn of cleanupsRef.current) {
         try { fn(); } catch { /* ignore */ }
       }

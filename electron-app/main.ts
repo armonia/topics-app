@@ -237,11 +237,50 @@ interface NativeBrowserEntry {
   // navigation (eval setting window.location, a redirect, window.open) to
   // file:// is blocked. Cleared/overwritten on each explicit navigate.
   trustedNavUrl?: string;
+  // True while a renderer reload is in flight: the view is kept alive (so its
+  // page + CDP targetId survive the refresh) but marked as "must be re-claimed".
+  // The remounting pane's create() reuse clears it; the deferred reclaim sweep
+  // destroys any view still awaiting re-claim after the grace window (= the pane
+  // was genuinely gone before the reload, so it would otherwise leak).
+  awaitingReclaim?: boolean;
   // Cleanup on destroy.
   cleanup: () => void;
 }
 
 const nativeBrowsers = new Map<string, NativeBrowserEntry>();
+
+// Reclaim sweep — see the did-finish-load handler in createWindow(). A renderer
+// reload (Cmd+R / Vite HMR / dev-server restart) tears down the React tree but
+// NOT the native WebContentsViews (they're independent child WebContents). We
+// deliberately KEEP them so the page + CDP targetId survive the refresh (a tab
+// must restore like a chat tab, and the agent's cdpTargetId must stay valid).
+// Each surviving view is marked awaitingReclaim; the remounting pane re-claims
+// it via create()-reuse (same topicId). Whatever is still unclaimed after the
+// grace window was a genuinely-closed pane → destroy it so it can't leak.
+const RECLAIM_GRACE_MS = 6000;
+let reclaimSweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+function hideAllNativeViews(): void {
+  for (const entry of nativeBrowsers.values()) {
+    try { entry.view.setBounds({ x: 0, y: 0, width: 0, height: 0 }); } catch { /* ignore */ }
+  }
+}
+
+function scheduleReclaimSweep(): void {
+  for (const entry of nativeBrowsers.values()) entry.awaitingReclaim = true;
+  if (reclaimSweepTimer) clearTimeout(reclaimSweepTimer);
+  reclaimSweepTimer = setTimeout(() => {
+    reclaimSweepTimer = null;
+    for (const [viewId, entry] of Array.from(nativeBrowsers)) {
+      if (entry.awaitingReclaim) {
+        console.log(`[BrowserNativeManager] reclaim grace elapsed — destroying unclaimed view ${viewId} (topic ${entry.topicId})`);
+        try { actuallyDestroyNativeBrowser(viewId); } catch (err) {
+          console.error(`[BrowserNativeManager] reclaim-sweep destroy failed for ${viewId}:`, err);
+        }
+      }
+    }
+  }, RECLAIM_GRACE_MS);
+}
 
 // Phase 30.1 polish — pending destroy timers keyed by viewId. Used to
 // implement a grace period: the renderer's destroy IPC schedules a
@@ -811,14 +850,25 @@ function createWindow(): void {
   };
   void connectWhenReady();
 
-  // Phase 30.1 polish — destroy orphan native browsers on renderer reload.
-  // When the React app hot-reloads (Vite HMR, Cmd+R, dev server restart),
-  // the React tree unmounts but the WebContentsView attached to mainWindow
-  // stays alive (no IPC destroy fires in time), causing it to occupy
-  // viewport space without a controlling React component. The renderer
-  // then re-mounts the hook with a NEW viewId, so the old view becomes
-  // orphan + visible. Solution: on every did-finish-load AFTER the first
-  // (= renderer reloaded), destroy all currently-tracked native views.
+  // Browser tabs must survive a renderer reload (Cmd+R / Vite HMR / dev-server
+  // restart) exactly like chat tabs do — keeping their loaded page AND their CDP
+  // targetId (so the agent's browser_* tools don't go stale). The native
+  // WebContentsViews are independent child WebContents: they naturally outlive a
+  // mainWindow reload. The OLD behaviour destroyed them all on the post-reload
+  // did-finish-load, which (a) closed/blanked the user's browser tab and (b)
+  // forced a new targetId every refresh → the persisted CDP map went stale and
+  // every browser_* returned HTTP 500 until the pane was re-opened.
+  //
+  // New model:
+  //   - did-start-navigation (main frame) → HIDE every native view so none
+  //     floats over the loading renderer during the reload.
+  //   - did-finish-load (after first) → schedule a deferred reclaim sweep. The
+  //     remounting panes re-claim their views via create()-reuse (same topicId,
+  //     clears awaitingReclaim); whatever stays unclaimed past the grace window
+  //     was a genuinely-closed pane and is destroyed then (no leak).
+  mainWindow.webContents.on('did-start-navigation', (_e, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame && nativeBrowsers.size > 0) hideAllNativeViews();
+  });
   let firstLoadHandled = false;
   mainWindow.webContents.on('did-finish-load', () => {
     if (!firstLoadHandled) {
@@ -826,13 +876,9 @@ function createWindow(): void {
       return;
     }
     if (nativeBrowsers.size > 0) {
-      console.log(`[BrowserNativeManager] Renderer reloaded — destroying ${nativeBrowsers.size} orphan view(s)`);
-      const orphanIds = Array.from(nativeBrowsers.keys());
-      for (const viewId of orphanIds) {
-        try { destroyNativeBrowser(viewId); } catch (err) {
-          console.error(`[BrowserNativeManager] orphan destroy failed for ${viewId}:`, err);
-        }
-      }
+      console.log(`[BrowserNativeManager] Renderer reloaded — keeping ${nativeBrowsers.size} view(s) alive for re-claim (grace ${RECLAIM_GRACE_MS}ms)`);
+      hideAllNativeViews();
+      scheduleReclaimSweep();
     }
   });
 
@@ -1977,6 +2023,9 @@ ipcMain.handle('browser-native:create', async (
         clearTimeout(pending);
         pendingDestroys.delete(existingViewId);
       }
+      // Re-claim across a renderer reload: this remount owns the view, so it must
+      // NOT be swept by the deferred reclaim sweep (did-finish-load handler).
+      existingEntry.awaitingReclaim = false;
       const cdpTargetId = await resolveCdpTargetIdForView(existingEntry.view).catch(() => '');
       console.log(`[BrowserNativeManager] Reusing existing view ${existingViewId} for topic ${opts.topicId}`);
       return { viewId: existingViewId, cdpTargetId };
