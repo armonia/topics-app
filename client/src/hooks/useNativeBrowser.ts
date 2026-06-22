@@ -214,6 +214,13 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   const navigate = useCallback(async (target: string) => {
     const api = window.electronAPI?.browserNative;
     if (!api) return;
+    // Idempotent: don't reload if the view is ALREADY at this URL. A re-open
+    // (agents/terminals re-fire open_browser_pane each turn → a repeated
+    // navigateUrl prop) would otherwise reload the page every time — resetting
+    // the SPA route / in-page state and looking like the pane keeps restarting.
+    // (The toolbar's reload button / reload() still force an explicit refresh.)
+    const norm = (u: string) => (u || '').replace(/#.*$/, '').replace(/\/+$/, '');
+    if (viewId && norm(target) === norm(url)) return;
     if (!viewId) {
       // View not ready yet — buffer; the create() effect flushes on resolve.
       // Last write wins (a newer URL supersedes an older pending one).
@@ -221,7 +228,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
       return;
     }
     await api.navigate(viewId, target);
-  }, [viewId]);
+  }, [viewId, url]);
 
   const goBack = useCallback(async () => {
     const api = window.electronAPI?.browserNative;
