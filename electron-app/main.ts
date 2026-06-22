@@ -269,6 +269,28 @@ function hideAllNativeViews(): void {
   }
 }
 
+// Self-register a view's CDP targetId with the server, MAIN-side, on create /
+// reuse — decoupled from the renderer heartbeat. If a view is (re)created while
+// its React pane is unmounted or the renderer is throttled, the server's
+// contextId→targetId map self-heals immediately instead of holding a stale entry
+// (the "cdpTargetId no longer resolves" 500) until the renderer remounts. The
+// renderer still POSTs the same registration on mount + heartbeat; this is
+// idempotent (registerTarget skips the disk write when unchanged). Fire-and-forget.
+function registerCdpTargetWithServer(contextId: string, cdpTargetId: string): void {
+  if (!contextId || !cdpTargetId) return;
+  try {
+    const payload = JSON.stringify({ cdpTargetId });
+    // Same path shape the renderer uses (single-segment :id); term-<uuid> and
+    // chat contextIds have no slash, so plain interpolation matches the route.
+    const reqObj = serverRequest(`/api/browsers/${contextId}/cdp-target`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    });
+    reqObj.on('error', () => { /* best-effort self-heal */ });
+    reqObj.end(payload);
+  } catch { /* best-effort */ }
+}
+
 /** Give every live view a fresh grace window (used at reload start so the
  *  reload gap — during which the renderer sends no pings — can't reap a tab
  *  that is about to remount and resume pinging). */
@@ -280,6 +302,14 @@ function touchAllNativeViews(): void {
 function ensureKeepaliveReaper(): void {
   if (keepaliveReaper) return;
   keepaliveReaper = setInterval(() => {
+    // Only reap while the window is genuinely VISIBLE. When it's hidden or
+    // minimized the renderer's heartbeat may be paused/throttled, so an absent
+    // ping means "window not visible", NOT "tab closed" — reaping then would
+    // destroy a still-open pane (the about:blank/lost-storage bug). With the
+    // window visible, a mounted pane pings every 5s, so a >grace silence is a
+    // genuine close. (backgroundThrottling:false already keeps pings flowing
+    // while hidden; this is belt-and-suspenders.)
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || mainWindow.isMinimized()) return;
     const now = Date.now();
     for (const [viewId, entry] of Array.from(nativeBrowsers)) {
       if (pendingDestroys.has(viewId)) continue; // already on its way out
@@ -684,6 +714,15 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       webviewTag: true,
+      // Keep the renderer's timers running when the window is hidden/minimized.
+      // The native-browser keepalive heartbeat (useNativeBrowser.ts) is a
+      // renderer setInterval; Chromium THROTTLES background timers when the
+      // window isn't visible (and Cmd+Q hides the window rather than quitting),
+      // which stalled the ping and let the main-process reaper destroy a still-
+      // open browser pane — so it reopened at about:blank and its localStorage
+      // (per partition+origin, never lost from disk) became unreachable. One
+      // tiny IPC every 5s is a negligible cost for keeping the pane durable.
+      backgroundThrottling: false,
     },
     show: false,
   });
@@ -719,6 +758,14 @@ function createWindow(): void {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setWindowButtonVisibility(false);
     });
   }
+
+  // When the window is revealed again (un-hidden / un-minimized / focused),
+  // grant every native browser view a fresh keepalive grace so the reaper can't
+  // collect one in the brief gap before the renderer's heartbeat resumes pinging.
+  const onWindowRevealed = () => touchAllNativeViews();
+  mainWindow.on('show', onWindowRevealed);
+  mainWindow.on('restore', onWindowRevealed);
+  mainWindow.on('focus', onWindowRevealed);
 
   // Intercept navigation: allow localhost, open external URLs in system browser
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -2045,6 +2092,7 @@ ipcMain.handle('browser-native:create', async (
       ensureKeepaliveReaper();
       const cdpTargetId = await resolveCdpTargetIdForView(existingEntry.view).catch(() => '');
       console.log(`[BrowserNativeManager] Reusing existing view ${existingViewId} for topic ${opts.topicId}`);
+      registerCdpTargetWithServer(opts.topicId, cdpTargetId);
       return { viewId: existingViewId, cdpTargetId };
     }
   }
@@ -2200,6 +2248,10 @@ ipcMain.handle('browser-native:create', async (
     cdpTargetId = '';
   }
 
+  // Self-heal the server map immediately (main-side), independent of the
+  // renderer's mount/heartbeat — so a view (re)created while its pane is
+  // unmounted/throttled is still resolvable by the agent's browser_* tools.
+  registerCdpTargetWithServer(opts.topicId, cdpTargetId);
   return { viewId, cdpTargetId };
 });
 
