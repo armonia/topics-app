@@ -425,6 +425,12 @@ const browserNavigateSchema = z.object({
   type: z.literal('browser:navigate'),
   topicId: z.string(),
   url: z.string(),
+  // Browser-pane contextId the client must register the native CDP target under
+  // (== resolveContextIdForTopic(topic), i.e. topic.id). Without it the chat pane
+  // registered under a random id that never matched the agent's contextId, so
+  // every browser_* tool fell back to an invisible Playwright phantom. Optional
+  // for back-compat with older clients/messages — omit, never send null.
+  contextId: z.string().optional(),
 }).passthrough();
 
 const clearSchema = z.object({

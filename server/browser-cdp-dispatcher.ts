@@ -64,6 +64,16 @@ export interface ElectronCdpDispatcher {
   registerTarget(contextId: string, cdpTargetId: string): void;
   /** Look up registered target. Returns null if not registered. */
   getTargetId(contextId: string): string | null;
+  /**
+   * True once a contextId has registered a native WebContentsView at least once
+   * and has not been deliberately closed. Lets resolveOps refuse the invisible
+   * Playwright fallback for a context that owns a native pane — instead of
+   * silently driving a phantom browser the user never sees, it waits for the
+   * target to (re)appear or fails loud. Lifecycle-tied, in-memory only (does NOT
+   * persist across server restart — a stale post-restart targetId self-cleans in
+   * getPage, and the renderer re-registers on the next pane mount).
+   */
+  isNativeBound(contextId: string): boolean;
   /** Forget a mapping (called on view destroy). */
   unregisterTarget(contextId: string): void;
   /** Resolve a Page for a contextId, lazily connecting + finding by targetId. */
@@ -74,6 +84,12 @@ export interface ElectronCdpDispatcher {
 
 export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispatcher {
   const targetMap = loadTargetMap(); // contextId -> cdpTargetId (persisted; survives server restart)
+  // Contexts that have registered a native WebContentsView this process lifetime
+  // and not been deliberately closed. In-memory ONLY: a server restart starts it
+  // empty so a stale persisted targetId can't keep a context "native-forever"
+  // before the renderer re-registers (the persisted targetMap self-cleans on the
+  // first failed getPage anyway).
+  const nativeBound = new Set<string>();
   let browser: PwBrowser | null = null;
   // cdpTargetId -> Page resolution cache. findPageByTargetId opens+detaches a
   // CDP session per page per lookup; getPage runs on EVERY observe/act (2 walks
@@ -137,12 +153,17 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
         throw new Error('registerTarget: cdpTargetId is required');
       }
       targetMap.set(contextId, cdpTargetId);
+      nativeBound.add(contextId);
       saveTargetMap(targetMap);
     },
     getTargetId(contextId) {
       return targetMap.get(contextId) ?? null;
     },
+    isNativeBound(contextId) {
+      return nativeBound.has(contextId);
+    },
     unregisterTarget(contextId) {
+      nativeBound.delete(contextId);
       if (targetMap.delete(contextId)) saveTargetMap(targetMap);
     },
     async getPage(contextId) {
@@ -185,6 +206,7 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
       }
       browser = null;
       targetMap.clear();
+      nativeBound.clear();
       pageCache.clear();
     },
   };

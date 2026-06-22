@@ -12,7 +12,9 @@ import { createChatRouter } from "./chat";
 // which imports it from this module — keeps working unchanged.
 export { computeCleanBroadcastDelta } from "./stream-markers";
 import type { BrowserService } from "../browser-service";
-import { dispatchBrowserToolCall, dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { awaitNativeCdpTarget } from "../browser-tools-handler";
+import { isElectronCdpAvailable } from "../electron-cdp-probe";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
@@ -545,7 +547,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (projectDir) browserUrl = `http://localhost:${process.env.PORT || 3333}/preview${join(projectDir, browserUrl)}`;
       }
       console.log(`[Browser] Auto-navigate via marker: ${browserUrl}`);
-      broadcastToAll({ type: "browser:navigate", topicId: topic.id, url: browserUrl });
+      broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: resolveContextIdForTopic(topic), url: browserUrl });
       browserNavigatedTopics.add(topic.id);
       return content.replace(/\{\{BROWSER:.*?\}\}/g, '');
     }
@@ -562,7 +564,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (port !== appPort && port >= 3000 && port <= 65535) {
           const browserUrl = localhostMatch[0].startsWith("http") ? localhostMatch[0] : `http://${localhostMatch[0]}`;
           console.log(`[Browser] Auto-navigate via localhost detection: ${browserUrl}`);
-          broadcastToAll({ type: "browser:navigate", topicId: topic.id, url: browserUrl });
+          broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: resolveContextIdForTopic(topic), url: browserUrl });
           browserNavigatedTopics.add(topic.id);
         }
       }
@@ -1345,7 +1347,28 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             // the pane's CDP target under the SAME id the observe/act routes
             // resolve to — that's what lets a terminal drive the pane, not just
             // open it.
-            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: `term-${term.id}`, url });
+            const ctxId = `term-${term.id}`;
+            // 1. Broadcast first → the client opens the near-terminal pane under
+            //    ctxId and seeds it with `url` (initialUrl), registering the
+            //    native CDP target.
+            broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url });
+            // 2. In Electron, wait for that native target then navigate THAT view
+            //    over CDP — deterministic + idempotent, so observe/act/eval read
+            //    the same WebContentsView instead of an invisible Playwright
+            //    phantom (the about:blank / lost-state bug). No-op in web mode
+            //    (awaitNativeCdpTarget returns null) → keep the legacy ack, the
+            //    client's RemoteBrowserPanel drives the load.
+            try {
+              const targetId = await awaitNativeCdpTarget(ctxId, 5000);
+              if (targetId) {
+                const result = await dispatchBrowserToolCallByContext(
+                  "browser_open", { url }, ctxId, browserService,
+                ) as { url?: string; title?: string; error?: string };
+                if (!result?.error) {
+                  return json({ url: typeof result?.url === "string" ? result.url : url, title: result?.title ?? "" });
+                }
+              }
+            } catch { /* fall through to the basic ack — the client still navigates */ }
             return json({ url, title: "" });
           }
         }
@@ -1355,17 +1378,44 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const url = typeof body?.url === "string" ? body.url : "";
         if (!url) return json({ error: "url (string) is required" }, 400);
 
+        const ctxId = resolveContextIdForTopic(topic);
+        // 1. Broadcast FIRST (carrying contextId) so the client mounts/seeds the
+        //    native pane under the SAME id the agent's browser_* tools resolve to.
+        //    Previously this dispatched browser_open BEFORE the pane existed, so it
+        //    navigated an invisible Playwright phantom while the visible pane stayed
+        //    on about:blank — the reported bug. Also fixes the contextId-key
+        //    mismatch: the chat pane used to register under a random id.
+        broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url });
+        browserNavigatedTopics.add(topic.id);
         try {
-          const result = await dispatchBrowserToolCall(
+          // 2. Wait for the native view's CDP target (Electron) then navigate THAT
+          //    view over CDP — idempotent with the client's own initialUrl load and
+          //    essential for re-navigating an already-open pane to a new URL.
+          const targetId = await awaitNativeCdpTarget(ctxId, 5000);
+          // Dispatch browser_open ONLY when it lands on a real, user-visible pane:
+          //   - targetId present  → Electron native view (CDP), or
+          //   - web mode          → the Playwright context the streamed pane mirrors.
+          // In Electron with no native target (the pane isn't open in any window),
+          // do NOT dispatch — that would navigate an invisible Playwright phantom the
+          // user never sees (the original bug). The broadcast already drives the
+          // visible pane wherever it is; just acknowledge.
+          const electronUp = await isElectronCdpAvailable();
+          if (!targetId && electronUp) {
+            return json({ url, title: "" });
+          }
+          const result = await dispatchBrowserToolCallByContext(
             "browser_open",
             { url },
-            topic,
+            ctxId,
             browserService,
           ) as { url?: string; title?: string; error?: string };
           if (result?.error) return json({ error: result.error }, 502);
           const resolvedUrl = typeof result?.url === "string" ? result.url : url;
-          broadcastToAll({ type: "browser:navigate", topicId: topic.id, url: resolvedUrl });
-          browserNavigatedTopics.add(topic.id);
+          // Re-broadcast only if the navigation redirected, so the visible pane
+          // tracks the final URL too.
+          if (resolvedUrl !== url) {
+            broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url: resolvedUrl });
+          }
           return json({ url: resolvedUrl, title: result?.title ?? "" });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);

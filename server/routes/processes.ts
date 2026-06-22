@@ -3,6 +3,7 @@ import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
+import { getTerminalSessionById } from "./terminal";
 
 interface ScriptProcess {
   processId: string;
@@ -742,10 +743,20 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
   /** Resolve a sessionKey to its topic's working directory, or an error Response. */
   function resolveSessionCwd(sessionKey: string): { path: string } | { error: Response } {
     const topic = ctx.getTopicBySessionKey(sessionKey);
-    if (!topic) return { error: json({ error: "No topic bound to this session" }, 404) };
-    const path = ctx.resolveTopicCwd(topic);
-    if (!path) return { error: json({ error: "This topic has no project directory — bind it to a project first" }, 400) };
-    return { path };
+    if (topic) {
+      const path = ctx.resolveTopicCwd(topic);
+      if (!path) return { error: json({ error: "This topic has no project directory — bind it to a project first" }, 400) };
+      return { path };
+    }
+    // Terminal-driven: a Claude Code *terminal* tab spawns its MCP bridge with the
+    // terminal session id as the sessionKey (see writeMcpConfigForSession), which
+    // matches no chat topic. Mirror the open-pane fallback (topics.ts) and resolve
+    // the terminal's own working directory, so list_processes / run_script /
+    // read_process_output / stop_process work from a terminal too instead of 404ing
+    // "No topic bound to this session".
+    const term = getTerminalSessionById(sessionKey);
+    if (term?.cwd) return { path: term.cwd };
+    return { error: json({ error: "No topic bound to this session" }, 404) };
   }
 
   const getScript = (id: string): ScriptProcess | undefined =>

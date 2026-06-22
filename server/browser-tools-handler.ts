@@ -51,13 +51,53 @@ export function setBrowserCdpDispatcher(d: ElectronCdpDispatcher | null): void {
 }
 
 /**
+ * Wait (bounded poll) for a native WebContentsView's CDP target to be registered
+ * for `contextId`. Returns the targetId once available, or null on timeout / when
+ * not in Electron-host mode. No-op fast path in pure web mode (no dispatcher or
+ * CDP unavailable). Used both by resolveOps (between-turns re-registration race)
+ * and by the open-pane route (first-open mount race) so open_browser_pane can
+ * deterministically navigate the SAME native view the agent's tools drive.
+ */
+export async function awaitNativeCdpTarget(
+  contextId: string,
+  timeoutMs = 3000,
+): Promise<string | null> {
+  if (!cdpDispatcher) return null;
+  if (!(await isElectronCdpAvailable())) return null;
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  let targetId = cdpDispatcher.getTargetId(contextId);
+  while (!targetId && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    targetId = cdpDispatcher.getTargetId(contextId);
+  }
+  return targetId;
+}
+
+/**
  * Resolve the right BrowserOps adapter for a contextId.
  * - Electron CDP up + cdpTargetId registered for this contextId -> CDP path
- * - Otherwise -> existing Playwright path (zero regressions in web mode)
+ * - Electron CDP up + context is native-bound but its target is momentarily
+ *   unresolved (renderer remount / first-open mount race) -> WAIT briefly for it,
+ *   and if it still doesn't appear, FAIL LOUD rather than silently driving an
+ *   invisible Playwright phantom (a different browser, no auth) the user never
+ *   sees. That silent fallback was the root cause of the "open_browser_pane shows
+ *   about:blank / state resets between turns" bug.
+ * - Pure web mode (no dispatcher / CDP down) OR a context that never owned a
+ *   native pane -> existing Playwright path (zero regressions in web mode).
  */
 async function resolveOps(service: BrowserService, contextId: string): Promise<BrowserOps> {
-  if (cdpDispatcher && (await isElectronCdpAvailable()) && cdpDispatcher.getTargetId(contextId)) {
-    return cdpOps(cdpDispatcher, contextId, service);
+  if (cdpDispatcher && (await isElectronCdpAvailable())) {
+    let targetId = cdpDispatcher.getTargetId(contextId);
+    if (!targetId && cdpDispatcher.isNativeBound(contextId)) {
+      targetId = await awaitNativeCdpTarget(contextId, 3000);
+    }
+    if (targetId) return cdpOps(cdpDispatcher, contextId, service);
+    if (cdpDispatcher.isNativeBound(contextId)) {
+      throw new Error(
+        "native browser pane not ready (still mounting or reopening) — retry shortly, " +
+          "or call open_browser_pane to (re)open it",
+      );
+    }
   }
   return playwrightOps(service, contextId);
 }
