@@ -786,8 +786,16 @@ export interface WSScriptsUpdatedMessage {
 /** Browser pane navigation broadcast. */
 export interface WSBrowserNavigateMessage {
   type: 'browser:navigate';
-  contextId: string;
+  /** Topic that asked to surface the URL (membership guard + spawner tracking). */
+  topicId: string;
   url: string;
+  /**
+   * Browser-pane contextId the pane must register its native CDP target under
+   * (== resolveContextIdForTopic(topic) === topic.id). Lets the agent's
+   * browser_observe/act/eval resolve the SAME native view the pane drives,
+   * instead of an invisible Playwright phantom. Absent → legacy random id.
+   */
+  contextId?: string;
 }
 /**
  * Open a browser pane in the same layout group as a specific pane, then

@@ -29,7 +29,7 @@ import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
-import { dispatchBrowserToolCall } from "../browser-tool-dispatcher";
+import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
 import {
   adaptEnvelope,
@@ -1026,7 +1026,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                         ? (result as any).url as string
                         : urlArg;
                       if (resolvedUrl) {
-                        broadcastToAll({ type: "browser:navigate", topicId: matchedTopic.id, url: resolvedUrl });
+                        // contextId so the visible pane registers under the SAME id
+                        // the SDK browser_* tools resolve to (resolveContextIdForTopic),
+                        // not a random one → no invisible Playwright phantom.
+                        broadcastToAll({ type: "browser:navigate", topicId: matchedTopic.id, contextId: resolveContextIdForTopic(matchedTopic), url: resolvedUrl });
                         browserNavigatedTopics.add(matchedTopic.id);
                       }
                     }

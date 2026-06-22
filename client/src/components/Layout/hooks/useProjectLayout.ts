@@ -531,7 +531,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     const unsubWS = onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
       if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
-        ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId);
+        // Bind the pane to the server-resolved contextId (== topic.id) so the
+        // native CDP target registers under the id the agent's browser_* tools
+        // resolve to (no invisible Playwright phantom). Falls back to topicId
+        // (the chat-topic contextId) when the broadcast predates the field.
+        ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
       }
       // Terminal-originated open: only the project window whose layout actually
       // contains the terminal pane reacts; it opens the browser beside that
@@ -546,7 +550,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     const domHandler = (e: Event) => {
       const detail = (e as CustomEvent<{ topicId?: string; url?: string }>).detail;
       if (detail?.url && topicBelongsToThisProject(detail.topicId)) {
-        ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId);
+        // chat-topic contextId === topicId (resolveContextIdForTopic).
+        ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId, detail.topicId);
       }
     };
     window.addEventListener('browser:open-and-navigate', domHandler);

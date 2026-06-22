@@ -91,17 +91,30 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
         createdViewId = result.viewId;
         setViewId(result.viewId);
 
-        // Register cdpTargetId server-side so agent CDP dispatcher can find this view.
-        if (result.cdpTargetId) {
+        // Register cdpTargetId server-side so the agent CDP dispatcher resolves
+        // THIS native view (not an invisible Playwright phantom). create() resolves
+        // the targetId after first paint, but if it came back empty (e.g. the view
+        // was still on about:blank when /json/list was queried) re-resolve via the
+        // dedicated IPC a few times — without a landed registration every browser_*
+        // tool for this context silently falls back to Playwright (the about:blank /
+        // lost-state bug).
+        let cdpTargetId = result.cdpTargetId;
+        for (let i = 0; !cdpTargetId && i < 10 && mountedRef.current; i++) {
+          await new Promise((r) => setTimeout(r, 150));
+          cdpTargetId = await api.getCdpTargetId(result.viewId).catch(() => '');
+        }
+        if (cdpTargetId) {
           try {
             await fetch(`/api/browsers/${contextId}/cdp-target`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cdpTargetId: result.cdpTargetId }),
+              body: JSON.stringify({ cdpTargetId }),
             });
           } catch (err) {
             console.warn('[useNativeBrowser] cdp-target register failed:', err);
           }
+        } else {
+          console.warn('[useNativeBrowser] could not resolve cdpTargetId — agent browser tools will report this pane as not ready until it re-registers');
         }
 
         // Wire url/title/loading/favicon streams.
@@ -158,8 +171,15 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
         // is synchronous from the renderer's perspective (fire-and-forget IPC).
         try { api.setBounds(createdViewId, { x: 0, y: 0, width: 0, height: 0 }); } catch { /* ignore */ }
         api.destroy(createdViewId).catch(() => {});
-        // Best-effort unregister CDP target server-side.
-        fetch(`/api/browsers/${contextId}/cdp-target`, { method: 'DELETE' }).catch(() => {});
+        // NOTE: intentionally NOT unregistering the CDP target here. React unmounts
+        // this hook on tab-switch / DnD / StrictMode churn while the native view
+        // SURVIVES (Electron reuses it by topicId; destroy is 500ms-deferred). The
+        // old eager DELETE emptied the server registry during that window, so a
+        // browser_* tool that ran between unmount and the next mount's re-register
+        // fell back to an invisible Playwright phantom (state appeared to reset
+        // between turns). The dispatcher self-cleans a genuinely stale target on its
+        // next getPage (and a real close drops the view), so skipping the DELETE is
+        // safe and keeps the agent bound to the real, persisted view.
       }
     };
     // initialUrl intentionally NOT a dep — it's mount-only (initialUrlRef).

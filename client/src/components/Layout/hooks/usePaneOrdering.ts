@@ -369,10 +369,12 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     const unsub = onWSMessage((msg: WSMessage) => {
       if (msg.type === 'browser:navigate' && msg.url) {
         if (hasProjectPaneRef.current) return; // Let ProjectWindowPane handle it
-        // The server attaches a `topicId` to this broadcast for spawner
-        // tracking; it isn't part of the typed WSBrowserNavigateMessage shape,
-        // so read it defensively without widening the message type.
-        const navTopicId = (msg as { topicId?: string }).topicId;
+        const navTopicId = msg.topicId;
+        // The server-resolved browser contextId (== topic.id). Binding the pane to
+        // it makes useNativeBrowser register the native CDP target under the SAME
+        // id the agent's browser_* tools resolve to — without this the pane took a
+        // random id and every tool fell back to an invisible Playwright phantom.
+        const navContextId = msg.contextId;
         // Resolve localhost ONLY for remote web clients; never in Electron native
         // (same-machine WebContentsView reaches localhost directly, and forcing
         // https there breaks http dev servers → white page). See resolveBrowserNavigateUrl.
@@ -381,7 +383,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         setOrderedIds(prev => {
           // Today's extra guard: navTopicId must already be open in this group.
           if (navTopicId && !prev.includes(navTopicId)) return prev;
-          const { next, resolvedId } = browserSingletonReducer(prev);
+          const { next, resolvedId } = browserSingletonReducer(prev, navContextId);
           if (resolvedId) {
             queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
             persistBrowserPane(resolvedId);
@@ -440,7 +442,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       onBrowserNavigateUrl(navigateUrl);
       setOrderedIds(prev => {
         if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
-        const { next, resolvedId } = browserSingletonReducer(prev);
+        // For a chat topic the browser contextId IS the topicId
+        // (resolveContextIdForTopic === topic.id), so bind the pane to it — same
+        // reason as the WS browser:navigate path: keep the native CDP target on
+        // the id the agent's tools resolve to.
+        const { next, resolvedId } = browserSingletonReducer(prev, ce.detail?.topicId);
         if (resolvedId) {
           queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
           persistBrowserPane(resolvedId);
