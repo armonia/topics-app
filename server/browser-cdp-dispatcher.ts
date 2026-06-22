@@ -19,8 +19,8 @@
  * via POST /api/browsers/:id/cdp-target after creating the WebContentsView.
  * That registration is the only NEW server endpoint this dispatcher needs.
  */
-import { chromium, type Browser as PwBrowser, type Page } from 'playwright-core';
-import { getElectronCdpEndpoint } from './electron-cdp-probe';
+import type { Page } from 'playwright-core';
+import { RawCdpPage } from './browser-cdp-raw';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -90,62 +90,12 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
   // before the renderer re-registers (the persisted targetMap self-cleans on the
   // first failed getPage anyway).
   const nativeBound = new Set<string>();
-  let browser: PwBrowser | null = null;
-  // cdpTargetId -> Page resolution cache. findPageByTargetId opens+detaches a
-  // CDP session per page per lookup; getPage runs on EVERY observe/act (2 walks
-  // per act), so without this the agent pays an O(pages) CDP round-trip storm on
-  // the hot path. Keyed by the stable targetId (not contextId, so a re-registered
-  // target for the same contextId still resolves), with a per-page self-clean.
-  const pageCache = new Map<string, Page>();
-
-  async function ensureBrowser(): Promise<PwBrowser> {
-    if (browser && browser.isConnected()) return browser;
-    const endpoint = getElectronCdpEndpoint();
-    browser = await chromium.connectOverCDP(endpoint);
-    // If Electron host disappears, drop the cached browser so the next
-    // call re-attaches.
-    browser.on('disconnected', () => {
-      if (browser && !browser.isConnected()) {
-        browser = null;
-        pageCache.clear();
-      }
-    });
-    return browser;
-  }
-
-  /**
-   * Find the Page whose underlying CDP target matches cdpTargetId.
-   *
-   * Playwright exposes target() on Page in CDP-attached mode. We iterate
-   * all contexts -> all pages and match by target id. Cached lookups not
-   * needed: contexts/pages are cheap enumerations and the common case is
-   * 1-3 pages total in Electron.
-   */
-  async function findPageByTargetId(b: PwBrowser, cdpTargetId: string): Promise<Page | null> {
-    for (const ctx of b.contexts()) {
-      for (const page of ctx.pages()) {
-        // Playwright Page has a private _target() in CDP mode; we use the
-        // public CDP session to query the targetId.
-        try {
-          const session = await ctx.newCDPSession(page);
-          try {
-            const info = (await session.send('Target.getTargetInfo')) as {
-              targetInfo?: { targetId?: string };
-            };
-            if (info?.targetInfo?.targetId === cdpTargetId) {
-              return page;
-            }
-          } finally {
-            await session.detach().catch(() => { /* ignore */ });
-          }
-        } catch {
-          // Page may have closed mid-iteration.
-          continue;
-        }
-      }
-    }
-    return null;
-  }
+  // cdpTargetId -> live RawCdpPage. Keyed by the stable targetId (not contextId,
+  // so a re-registered target for the same contextId still resolves), with a
+  // per-page self-clean when its WebSocket closes (view destroyed / navigated away).
+  // RawCdpPage talks CDP directly over the native global WebSocket — playwright's
+  // connectOverCDP hangs under Bun (the server's runtime), so we cannot use it.
+  const pageCache = new Map<string, RawCdpPage>();
 
   return {
     registerTarget(contextId, cdpTargetId) {
@@ -174,37 +124,32 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
           `Client must POST /api/browsers/:id/cdp-target first.`
         );
       }
-      // Fast path: a still-open page already resolved for this targetId.
+      // Fast path: a still-open page already connected for this targetId.
       const cached = pageCache.get(targetId);
-      if (cached && !cached.isClosed()) return cached;
+      if (cached && !cached.isClosed()) return cached as unknown as Page;
       if (cached) pageCache.delete(targetId);
 
-      const b = await ensureBrowser();
-      const page = await findPageByTargetId(b, targetId);
-      if (!page) {
-        // Stale mapping (e.g. Electron restarted → this targetId no longer exists).
-        // Drop it so we don't keep returning a dead target; the renderer re-registers
-        // a fresh targetId when the pane next mounts.
+      let page: RawCdpPage;
+      try {
+        page = await RawCdpPage.connect(targetId);
+      } catch (err) {
+        // Stale mapping (Electron restarted / view destroyed → targetId is gone).
+        // Drop the persisted entry so we stop returning a dead target; the renderer
+        // re-registers a fresh targetId when the pane next mounts. nativeBound is
+        // intentionally KEPT so resolveOps reports "not ready / reopen" (honest)
+        // rather than silently using a Playwright phantom.
         targetMap.delete(contextId);
         saveTargetMap(targetMap);
         throw new Error(
-          `ElectronCdpDispatcher.getPage: no Playwright page matches cdpTargetId=${targetId} ` +
-          `(stale mapping dropped). Re-open the browser pane so it re-registers.`
+          `ElectronCdpDispatcher.getPage: cdpTargetId=${targetId} no longer resolves ` +
+          `(${err instanceof Error ? err.message : String(err)}). Re-open the browser pane so it re-registers.`
         );
       }
-      // Memoize and self-invalidate when the page closes, so the walk runs once
-      // per pane lifetime instead of once per op.
       pageCache.set(targetId, page);
-      page.once('close', () => {
-        if (pageCache.get(targetId) === page) pageCache.delete(targetId);
-      });
-      return page;
+      return page as unknown as Page;
     },
     async close() {
-      if (browser && browser.isConnected()) {
-        await browser.close().catch(() => { /* ignore */ });
-      }
-      browser = null;
+      for (const page of pageCache.values()) { try { page.close(); } catch { /* ignore */ } }
       targetMap.clear();
       nativeBound.clear();
       pageCache.clear();
