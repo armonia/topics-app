@@ -166,9 +166,21 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       allowTransparency: true,
       // @ts-expect-error copyOnSelect exists at runtime but missing from v6 types
       copyOnSelect: true,
-      // xterm.js v6: default renderer is DOM (real DOM nodes → native iOS text selection)
-      // Canvas/WebGL renderer would be loaded via addon — we intentionally don't load it
-      // so mobile gets native selectable text out of the box.
+      // Renderer: DOM (xterm v6 default) — KEPT ON PURPOSE on every platform, not
+      // just a mobile concession. A GPU renderer is disqualified three ways here:
+      //  • WebGL breaks our non-negotiable transparency — `allowTransparency:true`
+      //    over the native vibrancy triggers the open thin/black-text bug
+      //    (xtermjs/xterm.js#4212, unfixed, no workaround).
+      //  • Up to ~9 terminals mount at once; one WebGL context each hits Chromium's
+      //    ~16-context cap, which silently kills the OLDEST → panes go blank on churn.
+      //  • It stacks a second silent blank-screen failure onto a window already
+      //    fragile across sleep/wake + display changes (see recomposeWindow).
+      // Canvas2D is not an option either: the canvas addon was REMOVED in xterm v6
+      // (the pinned @xterm/addon-canvas only loads behind the demo flag below).
+      // DOM is the unique renderer that is transparent, context-free, crisp at any
+      // DPR, and gives mobile native text selection — and it's every GPU renderer's
+      // own fallback anyway. Revisit only if profiling MEASURES DOM dropping frames
+      // on the active pane, and then behind a global 1-context WebGL cap.
     });
 
     const fitAddon = new FitAddon();
