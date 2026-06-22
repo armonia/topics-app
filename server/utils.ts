@@ -110,6 +110,15 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicPinnedMessages: db.prepare(`SELECT message_id FROM topic_pinned_messages WHERE topic_id = ?`),
     getTopicDisabledSources: db.prepare(`SELECT source_id FROM topic_disabled_sources WHERE topic_id = ?`),
     getTopicAssignedAgents: db.prepare(`SELECT a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id WHERE a.topic_id = ?`),
+    // Batch variants used ONLY by loadTopics() to collapse the per-topic N+1
+    // (1 table scan + 5 sub-queries × N topics) into 1 + 5 full scans grouped
+    // in-memory. The per-id stmts above stay the path for single-topic reads
+    // (getTopicById / getTopicBySessionKey), which must not pay a full scan.
+    getAllTopicLinks: db.prepare(`SELECT source_id, target_id FROM topic_links`),
+    getAllTopicContextFiles: db.prepare(`SELECT topic_id, file_path FROM topic_context_files`),
+    getAllTopicPinnedMessages: db.prepare(`SELECT topic_id, message_id FROM topic_pinned_messages`),
+    getAllTopicDisabledSources: db.prepare(`SELECT topic_id, source_id FROM topic_disabled_sources`),
+    getAllTopicAssignedAgents: db.prepare(`SELECT a.topic_id, a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id`),
 
     insertTopic: db.prepare(`
       INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
@@ -164,14 +173,42 @@ export function createAppContext(baseDir: string): AppContext {
 
   };
 
+  // Pre-grouped topic relations, built once per loadTopics() call by
+  // buildTopicRelations() and threaded into rowToTopic to avoid the N+1.
+  type TopicRelations = {
+    links: Map<string, string[]>;
+    contextFiles: Map<string, string[]>;
+    pinnedMessages: Map<string, string[]>;
+    disabledSources: Map<string, string[]>;
+    assignedAgents: Map<string, { id: string; name: string; role: string }[]>;
+  };
+  function buildTopicRelations(): TopicRelations {
+    const push = <T>(m: Map<string, T[]>, k: string, v: T) => {
+      const arr = m.get(k); if (arr) arr.push(v); else m.set(k, [v]);
+    };
+    const links = new Map<string, string[]>();
+    for (const r of stmts.getAllTopicLinks.all() as any[]) push(links, r.source_id, r.target_id);
+    const contextFiles = new Map<string, string[]>();
+    for (const r of stmts.getAllTopicContextFiles.all() as any[]) push(contextFiles, r.topic_id, r.file_path);
+    const pinnedMessages = new Map<string, string[]>();
+    for (const r of stmts.getAllTopicPinnedMessages.all() as any[]) push(pinnedMessages, r.topic_id, r.message_id);
+    const disabledSources = new Map<string, string[]>();
+    for (const r of stmts.getAllTopicDisabledSources.all() as any[]) push(disabledSources, r.topic_id, r.source_id);
+    const assignedAgents = new Map<string, { id: string; name: string; role: string }[]>();
+    for (const r of stmts.getAllTopicAssignedAgents.all() as any[]) push(assignedAgents, r.topic_id, { id: r.agent_id, name: r.name || r.agent_id, role: r.role });
+    return { links, contextFiles, pinnedMessages, disabledSources, assignedAgents };
+  }
+
   // --- Helper: Convert SQLite topic row to Topic object ---
-  function rowToTopic(row: any): Topic {
+  // `rels` (supplied by loadTopics) reads relations from pre-grouped maps;
+  // without it each relation is a per-id sub-query (single-topic read path).
+  function rowToTopic(row: any, rels?: TopicRelations): Topic {
     const topic: Topic = {
       id: row.id,
       name: row.name,
       slug: row.slug,
       parentId: row.parent_id || null,
-      links: (stmts.getTopicLinks.all(row.id) as any[]).map(r => r.target_id),
+      links: rels ? (rels.links.get(row.id) ?? []) : (stmts.getTopicLinks.all(row.id) as any[]).map(r => r.target_id),
       sessionKey: row.session_key,
       color: row.color,
       icon: row.icon,
@@ -194,16 +231,16 @@ export function createAppContext(baseDir: string): AppContext {
     // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
     if (row.initial_message) topic.initialMessage = row.initial_message;
 
-    const contextFiles = (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
+    const contextFiles = rels ? (rels.contextFiles.get(row.id) ?? []) : (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
 
-    const pinnedMessages = (stmts.getTopicPinnedMessages.all(row.id) as any[]).map(r => r.message_id);
+    const pinnedMessages = rels ? (rels.pinnedMessages.get(row.id) ?? []) : (stmts.getTopicPinnedMessages.all(row.id) as any[]).map(r => r.message_id);
     if (pinnedMessages.length > 0) topic.pinnedMessages = pinnedMessages;
 
-    const disabledSources = (stmts.getTopicDisabledSources.all(row.id) as any[]).map(r => r.source_id);
+    const disabledSources = rels ? (rels.disabledSources.get(row.id) ?? []) : (stmts.getTopicDisabledSources.all(row.id) as any[]).map(r => r.source_id);
     if (disabledSources.length > 0) topic.disabledContextSources = disabledSources;
 
-    const assignedAgents = (stmts.getTopicAssignedAgents.all(row.id) as any[]).map(r => ({
+    const assignedAgents = rels ? (rels.assignedAgents.get(row.id) ?? []) : (stmts.getTopicAssignedAgents.all(row.id) as any[]).map(r => ({
       id: r.agent_id,
       name: r.name || r.agent_id,
       role: r.role,
@@ -476,9 +513,13 @@ export function createAppContext(baseDir: string): AppContext {
   // --- Topics (SQLite-backed) ---
   function loadTopics(): TopicsData {
     const rows = stmts.getAllTopics.all() as any[];
+    // Batch-load every relation once (1 + 5 scans) instead of 5 sub-queries per
+    // topic — GET /api/topics is the hot UI-hydration path, hit on every load /
+    // reconnect, and this DB carries ~hundreds of topics.
+    const rels = buildTopicRelations();
     const topics: Record<string, Topic> = {};
     for (const row of rows) {
-      topics[row.id] = rowToTopic(row);
+      topics[row.id] = rowToTopic(row, rels);
     }
     return { topics };
   }

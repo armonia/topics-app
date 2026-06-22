@@ -392,6 +392,15 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const allFiles = statusText.split("\n").filter(Boolean).map((line) => ({ path: line.substring(3), status: line.substring(0, 2) }));
         const files = relativePrefix ? allFiles.filter((f) => f.path.startsWith(relativePrefix)).map((f) => ({ ...f, path: f.path.slice(relativePrefix.length) })) : allFiles;
         const result = { branch, lastCommit: { hash, message, author, ago }, files, ahead, behind };
+        // Bound the cache: the key is the caller-supplied ?path= (resolved, no
+        // allowlist), so it grows with every distinct git repo ever queried and
+        // is only ever invalidated for paths a watcher fires on. Evict the
+        // oldest entry past a cap so this can't grow without limit.
+        if (gitStatusCache.size >= 500) {
+          let oldestKey: string | undefined; let oldestTs = Infinity;
+          for (const [k, v] of gitStatusCache) { if (v.timestamp < oldestTs) { oldestTs = v.timestamp; oldestKey = k; } }
+          if (oldestKey !== undefined) gitStatusCache.delete(oldestKey);
+        }
         gitStatusCache.set(resolvedDir, { data: result, timestamp: Date.now() });
         return json(result);
       } catch (err: any) { return json({ error: "Git error: " + err.message }, 500); }
