@@ -538,6 +538,29 @@ function ensureWindowOnScreen(win: BrowserWindow | null): void {
   }
 }
 
+// A macOS vibrancy window (floating-splits enables `vibrancy`) can stop
+// compositing its web content after a display reconfiguration: the window shows
+// ONLY the vibrancy material, which looks like empty / black panes even though
+// the renderer is still painting normally (confirmed 2026-06-22 via CDP — the
+// DOM was full while the on-screen window was blank; the window had been
+// stranded at a negative y after a display change). ensureWindowOnScreen alone
+// doesn't fix it: the window's centre can still land on a (secondary/stale)
+// display, so the off-screen recentre is a no-op AND the surface never
+// re-presents. Re-centre if needed, THEN force the window server to re-present
+// the content surface with a 1px bounds bounce — the exact recovery that worked
+// when done by hand (move on-screen + resize).
+function recomposeWindow(win: BrowserWindow | null): void {
+  if (!win || win.isDestroyed()) return;
+  ensureWindowOnScreen(win);
+  try {
+    const b = win.getBounds();
+    win.setBounds({ ...b, height: Math.max(1, b.height - 1) });
+    setTimeout(() => { if (win && !win.isDestroyed()) win.setBounds(b); }, 60);
+  } catch (err) {
+    console.warn('[Topics Electron] recomposeWindow failed:', err);
+  }
+}
+
 function createWindow(): void {
   console.log('[Topics Electron] Creating main window...');
   const isMac = process.platform === 'darwin';
@@ -695,17 +718,36 @@ function createWindow(): void {
   let appLoaded = false;
   mainWindow.loadURL(LOADING_PAGE).catch(() => { /* data URL never fails */ });
   mainWindow.show(); // visible right away, regardless of server state
+  // Startup safety: if the window was restored / placed at coordinates no
+  // connected display covers (e.g. a monitor that was present last run is now
+  // gone), recentre it onto the primary display immediately rather than waiting
+  // for a display event.
+  ensureWindowOnScreen(mainWindow);
 
-  // Recover the window if a display it's on disappears (unplug / sleep) — macOS
-  // would otherwise strand it off-screen. Registered once (guarded) since the
-  // screen module is process-global.
+  // Recover the window when the display layout changes (unplug / sleep / connect
+  // / resolution or scale change) — macOS would otherwise strand it off-screen
+  // OR leave a vibrancy window showing only its blur material (blank panes).
+  // recomposeWindow re-centres if needed AND forces the content surface to
+  // re-present. Registered once (guarded) since the screen module is
+  // process-global.
   if (!screenWatchRegistered) {
     screenWatchRegistered = true;
-    const { screen } = require('electron') as typeof import('electron');
-    const onDisplayChange = () => ensureWindowOnScreen(mainWindow);
-    screen.on('display-removed', onDisplayChange);
-    screen.on('display-metrics-changed', onDisplayChange);
+    const { screen, powerMonitor } = require('electron') as typeof import('electron');
+    const onRecompose = () => recomposeWindow(mainWindow);
+    screen.on('display-removed', onRecompose);
+    screen.on('display-added', onRecompose);
+    screen.on('display-metrics-changed', onRecompose);
+    // The most common trigger of the blank-vibrancy-window is the Mac (or just a
+    // monitor) sleeping and waking: macOS drops the window's content surface on
+    // sleep, and a plain wake neither re-presents it nor reliably fires a
+    // display event. Recompose on power resume + screen unlock too.
+    powerMonitor.on('resume', onRecompose);
+    powerMonitor.on('unlock-screen', onRecompose);
   }
+  // Re-present the surface whenever the window is shown again (restored from the
+  // tray, or re-shown after being hidden during sleep). Registered after the
+  // initial show() above, so it only fires on LATER shows.
+  mainWindow.on('show', () => recomposeWindow(mainWindow));
 
   const connectWhenReady = async () => {
     if (!mainWindow || mainWindow.isDestroyed() || appLoaded) return;
