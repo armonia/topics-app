@@ -15,10 +15,13 @@ import {
   handleBrowserObserve,
   handleBrowserAct,
   handleBrowserExtract,
+  handleBrowserGetText,
+  handleBrowserEval,
   handleBrowserScreenshot,
   handleBrowserPoint,
   handleBrowserImportChrome,
 } from "./browser-tools-handler";
+import type { BrowserActAction } from "./browser-tools";
 
 export type ToolCallArgs = Record<string, unknown>;
 
@@ -78,13 +81,19 @@ export async function dispatchBrowserToolCallByContext(
       return handleBrowserOpen(browserService, contextId, args as { url: string });
     case "browser_observe":
       // Args validated by handler
-      return handleBrowserObserve(browserService, contextId, args as { max_elements?: number });
+      return handleBrowserObserve(browserService, contextId, args as { full?: boolean; max?: number; max_elements?: number; screenshot?: boolean });
     case "browser_act":
       // Args validated by handler
-      return handleBrowserAct(browserService, contextId, args as { element_id: number; action: "click" | "type" | "select"; text?: string });
+      return handleBrowserAct(browserService, contextId, args as { ref?: number; element_id?: number; action: BrowserActAction; text?: string; value?: string; key?: string; dy?: number });
     case "browser_extract":
       // Args validated by handler
-      return handleBrowserExtract(browserService, contextId, args as { schema: Record<string, unknown>; instruction?: string });
+      return handleBrowserExtract(browserService, contextId, args as { fields?: Record<string, unknown>; schema?: Record<string, unknown> });
+    case "browser_get_text":
+      // Args validated by handler
+      return handleBrowserGetText(browserService, contextId, args as { ref?: number; max?: number });
+    case "browser_eval":
+      // Args validated by handler
+      return handleBrowserEval(browserService, contextId, args as { expression: string });
     case "browser_screenshot":
       // Args validated by handler
       return handleBrowserScreenshot(browserService, contextId, args as { full_page?: boolean });

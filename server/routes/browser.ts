@@ -6,9 +6,12 @@ import {
   handleBrowserObserve,
   handleBrowserAct,
   handleBrowserExtract,
+  handleBrowserGetText,
+  handleBrowserEval,
   handleBrowserScreenshot,
   handleBrowserPoint,
 } from "../browser-tools-handler";
+import type { BrowserActAction } from "../browser-tools";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -81,18 +84,15 @@ export function createBrowserRouter(
     const agentObserveMatch = matchRoute(pathname, "/api/browsers/:id/agent/observe");
     if (agentObserveMatch && method === "POST") {
       try {
-        const body = (await req.json().catch(() => ({}))) as { max_elements?: unknown };
-        let max_elements: number | undefined;
-        if (body.max_elements !== undefined) {
-          if (typeof body.max_elements !== "number" || !Number.isFinite(body.max_elements)) {
-            return json({ error: "browser_observe: max_elements must be a number" }, 400);
-          }
-          if (body.max_elements < 1 || body.max_elements > 100) {
-            return json({ error: "browser_observe: max_elements must be in range 1-100" }, 400);
-          }
-          max_elements = body.max_elements;
-        }
-        const result = await handleBrowserObserve(browserService, agentObserveMatch.id, { max_elements });
+        const body = (await req.json().catch(() => ({}))) as {
+          full?: unknown; max?: unknown; max_elements?: unknown; screenshot?: unknown;
+        };
+        const result = await handleBrowserObserve(browserService, agentObserveMatch.id, {
+          full: typeof body.full === "boolean" ? body.full : undefined,
+          max: typeof body.max === "number" ? body.max : undefined,
+          max_elements: typeof body.max_elements === "number" ? body.max_elements : undefined,
+          screenshot: typeof body.screenshot === "boolean" ? body.screenshot : undefined,
+        });
         return json(result);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -104,18 +104,17 @@ export function createBrowserRouter(
     const agentActMatch = matchRoute(pathname, "/api/browsers/:id/agent/act");
     if (agentActMatch && method === "POST") {
       try {
-        const body = (await req.json()) as { element_id?: unknown; action?: unknown; text?: unknown };
-        if (typeof body.element_id !== "number" || !Number.isFinite(body.element_id)) {
-          return json({ error: "browser_act: element_id (number) is required" }, 400);
-        }
-        if (body.action !== "click" && body.action !== "type" && body.action !== "select") {
-          return json({ error: "browser_act: action must be one of click|type|select" }, 400);
-        }
-        const text = typeof body.text === "string" ? body.text : undefined;
+        const body = (await req.json()) as Record<string, unknown>;
+        // Args (ref/element_id, action enum, ref-vs-page requirements) are
+        // validated by the handler — single source of truth, no drift.
         const result = await handleBrowserAct(browserService, agentActMatch.id, {
-          element_id: body.element_id,
-          action: body.action,
-          text,
+          ref: typeof body.ref === "number" ? body.ref : undefined,
+          element_id: typeof body.element_id === "number" ? body.element_id : undefined,
+          action: body.action as BrowserActAction,
+          text: typeof body.text === "string" ? body.text : undefined,
+          value: typeof body.value === "string" ? body.value : undefined,
+          key: typeof body.key === "string" ? body.key : undefined,
+          dy: typeof body.dy === "number" ? body.dy : undefined,
         });
         return json(result);
       } catch (err: unknown) {
@@ -128,14 +127,10 @@ export function createBrowserRouter(
     const agentExtractMatch = matchRoute(pathname, "/api/browsers/:id/agent/extract");
     if (agentExtractMatch && method === "POST") {
       try {
-        const body = (await req.json()) as { schema?: unknown; instruction?: unknown };
-        if (!body.schema || typeof body.schema !== "object") {
-          return json({ error: "browser_extract: schema (object) is required" }, 400);
-        }
-        const instruction = typeof body.instruction === "string" ? body.instruction : undefined;
+        const body = (await req.json().catch(() => ({}))) as { fields?: unknown; schema?: unknown };
         const result = await handleBrowserExtract(browserService, agentExtractMatch.id, {
-          schema: body.schema as Record<string, unknown>,
-          instruction,
+          fields: (body.fields && typeof body.fields === "object") ? body.fields as Record<string, unknown> : undefined,
+          schema: (body.schema && typeof body.schema === "object") ? body.schema as Record<string, unknown> : undefined,
         });
         return json(result);
       } catch (err: unknown) {
@@ -173,6 +168,40 @@ export function createBrowserRouter(
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[Routes/browser] /agent/point failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentGetTextMatch = matchRoute(pathname, "/api/browsers/:id/agent/get-text");
+    if (agentGetTextMatch && method === "POST") {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { ref?: unknown; max?: unknown };
+        const result = await handleBrowserGetText(browserService, agentGetTextMatch.id, {
+          ref: typeof body.ref === "number" ? body.ref : undefined,
+          max: typeof body.max === "number" ? body.max : undefined,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/get-text failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentEvalMatch = matchRoute(pathname, "/api/browsers/:id/agent/eval");
+    if (agentEvalMatch && method === "POST") {
+      try {
+        const body = (await req.json()) as { expression?: unknown };
+        if (typeof body.expression !== "string" || !body.expression.trim()) {
+          return json({ error: "browser_eval: expression (non-empty string) is required" }, 400);
+        }
+        const result = await handleBrowserEval(browserService, agentEvalMatch.id, {
+          expression: body.expression,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/eval failed:`, msg);
         return json({ error: msg }, 500);
       }
     }

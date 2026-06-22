@@ -13,6 +13,7 @@ import { createChatRouter } from "./chat";
 export { computeCleanBroadcastDelta } from "./stream-markers";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCall, dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
@@ -1530,50 +1531,32 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // POST /api/{topics/:id,sessions/:sessionKey}/browser/observe
-    // MCP bridge: read the pane's actionable elements (a11y + indexed elements)
-    // so an MCP-driven (claude-code) session can click/type, not just navigate.
-    // Same handler as the SDK chat path. Token-gated like import-chrome.
+    // POST /api/{topics/:id,sessions/:sessionKey}/browser/:tool
+    // Generic MCP bridge for the ref-based browser tools (observe/act/extract/
+    // get_text/screenshot/eval and, later, read_screen/save_state/load_state).
+    // ONE block, projected from the single source of truth (browser-tool-spec.ts)
+    // so the REST surface can't drift from the MCP/passthrough surfaces. Same
+    // handler as the SDK chat path; token-gated like import-chrome. Resolves the
+    // pane by topic OR terminal session so a Claude Code terminal tab can drive
+    // its own near-terminal pane. open-pane/import-chrome keep bespoke blocks
+    // above (not in BRIDGED_BROWSER_ENDPOINTS), so this never shadows them.
     {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/observe");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/observe");
-      if ((byTopic || bySession) && method === "POST") {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/:tool");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/:tool");
+      const m = byTopic || bySession;
+      const endpoint = m?.tool;
+      const toolName = endpoint ? BRIDGED_BROWSER_ENDPOINTS[endpoint] : undefined;
+      if (m && method === "POST" && toolName) {
         const tok = req.headers.get("x-gateway-token") || "";
         if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
         const target = resolveBrowserContext(byTopic, bySession);
         if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
-        const body = (await readJSON(req)) as { max_elements?: unknown } | null;
-        const max_elements = typeof body?.max_elements === "number" ? body.max_elements : undefined;
-        try {
-          const result = await dispatchBrowserToolCallByContext("browser_observe", { max_elements }, target.contextId, browserService) as Record<string, unknown> & { error?: string };
-          if (result?.error) return json({ error: result.error }, 502);
-          // Drop the heavy base64 screenshot — the user sees the pane; the agent
-          // acts via the element list. Keeps the MCP response token-light.
-          const { screenshot_annotated, ...lean } = result;
-          return json(lean);
-        } catch (e: unknown) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
-        }
-      }
-    }
-
-    // POST /api/{topics/:id,sessions/:sessionKey}/browser/act
-    // MCP bridge: click/type/select an element by id from the latest observe.
-    {
-      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/act");
-      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/act");
-      if ((byTopic || bySession) && method === "POST") {
-        const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
-        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        const target = resolveBrowserContext(byTopic, bySession);
-        if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
-        const body = (await readJSON(req)) as { element_id?: unknown; action?: unknown; text?: unknown } | null;
+        const body = ((await readJSON(req)) as Record<string, unknown> | null) ?? {};
         try {
           const result = await dispatchBrowserToolCallByContext(
-            "browser_act",
-            { element_id: body?.element_id, action: body?.action, text: body?.text },
+            toolName,
+            body,
             target.contextId,
             browserService,
           ) as Record<string, unknown> & { error?: string };

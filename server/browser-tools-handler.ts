@@ -18,7 +18,6 @@
  */
 import type { BrowserService } from "./browser-service";
 import type {
-  AgentObserveResponse,
   BrowserActAction,
   IndexedElement,
 } from "./browser-tools";
@@ -27,8 +26,17 @@ import { isElectronCdpAvailable } from "./electron-cdp-probe";
 import type { ElectronCdpDispatcher } from "./browser-cdp-dispatcher";
 import { playwrightOps, cdpOps, type BrowserOps } from "./browser-ops-adapter";
 import { decryptChromeCookies, listChromeCookieHosts } from "./integrations/chrome-cookies";
+import {
+  serialize,
+  diff,
+  type Snapshot,
+  type RefAction,
+  type ExtractFields,
+} from "./browser-snapshot";
 
 const observeCache = new Map<string, IndexedElement[]>();
+/** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
+const prevSnapshotCache = new Map<string, Snapshot>();
 
 // Phase 30.1 BROWSER-CHAT-06 — module-level dispatcher reference. Set once at
 // boot via setBrowserCdpDispatcher() in server.ts. Null in pure-web builds.
@@ -49,8 +57,19 @@ async function resolveOps(service: BrowserService, contextId: string): Promise<B
   return playwrightOps(service, contextId);
 }
 
-export function clearObserveCache(contextId: string): void {
+/**
+ * Flush all per-context agent caches (legacy bbox observe cache + the ref-based
+ * snapshot cache). Call when the page changes (navigate/reload/load_state) or
+ * the context is destroyed, so a later act can't resolve a stale ref/bbox.
+ */
+export function clearBrowserCaches(contextId: string): void {
   observeCache.delete(contextId);
+  prevSnapshotCache.delete(contextId);
+}
+
+/** @deprecated kept as an alias — use clearBrowserCaches. */
+export function clearObserveCache(contextId: string): void {
+  clearBrowserCaches(contextId);
 }
 
 /**
@@ -74,7 +93,7 @@ export async function handleBrowserOpen(
   service: BrowserService,
   contextId: string,
   args: { url: string }
-): Promise<{ url: string; title: string }> {
+): Promise<{ url: string; title: string; snapshot: string }> {
   if (typeof args.url !== "string" || !args.url) {
     throw new Error("browser_open: 'url' (string) is required");
   }
@@ -82,125 +101,245 @@ export async function handleBrowserOpen(
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
     const result = await ops.navigate(args.url);
-    // Page navigated -> any cached IndexedElement[] is stale.
-    clearObserveCache(contextId);
-    return result;
+    // Page navigated -> any cached element refs/bboxes are stale.
+    clearBrowserCaches(contextId);
+    // Return a fresh ref-based snapshot so the agent can act immediately.
+    let snapshot = "";
+    try {
+      const snap = await ops.snapshot({ max: 200 });
+      prevSnapshotCache.set(contextId, snap);
+      snapshot = serialize(snap);
+    } catch {
+      /* snapshot is best-effort; navigate result still returned */
+    }
+    return { ...result, snapshot };
   });
+}
+
+/** Observe response: ref-based snapshot text (+ optional annotated screenshot). */
+export interface BrowserObserveResult {
+  url: string;
+  title: string;
+  /** Number of interactive elements in the snapshot. */
+  count: number;
+  /** Compact serialized snapshot (full) or incremental diff text. */
+  snapshot: string;
+  /** True when `snapshot` is a full listing (no prior snapshot / full requested). */
+  full: boolean;
+  /** Base64 annotated JPEG — present only when screenshot:true was requested. */
+  screenshot_annotated?: string;
+  /** Legacy a11y tree — present only when screenshot:true (compat). */
+  a11y_tree?: string;
 }
 
 export async function handleBrowserObserve(
   service: BrowserService,
   contextId: string,
-  args: { max_elements?: number }
-): Promise<AgentObserveResponse> {
-  const max = typeof args?.max_elements === "number" ? args.max_elements : 50;
-  console.log(`[BrowserTools] browser_observe(${contextId}, max=${max})`);
+  args: { full?: boolean; max?: number; max_elements?: number; screenshot?: boolean }
+): Promise<BrowserObserveResult> {
+  const max =
+    typeof args?.max === "number"
+      ? args.max
+      : typeof args?.max_elements === "number"
+        ? args.max_elements
+        : 200;
+  const wantScreenshot = !!args?.screenshot;
+  console.log(
+    `[BrowserTools] browser_observe(${contextId}, max=${max}, full=${!!args?.full}, screenshot=${wantScreenshot})`
+  );
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const elements = await ops.extractIndexedElements({
-      maxElements: max,
-    });
-    const screenshot_annotated = await ops.captureAnnotatedScreenshot(elements);
-    const a11y = await ops.accessibilitySnapshot();
-    observeCache.set(contextId, elements);
-    return {
-      a11y_tree: a11y.ariaSnapshot,
-      screenshot_annotated,
-      elements,
-      url: a11y.url,
-      title: a11y.title,
-    };
+    const next = await ops.snapshot({ max });
+    const prev = prevSnapshotCache.get(contextId);
+    prevSnapshotCache.set(contextId, next);
+
+    const result: BrowserObserveResult = args?.full
+      ? { url: next.url, title: next.title, count: next.elements.length, snapshot: serialize(next), full: true }
+      : (() => {
+          const d = diff(prev, next);
+          return { url: next.url, title: next.title, count: next.elements.length, snapshot: d.text, full: d.full };
+        })();
+
+    // Heavy annotated screenshot is opt-in (the user already sees the pane).
+    if (wantScreenshot) {
+      try {
+        const elements = await ops.extractIndexedElements({ maxElements: max });
+        observeCache.set(contextId, elements);
+        result.screenshot_annotated = await ops.captureAnnotatedScreenshot(elements);
+        const a11y = await ops.accessibilitySnapshot();
+        result.a11y_tree = a11y.ariaSnapshot;
+      } catch {
+        /* screenshot best-effort */
+      }
+    }
+    return result;
   });
+}
+
+/** Actions that target a specific element ref via a Playwright locator. */
+const REF_ACTIONS = new Set<BrowserActAction>([
+  "click",
+  "dblclick",
+  "hover",
+  "fill",
+  "type",
+  "select",
+  "check",
+  "uncheck",
+]);
+
+export interface BrowserActResult {
+  ok: true;
+  action: BrowserActAction;
+  ref?: number;
+  /** Incremental snapshot diff after the action (so the agent sees changes). */
+  snapshot?: string;
+  /** Present for get_text. */
+  text?: string;
+  truncated?: boolean;
 }
 
 export async function handleBrowserAct(
   service: BrowserService,
   contextId: string,
-  args: { element_id: number; action: BrowserActAction; text?: string }
-): Promise<{ ok: true; element: IndexedElement }> {
-  if (typeof args.element_id !== "number" || !Number.isFinite(args.element_id)) {
-    throw new Error("browser_act: 'element_id' (number) is required");
+  args: {
+    ref?: number;
+    element_id?: number; // deprecated alias
+    action: BrowserActAction;
+    text?: string;
+    value?: string;
+    key?: string;
+    dy?: number;
   }
-  const validActions: BrowserActAction[] = ["click", "type", "select"];
-  if (!validActions.includes(args.action)) {
-    throw new Error(
-      `browser_act: 'action' must be one of ${validActions.join(", ")}`
-    );
+): Promise<BrowserActResult> {
+  const ref =
+    typeof args.ref === "number" && Number.isFinite(args.ref)
+      ? args.ref
+      : typeof args.element_id === "number" && Number.isFinite(args.element_id)
+        ? args.element_id
+        : undefined;
+  const action = args.action;
+  const validActions: BrowserActAction[] = [
+    "click", "dblclick", "hover", "fill", "type", "select",
+    "check", "uncheck", "press", "scroll", "get_text",
+  ];
+  if (!validActions.includes(action)) {
+    throw new Error(`browser_act: 'action' must be one of ${validActions.join(", ")}`);
   }
-  const cached = observeCache.get(contextId);
-  if (!cached) {
-    throw new Error(
-      "browser_act: no observe cache for context. Call browser_observe first."
-    );
+  if (REF_ACTIONS.has(action) && ref == null) {
+    throw new Error(`browser_act: '${action}' requires 'ref' (number) from the latest browser_observe`);
   }
-  const el = cached.find((e) => e.id === args.element_id);
-  if (!el) {
-    throw new Error(
-      `browser_act: element_id ${args.element_id} not found in latest observe (cache has ${cached.length} elements). Call browser_observe again -- page may have changed.`
-    );
+  if ((action === "fill" || action === "type") && typeof args.text !== "string") {
+    throw new Error(`browser_act ${action}: 'text' (string) is required`);
   }
-  console.log(
-    `[BrowserTools] browser_act(${contextId}, id=${args.element_id}, action=${args.action})`
-  );
+  if (action === "select" && typeof args.value !== "string" && typeof args.text !== "string") {
+    throw new Error("browser_act select: 'value' or 'text' (string) is required");
+  }
+  console.log(`[BrowserTools] browser_act(${contextId}, ref=${ref ?? "-"}, action=${action})`);
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
-    const cx = el.bbox.x + Math.round(el.bbox.width / 2);
-    const cy = el.bbox.y + Math.round(el.bbox.height / 2);
-    if (args.action === "click") {
-      await ops.dispatchInput("click", { x: cx, y: cy });
-    } else if (args.action === "type") {
-      if (typeof args.text !== "string") {
-        throw new Error("browser_act type: 'text' (string) is required");
-      }
-      // Click first to focus, then type.
-      await ops.dispatchInput("click", { x: cx, y: cy });
-      await ops.dispatchInput("type", { text: args.text });
-    } else {
-      // 'select' falls through to a focus click. Full option-by-text selection
-      // (e.g. via <select><option> matching args.text) is deferred -- MVP
-      // treats select like click on the indexed element and lets the agent
-      // call browser_observe again to interact with the popped option list.
-      await ops.dispatchInput("click", { x: cx, y: cy });
+    // get_text reads — no mutation, no diff.
+    if (action === "get_text") {
+      const r = await ops.getText({ ref });
+      return { ok: true as const, action, ref, text: r.text, truncated: r.truncated };
     }
-    return { ok: true as const, element: el };
+    if (action === "scroll") {
+      const dy = typeof args.dy === "number" ? args.dy : 600;
+      await ops.dispatchInput("scroll", { deltaY: dy });
+    } else if (action === "press" && ref == null) {
+      await ops.dispatchInput("keypress", { key: args.key ?? "Enter" });
+    } else {
+      await ops.actByRef(ref as number, action as RefAction, {
+        text: args.text,
+        value: args.value,
+        key: args.key,
+      });
+    }
+    // Return what changed so the agent doesn't need a separate observe.
+    let snapshot: string | undefined;
+    try {
+      const prev = prevSnapshotCache.get(contextId);
+      const next = await ops.snapshot({ max: 200 });
+      prevSnapshotCache.set(contextId, next);
+      snapshot = diff(prev, next).text;
+    } catch {
+      /* diff best-effort */
+    }
+    return { ok: true as const, action, ref, snapshot };
   });
 }
 
-function getSchemaKeys(s: unknown): string[] {
-  if (!s || typeof s !== "object") return [];
-  const props = (s as { properties?: unknown }).properties;
-  if (!props || typeof props !== "object") return [];
-  return Object.keys(props as Record<string, unknown>);
+export async function handleBrowserGetText(
+  service: BrowserService,
+  contextId: string,
+  args: { ref?: number; max?: number }
+): Promise<{ text: string; truncated: boolean; length: number }> {
+  console.log(`[BrowserTools] browser_get_text(${contextId}, ref=${args?.ref ?? "-"})`);
+  const ops = await resolveOps(service, contextId);
+  return withLock(service, contextId, async () =>
+    ops.getText({ ref: args?.ref, max: args?.max }),
+  );
+}
+
+export async function handleBrowserEval(
+  service: BrowserService,
+  contextId: string,
+  args: { expression: string }
+): Promise<{ result: unknown } | { error: string }> {
+  if (typeof args?.expression !== "string" || !args.expression.trim()) {
+    throw new Error("browser_eval: 'expression' (non-empty string) is required");
+  }
+  console.log(`[BrowserTools] browser_eval(${contextId}, ${args.expression.slice(0, 80)})`);
+  const ops = await resolveOps(service, contextId);
+  return withLock(service, contextId, async () => {
+    try {
+      return await ops.evalExpression(args.expression);
+    } catch (err: unknown) {
+      return { error: `browser_eval failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
+}
+
+/**
+ * Coerce the legacy `{schema:{properties:{...}}}` shape into the CSS-selector
+ * `fields` map so old callers degrade gracefully: each property name is treated
+ * as a selector (best effort). New callers pass `fields` directly.
+ */
+function coerceExtractFields(args: {
+  fields?: unknown;
+  schema?: unknown;
+}): ExtractFields {
+  if (args.fields && typeof args.fields === "object") {
+    return args.fields as ExtractFields;
+  }
+  const schema = args.schema as { properties?: Record<string, unknown> } | undefined;
+  if (schema?.properties && typeof schema.properties === "object") {
+    const out: ExtractFields = {};
+    for (const k of Object.keys(schema.properties)) out[k] = k;
+    return out;
+  }
+  return {};
 }
 
 export async function handleBrowserExtract(
   service: BrowserService,
   contextId: string,
-  args: { schema: Record<string, unknown>; instruction?: string }
-): Promise<{ extracted: unknown } | { error: string }> {
-  if (!args.schema || typeof args.schema !== "object") {
-    throw new Error("browser_extract: 'schema' (object) is required");
+  args: { fields?: Record<string, unknown>; schema?: Record<string, unknown> }
+): Promise<{ extracted: Record<string, unknown> } | { error: string }> {
+  const fields = coerceExtractFields(args);
+  if (!Object.keys(fields).length) {
+    throw new Error(
+      "browser_extract: 'fields' (CSS-selector map) is required, e.g. {\"title\":\"h1\"}",
+    );
   }
-  const keys = getSchemaKeys(args.schema);
   console.log(
-    `[BrowserTools] browser_extract(${contextId}, schema keys: ${keys.length ? keys.join(",") : "<none>"})`
+    `[BrowserTools] browser_extract(${contextId}, fields: ${Object.keys(fields).join(",")})`,
   );
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
     try {
-      const a11y = await ops.accessibilitySnapshot();
-      // MVP: return discovery payload (a11y snapshot + schemaEcho + page metadata).
-      // Full LLM-driven extraction landing in a follow-up plan -- the schema
-      // is echoed back so a downstream LLM call can do the structured output.
-      return {
-        extracted: {
-          url: a11y.url,
-          title: a11y.title,
-          ariaSnapshot: a11y.ariaSnapshot,
-          schemaEcho: args.schema,
-          instruction: args.instruction,
-        },
-      };
+      const extracted = await ops.extractFields(fields);
+      return { extracted };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return { error: `browser_extract failed: ${msg}` };
@@ -322,7 +461,7 @@ export async function handleBrowserImportChrome(
       await session.detach().catch(() => { /* ignore */ });
     }
     await page.reload().catch(() => { /* harmless if on about:blank */ });
-    clearObserveCache(contextId); // page reloaded -> indices stale
+    clearBrowserCaches(contextId); // page reloaded -> refs/bboxes stale
     const out: Record<string, unknown> = { ok: true, profile: p, imported: decrypted, decryptFailed, skippedEmpty };
     if (appBoundEncrypted) out.appBoundEncrypted = appBoundEncrypted;
     return out;
