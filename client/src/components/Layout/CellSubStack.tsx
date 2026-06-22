@@ -127,11 +127,26 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
       const dividerEl = e.currentTarget as HTMLElement;
       const containerEl = dividerEl.parentElement;
       const containerHeight = containerEl?.getBoundingClientRect().height ?? 1;
+      // DOM-direct resize: the two slots flanking this divider are its previous
+      // / next siblings in the stack's flex column. We mutate their flex-grow
+      // inline DURING the drag (zero React re-renders — the pane bodies don't
+      // reconcile per mousemove) and commit the final heights to React state
+      // ONCE on mouseup. Mirrors useGridResize's DOM-direct path so a sub-stack
+      // divider drags as smoothly as a top-level one. Transitions are disabled
+      // for the drag so the panes track the cursor 1:1 instead of easing behind.
+      const aboveEl = dividerEl.previousElementSibling as HTMLElement | null;
+      const belowEl = dividerEl.nextElementSibling as HTMLElement | null;
+      const prevAboveTransition = aboveEl?.style.transition ?? '';
+      const prevBelowTransition = belowEl?.style.transition ?? '';
+      if (aboveEl) aboveEl.style.transition = 'none';
+      if (belowEl) belowEl.style.transition = 'none';
       const startY = e.clientY;
       const startTop = heights[slotIdx];
       const startBottom = heights[slotIdx + 1];
       const combined = startTop + startBottom;
       const minSlot = MIN_PANE_FRACTION; // shared floor — prevents collapsing a slot to zero
+      // Latest heights computed mid-drag; committed to React once on finish.
+      let latestHeights: number[] | null = null;
 
       const onMove = (ev: MouseEvent) => {
         // Lost-mouseup recovery: button no longer down (released over another
@@ -140,8 +155,7 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
         // Sub-slop jitter while pressed is still a click in progress.
         if (!overlay && Math.abs(ev.clientY - startY) <= DRAG_SLOP_PX) return;
         raiseChrome();
-        const deltaPx = ev.clientY - startY;
-        const deltaFrac = deltaPx / containerHeight;
+        const deltaFrac = (ev.clientY - startY) / containerHeight;
         let nextTop = startTop + deltaFrac;
         let nextBottom = startBottom - deltaFrac;
         if (nextTop < minSlot) {
@@ -151,10 +165,13 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
           nextBottom = minSlot;
           nextTop = combined - minSlot;
         }
+        // Apply directly to the DOM — no setState, no re-render of pane bodies.
+        if (aboveEl) aboveEl.style.flex = `${nextTop} 1 0%`;
+        if (belowEl) belowEl.style.flex = `${nextBottom} 1 0%`;
         const next = [...heights];
         next[slotIdx] = nextTop;
         next[slotIdx + 1] = nextBottom;
-        onResize(next);
+        latestHeights = next;
       };
       let finished = false;
       const finish = () => {
@@ -164,11 +181,17 @@ function SubStackResizeDivider({ slotIdx, heights, onResize }: SubStackResizeDiv
         setActive(false);
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', finish);
+        if (aboveEl) aboveEl.style.transition = prevAboveTransition;
+        if (belowEl) belowEl.style.transition = prevBelowTransition;
         if (overlay) {
           overlay.remove();
           overlay = null;
           window.dispatchEvent(new Event('topics:pane-resize-end'));
         }
+        // Commit the final heights to React ONCE — and only for a real drag.
+        // A bare click leaves latestHeights null (no phantom resize), so the
+        // double-click → equalize handler isn't pre-empted.
+        if (latestHeights) onResize(latestHeights);
       };
       cleanupRef.current = finish;
       window.addEventListener('mousemove', onMove);
