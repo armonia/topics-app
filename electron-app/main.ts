@@ -3044,6 +3044,16 @@ app.on('certificate-error', (event, _webContents, url, _error, _certificate, cal
 
 // Enable remote debugging for the whole app
 app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT));
+// Chrome 111+/Electron reject CDP WebSocket connections whose `Origin` header
+// isn't in this allowlist (DNS-rebinding protection). Playwright's
+// `chromium.connectOverCDP()` — used by the server-side ElectronCdpDispatcher to
+// drive the native browser pane for browser_observe/act/eval — sends an Origin,
+// so without this it is rejected and hangs to a 30s timeout, silently falling
+// back to an invisible Playwright phantom (the about:blank / lost-state bug).
+// The debugging port binds loopback (127.0.0.1) only, so allowing any origin
+// just lets local tooling (our own server) attach. THIS is required for the
+// native CDP agent path to work at all.
+app.commandLine.appendSwitch('remote-allow-origins', '*');
 
 // ─── Phase F · No-flash boot (3rd layer: native chrome theme sync) ─────────
 // Layer 1 (theme-init script) and 2 (critical CSS) already live in

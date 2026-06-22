@@ -11,6 +11,7 @@ import { topicsApi } from '../../lib/api';
 import {
   createPaneId,
   getTerminalSessionFromPaneId,
+  getBrowserContextFromPaneId,
   useClosedTabs,
 } from '../../state/pane/adapters';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -333,7 +334,16 @@ export function ProjectWindowPane({
                 consumed. Gated on `isVisible` so an inactive browser pane
                 doesn't steal navigation from the focused one. */}
             <RemoteBrowserPanel
-              contextId={projectPath}
+              // The contextId MUST be the one encoded in the pane id (term-<id>
+              // for a terminal-opened pane, topic.id for a chat-opened one) so the
+              // native CDP target registers under the SAME id the agent's
+              // browser_observe/act/eval resolve to — otherwise tools hit an
+              // invisible Playwright phantom. Was hardcoded to projectPath, which
+              // (a) never matched the agent's contextId and (b) contains slashes
+              // that broke the /api/browsers/:id/cdp-target route (404 → no
+              // registration). Fall back to projectPath only for a legacy pane id
+              // with no encoded context.
+              contextId={getBrowserContextFromPaneId(pane.id) ?? projectPath}
               isVisible={isVisible}
               // Restore the project browser tab to its last page after a restart
               // (mount-only). pane.url round-trips via projectLayoutSync.

@@ -1004,18 +1004,23 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // is only re-created via an explicit user action or a new
           // server-driven `browser:navigate` broadcast.
           //
-          // The context is SHARED by every browser pane in this project
-          // (all mount with contextId={projectPath}) — only tear it down
-          // when the LAST one closes, or closing one of two browser panes
-          // kills the page under the survivor.
-          const hasOtherBrowserPane = panes.some(p => p.type === 'browser' && p.id !== paneId);
-          if (!hasOtherBrowserPane) {
-            fetch(`/api/browsers/${encodeURIComponent(projectPath)}`, { method: 'DELETE' }).catch(() => {});
-          }
-          // Drop the spawner relationship so the "opened a browser" tab cue
-          // clears when the browser closes (the registry isn't auto-pruned).
+          // Each browser pane now owns the contextId encoded in its pane id
+          // (term-<id> / topic.id / uuid) — no longer a single projectPath shared
+          // across the project (that never matched the agent's contextId and its
+          // slashes broke the cdp-target route). So tear down THIS pane's own
+          // context on a real close.
           const bctx = getBrowserContextFromPaneId(paneId);
-          if (bctx) clearBrowserSpawner(bctx);
+          if (bctx) {
+            // Unregister the native CDP target (clears isNativeBound + agent caches).
+            // useNativeBrowser intentionally no longer does this on React unmount
+            // (that emptied the registry during remounts → phantom); a real close
+            // is the right moment to drop it.
+            fetch(`/api/browsers/${encodeURIComponent(bctx)}/cdp-target`, { method: 'DELETE' }).catch(() => {});
+            // Tear down any server-side Playwright context that backed this pane.
+            fetch(`/api/browsers/${encodeURIComponent(bctx)}`, { method: 'DELETE' }).catch(() => {});
+            // Drop the spawner relationship so the "opened a browser" tab cue clears.
+            clearBrowserSpawner(bctx);
+          }
         }
 
         pushClosedTab(record);
