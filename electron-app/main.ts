@@ -230,6 +230,13 @@ interface NativeBrowserEntry {
   topicId: string;
   partitionId: string;
   bounds: { x: number; y: number; width: number; height: number };
+  // The last URL the USER/UI explicitly asked this view to navigate to (URL bar
+  // or an open_browser_pane request, both via the browser-native:navigate IPC).
+  // The scheme guard on the view allows non-web schemes (file://) ONLY for this
+  // exact URL — so a human can still open a local file, but a page/agent-driven
+  // navigation (eval setting window.location, a redirect, window.open) to
+  // file:// is blocked. Cleared/overwritten on each explicit navigate.
+  trustedNavUrl?: string;
   // Cleanup on destroy.
   cleanup: () => void;
 }
@@ -441,6 +448,33 @@ function createNativeBrowser(
   // window so DevTools / CDP picks it up.
   const wc = view.webContents;
 
+  // SECURITY — scheme guard on agent/page-driven navigation. The server-side
+  // browser_open tool guards its own URL, but a confused/poisoned agent (and,
+  // given the 0.0.0.0 bind, a remote caller) can still reach file:// via
+  // browser_eval (`window.location='file://…'`), a page redirect, or
+  // window.open — then read the file back through browser_get_text/observe.
+  // Block non-web schemes for ANY navigation of this view, EXCEPT the exact URL
+  // the user/UI explicitly asked for (entry.trustedNavUrl, set by the
+  // browser-native:navigate IPC and the initial load below) so a human can
+  // still open a local file. BROWSER_ALLOW_ALL_SCHEMES=1 disables the guard.
+  const AGENT_NAV_SCHEMES = new Set(['http:', 'https:', 'about:', 'data:']);
+  const navSchemeAllowed = (u: string): boolean => {
+    if (process.env.BROWSER_ALLOW_ALL_SCHEMES === '1') return true;
+    if (u === entry.trustedNavUrl) return true;
+    try { return AGENT_NAV_SCHEMES.has(new URL(u).protocol.toLowerCase()); }
+    catch { return false; }
+  };
+  const guardNav = (event: { preventDefault: () => void }, url: string): void => {
+    if (navSchemeAllowed(url)) return;
+    event.preventDefault();
+    console.warn(`[BrowserNativeManager] blocked navigation to disallowed scheme: ${url}`);
+  };
+  wc.on('will-navigate', (event, url) => guardNav(event, url));
+  wc.on('will-redirect', (event, url) => guardNav(event, url));
+  // will-frame-navigate (Electron 22+) also catches renderer-initiated main-frame
+  // navigations (e.g. eval setting window.location) that will-navigate can miss.
+  wc.on('will-frame-navigate', (event) => guardNav(event, event.url));
+
   // Phase 30.1 polish — window.open / target=_blank handler. Default
   // Electron action is 'allow' which spawns a NEW BrowserWindow with no
   // chrome — we want links to navigate IN-PLACE so users don't get
@@ -450,8 +484,14 @@ function createNativeBrowser(
   // pane (split) when modifier keys requested.
   wc.setWindowOpenHandler(({ url, disposition }) => {
     if (disposition === 'foreground-tab' || disposition === 'background-tab' || disposition === 'new-window') {
-      // Same-pane navigation — keep the user inside Topics.
-      wc.loadURL(url).catch(() => undefined);
+      // window.open is page-initiated (not a trusted user nav) — scheme-guard it
+      // so the agent can't open file:// in a fresh load it then scrapes.
+      if (navSchemeAllowed(url)) {
+        // Same-pane navigation — keep the user inside Topics.
+        wc.loadURL(url).catch(() => undefined);
+      } else {
+        console.warn(`[BrowserNativeManager] blocked window.open to disallowed scheme: ${url}`);
+      }
       return { action: 'deny' };
     }
     // For 'save-to-disk', 'other', etc., let Electron handle it (default
@@ -459,6 +499,9 @@ function createNativeBrowser(
     return { action: 'deny' };
   });
   if (initialUrl && initialUrl !== 'about:blank') {
+    // The initial URL is what the creating UI/open_browser_pane asked for — trust
+    // its scheme (a human may open a local file) without disabling the guard.
+    entry.trustedNavUrl = initialUrl;
     wc.loadURL(initialUrl).catch((err: unknown) => {
       console.error(`[BrowserNativeManager] initial loadURL failed:`, err);
     });
@@ -2137,6 +2180,10 @@ ipcMain.handle('browser-native:navigate', async (
   // op is a no-op anyway once the view is gone, so return a benign shape.
   if (!entry) return { url: '', title: '' };
   if (typeof url !== 'string' || !url) throw new Error('browser-native:navigate — url required');
+  // Explicit user/UI navigation (URL bar or an open_browser_pane request) — trust
+  // its scheme so the view's will-navigate guard lets a local file through here,
+  // while still blocking page/agent-driven file:// (eval/redirect/window.open).
+  entry.trustedNavUrl = url;
   await entry.view.webContents.loadURL(url);
   return {
     url: entry.view.webContents.getURL(),
@@ -3795,6 +3842,13 @@ async function startBundledServer(): Promise<void> {
   const { serverDir, binDir, bunPath } = resolveServerRuntime();
   if (!fs.existsSync(bunPath)) {
     console.error('[Server] Bundled bun runtime missing:', bunPath);
+    // Don't leave the user staring at an infinite splash with no clue why.
+    const { dialog } = await import('electron');
+    await dialog.showMessageBox({
+      type: 'error',
+      message: 'Topics could not start its local engine',
+      detail: `The bundled runtime is missing:\n${bunPath}\n\nThe download may be incomplete or the app bundle is damaged. Please reinstall Topics.`,
+    });
     return;
   }
 
@@ -3828,6 +3882,28 @@ async function startBundledServer(): Promise<void> {
     } catch { /* best effort */ }
   }
 
+  // Mutable server state (DB, messages, uploads, journal, usage, vapid keys, …)
+  // MUST live in a writable per-user dir, NOT inside the .app bundle. Writing
+  // into the bundle is what crashes the bundled server before it can listen on a
+  // freshly-downloaded (quarantined / Gatekeeper-translocated / DMG-mounted)
+  // copy — which is what hangs the app forever on "Launching the local engine".
+  // server/lib/data-dir.ts reads TOPICS_DATA_DIR; db.ts/browser-state read DATA_DIR.
+  const userDataDir = app.getPath('userData');
+  const serverDataDir = path.join(userDataDir, 'data');
+  try { fs.mkdirSync(serverDataDir, { recursive: true }); } catch { /* surfaced via the failure dialog below */ }
+
+  // Tee the child's stdout/stderr to a log file so a startup failure is
+  // diagnosable (e.g. an EROFS line) instead of a silent infinite spinner.
+  const logDir = path.join(userDataDir, 'logs');
+  const logFile = path.join(logDir, 'topics-server.log');
+  let logStream: ReturnType<typeof fs.createWriteStream> | null = null;
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    logStream = fs.createWriteStream(logFile, { flags: 'a' });
+    logStream.write(`\n===== ${new Date().toISOString()} starting bundled server =====\n`);
+  } catch { /* best effort */ }
+  const stderrTail: string[] = [];
+
   const { spawn } = await import('child_process');
   console.log('[Server] Spawning bundled server:', bunPath, 'in', serverDir);
   serverChild = spawn(bunPath, ['run', path.join(serverDir, 'server.ts')], {
@@ -3838,13 +3914,22 @@ async function startBundledServer(): Promise<void> {
       ...process.env,
       NODE_ENV: 'production',
       PORT: String(SERVER_PORT),
+      // Route ALL mutable state out of the read-only bundle (see server/lib/data-dir.ts).
+      TOPICS_DATA_DIR: userDataDir,
+      DATA_DIR: serverDataDir,
       // server/pty-bridge.mjs is spawned as `node …`; put the bundled node on
       // PATH so embedded terminals work with no system node installed.
       PATH: `${binDir}${path.delimiter}${process.env.PATH || ''}`,
     },
   });
-  serverChild.stdout?.on('data', (d) => console.log('[server]', String(d).trimEnd()));
-  serverChild.stderr?.on('data', (d) => console.error('[server]', String(d).trimEnd()));
+  serverChild.stdout?.on('data', (d) => { const s = String(d); logStream?.write(s); console.log('[server]', s.trimEnd()); });
+  serverChild.stderr?.on('data', (d) => {
+    const s = String(d);
+    logStream?.write(s);
+    console.error('[server]', s.trimEnd());
+    for (const line of s.split('\n')) { if (line.trim()) stderrTail.push(line); }
+    while (stderrTail.length > 12) stderrTail.shift();
+  });
   serverChild.on('error', (err) => console.error('[Server] spawn error:', err));
   serverChild.on('exit', (code, sig) => {
     console.error(`[Server] child exited code=${code} sig=${sig}`);
@@ -3876,10 +3961,11 @@ async function startBundledServer(): Promise<void> {
   const healthy = await waitForServer(30_000);
   if (!healthy) {
     const { dialog } = await import('electron');
+    const tail = stderrTail.length ? `\n\nLast server output:\n${stderrTail.join('\n')}` : '';
     await dialog.showMessageBox({
       type: 'error',
       message: 'Topics server failed to start',
-      detail: 'The bundled server did not become ready within 30 seconds. Please relaunch the app.',
+      detail: `The bundled server did not become ready within 30 seconds.\n\nA log was written to:\n${logFile}${tail}\n\nPlease relaunch the app. If it keeps happening, move Topics into your Applications folder and reopen it.`,
     });
   }
 }
