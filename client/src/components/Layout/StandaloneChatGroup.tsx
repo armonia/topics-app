@@ -24,6 +24,7 @@ import {
   useProjectTabStatus,
   type ProjectTabStatus,
 } from '../../state/pane/adapters';
+import { persistBrowserPaneUrl, getBrowserPaneUrl } from '../../state/pane/browserPaneUrl';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
@@ -216,6 +217,11 @@ export function StandaloneChatGroup({
           type: 'browser' as PaneType,
           title: 'Browser',
           preview: false,
+          // Seed the persisted URL from the store so renderPaneBody passes it
+          // as initialUrl → the tab reopens to its page after a restart instead
+          // of about:blank. (This map reconstructs panes from ids, so without
+          // this the url never reaches the render.)
+          url: getBrowserPaneUrl(id),
         };
       }
       if (isTerminalPaneId(id)) {
@@ -584,8 +590,14 @@ export function StandaloneChatGroup({
         <LazyPane>
           <RemoteBrowserPanel
             contextId={ctx}
+            // Restore the tab to its last page after a window restart (the
+            // browser analogue of a chat tab restoring its conversation).
+            // pane.url round-trips via the pane snapshot; mount-only in the hook.
+            initialUrl={pane.url}
             navigateUrl={isPaneActive && browserNavigateUrl ? browserNavigateUrl : undefined}
             onNavigateConsumed={isPaneActive ? () => setBrowserNavigateUrl(null) : undefined}
+            // Persist each navigation onto the pane so the next restart restores it.
+            onUrlChange={(u) => persistBrowserPaneUrl(paneId, u)}
             // Drives WebContentsView visibility — `display:none` on the
             // keep-alive wrapper doesn't reach the OS-level overlay, so
             // we tell it explicitly. Without this, the inactive browser's

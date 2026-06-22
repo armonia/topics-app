@@ -169,6 +169,7 @@ export function ProjectWindowPane({
   const handlePinPane = layout.handlers.pinPane;
   const handlePaneSettings = layout.handlers.paneSettings;
   const handlePanePopOut = layout.handlers.panePopOut;
+  const updatePane = layout.handlers.updatePane;
   const availableTypesForGroup = layout.helpers.availableTypesForGroup;
 
   // --- Chat sync (chat-pane reconciliation against topic list) ---
@@ -334,8 +335,13 @@ export function ProjectWindowPane({
             <RemoteBrowserPanel
               contextId={projectPath}
               isVisible={isVisible}
+              // Restore the project browser tab to its last page after a restart
+              // (mount-only). pane.url round-trips via projectLayoutSync.
+              initialUrl={pane.url}
               navigateUrl={isVisible && browserNavigateUrl ? browserNavigateUrl : undefined}
               onNavigateConsumed={isVisible ? () => setBrowserNavigateUrl(null) : undefined}
+              // Persist each navigation onto the project pane for next restart.
+              onUrlChange={(u) => { if (u && u !== 'about:blank' && u !== pane.url) updatePane(pane.id, { url: u }); }}
               onFocusPanel={onFocusPanel}
               topics={topics}
             />
