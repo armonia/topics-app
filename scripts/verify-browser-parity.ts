@@ -132,8 +132,18 @@ try {
     const ops2 = playwrightOps(svc, ctx2);
     await ops2.navigate(origin + "/");
     await ops2.importStorageState(exported);
-    const tok = await ops2.evalExpression("return localStorage.getItem('tok')");
-    check("import restored localStorage", (tok as { result?: unknown }).result === "LSVAL", `got: ${JSON.stringify(tok)}`);
+    // Verify via a navigation-free re-export (avoids racing the settle).
+    const reexport = await ops2.exportStorageState();
+    check(
+      "import restored localStorage",
+      reexport.origins.some((o) => o.localStorage.some((l) => l.name === "tok" && l.value === "LSVAL")),
+      `got origins: ${JSON.stringify(reexport.origins)}`,
+    );
+    check(
+      "import restored cookie",
+      reexport.cookies.some((c) => c.name === "sid" && c.value === "ROUNDTRIP"),
+      `got cookies: ${JSON.stringify(reexport.cookies)}`,
+    );
     await svc.destroyContext(ctx2).catch(() => {});
   } finally {
     srv.stop(true);

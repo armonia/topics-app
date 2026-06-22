@@ -152,6 +152,11 @@ export async function applyStateToPage(
     } else {
       await page.reload().catch(() => {});
     }
+    // Ensure the page is fully settled before we return, so the agent's next
+    // read (observe/eval/get_text) can't land mid-navigation ("Execution
+    // context was destroyed") — real login pages often redirect after the
+    // cookie/localStorage land.
+    await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => {});
   } catch {
     /* navigation best-effort */
   }

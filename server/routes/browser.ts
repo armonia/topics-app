@@ -13,7 +13,9 @@ import {
   handleBrowserLoadState,
   handleBrowserScreenshot,
   handleBrowserPoint,
+  clearBrowserCaches,
 } from "../browser-tools-handler";
+import { resetMoondreamCounter } from "../integrations/moondream-client";
 import type { BrowserActAction } from "../browser-tools";
 
 export function createBrowserRouter(
@@ -278,6 +280,11 @@ export function createBrowserRouter(
     if (cdpRegisterMatch && method === "DELETE") {
       if (!cdpDispatcher) return json({ ok: true });
       cdpDispatcher.unregisterTarget(cdpRegisterMatch.id);
+      // Pane closed → flush its agent caches + vision budget so the per-context
+      // maps don't outlive the view (web mode flushes via onDestroy; the native
+      // view has no BrowserService context, so do it here on unregister).
+      clearBrowserCaches(cdpRegisterMatch.id);
+      resetMoondreamCounter(cdpRegisterMatch.id);
       return json({ ok: true });
     }
 

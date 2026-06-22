@@ -33,7 +33,8 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createBrowserService, type BrowserService } from "./server/browser-service";
 import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
-import { setBrowserCdpDispatcher, clearObserveCache } from "./server/browser-tools-handler";
+import { setBrowserCdpDispatcher, clearBrowserCaches } from "./server/browser-tools-handler";
+import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
@@ -218,9 +219,11 @@ const browserService = await createBrowserService({
       console.warn(`[server] onNavigate persist failed for ${contextId}:`, err.message);
     }
   },
-  // Flush the per-context browser_observe element cache when a context is torn
-  // down, so a recreated same-id context can't act on stale element bboxes.
-  onDestroy: (contextId) => clearObserveCache(contextId),
+  // Flush the per-context browser caches (observe elements + ref snapshot) and
+  // the vision budget counter when a context is torn down, so a recreated
+  // same-id context can't act on stale refs/bboxes and per-context maps don't
+  // grow unbounded across many topics.
+  onDestroy: (contextId) => { clearBrowserCaches(contextId); resetMoondreamCounter(contextId); },
   // Phase 30 BROWSER-CHAT-03 — wire agent_active broadcast through the
   // /ws/browser/:contextId registry maintained in this module.
   broadcastToBrowserWs,
