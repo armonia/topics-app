@@ -8,6 +8,8 @@ import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
+import { SplitRegion, FullWidthRowZone } from './DropOverlay';
+import { FULL_ROW_GUTTER_PX } from '../../lib/dropFeedback';
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -655,19 +657,14 @@ export function GroupLayout({
             });
           })()}
 
-          {/* Edge drop zone overlays (Phase 3) */}
+          {/* Single-column split preview — a filled region the width of THIS
+              column. On the bottom row (when full-width-row strips are live) its
+              bottom stops above the gutter so the column-split and full-width-row
+              previews never visually collide; width alone tells them apart. */}
           {edgeDrop && (
-            <div
-              className="absolute pointer-events-none z-30"
-              style={{
-                top: edgeDrop === 'top' ? 0 : edgeDrop === 'bottom' ? '50%' : 0,
-                bottom: edgeDrop === 'bottom' ? 0 : edgeDrop === 'top' ? '50%' : 0,
-                left: edgeDrop === 'left' ? 0 : edgeDrop === 'right' ? '50%' : 0,
-                right: edgeDrop === 'right' ? 0 : edgeDrop === 'left' ? '50%' : 0,
-                background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
-                border: '2px dashed var(--primary)',
-                borderRadius: '4px',
-              }}
+            <SplitRegion
+              zone={edgeDrop}
+              gutterInset={rowIdx === rows.length - 1 && rows.some((r) => r.groupIds.length > 1) ? FULL_ROW_GUTTER_PX : 0}
             />
           )}
         </div>
@@ -703,27 +700,14 @@ export function GroupLayout({
           top/bottom bands never swallow normal clicks on the first row's tab
           bar. Dropping here inserts a NEW row spanning every column. */}
       {showFullRowStrips && (['top', 'bottom'] as const).map((side) => (
-        <div
+        <FullWidthRowZone
           key={side}
-          className="absolute left-0 right-0 z-40 flex items-center justify-center transition-colors"
-          style={{
-            [side]: 0,
-            height: 26,
-            background: fullRowDrop === side
-              ? 'color-mix(in srgb, var(--primary) 22%, transparent)'
-              : 'color-mix(in srgb, var(--primary) 6%, transparent)',
-            borderTop: side === 'bottom' ? '2px dashed var(--primary)' : undefined,
-            borderBottom: side === 'top' ? '2px dashed var(--primary)' : undefined,
-            opacity: fullRowDrop === side ? 1 : 0.65,
-          }}
+          side={side}
+          active={fullRowDrop === side}
           onDragOver={handleFullRowDragOver(side)}
           onDragLeave={handleFullRowDragLeave}
           onDrop={handleFullRowDrop(side)}
-        >
-          <span className="text-[10px] font-medium text-primary/80 pointer-events-none select-none uppercase tracking-wide">
-            Full-width row
-          </span>
-        </div>
+        />
       ))}
       {rows.map((row, rowIdx) => {
         const isDraggingRow = draggingRowIdx === rowIdx;

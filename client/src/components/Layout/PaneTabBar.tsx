@@ -13,6 +13,7 @@ import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
+import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -625,9 +626,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             onDragOver={handleTabDragOver(paneIdx)}
             onDragEnd={handleTabDragEnd}
           >
-            {showLeftIndicator && (
-              <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
-            )}
+            {showLeftIndicator && <InsertCaret side="left" />}
             {/* No selection colour wash: the tab colour is an auto-assigned
                 topic default ("invented"), not a manifest-provided colour, so a
                 selected tab just uses the normal selected styling. When a real
@@ -749,29 +748,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally
                 ignored here. */}
             <NotificationBadge count={badgeCount} className="ml-0.5" />
-            {showRightIndicator && (
-              <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded z-20" />
-            )}
+            {showRightIndicator && <InsertCaret side="right" />}
           </div>
         );
       })}
       </div>
 
-      {/* Edge split indicator overlay */}
-      {edgeSplitZone && (
-        <div
-          className="absolute pointer-events-none z-30"
-          style={{
-            top: 0,
-            bottom: 0,
-            left: edgeSplitZone === 'left' ? 0 : '50%',
-            right: edgeSplitZone === 'right' ? 0 : '50%',
-            background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
-            border: '2px dashed var(--primary)',
-            borderRadius: '4px',
-          }}
-        />
-      )}
+      {/* Edge-split preview — a filled half-bar region (the footprint of the new
+          column), shared <SplitRegion> primitive: fill + seam, no dashed box.
+          Mutually exclusive with the insert caret (the edge zone nulls dragOverIdx). */}
+      {edgeSplitZone && <SplitRegion zone={edgeSplitZone} />}
 
       {/* Add-pane affordance — single canonical component. Owns the
           trigger button, the click handler (web portal AND Electron

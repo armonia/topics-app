@@ -14,6 +14,7 @@ import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
+import { SplitRegion } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation } from './gridWidths';
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
@@ -1095,6 +1096,18 @@ export function PanelGrid({
       return;
     }
 
+    // The tab bar owns its own band: a PANE_TAB dragged ANYWHERE over a tab bar
+    // (including its left/right corners, where detectDropZone returns 'left'/
+    // 'right' rather than the suppressed 'top') must show ONLY the bar's insert
+    // caret — never a cell split rectangle on top of it. This `closest` test is
+    // exact (the pointer is genuinely over the bar element), replacing the leaky
+    // 'top'-only `suppressSplitOverlay` heuristic that left the corners double-
+    // painting. GRID_ITEM whole-cell drags still split from the bar.
+    if (isTabDrag && !isGridDrag && (e.target as HTMLElement).closest?.('[data-testid="panel-tab-bar"]')) {
+      if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+      return;
+    }
+
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const zone = detectDropZone(e, rect, 'edges+center')!;
     let centerSide: 'left' | 'right' | undefined;
@@ -1801,28 +1814,16 @@ export function PanelGrid({
               const isTarget = gridDropTarget?.rowIdx === rowIdx && gridDropTarget?.colIdx === colIdx;
               const zone = isTarget ? gridDropTarget!.zone : null;
               const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
+              const isTabTarget = isTarget && !!gridDropTarget!.isTab;
               // A tab dragged over the `top` zone is aiming at the tab bar that
-              // sits there, not splitting the cell (the drop no-ops it). Suppress
-              // the rectangular split overlay for that case so no phantom "area"
-              // preview shows — and can't linger past the drop. Real edge splits
-              // (left/right/bottom), and all GRID_ITEM drags, still paint.
-              const suppressSplitOverlay = isTarget && gridDropTarget!.isTab && zone === 'top';
-
-              const splitOverlayStyle: React.CSSProperties | null = (!suppressSplitOverlay && (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom'))
-                ? {
-                    position: 'absolute',
-                    pointerEvents: 'none',
-                    zIndex: 40,
-                    background: 'color-mix(in srgb, var(--primary) 15%, transparent)',
-                    border: '2px dashed var(--primary)',
-                    borderRadius: '4px',
-                    transition: 'all 150ms ease',
-                    top: zone === 'bottom' ? '50%' : 0,
-                    bottom: zone === 'top' ? '50%' : 0,
-                    left: zone === 'right' ? '50%' : 0,
-                    right: zone === 'left' ? '50%' : 0,
-                  }
-                : null;
+              // sits there, not splitting the cell (the drop no-ops it) — show no
+              // region. The `closest(panel-tab-bar)` guard in the dragover handler
+              // already clears the target when the pointer is genuinely over the
+              // bar (incl. its corners); this is belt-and-suspenders for a bar
+              // shorter than the edge band. Real edge splits (left/right/bottom),
+              // and all GRID_ITEM drags, still paint a region.
+              const suppressSplitOverlay = isTabTarget && zone === 'top';
+              const showSplitRegion = !suppressSplitOverlay && (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom');
 
               return (
                 <Fragment key={key}>
@@ -1830,7 +1831,10 @@ export function PanelGrid({
                     className={`flex min-h-0 min-w-0 overflow-hidden relative transition-all ${isDraggingThis ? 'opacity-40' : ''}`}
                     style={{
                       flex: isMobile ? '1 1 0%' : `${width} 1 0%`,
-                      boxShadow: zone === 'center'
+                      // Center inset = "reorder within / merge as tab" cue. Only
+                      // for GRID_ITEM drags: a PANE_TAB over center no-ops on drop
+                      // (the bar owns add-as-tab), so painting it would over-promise.
+                      boxShadow: zone === 'center' && !isTabTarget
                         ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
                         : undefined,
                     }}
@@ -1838,12 +1842,7 @@ export function PanelGrid({
                     onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
                     onDropCapture={handleGridItemDropCapture}
                   >
-                    {splitOverlayStyle && (
-                      <div
-                        data-grid-split-overlay={zone}
-                        style={splitOverlayStyle}
-                      />
-                    )}
+                    {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
                     {/* Unified standalone group (handles chat, utility, and
                         project tabs). When the cell hosts a vertical
                         sub-stack (split-down inside this column), wrap it
@@ -1872,9 +1871,9 @@ export function PanelGrid({
                       );
                     })()}
 
-                    {/* The edge-split preview is painted once via `splitOverlayStyle`
-                        above (z-40, animated). A second identical overlay used to
-                        render here too — double-painting the dashed border. Removed. */}
+                    {/* The edge-split preview is painted once via <SplitRegion>
+                        above (z-40, animated, fill + seam — no dashed perimeter).
+                        A second identical overlay used to render here too. Removed. */}
                   </div>
 
                   {/* Column divider (between items in a row) — hidden on mobile */}
