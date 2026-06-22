@@ -237,28 +237,31 @@ interface NativeBrowserEntry {
   // navigation (eval setting window.location, a redirect, window.open) to
   // file:// is blocked. Cleared/overwritten on each explicit navigate.
   trustedNavUrl?: string;
-  // True while a renderer reload is in flight: the view is kept alive (so its
-  // page + CDP targetId survive the refresh) but marked as "must be re-claimed".
-  // The remounting pane's create() reuse clears it; the deferred reclaim sweep
-  // destroys any view still awaiting re-claim after the grace window (= the pane
-  // was genuinely gone before the reload, so it would otherwise leak).
-  awaitingReclaim?: boolean;
+  // Liveness watermark for the keepalive reaper. A native browser pane is a
+  // durable tab: its WebContentsView (and CDP targetId) must outlive React
+  // mount/unmount churn — a tab switch, DnD remount, StrictMode double-mount, a
+  // re-render, or a window reload must NOT recreate it, or the agent's
+  // cdpTargetId goes stale between MCP turns ("HTTP 500 cdpTargetId no longer
+  // resolves"). So instead of destroying on unmount we keep the view alive as
+  // long as the renderer keeps PINGING it (browser-native:keepalive, every few
+  // seconds while the pane is mounted). `lastSeenAlive` is refreshed by every
+  // ping (and by create/reuse); the reaper destroys only views that have gone
+  // unpinged past KEEPALIVE_GRACE_MS — i.e. the tab was genuinely closed.
+  lastSeenAlive: number;
   // Cleanup on destroy.
   cleanup: () => void;
 }
 
 const nativeBrowsers = new Map<string, NativeBrowserEntry>();
 
-// Reclaim sweep — see the did-finish-load handler in createWindow(). A renderer
-// reload (Cmd+R / Vite HMR / dev-server restart) tears down the React tree but
-// NOT the native WebContentsViews (they're independent child WebContents). We
-// deliberately KEEP them so the page + CDP targetId survive the refresh (a tab
-// must restore like a chat tab, and the agent's cdpTargetId must stay valid).
-// Each surviving view is marked awaitingReclaim; the remounting pane re-claims
-// it via create()-reuse (same topicId). Whatever is still unclaimed after the
-// grace window was a genuinely-closed pane → destroy it so it can't leak.
-const RECLAIM_GRACE_MS = 6000;
-let reclaimSweepTimer: ReturnType<typeof setTimeout> | null = null;
+// Keepalive reaper. The renderer pings each mounted native pane on a heartbeat;
+// a view unpinged for longer than the grace was genuinely closed (its pane left
+// the layout) and is reaped. The grace is comfortably larger than the heartbeat
+// and than any reload/remount gap, so transient unmount→remount churn never
+// reaps a still-open tab.
+const KEEPALIVE_GRACE_MS = 20_000;
+const KEEPALIVE_CHECK_MS = 5_000;
+let keepaliveReaper: ReturnType<typeof setInterval> | null = null;
 
 function hideAllNativeViews(): void {
   for (const entry of nativeBrowsers.values()) {
@@ -266,20 +269,29 @@ function hideAllNativeViews(): void {
   }
 }
 
-function scheduleReclaimSweep(): void {
-  for (const entry of nativeBrowsers.values()) entry.awaitingReclaim = true;
-  if (reclaimSweepTimer) clearTimeout(reclaimSweepTimer);
-  reclaimSweepTimer = setTimeout(() => {
-    reclaimSweepTimer = null;
+/** Give every live view a fresh grace window (used at reload start so the
+ *  reload gap — during which the renderer sends no pings — can't reap a tab
+ *  that is about to remount and resume pinging). */
+function touchAllNativeViews(): void {
+  const now = Date.now();
+  for (const entry of nativeBrowsers.values()) entry.lastSeenAlive = now;
+}
+
+function ensureKeepaliveReaper(): void {
+  if (keepaliveReaper) return;
+  keepaliveReaper = setInterval(() => {
+    const now = Date.now();
     for (const [viewId, entry] of Array.from(nativeBrowsers)) {
-      if (entry.awaitingReclaim) {
-        console.log(`[BrowserNativeManager] reclaim grace elapsed — destroying unclaimed view ${viewId} (topic ${entry.topicId})`);
+      if (pendingDestroys.has(viewId)) continue; // already on its way out
+      if (now - entry.lastSeenAlive > KEEPALIVE_GRACE_MS) {
+        console.log(`[BrowserNativeManager] keepalive lapsed (${Math.round((now - entry.lastSeenAlive) / 1000)}s) — reaping view ${viewId} (topic ${entry.topicId})`);
         try { actuallyDestroyNativeBrowser(viewId); } catch (err) {
-          console.error(`[BrowserNativeManager] reclaim-sweep destroy failed for ${viewId}:`, err);
+          console.error(`[BrowserNativeManager] keepalive reap failed for ${viewId}:`, err);
         }
       }
     }
-  }, RECLAIM_GRACE_MS);
+  }, KEEPALIVE_CHECK_MS);
+  if (typeof keepaliveReaper.unref === 'function') keepaliveReaper.unref();
 }
 
 // Phase 30.1 polish — pending destroy timers keyed by viewId. Used to
@@ -478,6 +490,7 @@ function createNativeBrowser(
     topicId,
     partitionId,
     bounds: { x: 0, y: 0, width: 0, height: 0 },
+    lastSeenAlive: Date.now(),
     cleanup: () => {
       // Listeners are wired below; this is filled in next.
     },
@@ -860,14 +873,17 @@ function createWindow(): void {
   // every browser_* returned HTTP 500 until the pane was re-opened.
   //
   // New model:
-  //   - did-start-navigation (main frame) → HIDE every native view so none
-  //     floats over the loading renderer during the reload.
-  //   - did-finish-load (after first) → schedule a deferred reclaim sweep. The
-  //     remounting panes re-claim their views via create()-reuse (same topicId,
-  //     clears awaitingReclaim); whatever stays unclaimed past the grace window
-  //     was a genuinely-closed pane and is destroyed then (no leak).
+  //   - did-start-navigation (main frame) → HIDE every native view (so none
+  //     floats over the loading renderer) AND refresh their keepalive watermark
+  //     (touchAllNativeViews) so the reload gap — during which the renderer
+  //     sends no pings — can't reap a tab that is about to remount and resume
+  //     pinging.
+  //   - The remounting panes re-claim their views via create()-reuse (same
+  //     topicId) and resume the keepalive heartbeat. Any view whose pane did NOT
+  //     come back (genuinely closed before the reload) stops being pinged and is
+  //     reaped by the keepalive reaper once the grace lapses — no leak.
   mainWindow.webContents.on('did-start-navigation', (_e, _url, _isInPlace, isMainFrame) => {
-    if (isMainFrame && nativeBrowsers.size > 0) hideAllNativeViews();
+    if (isMainFrame && nativeBrowsers.size > 0) { touchAllNativeViews(); hideAllNativeViews(); }
   });
   let firstLoadHandled = false;
   mainWindow.webContents.on('did-finish-load', () => {
@@ -876,9 +892,9 @@ function createWindow(): void {
       return;
     }
     if (nativeBrowsers.size > 0) {
-      console.log(`[BrowserNativeManager] Renderer reloaded — keeping ${nativeBrowsers.size} view(s) alive for re-claim (grace ${RECLAIM_GRACE_MS}ms)`);
+      console.log(`[BrowserNativeManager] Renderer reloaded — keeping ${nativeBrowsers.size} view(s) alive for re-claim (keepalive grace ${KEEPALIVE_GRACE_MS}ms)`);
+      touchAllNativeViews();
       hideAllNativeViews();
-      scheduleReclaimSweep();
     }
   });
 
@@ -2023,9 +2039,10 @@ ipcMain.handle('browser-native:create', async (
         clearTimeout(pending);
         pendingDestroys.delete(existingViewId);
       }
-      // Re-claim across a renderer reload: this remount owns the view, so it must
-      // NOT be swept by the deferred reclaim sweep (did-finish-load handler).
-      existingEntry.awaitingReclaim = false;
+      // This remount (DnD / reload / tab re-show) re-claims the view — refresh
+      // its keepalive watermark so the reaper doesn't reap it during the churn.
+      existingEntry.lastSeenAlive = Date.now();
+      ensureKeepaliveReaper();
       const cdpTargetId = await resolveCdpTargetIdForView(existingEntry.view).catch(() => '');
       console.log(`[BrowserNativeManager] Reusing existing view ${existingViewId} for topic ${opts.topicId}`);
       return { viewId: existingViewId, cdpTargetId };
@@ -2035,6 +2052,7 @@ ipcMain.handle('browser-native:create', async (
   const initialUrl = opts.initialUrl || 'about:blank';
   const entry = createNativeBrowser(opts.topicId, opts.partitionId, initialUrl);
   nativeBrowsers.set(viewId, entry);
+  ensureKeepaliveReaper();
 
   const wc = entry.view.webContents;
 
@@ -2202,6 +2220,14 @@ ipcMain.handle('browser-native:destroy', async (_evt, viewId: string): Promise<v
     actuallyDestroyNativeBrowser(viewId);
   }, DESTROY_GRACE_MS);
   pendingDestroys.set(viewId, timer);
+});
+
+// Liveness heartbeat from the renderer — refreshes the view's keepalive
+// watermark so the reaper keeps it alive while its pane is mounted. A no-op for
+// a gone view (benign — same lenient contract as set-bounds/navigate).
+ipcMain.handle('browser-native:keepalive', async (_evt, viewId: string): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (entry) entry.lastSeenAlive = Date.now();
 });
 
 // Internal — bypasses grace period (used by orphan sweep + reuse cancel).
