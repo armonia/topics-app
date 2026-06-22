@@ -144,16 +144,19 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
       }
     })();
 
-    // NOTE: intentionally NO `beforeunload` destroy. A window reload (Cmd+R /
-    // Vite HMR / dev-server restart) must KEEP this native WebContentsView alive
-    // so the tab restores its page after the refresh and the agent's CDP
-    // targetId stays valid (no stale-target 500s). The view is a child
-    // WebContents and survives the renderer reload on its own; the main process
-    // hides it during the reload and re-claims it when this hook remounts
-    // (create()-reuse by topicId), destroying it only if it's never re-claimed
-    // (deferred reclaim sweep). A genuine tab close still destroys the view via
-    // the React unmount cleanup below.
-
+    // NOTE: intentionally NO `beforeunload` destroy and NO destroy on unmount.
+    // A native browser pane is a DURABLE tab: its WebContentsView (and CDP
+    // targetId) must outlive React mount/unmount churn — a window reload (Cmd+R /
+    // HMR), a tab switch, a DnD remount, a StrictMode double-mount, or any
+    // re-render. Destroying it here recreated the view (new targetId) on the next
+    // mount, which is exactly what made the agent's browser_* tools go stale
+    // between MCP turns ("HTTP 500 cdpTargetId no longer resolves") until the
+    // pane was re-opened. Instead the view is kept alive by a keepalive heartbeat
+    // (the effect below) and reaped by the main process ONLY when the pings stop
+    // for good (= the tab was genuinely closed / left the layout). On unmount we
+    // just hide it and stop pinging; if this is a transient unmount the next
+    // mount re-claims the same view (create()-reuse by topicId), if it's a real
+    // close the main-side reaper collects it after the grace.
     return () => {
       mountedRef.current = false;
       for (const fn of cleanupsRef.current) {
@@ -161,20 +164,9 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
       }
       cleanupsRef.current = [];
       if (createdViewId) {
-        // Hide BEFORE destroy so during the short async destroy window the
-        // user doesn't see a flash of the orphan view. setBounds(0,0,0,0)
-        // is synchronous from the renderer's perspective (fire-and-forget IPC).
+        // Hide (fire-and-forget) so a transient unmount doesn't leave the view
+        // floating; do NOT destroy — the keepalive reaper owns the lifetime.
         try { api.setBounds(createdViewId, { x: 0, y: 0, width: 0, height: 0 }); } catch { /* ignore */ }
-        api.destroy(createdViewId).catch(() => {});
-        // NOTE: intentionally NOT unregistering the CDP target here. React unmounts
-        // this hook on tab-switch / DnD / StrictMode churn while the native view
-        // SURVIVES (Electron reuses it by topicId; destroy is 500ms-deferred). The
-        // old eager DELETE emptied the server registry during that window, so a
-        // browser_* tool that ran between unmount and the next mount's re-register
-        // fell back to an invisible Playwright phantom (state appeared to reset
-        // between turns). The dispatcher self-cleans a genuinely stale target on its
-        // next getPage (and a real close drops the view), so skipping the DELETE is
-        // safe and keeps the agent bound to the real, persisted view.
       }
     };
     // initialUrl intentionally NOT a dep — it's mount-only (initialUrlRef).
@@ -182,6 +174,37 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     // persisted url update. Live nav uses navigate()/navigateUrl.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextId]);
+
+  // Keepalive heartbeat — while this pane is mounted, ping the main process so
+  // it keeps the WebContentsView alive (the reaper only collects a view whose
+  // pings have stopped = the tab was genuinely closed). Also periodically
+  // re-registers the CDP target server-side so the agent's targetId map self-
+  // heals after a server restart or any transient stale-delete — without the
+  // agent having to re-open the pane every turn. Cheap: one IPC every 5s.
+  useEffect(() => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return;
+    let tick = 0;
+    const ping = async () => {
+      try { await api.keepalive(viewId); } catch { /* view gone — reaper handles it */ }
+      // Every ~15s, refresh the server-side cdpTargetId registration (idempotent).
+      if (tick++ % 3 === 0) {
+        try {
+          const cdpTargetId = await api.getCdpTargetId(viewId).catch(() => '');
+          if (cdpTargetId) {
+            await fetch(`/api/browsers/${contextId}/cdp-target`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cdpTargetId }),
+            }).catch(() => {});
+          }
+        } catch { /* best-effort self-heal */ }
+      }
+    };
+    void ping(); // immediate, so a fresh mount is registered without waiting 5s
+    const id = setInterval(() => void ping(), 5000);
+    return () => clearInterval(id);
+  }, [viewId, contextId]);
 
   // Subscribe to /ws/browser/:contextId for agent_active broadcast.
   // Uses the same protocol as Phase 30 — single source of truth for lock UX.

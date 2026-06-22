@@ -102,9 +102,13 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
       if (!cdpTargetId) {
         throw new Error('registerTarget: cdpTargetId is required');
       }
+      const unchanged = targetMap.get(contextId) === cdpTargetId;
       targetMap.set(contextId, cdpTargetId);
       nativeBound.add(contextId);
-      saveTargetMap(targetMap);
+      // The renderer re-registers on a heartbeat (every ~15s per pane) to self-
+      // heal the map after a server restart or a transient stale-delete. Skip the
+      // disk write when nothing changed so the heartbeat doesn't thrash the file.
+      if (!unchanged) saveTargetMap(targetMap);
     },
     getTargetId(contextId) {
       return targetMap.get(contextId) ?? null;

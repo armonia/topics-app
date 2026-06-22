@@ -110,6 +110,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (opts: { topicId: string; partitionId: string; initialUrl?: string }) =>
       ipcRenderer.invoke('browser-native:create', opts),
     destroy: (viewId: string) => ipcRenderer.invoke('browser-native:destroy', viewId),
+    // Liveness heartbeat — the renderer pings this every few seconds while a
+    // native browser pane is mounted. Main keeps the view alive as long as the
+    // pings keep coming; a view that stops being pinged (= the tab was genuinely
+    // closed) is reaped. This decouples the WebContentsView lifetime from React
+    // mount/unmount churn so the agent's CDP target stays valid between turns.
+    keepalive: (viewId: string) => ipcRenderer.invoke('browser-native:keepalive', viewId),
     navigate: (viewId: string, url: string) =>
       ipcRenderer.invoke('browser-native:navigate', viewId, url),
     goBack: (viewId: string) => ipcRenderer.invoke('browser-native:go-back', viewId),
