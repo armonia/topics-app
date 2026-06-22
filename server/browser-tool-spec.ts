@@ -151,6 +151,20 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     surfaces: { passthrough: true, mcp: true },
   },
   {
+    name: "browser_read_screen",
+    description:
+      "SEE the current pane via a lightweight vision model — returns a TEXT description/answer WITHOUT loading any image into your context. Pass `question` for a specific query (e.g. \"is there a captcha?\", \"what's the error?\"), else you get a caption. Use for charts/images/canvas/captchas the a11y snapshot can't convey.",
+    schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "Specific question about the screen; omit for a caption." },
+        full_page: { type: "boolean", description: "Capture the full scrollable page (default false)." },
+      },
+      required: [],
+    },
+    surfaces: { passthrough: true, mcp: true },
+  },
+  {
     name: "browser_eval",
     description:
       "Run JavaScript in the page and return the result (escape hatch for what the other tools can't do). Runs in the page sandbox only — cannot reach the host.",
