@@ -94,6 +94,29 @@ async function withLock<T>(
   }
 }
 
+/**
+ * Schemes an AGENT may navigate to via browser_open. Blocks file://, chrome://,
+ * view-source: etc. so a confused/poisoned agent can't read local files or
+ * privileged pages. The user-facing open_browser_pane flow (where the human
+ * asked for a URL) keeps its own policy and may allow file://. Override with
+ * BROWSER_ALLOW_ALL_SCHEMES=1.
+ */
+const AGENT_NAV_SCHEMES = new Set(["http:", "https:", "about:", "data:"]);
+function assertAgentNavAllowed(url: string): void {
+  if (process.env.BROWSER_ALLOW_ALL_SCHEMES === "1") return;
+  let scheme: string;
+  try {
+    scheme = new URL(url).protocol.toLowerCase();
+  } catch {
+    throw new Error(`browser_open: invalid URL "${url}"`);
+  }
+  if (!AGENT_NAV_SCHEMES.has(scheme)) {
+    throw new Error(
+      `browser_open: scheme "${scheme}" is not allowed for agent navigation (allowed: http, https, about, data). Set BROWSER_ALLOW_ALL_SCHEMES=1 to override.`,
+    );
+  }
+}
+
 export async function handleBrowserOpen(
   service: BrowserService,
   contextId: string,
@@ -102,6 +125,7 @@ export async function handleBrowserOpen(
   if (typeof args.url !== "string" || !args.url) {
     throw new Error("browser_open: 'url' (string) is required");
   }
+  assertAgentNavAllowed(args.url);
   console.log(`[BrowserTools] browser_open(${contextId}, ${args.url})`);
   const ops = await resolveOps(service, contextId);
   return withLock(service, contextId, async () => {
