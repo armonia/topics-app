@@ -152,53 +152,28 @@ is_git_op_in_progress() {
   done
 ) &>/tmp/topics-client-watch.log &
 
-# ─── Server: stable run + GRACEFUL reload on server/** change ──────────────
-# We deliberately do NOT use `bun --watch`. In this app its watcher never fires
-# (chased to an in-process interaction in the server runtime — every isolated
-# repro reloads, the real server doesn't) AND, worse, bun --watch restarts via
-# SIGKILL, which BYPASSES server.ts's gracefulShutdown — orphaning the PTY
-# bridge + `claude` children on every reload (the 2026-06-07 incident). Instead
-# we watch server/** ourselves and trigger a GRACEFUL reload: SIGTERM the server
-# → gracefulShutdown runs (disconnects the bridge cleanly, flushes claude
-# children) → the loop below relaunches it → reconcile reattaches the surviving
-# PTYs (the bridge process lives on via its parent-death grace window).
-
-graceful_reload() {
-  local pid; pid=$(cat "$SERVER_PIDFILE" 2>/dev/null)
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return
-  echo "[$(date +%H:%M:%S)] server/** changed → graceful reload (SIGTERM $pid)"
-  kill -TERM "$pid" 2>/dev/null
-  # Escalate to SIGKILL only if gracefulShutdown stalls past 8s.
-  ( sleep 8; kill -0 "$pid" 2>/dev/null && { echo "[start-prod] graceful reload timed out → SIGKILL $pid"; kill -KILL "$pid" 2>/dev/null; } ) &
-}
-
-# Coalesced server-source watcher (mirrors the client one: a 2 s silence window
-# batches a burst of saves into ONE reload, and defers across git operations).
-(
-  while true; do
-    fswatch -r -e ".*" -i "\\.ts$" server/ |
-    while true; do
-      IFS= read -r _ev || break
-      while IFS= read -r -t 2 _drain; do :; done   # coalesce the burst
-      if is_git_op_in_progress; then
-        while is_git_op_in_progress; do sleep 1; done
-      fi
-      graceful_reload
-    done
-    echo "[$(date +%H:%M:%S)] server fswatch exited, restarting in 2s..."
-    sleep 2
-  done
-) &>/tmp/topics-server-watch.log &
-
-# Restart-on-exit loop. A graceful reload (or a crash) drops us out of `wait`
-# and we relaunch; launchd KeepAlive=true is the outer backstop if start-prod.sh
-# itself ever dies. The server runs as a child (not exec) so this loop, the
-# watcher, and the cleanup trap all stay alive across reloads.
+# ─── Server: STABLE run, no reload-on-source-change ────────────────────────
+# The production server hosts LIVE Claude PTY sessions and every client's
+# WebSocket. It must NOT restart itself when source changes. The previous
+# behaviour watched server/** with fswatch and SIGTERM'd the server on every
+# `.ts` save — which dropped ALL WebSockets (blanking every open pane) and the
+# in-app Claude session connections. That is catastrophic whenever ANOTHER
+# Claude session is actively editing server files: the running app flaps
+# between reloads and panes show empty (2026-06-22 incident).
 #
-# A SIGTERM to THIS script (launchd `bootout`, or the parent start-electron-prod
-# cleanup) interrupts `wait`, runs cleanup → SHUTTING_DOWN=1 → exit, so the loop
-# never relaunches on a real shutdown. We only loop again on a graceful reload
-# (SIGTERM to the server CHILD via graceful_reload) or a crash.
+# Live hot-reload of server code belongs in `bun run dev:server` (see CLAUDE.md
+# "Development"), NOT in this production launchd agent. To apply server source
+# changes to the running app, reload it DELIBERATELY:
+#   launchctl kickstart -k gui/$(id -u)/com.armonia.topics-server
+# (`bun --watch` is also rejected: it restarts via SIGKILL, bypassing
+# server.ts gracefulShutdown and orphaning the PTY bridge + claude children.)
+
+# Restart-on-CRASH loop. An UNEXPECTED server exit drops us out of `wait` and we
+# relaunch after 1s; launchd KeepAlive=true is the outer backstop if
+# start-prod.sh itself dies. A SIGTERM to THIS script (launchd `bootout`, or the
+# parent cleanup) interrupts `wait`, runs cleanup → SHUTTING_DOWN=1 → exit, so
+# the loop never relaunches on a real shutdown. There is no reload-on-edit: the
+# server only comes back after a genuine crash.
 while [ "$SHUTTING_DOWN" != 1 ]; do
   "$BUN" run "$APP_DIR/server.ts" &
   SERVER_PID=$!
