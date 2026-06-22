@@ -161,3 +161,82 @@ export async function pointObject(
     callsRemaining: max - (used + 1),
   };
 }
+
+export interface MoondreamVisionResult {
+  /** Text answer (for a question) or caption. */
+  text: string;
+  callsRemaining: number;
+}
+
+interface MoondreamQueryResponse { answer?: string; request_id?: string }
+interface MoondreamCaptionResponse { caption?: string; request_id?: string }
+
+/**
+ * Vision → TEXT for browser_read_screen: ask a question about the screenshot
+ * (/v1/query) or get a caption (/v1/caption). Returns text only — the image is
+ * never put in the agent's context. Same auth/budget/failsoft model as
+ * pointObject.
+ */
+export async function describeImage(args: {
+  contextId: string;
+  imageBase64: string;
+  question?: string;
+  length?: "short" | "normal" | "long";
+}): Promise<MoondreamVisionResult | MoondreamPointError> {
+  const { contextId, imageBase64, question } = args;
+
+  const apiKey = process.env.MOONDREAM_API_KEY;
+  if (!apiKey) {
+    return {
+      error:
+        "Vision unavailable: MOONDREAM_API_KEY not set. Set it in .env to enable browser_read_screen.",
+    };
+  }
+
+  const max = getMaxCallsPerTask();
+  const used = counter.get(contextId) ?? 0;
+  if (used >= max) {
+    return {
+      error: `Vision budget exceeded: used ${used}/${max} calls for context "${contextId}". Counter resets when the BrowserContext is destroyed.`,
+    };
+  }
+  counter.set(contextId, used + 1); // charge before the call (retry-loop guard)
+
+  const image_url = `data:image/jpeg;base64,${imageBase64}`;
+  const useQuery = typeof question === "string" && question.trim().length > 0;
+  const endpoint = useQuery
+    ? "https://api.moondream.ai/v1/query"
+    : "https://api.moondream.ai/v1/caption";
+  const body = useQuery
+    ? { image_url, question }
+    : { image_url, length: args.length ?? "normal" };
+
+  let resp: Response;
+  try {
+    resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Moondream-Auth": apiKey },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err: unknown) {
+    return { error: `Moondream network error: ${err instanceof Error ? err.message : String(err)}`, details: err };
+  }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "<no body>");
+    return { error: `Moondream API error: HTTP ${resp.status}`, details: text };
+  }
+
+  let text = "";
+  try {
+    const parsed = (await resp.json()) as MoondreamQueryResponse & MoondreamCaptionResponse;
+    text = (useQuery ? parsed.answer : parsed.caption) ?? "";
+  } catch (err: unknown) {
+    return { error: `Moondream response parse error: ${err instanceof Error ? err.message : String(err)}`, details: err };
+  }
+
+  if (process.env.MOONDREAM_DEBUG) {
+    console.log(`[Moondream] ${useQuery ? "query" : "caption"} -> ${text.length} chars (used ${used + 1}/${max} for ctx ${contextId})`);
+  }
+  return { text, callsRemaining: max - (used + 1) };
+}

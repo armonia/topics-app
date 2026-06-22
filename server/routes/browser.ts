@@ -8,6 +8,7 @@ import {
   handleBrowserExtract,
   handleBrowserGetText,
   handleBrowserEval,
+  handleBrowserReadScreen,
   handleBrowserScreenshot,
   handleBrowserPoint,
 } from "../browser-tools-handler";
@@ -184,6 +185,22 @@ export function createBrowserRouter(
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[Routes/browser] /agent/get-text failed:`, msg);
+        return json({ error: msg }, 500);
+      }
+    }
+
+    const agentReadScreenMatch = matchRoute(pathname, "/api/browsers/:id/agent/read-screen");
+    if (agentReadScreenMatch && method === "POST") {
+      try {
+        const body = (await req.json().catch(() => ({}))) as { question?: unknown; full_page?: unknown };
+        const result = await handleBrowserReadScreen(browserService, agentReadScreenMatch.id, {
+          question: typeof body.question === "string" ? body.question : undefined,
+          full_page: typeof body.full_page === "boolean" ? body.full_page : undefined,
+        });
+        return json(result);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /agent/read-screen failed:`, msg);
         return json({ error: msg }, 500);
       }
     }

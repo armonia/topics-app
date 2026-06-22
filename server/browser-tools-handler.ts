@@ -21,7 +21,7 @@ import type {
   BrowserActAction,
   IndexedElement,
 } from "./browser-tools";
-import { pointObject } from "./integrations/moondream-client";
+import { pointObject, describeImage } from "./integrations/moondream-client";
 import { isElectronCdpAvailable } from "./electron-cdp-probe";
 import type { ElectronCdpDispatcher } from "./browser-cdp-dispatcher";
 import { playwrightOps, cdpOps, type BrowserOps } from "./browser-ops-adapter";
@@ -344,6 +344,27 @@ export async function handleBrowserExtract(
       const msg = err instanceof Error ? err.message : String(err);
       return { error: `browser_extract failed: ${msg}` };
     }
+  });
+}
+
+export async function handleBrowserReadScreen(
+  service: BrowserService,
+  contextId: string,
+  args: { question?: string; full_page?: boolean }
+): Promise<{ vision: string; question?: string } | { error: string }> {
+  console.log(
+    `[BrowserTools] browser_read_screen(${contextId}, ${args?.question ? `"${args.question.slice(0, 60)}"` : "caption"})`
+  );
+  const ops = await resolveOps(service, contextId);
+  return withLock(service, contextId, async () => {
+    const buf = await ops.screenshot({ format: "jpeg", quality: 70, fullPage: !!args?.full_page });
+    const result = await describeImage({
+      contextId,
+      imageBase64: buf.toString("base64"),
+      question: typeof args?.question === "string" ? args.question : undefined,
+    });
+    if ("error" in result) return result; // failsoft to the agent
+    return { vision: result.text, question: args?.question };
   });
 }
 

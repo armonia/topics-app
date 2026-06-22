@@ -216,6 +216,7 @@ describe("handleMessage", () => {
       "browser_extract",
       "browser_get_text",
       "browser_screenshot",
+      "browser_read_screen",
       "browser_eval",
       "run_script",
       "list_processes",

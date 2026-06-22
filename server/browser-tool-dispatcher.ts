@@ -17,6 +17,7 @@ import {
   handleBrowserExtract,
   handleBrowserGetText,
   handleBrowserEval,
+  handleBrowserReadScreen,
   handleBrowserScreenshot,
   handleBrowserPoint,
   handleBrowserImportChrome,
@@ -94,6 +95,9 @@ export async function dispatchBrowserToolCallByContext(
     case "browser_eval":
       // Args validated by handler
       return handleBrowserEval(browserService, contextId, args as { expression: string });
+    case "browser_read_screen":
+      // Args validated by handler
+      return handleBrowserReadScreen(browserService, contextId, args as { question?: string; full_page?: boolean });
     case "browser_screenshot":
       // Args validated by handler
       return handleBrowserScreenshot(browserService, contextId, args as { full_page?: boolean });
