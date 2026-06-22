@@ -1,6 +1,7 @@
 import type { BrowserContext } from "playwright-core";
 import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync, readFileSync, rmdirSync, readdirSync } from "fs";
 import { join } from "path";
+import { resolveStateDir } from "./lib/data-dir";
 
 /**
  * Storage state shape derived directly from playwright-core's
@@ -17,7 +18,7 @@ export type BrowserStorageState = Awaited<ReturnType<BrowserContext["storageStat
 // production where DATA_DIR isn't set. Aligns with `topics.db` path.
 const BASE_DIR = process.env.DATA_DIR
   ? join(process.env.DATA_DIR, "browser-state")
-  : join(process.cwd(), "data", "browser-state");
+  : join(resolveStateDir(process.cwd()), "data", "browser-state");
 
 function sanitize(topicId: string): string {
   // Same pattern as server/browser-service.ts:330. Prevents path traversal.

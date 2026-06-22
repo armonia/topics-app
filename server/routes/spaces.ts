@@ -63,7 +63,7 @@ function saveSpaces(baseDir: string, data: SpacesData): void {
 
 export function createSpacesRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, slugify } = ctx;
-  const baseDir = ctx.BASE_DIR;
+  const baseDir = ctx.STATE_DIR;
 
   return async (req, url, pathname, method) => {
     // GET /api/spaces

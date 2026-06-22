@@ -241,7 +241,7 @@ const cdpDispatcher = createCdpDispatcher({
 setBrowserCdpDispatcher(cdpDispatcher);
 
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
-initUsageStore(import.meta.dir);
+initUsageStore(ctx.STATE_DIR);
 rebuildSummary();
 
 // Claude Code session tracker — canonical lifecycle state for every Claude
@@ -361,7 +361,7 @@ const activityMonitor = new ActivityMonitor();
 const activityRouter = createActivityRouter(ctx, activityMonitor);
 
 // Init journal collector (polls gateway for daily summaries)
-const journalCollector = new JournalCollector(import.meta.dir, ctx.GATEWAY_URL, ctx.GATEWAY_TOKEN);
+const journalCollector = new JournalCollector(ctx.STATE_DIR, ctx.GATEWAY_URL, ctx.GATEWAY_TOKEN);
 journalCollector.start();
 const journalRouter = createJournalRouter(ctx, journalCollector);
 
@@ -587,7 +587,7 @@ const server = Bun.serve<WSData>({
 
     // Serve uploaded files (screenshots, attachments)
     if (method === "GET" && pathname.startsWith("/uploads/")) {
-      const filePath = join(import.meta.dir, "uploads", pathname.slice("/uploads/".length));
+      const filePath = join(ctx.UPLOADS_DIR, pathname.slice("/uploads/".length));
       const file = Bun.file(filePath);
       if (await file.exists()) {
         return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": "public, max-age=3600" } });

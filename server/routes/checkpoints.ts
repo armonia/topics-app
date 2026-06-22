@@ -52,7 +52,7 @@ function hasUncommittedChanges(projectPath: string): boolean {
 }
 
 export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
-  const { json, matchRoute, loadTopics, loadLocalMessages, saveLocalMessages, BASE_DIR } = ctx;
+  const { json, matchRoute, loadTopics, loadLocalMessages, saveLocalMessages, STATE_DIR } = ctx;
 
   return async function checkpointsRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -60,7 +60,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
     {
       const params = matchRoute(pathname, "/api/topics/:id/checkpoints");
       if (params && method === "GET") {
-        const checkpoints = loadCheckpoints(BASE_DIR, params.id);
+        const checkpoints = loadCheckpoints(STATE_DIR, params.id);
         return json({ checkpoints });
       }
     }
@@ -77,7 +77,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         try { body = await req.json(); } catch {}
 
         const msgs = loadLocalMessages(topic.sessionKey);
-        const checkpoints = loadCheckpoints(BASE_DIR, params.id);
+        const checkpoints = loadCheckpoints(STATE_DIR, params.id);
 
         const checkpoint: Checkpoint = {
           idx: checkpoints.length,
@@ -96,7 +96,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         }
 
         checkpoints.push(checkpoint);
-        saveCheckpoints(BASE_DIR, params.id, checkpoints);
+        saveCheckpoints(STATE_DIR, params.id, checkpoints);
 
         return json({ checkpoint });
       }
@@ -110,7 +110,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "Topic not found" }, 404);
 
-        const checkpoints = loadCheckpoints(BASE_DIR, params.id);
+        const checkpoints = loadCheckpoints(STATE_DIR, params.id);
         const idx = parseInt(params.idx);
         const checkpoint = checkpoints[idx];
         if (!checkpoint) return json({ error: "Checkpoint not found" }, 404);
@@ -122,7 +122,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
 
         // Remove checkpoints after this one
         const remaining = checkpoints.slice(0, idx + 1);
-        saveCheckpoints(BASE_DIR, params.id, remaining);
+        saveCheckpoints(STATE_DIR, params.id, remaining);
 
         // Git rollback if applicable
         let gitResult: { rolled: boolean; warning?: string } = { rolled: false };

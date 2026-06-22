@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, sta
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
+import { resolveStateDir } from "../lib/data-dir";
 
 interface ScriptProcess {
   processId: string;
@@ -47,7 +48,7 @@ let PERSIST_DIR = "";
 
 function getPersistDir(): string {
   if (!PERSIST_DIR) {
-    PERSIST_DIR = join(process.cwd(), ".state");
+    PERSIST_DIR = join(resolveStateDir(process.cwd()), ".state");
     mkdirSync(PERSIST_DIR, { recursive: true });
   }
   return PERSIST_DIR;
@@ -370,7 +371,14 @@ function appendOutput(sp: ScriptProcess, text: string) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 loadState();
-mkdirSync(join(getPersistDir(), "scripts"), { recursive: true });
+// Runs at MODULE IMPORT (before createAppContext / Bun.serve). getPersistDir()
+// now resolves a writable dir, but keep this defensive so a persist-dir failure
+// can never abort server boot and hang the "Launching the local engine" splash.
+try {
+  mkdirSync(join(getPersistDir(), "scripts"), { recursive: true });
+} catch (e) {
+  console.error("[processes] persist dir init failed (non-fatal):", e);
+}
 
 // ── Router ───────────────────────────────────────────────────────────────────
 

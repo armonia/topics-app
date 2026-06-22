@@ -1,5 +1,6 @@
 import { watch, existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
+import { resolveStateDir } from "./lib/data-dir";
 
 export type ActivityCategory =
   | 'tool:exec'
@@ -59,7 +60,7 @@ export class ActivityMonitor {
   constructor(logDir = "/tmp/openclaw", persistPath?: string) {
     this.logDir = logDir;
     this.logPath = this.getLogPath();
-    this.persistPath = persistPath || join(process.cwd(), "data", "activity-buffer.json");
+    this.persistPath = persistPath || join(resolveStateDir(process.cwd()), "data", "activity-buffer.json");
     this.init();
   }
 

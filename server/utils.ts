@@ -9,6 +9,7 @@ import type {
   ActiveStream, ErrorResponseOptions, AppContext,
 } from "./types";
 import { initDatabase } from "./db";
+import { resolveStateDir } from "./lib/data-dir";
 import { maybeSendPush } from "./push-triggers";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
@@ -82,19 +83,27 @@ export function createAppContext(baseDir: string): AppContext {
     return GATEWAY_TOKEN;
   }
 
-  const TOPICS_FILE = join(baseDir, "topics.json");
-  const UNREAD_FILE = join(baseDir, "unread.json");
-  const PUBLIC_DIR = join(baseDir, "public");
-  const UPLOADS_DIR = join(baseDir, "uploads");
-  const CONTEXT_DIR = join(baseDir, "context-files");
+  // Mutable state lives under a WRITABLE root. In dev / under the prod
+  // LaunchAgent STATE_DIR === baseDir (the writable repo), so this is
+  // byte-identical to the historical layout. In a DOWNLOADED packaged app the
+  // Electron launcher sets TOPICS_DATA_DIR to a writable per-user dir, because
+  // baseDir (= Resources/server INSIDE the read-only .app bundle) cannot be
+  // written — and a write there crashes the server before it can listen, which
+  // is what hangs the app forever on "Launching the local engine".
+  const STATE_DIR = resolveStateDir(baseDir);
+  const TOPICS_FILE = join(STATE_DIR, "topics.json");
+  const UNREAD_FILE = join(STATE_DIR, "unread.json");
+  const PUBLIC_DIR = join(baseDir, "public"); // READ-ONLY asset — stays in the bundle
+  const UPLOADS_DIR = join(STATE_DIR, "uploads");
+  const CONTEXT_DIR = join(STATE_DIR, "context-files");
   const OPENCLAW_DIR = process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
   const SESSIONS_DIR = process.env.SESSIONS_DIR || `${OPENCLAW_DIR}/agents/main/sessions`;
-  const MESSAGES_DIR = join(baseDir, "messages");
+  const MESSAGES_DIR = join(STATE_DIR, "messages");
 
   mkdirSync(MESSAGES_DIR, { recursive: true });
 
-  // Initialize SQLite
-  const db = initDatabase(baseDir);
+  // Initialize SQLite (DB file under STATE_DIR/data; migrations read from baseDir)
+  const db = initDatabase(baseDir, STATE_DIR);
 
   // State
   const activeStreams = new Map<string, ActiveStream>();
@@ -1292,7 +1301,7 @@ export function createAppContext(baseDir: string): AppContext {
     get GATEWAY_TOKEN() { return GATEWAY_TOKEN; },
     refreshGatewayToken,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
-    OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir,
+    OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
     broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, isTopicFocused,
     loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
