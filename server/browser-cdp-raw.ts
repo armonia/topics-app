@@ -142,9 +142,16 @@ export class RawCdpPage {
     this.conn = conn;
     this._url = initialUrl || "about:blank";
     // Keep _url current so url() can stay synchronous (Playwright's is sync).
+    // Track BOTH full document navigations and SPA client-side route changes
+    // (pushState/replaceState/hashchange fire navigatedWithinDocument, NOT
+    // frameNavigated) — otherwise url() goes stale on single-page apps and the
+    // navigate-idempotency check wrongly reloads.
     this.conn.on("Page.frameNavigated", (p) => {
       const frame = p.frame as { parentId?: string; url?: string } | undefined;
       if (frame && !frame.parentId && typeof frame.url === "string") this._url = frame.url;
+    });
+    this.conn.on("Page.navigatedWithinDocument", (p) => {
+      if (typeof p.url === "string") this._url = p.url as string;
     });
   }
 
@@ -204,6 +211,27 @@ export class RawCdpPage {
     if (exc) throw new Error(exc.exception?.description || exc.text || "evaluate failed");
     const result = r.result as { value?: unknown } | undefined;
     return result?.value;
+  }
+
+  /**
+   * Evaluate agent-supplied code with CONSOLE / executeJavaScript semantics:
+   * `replMode` returns the completion value of the LAST expression (so a bare
+   * `localStorage.getItem('t')` yields its value, not `{}`), and supports
+   * `const`/`let`, multiple statements, and top-level `await`. This is what
+   * browser_eval needs — the old `(async()=>{…})()` wrapper discarded the value.
+   * Code runs in the page sandbox only (never in Node).
+   */
+  async replEvaluate(expression: string): Promise<unknown> {
+    const r = await this.conn.send("Runtime.evaluate", {
+      expression,
+      replMode: true,
+      returnByValue: true,
+      awaitPromise: true,
+      userGesture: true,
+    });
+    const exc = r.exceptionDetails as { exception?: { description?: string }; text?: string } | undefined;
+    if (exc) throw new Error(exc.exception?.description || exc.text || "eval failed");
+    return (r.result as { value?: unknown } | undefined)?.value;
   }
 
   async goto(url: string, opts?: { waitUntil?: string; timeout?: number }): Promise<void> {

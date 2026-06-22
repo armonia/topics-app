@@ -421,11 +421,20 @@ export async function evalOnPage(
   page: Page,
   expression: string,
 ): Promise<{ result: unknown }> {
-  // page.evaluate(string) evaluates the string AS A PAGE EXPRESSION in the
-  // browser context — never in Node. Wrap in an async IIFE so `await`/multiple
-  // statements work, mirroring the Jarvis daemon's eval semantics.
-  const wrapped = `(async () => { ${expression} })()`;
-  const r = await page.evaluate(wrapped);
+  // Native pane (raw CDP) exposes replEvaluate → CONSOLE / executeJavaScript
+  // semantics: the LAST expression's value is returned (a bare
+  // `localStorage.getItem('t')` yields its value, not `{}`), with `const`,
+  // multiple statements, and top-level `await` all supported. The old wrapper
+  // `(async()=>{ … })()` discarded the value unless the caller wrote `return`.
+  // Web/Playwright fallback keeps the async-IIFE wrap (value needs `return`).
+  const repl = (page as unknown as { replEvaluate?: (e: string) => Promise<unknown> }).replEvaluate;
+  let r: unknown;
+  if (typeof repl === "function") {
+    r = await repl.call(page, expression);
+  } else {
+    const wrapped = `(async () => { ${expression} })()`;
+    r = await page.evaluate(wrapped);
+  }
   let result: unknown = r;
   if (typeof r === "string") {
     result = r.length > 8000 ? r.slice(0, 8000) + "…[truncated]" : r;

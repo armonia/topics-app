@@ -18,6 +18,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from '../../hooks/useNativeBrowser';
 
+/** Height (px) of the slim top strip reserved for the "agent controlling" bar. */
+const AGENT_BAR_H = 26;
+
 interface NativeBrowserPlaceholderProps {
   browser: NativeBrowserHandle;
   /** Whether the parent pane is currently visible. Defaults to true so
@@ -37,6 +40,19 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
   // the browser. We hide the view for the duration of the drag, then
   // restore it on dragend/drop.
   const [dragging, setDragging] = useState(false);
+
+  // Agent-active indicator. The agent now drives the SAME native WebContentsView
+  // via CDP, so we keep the view VISIBLE (the user watches it work) instead of
+  // hiding it on every tool call — hiding flashed the view white on each
+  // observe/act/eval ("looks like it keeps restarting"). We only reserve a slim
+  // top strip for a non-blocking indicator, and LINGER it ~700ms after the agent
+  // goes idle so a burst of rapid tool calls shows a steady bar, not a flicker.
+  const [agentBar, setAgentBar] = useState(false);
+  useEffect(() => {
+    if (browser.agentActive) { setAgentBar(true); return; }
+    const t = setTimeout(() => setAgentBar(false), 700);
+    return () => clearTimeout(t);
+  }, [browser.agentActive]);
 
   // Track HTML5 drag operations globally. dragstart fires once when the
   // user begins dragging anything (a tab in PaneTabBar, an item from a
@@ -95,15 +111,18 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       if (!el) return;
       const rect = el.getBoundingClientRect();
 
-      // Hide while:
+      // Hide entirely while:
       // - the parent pane is `display:none` in a keep-alive ladder
       //   (display:none doesn't reliably fire ResizeObserver, so we
       //   trust the explicit prop instead of relying on the rect)
-      // - agent is controlling (React overlay covers the slot)
       // - a global drag is in progress (drop preview must be visible)
-      const next = (!isVisible || browser.agentActive || dragging)
+      // NOTE: agent activity NO LONGER hides the view — the agent drives this
+      // very view over CDP, so the user watches it work. We only inset the top
+      // by AGENT_BAR_H to make room for the slim "agent controlling" strip.
+      const topInset = agentBar ? AGENT_BAR_H : 0;
+      const next = (!isVisible || dragging)
         ? { x: 0, y: 0, width: 0, height: 0 }
-        : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+        : { x: rect.left, y: rect.top + topInset, width: rect.width, height: Math.max(0, rect.height - topInset) };
 
       // Coalesce — skip the IPC if bounds didn't change. setBounds rounds
       // to integers main-side, so we round here too for cheap equality.
@@ -199,7 +218,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: depend on the specific fields the effect reads (viewId/agentActive/setBounds — grep-verified the only browser.* uses), NOT the whole `browser` object. useNativeBrowser rebuilds that object every render, so depending on it re-ran this ResizeObserver/MutationObserver/rAF-poll/listener effect on EVERY render. setBounds is useCallback([viewId]) so its identity only changes with viewId (already a dep). The rule can't see the member coverage and asks for the parent object.
-  }, [browser.viewId, browser.agentActive, browser.setBounds, dragging, isVisible]);
+  }, [browser.viewId, agentBar, browser.setBounds, dragging, isVisible]);
 
   return (
     <div
@@ -215,15 +234,17 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
         </div>
       )}
 
-      {/* Agent lock overlay — same UX as Phase 30 streaming mode. */}
-      {browser.agentActive && (
+      {/* Agent-active indicator — a slim, NON-blocking top strip (the native view
+          is inset below it by AGENT_BAR_H and stays visible, so the user watches
+          the agent drive the real page instead of seeing it flash/hide). */}
+      {agentBar && (
         <div
-          className="absolute inset-0 bg-surface/80 backdrop-blur-sm flex flex-col items-center justify-center z-50"
+          className="absolute top-0 left-0 right-0 flex items-center gap-2 px-3 text-xs font-medium text-accent bg-accent/10 border-b border-accent/30 z-50"
+          style={{ height: AGENT_BAR_H }}
           data-testid="browser-agent-active-overlay"
         >
-          <Bot className="w-8 h-8 mb-2 text-accent" />
-          <div className="text-sm font-medium">Agent is controlling the browser</div>
-          <div className="text-xs text-text-muted mt-1">Native CDP path</div>
+          <Bot className="w-3.5 h-3.5 animate-pulse" />
+          Agent is controlling the browser
         </div>
       )}
     </div>

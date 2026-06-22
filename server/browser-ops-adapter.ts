@@ -118,6 +118,16 @@ export function cdpOps(
   return {
     async navigate(url) {
       const page = await dispatcher.getPage(contextId);
+      // Idempotent: if the live view is ALREADY at this URL, don't re-navigate.
+      // A repeated open_browser_pane (agents often re-open the pane each turn to
+      // "make sure it's there") would otherwise reload the page every call —
+      // resetting SPA route/in-page state and making it look like the pane keeps
+      // restarting / dropping back to login. An explicit nav to a DIFFERENT URL
+      // still navigates. (Use the browser reload action for an intentional reload.)
+      const norm = (u: string) => u.replace(/#.*$/, "").replace(/\/$/, "");
+      if (norm(page.url()) === norm(url)) {
+        return { url: page.url(), title: await page.title() };
+      }
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       return { url: page.url(), title: await page.title() };
     },
