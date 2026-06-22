@@ -70,8 +70,13 @@ if (!process.env.GATEWAY_TOKEN) {
     }
   } catch {}
   if (!process.env.GATEWAY_TOKEN) {
-    console.error("ERROR: GATEWAY_TOKEN not found in .env or ~/.openclaw/openclaw.json");
-    process.exit(1);
+    // The OpenClaw gateway is an OPTIONAL integration (journal sync + the
+    // "openclaw" relay provider). A standalone download has no OpenClaw config,
+    // so a missing token must NOT be fatal: the app defaults to the Claude
+    // provider and runs fine without the gateway. This previously process.exit(1)'d,
+    // which crashed the bundled server before it could listen — the packaged app
+    // then hung forever on "Launching the local engine" on every clean machine.
+    console.warn("[Startup] GATEWAY_TOKEN not set — OpenClaw gateway features (journal sync, gateway relay) disabled; continuing without them.");
   }
 }
 
