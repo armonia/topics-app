@@ -83,13 +83,23 @@ test.describe("Tab System Reliability", () => {
       const overlay = page.locator('[data-grid-split-overlay]');
       await expect(overlay).toBeVisible({ timeout: 3000 });
 
-      // Verify it's the left zone and has the expected styling signature.
-      const meta = await overlay.first().evaluate((el) => ({
-        zone: el.getAttribute('data-grid-split-overlay'),
-        hasDashedBorder: getComputedStyle(el).borderStyle.includes('dashed'),
-      }));
+      // Verify it's the left zone and carries the split-region visual signature:
+      // a translucent FILL + a solid SEAM accent (inset box-shadow), and NO
+      // dashed perimeter. The dashed box was the old double-indicator (it read as
+      // both a border line and a filled area); the new region is fill + seam only.
+      const meta = await overlay.first().evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          zone: el.getAttribute('data-grid-split-overlay'),
+          hasFill: cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent',
+          hasSeamAccent: cs.boxShadow.includes('inset'),
+          hasDashedBorder: cs.borderStyle.includes('dashed'),
+        };
+      });
       expect(meta.zone).toBe('left');
-      expect(meta.hasDashedBorder).toBe(true);
+      expect(meta.hasFill).toBe(true);
+      expect(meta.hasSeamAccent).toBe(true);
+      expect(meta.hasDashedBorder).toBe(false);
     } finally {
       await deleteTopic(request, t1.id);
       await deleteTopic(request, t2.id);
