@@ -222,9 +222,26 @@ export function ChatPane({
   // Cross-window sync stays available via the read path (next page load picks
   // up `topic.model` from the server). A future revisit can add per-window
   // live sync when we have a deliberate UX for it.
-  const [providerOverride, setProviderOverride] = useState<{ provider: string; model: string } | null>(
-    topic.provider && topic.model ? { provider: topic.provider, model: topic.model } : null,
-  );
+  const [providerOverride, setProviderOverride] = useState<{ provider: string; model: string } | null>(() => {
+    if (topic.provider && topic.model) return { provider: topic.provider, model: topic.model };
+    // Draft topics never hit the server PATCH (the pick is gated in
+    // handleProviderOverrideChange), so a draft's provider/model lives ONLY in
+    // localStorage — mirror the Fast Mode pattern below so picking e.g. Codex on
+    // a NEW chat survives a refresh before the first message is sent. Without
+    // this the pick silently reverts to the global default on reload (the draft
+    // pane itself survives, but the synthetic draft topic carries no
+    // provider/model to reseed from).
+    if (topic.id.startsWith('draft:')) {
+      try {
+        const raw = localStorage.getItem(`providerOverride:${topic.id}`);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p && typeof p.provider === 'string' && typeof p.model === 'string') return { provider: p.provider, model: p.model };
+        }
+      } catch {}
+    }
+    return null;
+  });
   // Mirror state into a ref so the session-switch effect can read the latest
   // override without listing it as a dep (which would re-run the reseed every
   // time the user picks a model — the opposite of what we want).
@@ -253,6 +270,11 @@ export function ChatPane({
       if (pick) {
         void onUpdateTopic(topic.id, { provider: pick.provider, model: pick.model });
       }
+      // The draft pick was persisted under the draft id (see
+      // handleProviderOverrideChange); the real topic now carries it on the
+      // server, so drop the stale draft key (mirrors the fastMode migration
+      // below).
+      try { localStorage.removeItem(`providerOverride:${prevId}`); } catch {}
       // Same story for Fast Mode (openspec change `chat-fast-mode`). The
       // composer toggle wrote to `fastMode:draft:abc` and skipped the PUT
       // (drafts have no server-side row to PUT to). Now that the real topic
@@ -278,7 +300,17 @@ export function ChatPane({
   const isDraftTopic = topic.id.startsWith('draft:');
   const handleProviderOverrideChange = useCallback((next: { provider: string; model: string } | null) => {
     setProviderOverride(next);
-    if (isDraftTopic) return;
+    if (isDraftTopic) {
+      // No server row to PATCH yet — persist the pick device-locally (same
+      // approach as Fast Mode for drafts) so it survives a reload before the
+      // draft is promoted on send. The promotion effect above migrates it to
+      // the real topic id + the server and clears this key.
+      try {
+        if (next) localStorage.setItem(`providerOverride:${topic.id}`, JSON.stringify(next));
+        else localStorage.removeItem(`providerOverride:${topic.id}`);
+      } catch {}
+      return;
+    }
     // Best-effort persist so a reload (or another pane on the same topic) sees
     // the same selection. Failures are non-fatal — the local state still
     // drives the next chat request.

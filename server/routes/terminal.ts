@@ -1140,9 +1140,19 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // even if they used it 30s ago. Those sessions must survive indefinitely
       // (and across restarts) so they stay revivable. Only shells, which carry
       // no resumable state, are swept.
+      //
+      // The `type = 'shell'` guard is load-bearing, NOT cosmetic: codex rows
+      // also carry a NULL claude_session_id (codex has no server-tracked resume
+      // pointer — see the codex branch in createSession), so the old
+      // `claude_session_id IS NULL` predicate ALONE swept codex too. A codex
+      // pane parked dormant by a server restart (reconcileSessions' shell-like
+      // else branch) was then hard-deleted after 1h, so the project-layout
+      // auto-revive (/sessions/dormant?cwd=) could no longer relaunch it — the
+      // "codex disappears" bug. Scoping to type='shell' keeps the original
+      // shell sweep while letting dormant codex rows persist as revivable.
       try {
         const db = getDatabase();
-        db.run("DELETE FROM terminal_sessions WHERE status = 'dormant' AND claude_session_id IS NULL AND datetime(created_at) < datetime('now', '-1 hour')");
+        db.run("DELETE FROM terminal_sessions WHERE status = 'dormant' AND claude_session_id IS NULL AND type = 'shell' AND datetime(created_at) < datetime('now', '-1 hour')");
       } catch {}
 
       const filterTopicId = url.searchParams.get('topicId');
