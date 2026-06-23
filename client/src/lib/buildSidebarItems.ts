@@ -384,8 +384,18 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // if not, fall back to "Browser". Either way the sidebar always lists
   // every open browser pane.
   const browserContextById = new Map(browserContexts.map((bc) => [bc.id, bc]));
-  for (const paneId of openPanelSet) {
-    if (!paneId.startsWith('browser:')) continue;
+  // A browser pane can live at the TOP LEVEL (openPanels) OR INSIDE a project
+  // window (projectOpenPanes[path]). Unlike chats/terminals — which always
+  // surface via their topic/session rows — a browser pane appears in the sidebar
+  // ONLY here, so a project-internal browser used to be invisible (and not
+  // restorable from the sidebar). Union both sources, deduped, so EVERY open
+  // browser pane gets a row regardless of which surface hosts it.
+  const browserPaneIds = new Set<string>();
+  for (const id of openPanelSet) if (id.startsWith('browser:')) browserPaneIds.add(id);
+  for (const ids of Object.values(projectOpenPanes)) {
+    for (const id of ids) if (id.startsWith('browser:')) browserPaneIds.add(id);
+  }
+  for (const paneId of browserPaneIds) {
     const contextId = paneId.slice('browser:'.length);
     const bc = browserContextById.get(contextId);
     // Resolution order: live page title → hostname of real URL →
