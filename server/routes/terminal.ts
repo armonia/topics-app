@@ -964,15 +964,20 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
   return child;
 }
 
-/** Gate the /agents/* routes on the gateway token when one is configured (the
- *  MCP bridge always forwards it as X-Gateway-Token). When GATEWAY_TOKEN is
- *  unset, fall back to the ownership guard + the sessionKey-in-URL being an
- *  unguessable terminal UUID, so the orchestrator still works in dev without a
- *  token (unlike import-chrome, which gates hard because it touches real Chrome
- *  cookies — spawning a sub-agent is less sensitive). */
+/** Hard-gate the /agents/* routes on the gateway token, exactly like the
+ *  import-chrome / ref-based browser-bridge endpoints (topics.ts:1554,1600).
+ *  spawn_agent launches `claude --dangerously-skip-permissions` with a
+ *  caller-supplied prompt — arbitrary code execution — and the server binds
+ *  0.0.0.0, so an UNGUARDED route would be unauthenticated RCE for any LAN
+ *  peer / local process. The MCP bridge always forwards the token (it's spawned
+ *  with --gateway-token whenever the server has one), so the legit path keeps
+ *  working. When GATEWAY_TOKEN is unset the whole surface is DISABLED (401) —
+ *  the orchestrator is off rather than open, the same trade-off the other
+ *  sensitive MCP-bridge endpoints already make. The ownership guard on
+ *  send/read/stop is defence-in-depth ON TOP of this, never instead of it. */
 function agentAuthOk(req: Request): boolean {
   const expected = process.env.GATEWAY_TOKEN;
-  if (!expected) return true;
+  if (!expected) return false;
   return (req.headers.get("x-gateway-token") || "") === expected;
 }
 
