@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { topicsMcpBridgeSpec } from "./claude-code";
 
 // ============ Config ============
 
@@ -302,6 +303,20 @@ export class CodexProvider implements AIProvider {
       args.push("--dangerously-bypass-approvals-and-sandbox");
     } else {
       args.push("--sandbox", "workspace-write");
+    }
+
+    // Wire the topics-app MCP bridge into `codex exec` so a codex session can
+    // drive topics (open browser pane, switch/create topic, open/create project)
+    // through the SAME tools claude-code uses — no markers. Codex reads
+    // `mcp_servers.*` from config; we inject it per-invocation via `-c` overrides
+    // (the value portion is parsed as TOML, so JSON.stringify gives a valid TOML
+    // string / string-array). sessionKey resolves to this topic server-side.
+    try {
+      const bridge = topicsMcpBridgeSpec(sessionKey);
+      args.push("-c", `mcp_servers.topics.command=${JSON.stringify(bridge.command)}`);
+      args.push("-c", `mcp_servers.topics.args=${JSON.stringify(bridge.args)}`);
+    } catch (err) {
+      console.warn(`[codex] MCP bridge config failed for ${sessionKey}:`, err);
     }
 
     const child = spawn(bin, args, {

@@ -222,13 +222,15 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * returned config always includes the `topics` bridge; when scoping succeeds
  * it also includes the curated set of inherited global servers.
  */
-export function writeMcpConfigForSession(sessionKey: string): { path: string; strict: boolean } {
-  try {
-    mkdirSync(MCP_CONFIG_DIR, { recursive: true });
-  } catch { /* race-tolerant */ }
-  const cliCommand = process.execPath; // bun
-  const topicsBridge = {
-    command: cliCommand,
+/**
+ * The stdio spawn spec for the topics-app MCP bridge, keyed by sessionKey.
+ * Shared so every MCP-capable host (claude-code CLI via --mcp-config, codex via
+ * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
+ * sessionKey + base URL + gateway token as argv to call back into topics-app.
+ */
+export function topicsMcpBridgeSpec(sessionKey: string): { command: string; args: string[] } {
+  return {
+    command: process.execPath, // bun
     args: [
       "run",
       MCP_SERVER_SCRIPT,
@@ -237,6 +239,13 @@ export function writeMcpConfigForSession(sessionKey: string): { path: string; st
       ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
     ],
   };
+}
+
+export function writeMcpConfigForSession(sessionKey: string): { path: string; strict: boolean } {
+  try {
+    mkdirSync(MCP_CONFIG_DIR, { recursive: true });
+  } catch { /* race-tolerant */ }
+  const topicsBridge = topicsMcpBridgeSpec(sessionKey);
   const inherited = resolveInheritedMcpServers();
   // strict ONLY when we scoped: the config then holds the full set the session
   // should see, so the CLI can safely ignore everything else. When scoping is
