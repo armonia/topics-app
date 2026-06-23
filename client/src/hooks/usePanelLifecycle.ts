@@ -357,6 +357,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       return { ...prev, [projectPath]: paneIds };
     });
   }, []);
+  // Ref mirror so the WS force-open handler can read the latest project-owned
+  // panes without re-subscribing on every layout change.
+  const projectOpenPanesRef = useRefMirror(projectOpenPanes);
 
   // Cross-window drag state
   const [externalDragTopicId, setExternalDragTopicId] = useState<string | null>(null);
@@ -519,10 +522,48 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   useEffect(() => {
     return onWSMessage((msg) => {
       if (msg.type === 'browser:force-open' && msg.contextId) {
+        // A project window may already OWN this browser: it claimed the earlier
+        // `browser:open-near-pane` (the spawner terminal/chat is a tab in its
+        // layout) and mounted the pane beside that pane. force-open is only a
+        // fallback for when NO visible surface showed it. Opening a standalone
+        // pane with the SAME id (`browser:<contextId>`) here would duplicate the
+        // tab ACROSS surfaces — and since one native WebContentsView can mount in
+        // a single DOM slot, the user sees the page in the project cell and an
+        // EMPTY browser in the standalone cell (or vice-versa). Skip when any
+        // project window already lists this browser pane.
+        const browserPaneId = `browser:${msg.contextId}`;
+        const ownedByProject = Object.values(projectOpenPanesRef.current).some(
+          ids => ids.includes(browserPaneId),
+        );
+        if (ownedByProject) return;
         openBrowserPane(msg.contextId);
       }
     });
-  }, [onWSMessage, openBrowserPane]);
+  }, [onWSMessage, openBrowserPane, projectOpenPanesRef]);
+
+  // Reconcile: a browser pane OWNED by a project window must never ALSO live at
+  // the app level (group:default). The force-open fallback racing a project's
+  // own open-near-pane (CDP target registering >4s after the project mounted
+  // the pane) — or a stale persisted layout from before the force-open guard —
+  // can leave the SAME `browser:<ctx>` id in both surfaces. A single native
+  // WebContentsView then mounts in one DOM slot, so the user sees the page in
+  // the project cell and an EMPTY browser tab "outside" the project (or
+  // vice-versa). Purge the app-level copy — the project that spawned it owns it.
+  // PURGE_ORPHAN_PANE (not CLOSE_PANE) leaves no closedStack tombstone, so it
+  // won't ping-pong; idempotent because we only dispatch when the id is actually
+  // present at app level.
+  useEffect(() => {
+    const ownedByProject = new Set<string>();
+    for (const ids of Object.values(projectOpenPanes)) {
+      for (const id of ids) if (id.startsWith('browser:')) ownedByProject.add(id);
+    }
+    if (ownedByProject.size === 0) return;
+    const state = usePaneStore.getState();
+    for (const id of ownedByProject) {
+      const atAppLevel = Object.values(state.groups).some(g => g.paneIds.includes(id));
+      if (atAppLevel) state.dispatch({ type: 'PURGE_ORPHAN_PANE', payload: { id } });
+    }
+  }, [projectOpenPanes]);
 
   // A browser opened by a session (chat/terminal via the WS/DOM handlers in
   // usePaneOrdering) should split out into its own cell BESIDE the chat, just
