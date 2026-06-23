@@ -189,6 +189,8 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
           history={history}
           onBackToSpawner={backToSpawner?.onBackToSpawner}
           spawnerLabel={backToSpawner?.spawnerLabel}
+          agentActive={browser.agentActive}
+          agentAction={browser.agentAction}
         />
         <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
           <iframe
@@ -251,6 +253,8 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
         history={history}
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
+        agentActive={browser.agentActive}
+        agentAction={browser.agentAction}
       />
 
       {/* Content — screenshot viewer */}
@@ -339,7 +343,9 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
             <div className="flex flex-col items-center gap-3 bg-surface/90 px-6 py-4 rounded-lg shadow-xl border border-app-border">
               <div className="flex items-center gap-2 text-app-text">
                 <span className="text-xl">🤖</span>
-                <span className="text-[14px] font-medium">Agent is controlling…</span>
+                <span className="text-[14px] font-medium">
+                  {browser.agentAction ? `L'agente: ${browser.agentAction}` : "L'agente sta controllando…"}
+                </span>
               </div>
               <button
                 type="button"
@@ -540,6 +546,8 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         onRegisterFocus={(fn) => { focusUrlBarRef.current = fn; }}
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
+        agentActive={browser.agentActive}
+        agentAction={browser.agentAction}
       />
       {/* Phase 30.1 polish — Find-in-page bar. Opens on Cmd+F, closes on Esc
           or "x" button. Sends each keystroke to the WebContentsView via

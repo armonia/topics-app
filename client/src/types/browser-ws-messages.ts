@@ -59,6 +59,8 @@ const navMessageSchema = z.object({
 const agentActiveMessageSchema = z.object({
   type: z.literal('agent_active'),
   active: z.boolean(),
+  /** What the agent is doing (e.g. "Clicca", "Naviga su example.com"). active=true only. */
+  action: z.string().optional(),
 });
 
 const consoleMessageSchema = z.object({

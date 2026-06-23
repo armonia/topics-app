@@ -22,6 +22,8 @@ interface RemoteBrowserState {
   lastClickPos: { x: number; y: number; t: number } | null;
   // Phase 30 BROWSER-CHAT-04 — agent lock + select-element state.
   agentActive: boolean;
+  /** Human-readable label of the agent's current action (active=true edge). */
+  agentAction: string | null;
   selectMode: boolean;
   selectedElement: SelectedElementInfo | null;
   pageScaleFactor: number;
@@ -124,6 +126,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
     connectionState: 'connecting',
     lastClickPos: null,
     agentActive: false,
+    agentAction: null,
     selectMode: false,
     selectedElement: null,
     pageScaleFactor: 1,
@@ -317,8 +320,13 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
             break;
           case 'agent_active':
             // Phase 30 BROWSER-CHAT-04 — agent lock state surfaced to RemoteBrowserPanel
-            // for the "🤖 Agent is controlling…" overlay rendering.
-            setState(s => ({ ...s, agentActive: msg.active }));
+            // for the "🤖 agent is controlling…" overlay. Retain the action label
+            // across the idle linger: overwrite only on the active=true edge.
+            setState(s => ({
+              ...s,
+              agentActive: msg.active,
+              agentAction: msg.active && msg.action ? msg.action : s.agentAction,
+            }));
             break;
           default:
             break;

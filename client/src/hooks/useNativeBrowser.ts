@@ -21,6 +21,10 @@ export interface NativeBrowserHandle {
   title: string;
   loading: boolean;
   agentActive: boolean;
+  /** Human-readable label of the agent's current action ("Clicca", "Naviga su
+   *  example.com", …). Last value seen on agent_active=true; persists through the
+   *  brief idle linger so a burst of tool calls shows steady text. */
+  agentAction: string | null;
   ready: boolean;             // viewId resolved + cdpTargetId registered
   viewId: string | null;
   /** Favicon URL emitted by Chromium page-favicon-updated. Empty during navigation. */
@@ -46,6 +50,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   const [title, setTitle] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [agentActive, setAgentActive] = useState<boolean>(false);
+  const [agentAction, setAgentAction] = useState<string | null>(null);
   const [ready, setReady] = useState<boolean>(false);
   const [faviconUrl, setFaviconUrl] = useState<string>('');
 
@@ -223,6 +228,9 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
         }
         if (result.data.type === 'agent_active') {
           setAgentActive(Boolean(result.data.active));
+          // Retain the label across the idle linger: only overwrite on the
+          // active=true edge (which carries the action), keep it on active=false.
+          if (result.data.active && result.data.action) setAgentAction(result.data.action);
         }
       } catch { /* ignore non-JSON frames */ }
     });
@@ -315,7 +323,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   }, [viewId]);
 
   return {
-    url, title, loading, agentActive, ready, viewId, faviconUrl,
+    url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl,
     navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools,
     findInPage, stopFind, onFindResult, setZoom,
   };
