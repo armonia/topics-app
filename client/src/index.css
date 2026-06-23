@@ -1335,12 +1335,17 @@ html.electron-mac [data-testid="single-terminal-pane"] {
 
 /* Resize dividers (column / row / sub-stack handles and the sidebar handle)
  * all share `cursor-col-resize` / `cursor-row-resize` + a resting
- * `bg-app-border` line. In floating mode that line would draw straight down
- * the middle of a gap, so null it at rest — the element stays a transparent
- * resize hit-zone and still lights up (hover:bg-primary) when grabbed. */
+ * `bg-app-border` line. We USED to null this in floating mode (transparent over
+ * the gap) — but an invisible 1px line over a see-through gap is impossible to
+ * aim a hover at: you can't reveal-on-hover something you can't find, so the
+ * dividers felt completely dead to the pointer (a click still landed and
+ * resized, which is why drag worked but hover never did). Keep a faint resting
+ * seam in the gap instead — subtle enough not to fight the floating look,
+ * visible enough to aim at; hover still lights it to primary. (Nested-card
+ * dividers below already kept their line for the same reason.) */
 .floating-splits .cursor-col-resize:not(:hover),
 .floating-splits .cursor-row-resize:not(:hover) {
-  background-color: transparent !important;
+  background-color: rgba(150, 150, 150, 0.45) !important;
 }
 /* …EXCEPT a divider INSIDE a card. A project panel's own GroupLayout/PanelGrid
  * splits are nested cards rendered FLAT (margin:0, no vibrancy gap — see the
