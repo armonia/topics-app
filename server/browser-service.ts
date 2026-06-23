@@ -106,9 +106,17 @@ export interface BrowserService {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
   ): Promise<void>;
-  /** Phase 30 BROWSER-CHAT-03 — broadcast `{ type: 'agent_active', active }` over the
-   *  /ws/browser/:contextId bridge. No-op when no broadcast callback was wired. */
+  /** Phase 30 BROWSER-CHAT-03 — broadcast `{ type: 'agent_active', active, action? }`
+   *  over the /ws/browser/:contextId bridge. No-op when no broadcast callback was
+   *  wired. On `active=true` it attaches the human-readable action label set by the
+   *  last `setAgentAction(contextId, …)` (so the UI can say WHAT the agent is doing,
+   *  e.g. "Clicca", "Naviga su example.com"); on `active=false` it clears the hint. */
   broadcastAgentActive(contextId: string, active: boolean): void;
+  /** Set the human-readable label for the NEXT `agent_active=true` broadcast on
+   *  this context (e.g. derived from the tool name + args in the dispatcher).
+   *  Consumed-then-retained: read by broadcastAgentActive(true), cleared on
+   *  broadcastAgentActive(false). Pass null to clear. */
+  setAgentAction(contextId: string, action: string | null): void;
   /** Phase 30 BROWSER-CHAT-03 — DOM walker that indexes interactive elements
    *  with bounding boxes for the browser_observe tool. Side effect: assigns
    *  data-topics-idx="N" attribute on each indexed element (cleaned by
@@ -150,6 +158,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
   const contexts = new Map<string, BrowserContextEntry>();
   const targetIds = new Map<string, string>();  // contextId → CDP targetId
+  // Human-readable label of the in-flight agent action, keyed by contextId.
+  // Set by the tool dispatcher (setAgentAction) right before a handler runs,
+  // attached to the next agent_active=true broadcast, cleared on active=false.
+  const agentActionHints = new Map<string, string>();
   // Phase 30 BROWSER-CHAT-02 — active CDP screencast sessions. Keyed by
   // contextId. Set by startScreencast, deleted by stopScreencast (idempotent).
   // Cleaned up by close() and destroyContext() before the underlying
@@ -878,13 +890,21 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // Phase 30 BROWSER-CHAT-03 — agent_active broadcast over /ws/browser/:contextId.
     // Server.ts wires opts.broadcastToBrowserWs (no-op when absent).
     broadcastAgentActive(contextId, active) {
+      // Read-then-retain the action hint on entry; clear it on exit so a later
+      // call without a fresh setAgentAction can't leak a stale label.
+      const action = active ? agentActionHints.get(contextId) : undefined;
+      if (!active) agentActionHints.delete(contextId);
       if (!opts.broadcastToBrowserWs) return;
       try {
-        opts.broadcastToBrowserWs(contextId, { type: 'agent_active', active });
+        opts.broadcastToBrowserWs(contextId, { type: 'agent_active', active, ...(action ? { action } : {}) });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[BrowserService] broadcastAgentActive failed for ${contextId}:`, msg);
       }
+    },
+    setAgentAction(contextId, action) {
+      if (action) agentActionHints.set(contextId, action);
+      else agentActionHints.delete(contextId);
     },
 
     // Phase 30 BROWSER-CHAT-03 — DOM walker indexing interactive elements.

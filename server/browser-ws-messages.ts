@@ -68,6 +68,9 @@ const navMessageSchema = z.object({
 const agentActiveMessageSchema = z.object({
   type: z.literal('agent_active'),
   active: z.boolean(),
+  /** Human-readable label of WHAT the agent is doing (e.g. "Clicca",
+   *  "Naviga su example.com"). Present only on active=true broadcasts. */
+  action: z.string().optional(),
 });
 
 /** Server -> client: forwarded console messages from the page */

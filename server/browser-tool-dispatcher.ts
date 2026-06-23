@@ -29,6 +29,47 @@ import type { BrowserActAction } from "./browser-tools";
 export type ToolCallArgs = Record<string, unknown>;
 
 /**
+ * Human-readable, present-tense label for what a browser_* tool call is doing,
+ * surfaced to the user via the agent_active overlay (e.g. "Clicca", "Naviga su
+ * example.com", "Legge la pagina"). Best-effort: never throws on odd args.
+ */
+export function describeBrowserAction(toolName: string, args: ToolCallArgs): string {
+  const host = (u: unknown): string => {
+    if (typeof u !== "string" || !u) return "";
+    try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; }
+  };
+  switch (toolName) {
+    case "browser_open": {
+      const h = host(args.url);
+      return h ? `Naviga su ${h}` : "Naviga";
+    }
+    case "browser_observe":
+      return "Osserva la pagina";
+    case "browser_act": {
+      const a = typeof args.action === "string" ? args.action : "";
+      switch (a) {
+        case "click": return "Clicca";
+        case "type":
+        case "fill": return "Scrive";
+        case "scroll": return "Scorre la pagina";
+        case "press": return args.key ? `Preme ${String(args.key)}` : "Preme un tasto";
+        default: return "Interagisce";
+      }
+    }
+    case "browser_get_text": return "Legge il testo";
+    case "browser_eval": return "Esegue uno script";
+    case "browser_extract": return "Estrae dati";
+    case "browser_read_screen": return "Legge lo schermo";
+    case "browser_save_state": return "Salva la sessione";
+    case "browser_load_state": return "Ripristina la sessione";
+    case "browser_screenshot": return "Cattura uno screenshot";
+    case "browser_point": return "Individua un elemento";
+    case "browser_import_chrome": return "Importa i login da Chrome";
+    default: return "Al lavoro";
+  }
+}
+
+/**
  * Resolve the BrowserService context id for a given topic.
  *   - If topic.browserState.contextId exists, use it (preferred -- set by 30-01 navigate hook)
  *   - Otherwise fall back to topic.id (per-topic isolation pattern from 30-01:
@@ -78,6 +119,12 @@ export async function dispatchBrowserToolCallByContext(
   contextId: string,
   browserService: BrowserService,
 ): Promise<unknown> {
+  // Label the in-flight action for the agent_active overlay. The handler's
+  // withLock broadcasts agent_active=true synchronously on entry (just after
+  // this), reading this hint; the finally clears it. Optional-chained on purpose:
+  // this is a best-effort UX side-effect, so a partial/legacy service (or a test
+  // mock) without setAgentAction must never break actual tool dispatch.
+  browserService.setAgentAction?.(contextId, describeBrowserAction(toolName, args));
   switch (toolName) {
     case "browser_open":
       // Args validated by handler

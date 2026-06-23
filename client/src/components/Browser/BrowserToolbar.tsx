@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, Home, ExternalLink, Globe, Clock, Code2, CornerUpLeft } from 'lucide-react';
+import { AgentActivityPill } from './AgentActivityPill';
 
 interface BrowserToolbarProps {
   url: string;
@@ -27,6 +28,11 @@ interface BrowserToolbarProps {
   /** Optional label shown in the tooltip (e.g. the spawner chat name) so the
    *  user knows where the back button will take them without guessing. */
   spawnerLabel?: string;
+  /** True while the agent is driving this browser (agent_active broadcast).
+   *  Surfaces a non-blocking "agent at work" pill — no page reflow. */
+  agentActive?: boolean;
+  /** Human-readable label of the agent's current action ("Clicca", …). */
+  agentAction?: string | null;
 }
 
 export function BrowserToolbar({
@@ -45,6 +51,8 @@ export function BrowserToolbar({
   onRegisterFocus,
   onBackToSpawner,
   spawnerLabel,
+  agentActive,
+  agentAction,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -203,6 +211,9 @@ export function BrowserToolbar({
           />
         </div>
       </form>
+
+      {/* Agent activity — non-blocking pill (no page reflow). Lingers ~700ms. */}
+      <AgentActivityPill active={!!agentActive} action={agentAction} />
 
       {/* Phase 30 BROWSER-CHAT-04 — URL history dropdown (per-topic, last 10) */}
       {history && history.length > 0 && (
