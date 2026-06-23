@@ -3,6 +3,7 @@ import { X, Loader2, AlertCircle } from 'lucide-react';
 import type { CreateTopicRequest, TopicTemplate, Topic, Project, Worktree, WSMessage } from '../../types';
 import { TopicIcon, DEFAULT_TOPIC_ICON } from '@/lib/topicIcons';
 import { MODAL_BACKDROP } from '../../lib/modalStyles';
+import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { projectsApi, worktreesApi } from '../../lib/api';
 import { useWorktrees } from '../../hooks/useWorktrees';
 
@@ -61,6 +62,8 @@ interface NewTopicModalProps {
 }
 
 export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, onMessage }: NewTopicModalProps) {
+  // Full-screen modal → hide native browser panes while open (OS-level view).
+  useSuppressNativeBrowser(isOpen);
   const [name, setName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<TopicTemplate | null>(null);
   const [showTemplates, setShowTemplates] = useState(true);

@@ -12,6 +12,7 @@ import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { TopicIcon } from '@/lib/topicIcons';
 import { searchApi } from '../../lib/api';
+import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { PANE_CONFIG } from '../../state/pane/adapters';
 import { MODAL_BACKDROP } from '../../lib/modalStyles';
 
@@ -95,6 +96,9 @@ export function CommandPalette({
   closedTabs,
   onReopenClosedTab,
 }: CommandPaletteProps) {
+  // Full-screen overlay → hide every native browser pane while open, else the
+  // OS-level WebContentsView composites over the palette and hides it.
+  useSuppressNativeBrowser(isOpen);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);

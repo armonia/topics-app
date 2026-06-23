@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLe
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
+import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
@@ -63,6 +64,11 @@ interface BrowserToolbarProps {
   /** Back/forward history (Chrome-style right-click / long-press menu). */
   getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   onGoToNavIndex?: (index: number) => void;
+  /** Native WebContentsView id (Electron only). When present, this toolbar's
+   *  own dropdowns (history, console, device) suppress THIS pane's OS-level
+   *  view while open so they don't render behind the live page. Web/screenshot
+   *  mode has no native view → omitted → no suppression. */
+  suppressViewId?: string;
 }
 
 export function BrowserToolbar({
@@ -90,6 +96,7 @@ export function BrowserToolbar({
   onClearConsole,
   getNavEntries,
   onGoToNavIndex,
+  suppressViewId,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -126,6 +133,12 @@ export function BrowserToolbar({
     onMouseUp: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
     onMouseLeave: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
   });
+
+  // The recent-URLs and back/forward menus open downward into the page area,
+  // so on a native pane they'd render behind the OS-level WebContentsView.
+  // Suppress just this pane's view while either is open. (Console/device
+  // dropdowns suppress themselves from inside BrowserDevControls.)
+  useSuppressNativeBrowser(!!suppressViewId && (historyOpen || navMenu !== null), suppressViewId);
 
   // Reset favicon error state when URL changes (new favicon may load).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local error flag to the faviconUrl prop; resets to a constant so it converges immediately and can't loop (faviconUrl is not derived from this state)
@@ -325,10 +338,10 @@ export function BrowserToolbar({
 
       {/* Native dev controls (Electron only) — console badge, device, zoom. */}
       {consoleSummary && consoleEntries && onClearConsole && (
-        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
+        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} suppressViewId={suppressViewId} />
       )}
       {deviceMode && onSetDevice && (
-        <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
+        <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} suppressViewId={suppressViewId} />
       )}
       {onZoom && <ZoomControl onZoom={onZoom} />}
 
