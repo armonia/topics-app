@@ -81,9 +81,20 @@ describe("resolveOps gate (via handleBrowserObserve)", () => {
     stubElectronUp();
     setBrowserCdpDispatcher(mockDispatcher({ targetId: null, nativeBound: true }));
     // Bare service: if resolveOps wrongly fell back to Playwright it would touch
-    // these and throw a different error; the "not ready" message proves the guard.
+    // these and throw a different error; the message proves the guard.
     const service = {} as never;
-    await expect(handleBrowserObserve(service, "ctx", {})).rejects.toThrow(/not ready/i);
+    await expect(handleBrowserObserve(service, "ctx", {})).rejects.toThrow(/no visible browser pane/i);
+  }, 8000);
+
+  test("NON-native-bound context in Electron ALSO fails loud (never silently drives the invisible phantom)", async () => {
+    // The "agent controls it but the user sees nothing" bug: a context that never
+    // mounted a visible pane (isNativeBound=false) used to fall through to the
+    // off-screen Playwright phantom. In Electron it must now fail loud so the
+    // agent opens a pane the user can see.
+    stubElectronUp();
+    setBrowserCdpDispatcher(mockDispatcher({ targetId: null, nativeBound: false }));
+    const service = {} as never;
+    await expect(handleBrowserObserve(service, "ctx", {})).rejects.toThrow(/no visible browser pane/i);
   }, 8000);
 
   test("drives the native view over CDP (no Playwright) when the target is registered", async () => {
