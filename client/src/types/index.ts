@@ -817,6 +817,20 @@ export interface WSBrowserOpenNearPaneMessage {
   url: string;
 }
 /**
+ * Fallback: open_browser_pane could not mount a VISIBLE native pane in any
+ * rendered cell (the spawner terminal/topic isn't a tab anywhere), so the server
+ * asks the PRIMARY window to force one open — otherwise the agent would drive an
+ * off-screen browser the user can't see. The client routes this through
+ * openBrowserPane (single-owner, idempotent). The url is then loaded by the
+ * server over CDP once the forced pane registers its native target.
+ */
+export interface WSBrowserForceOpenMessage {
+  type: 'browser:force-open';
+  /** Deterministic browser contextId to mount the visible pane under. */
+  contextId: string;
+  url: string;
+}
+/**
  * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
  * Split into init (full snapshot keyed by store key) vs updated (single
  * key/value pair) so consumers can narrow without optional-field casts.
@@ -982,6 +996,7 @@ export type WSMessage =
   | WSScriptsUpdatedMessage
   | WSBrowserNavigateMessage
   | WSBrowserOpenNearPaneMessage
+  | WSBrowserForceOpenMessage
   | WSUIStateInitMessage
   | WSUIStateUpdatedMessage
   | WSProjectMessage

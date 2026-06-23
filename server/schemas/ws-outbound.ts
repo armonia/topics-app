@@ -433,6 +433,15 @@ const browserNavigateSchema = z.object({
   contextId: z.string().optional(),
 }).passthrough();
 
+// Fallback open: when open_browser_pane's normal broadcast mounted no visible
+// pane (the spawner terminal/topic isn't a rendered tab), the server asks the
+// primary window to force a visible browser pane open under `contextId`.
+const browserForceOpenSchema = z.object({
+  type: z.literal('browser:force-open'),
+  contextId: z.string(),
+  url: z.string(),
+}).passthrough();
+
 const clearSchema = z.object({
   type: z.literal('clear'),
 }).passthrough();
@@ -639,6 +648,7 @@ const OUTBOUND_SCHEMAS = {
   'message:plan-status': messagePlanStatusSchema,
   // Misc domain
   'browser:navigate': browserNavigateSchema,
+  'browser:force-open': browserForceOpenSchema,
   'clear': clearSchema,
   'cron:updated': cronUpdatedSchema,
   'gateway:status': gatewayStatusSchema,

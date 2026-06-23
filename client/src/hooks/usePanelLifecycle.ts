@@ -507,6 +507,23 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
   }, [isMobile, setSidebarCollapsed, openPanelsRef]);
 
+  // Server fallback for open_browser_pane: when the normal broadcast
+  // (browser:navigate / browser:open-near-pane) mounted NO visible pane in any
+  // rendered cell — because the spawner terminal/topic isn't a tab anywhere — the
+  // server emits browser:force-open so the PRIMARY window opens a visible browser
+  // pane the user can SEE. Without this the agent's browser_* tools silently drove
+  // an off-screen Playwright phantom (now also refused server-side). openBrowserPane
+  // is single-owner (routes through pendingBrowserPane → the standalone cell only)
+  // and idempotent (focus-only if already open), so this can't double-mount; the
+  // url is loaded by the server over CDP once the forced pane registers its target.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type === 'browser:force-open' && msg.contextId) {
+        openBrowserPane(msg.contextId);
+      }
+    });
+  }, [onWSMessage, openBrowserPane]);
+
   // A browser opened by a session (chat/terminal via the WS/DOM handlers in
   // usePaneOrdering) should split out into its own cell BESIDE the chat, just
   // like the manual open above — not sit hidden as a tab. usePaneOrdering
