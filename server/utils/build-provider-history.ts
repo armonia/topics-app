@@ -25,7 +25,6 @@
 
 import type { ChatMessage } from "../providers/types";
 import type { StoredMessage } from "../types";
-import { stripMarkers } from "../lib/markers";
 
 export interface BuildProviderHistoryOptions {
   /**
@@ -73,9 +72,9 @@ export function buildProviderHistory(
     .filter((m) => !isContextMessage(m.content || ""))
     .map((m) => ({
       role: (m.role === "assistant" ? "assistant" : "user") as ChatMessage["role"],
-      content: stripMarkers(m.content || "").trim(),
+      content: (m.content || "").trim(),
     }))
-    // Drop turns that became empty after stripping (pure-marker messages).
+    // Drop turns that are empty after trimming.
     .filter((m) => m.content.length > 0);
 
   if (excludeLast && normalized.length > 0) {

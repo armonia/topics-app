@@ -277,46 +277,6 @@ describe("assembleTopicContext — history truncation at limit", () => {
   });
 });
 
-describe("assembleTopicContext — marker stripping", () => {
-  const baseDir = join(ROOT, "markers", "base");
-  const openclawDir = join(ROOT, "markers", "openclaw");
-  mkdirSync(join(baseDir, "memory"), { recursive: true });
-  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
-
-  const topic = makeTopic();
-  const messages: StoredMessage[] = [
-    makeMessage("u1", "user", "hello {{BROWSER:http://localhost:3000}} world"),
-    makeMessage("a1", "assistant", "ack"),
-    makeMessage("a2", "assistant", "opening {{PROJECT_OPEN:Pix}} now"),
-  ];
-
-  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages });
-  const env = assembleTopicContext(ctx, {
-    sessionKey: topic.sessionKey,
-    providerName: "claude",
-    includeLastUserInHistory: true,
-  });
-
-  it("history content has the marker stripped", () => {
-    expect(env.history[0].content).not.toContain("{{BROWSER:");
-    expect(env.history[0].content).toContain("hello");
-    expect(env.history[0].content).toContain("world");
-  });
-
-  it("diagnostics expose the stripped marker for that message", () => {
-    const e = env.diagnostics.historyEntries.find((x) => x.storedMessageId === "u1")!;
-    expect(e.strippedMarkers).toContain("{{BROWSER:http://localhost:3000}}");
-    expect(e.bytesDropped).toBeGreaterThan(0);
-    expect(e.excluded).toBe(false);
-  });
-
-  it("strips and reports PROJECT_OPEN markers (audit #4 leak regression)", () => {
-    const a2 = env.history.find((m) => m.content.includes("opening"))!;
-    expect(a2.content).not.toContain("{{PROJECT_OPEN");
-    const e = env.diagnostics.historyEntries.find((x) => x.storedMessageId === "a2")!;
-    expect(e.strippedMarkers).toContain("{{PROJECT_OPEN:Pix}}");
-  });
-});
 
 describe("assembleTopicContext — partial messages excluded", () => {
   const baseDir = join(ROOT, "partial", "base");

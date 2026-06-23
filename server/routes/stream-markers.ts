@@ -1,10 +1,9 @@
 /**
  * Stream text helpers shared by the topics router and the extracted chat
  * streaming engine (chat.ts): the slow-stream annotation marker + its strip
- * helper, and the marker-aware broadcast-delta computation. Pulled out of
+ * helper, and the incremental broadcast-delta computation. Pulled out of
  * topics.ts so chat.ts can import them without a topics<->chat import cycle.
  */
-import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
 
 /**
  * Marker appended to a partial assistant message when the soft inactivity
@@ -45,9 +44,7 @@ export function computeCleanBroadcastDelta(
   fullContent: string,
   lastBroadcastClean: string,
 ): { cumulativeClean: string; delta: string } {
-  const cumulativeClean = fullContent
-    .replace(CLOSED_MARKER_REGEX, "")
-    .replace(OPEN_MARKER_TAIL_REGEX, "");
+  const cumulativeClean = fullContent;
   if (cumulativeClean.startsWith(lastBroadcastClean)) {
     return {
       cumulativeClean,
