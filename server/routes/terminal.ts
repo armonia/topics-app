@@ -14,6 +14,7 @@ import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
+import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 
 interface TerminalSession {
@@ -32,6 +33,11 @@ interface TerminalSession {
    *  reattach). Used by the process detector to attribute listening ports
    *  started under this session to it. */
   ptyPid?: number;
+  /** sessionKey of the orchestrator that spawned this session as a sub-agent
+   *  (see routes `/api/sessions/:sessionKey/agents/*`). Undefined for every
+   *  human-/chat-created session. The ownership guard keys off this so a parent
+   *  can only drive the children it spawned, and the UI nests them under it. */
+  parentSessionKey?: string;
 }
 
 const sessions = new Map<string, TerminalSession>();
@@ -519,6 +525,8 @@ function handleBridgeMessage(msg: any) {
           }
         }
       }
+      // A dying orchestrator must not leave drivable orphan sub-agents behind.
+      cascadeKillChildren(msg.id);
       broadcastTerminalSessions();
       break;
     }
@@ -601,6 +609,7 @@ function restoreDbSessionsOptimistically(): void {
       skipPermissions: row.skip_permissions !== 0,
       claudeSessionId: row.claude_session_id || undefined,
       ptyPid: undefined,
+      parentSessionKey: row.parent_session_key || undefined,
     });
     sessionSockets.set(row.id, new Set());
     if (row.claude_session_id && (row.type === 'claude-code' || row.type === 'claude-code-team')) {
@@ -673,6 +682,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
           skipPermissions: row.skip_permissions !== 0,
           claudeSessionId: row.claude_session_id || undefined,
           ptyPid: bridgePidById.get(row.id),
+          parentSessionKey: row.parent_session_key || undefined,
         });
         sessionSockets.set(row.id, new Set());
         // Re-register with the phase tracker (in-memory state was lost on
@@ -706,6 +716,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
             row.cols || 120, row.rows || 30,
             row.topic_id || undefined, row.type as 'claude-code' | 'claude-code-team',
             row.skip_permissions !== 0, row.claude_session_id,
+            row.parent_session_key || undefined,
           );
         } catch (err: any) {
           console.warn(`[Terminal] Failed to recreate session ${row.id}: ${err.message}`);
@@ -765,7 +776,7 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' = 'shell', skipPermissions = true, claudeSessionId?: string): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string): Promise<TerminalSession> {
   let file: string;
   let args: string[];
   const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
@@ -882,6 +893,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     skipPermissions,
     claudeSessionId: resolvedClaudeSessionId,
     ptyPid,
+    parentSessionKey,
   };
 
   sessions.set(id, session);
@@ -889,9 +901,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
 
   try {
     getDatabase().run(
-      `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at, claude_session_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt, resolvedClaudeSessionId || null]
+      `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at, claude_session_id, parent_session_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt, resolvedClaudeSessionId || null, parentSessionKey || null]
     );
   } catch {}
 
@@ -904,6 +916,172 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   }
 
   return session;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-agent orchestrator
+// ─────────────────────────────────────────────────────────────────────────────
+// Lets ONE Claude session (the parent/orchestrator) spawn and drive other
+// interactive `claude` sessions (children) as sub-agents. Everything reuses the
+// existing primitives: createSession (interactive PTY = subscription billing,
+// NOT --print/SDK), the bridge write, getTerminalBuffer scrape, and the durable
+// .jsonl transcript. The ownership guard is the security control — a parent can
+// only touch children whose parentSessionKey == its own sessionKey — so the raw
+// by-id /send and /buffer routes stay OFF-limits to the model; only these
+// /agents/* routes are exposed via MCP.
+
+/** Max spawned-agent ancestry depth (a top-level orchestrator's child = 1). */
+const MAX_AGENT_DEPTH = 3;
+/** Max live children per parent — a runaway parent can't fork unbounded PTYs. */
+const MAX_CHILDREN_PER_PARENT = 5;
+
+/** Count how many spawned-agent ancestors `sessionKey` has (0 = a top-level
+ *  orchestrator that was not itself spawned). Walks parentSessionKey chains that
+ *  point at known terminal sessions; a chat-topic parent ("topic:..") isn't in
+ *  the map, so the walk simply stops there. */
+function spawnedAgentDepth(sessionKey: string): number {
+  let depth = 0;
+  let cur = sessions.get(sessionKey);
+  const seen = new Set<string>();
+  while (cur?.parentSessionKey && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    depth++;
+    cur = sessions.get(cur.parentSessionKey);
+  }
+  return depth;
+}
+
+/** Live children of a parent (present in the in-memory `sessions` map). */
+function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
+  return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
+}
+
+/** Resolve a child the caller is allowed to drive, or null. The caller MUST be
+ *  the child's recorded parent — this is the orchestrator's whole auth model. */
+function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalSession | null {
+  const child = sessions.get(agentId);
+  if (!child || child.parentSessionKey !== parentSessionKey) return null;
+  return child;
+}
+
+/** Gate the /agents/* routes on the gateway token when one is configured (the
+ *  MCP bridge always forwards it as X-Gateway-Token). When GATEWAY_TOKEN is
+ *  unset, fall back to the ownership guard + the sessionKey-in-URL being an
+ *  unguessable terminal UUID, so the orchestrator still works in dev without a
+ *  token (unlike import-chrome, which gates hard because it touches real Chrome
+ *  cookies — spawning a sub-agent is less sensitive). */
+function agentAuthOk(req: Request): boolean {
+  const expected = process.env.GATEWAY_TOKEN;
+  if (!expected) return true;
+  return (req.headers.get("x-gateway-token") || "") === expected;
+}
+
+/** Kill every live child of a parent that just exited/was deleted. Children are
+ *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
+ *  dead owner) is worse than reaping them. */
+function cascadeKillChildren(parentSessionKey: string) {
+  for (const child of liveChildrenOf(parentSessionKey)) {
+    try { sendToBridge({ type: "kill", id: child.id }); } catch {}
+    // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
+  }
+}
+
+/** Seed a freshly-spawned `claude` TUI with its first prompt. The TUI isn't
+ *  ready to accept input the instant the PTY spawns, and Enter must arrive as a
+ *  separate frame to submit — so we bounded-poll the scrollback for a readiness
+ *  signal, then write the prompt and (after a beat) a lone CR. Fire-and-forget:
+ *  the child runs async; the parent reads its output via read_agent. */
+async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
+  const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];
+  let lastLen = -1;
+  let stableCount = 0;
+  let ready = false;
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    if (!sessions.has(childId)) return; // child died before we could seed
+    const buf = await getTerminalBuffer(childId);
+    if (buf && READY_HINTS.some(h => buf.includes(h))) { ready = true; break; }
+    // Fallback readiness: output present and length stable across 2 polls.
+    if (buf.length > 0 && buf.length === lastLen) {
+      if (++stableCount >= 2) { ready = true; break; }
+    } else {
+      stableCount = 0;
+    }
+    lastLen = buf.length;
+  }
+  if (!sessions.has(childId)) return;
+  // Even if we never detected a hint, send anyway after the cap — better to try
+  // than to silently strand the sub-agent with no prompt.
+  void ready;
+  noteTerminalInput(childId);
+  sendToBridge({ type: "write", id: childId, data: prompt });
+  await new Promise(r => setTimeout(r, 150));
+  if (!sessions.has(childId)) return;
+  noteTerminalInput(childId);
+  sendToBridge({ type: "write", id: childId, data: "\r" });
+}
+
+interface AgentReadEvent { type: 'assistant' | 'tool_use'; text?: string; name?: string; input?: unknown; }
+
+/** Pull the visible text out of an assistant transcript line. */
+function assistantTextFromRaw(raw: any): string {
+  const content = raw?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c: any) => c && c.type === "text" && typeof c.text === "string")
+      .map((c: any) => c.text)
+      .join("");
+  }
+  return "";
+}
+
+/** Read a child's structured output from its durable .jsonl transcript (clean
+ *  assistant text + tool calls, no ANSI/TUI noise), paging from a byte offset.
+ *  Falls back to a raw scrollback scrape when the transcript hasn't been
+ *  flushed yet (the first second of a session). */
+async function readAgentOutput(
+  child: TerminalSession,
+  since: number,
+): Promise<{ events: AgentReadEvent[]; nextOffset: number; source: "jsonl" | "buffer"; buffer?: string }> {
+  if (child.claudeSessionId) {
+    const path = claudeTranscriptPath(child.cwd, child.claudeSessionId);
+    try {
+      const size = fs.statSync(path).size;
+      let start = Number.isFinite(since) && since >= 0 ? since : 0;
+      if (start > size) start = 0; // file truncated/rotated — re-read from top
+      if (start === size) return { events: [], nextOffset: size, source: "jsonl" };
+      const fd = fs.openSync(path, "r");
+      try {
+        const len = size - start;
+        const buf = Buffer.alloc(len);
+        fs.readSync(fd, buf, 0, len, start);
+        const chunk = buf.toString("utf-8");
+        const { lines, remainder } = splitJsonlChunk(chunk);
+        // Re-read the partial last line next call by stopping the offset before it.
+        const nextOffset = size - Buffer.byteLength(remainder, "utf-8");
+        const events: AgentReadEvent[] = [];
+        for (const line of lines) {
+          const ev = parseJsonlLine(line);
+          if (!ev) continue;
+          if (ev.type === "assistant") {
+            const text = assistantTextFromRaw(ev.raw);
+            if (text) events.push({ type: "assistant", text });
+          } else if (ev.type === "tool_use") {
+            events.push({ type: "tool_use", name: ev.name, input: ev.input });
+          }
+          // user / tool_result / summary / other are intentionally skipped.
+        }
+        return { events, nextOffset, source: "jsonl" };
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      // No transcript yet → fall through to the raw buffer.
+    }
+  }
+  const buffer = await getTerminalBuffer(child.id);
+  return { events: [], nextOffset: Number.isFinite(since) ? since : 0, source: "buffer", buffer };
 }
 
 // Broadcast current terminal sessions list via WS
@@ -921,6 +1099,9 @@ function broadcastTerminalSessions() {
     // claudeSessionId lets the client map a claude-code pane to its phase in
     // the tracker (the authoritative loading signal).
     claudeSessionId: s.claudeSessionId || null,
+    // Sub-agent parentage: lets the roster nest children under the orchestrator
+    // that spawned them. null for human-/chat-created sessions.
+    parentSessionKey: s.parentSessionKey || null,
     // Authoritative busy snapshot. Lets clients reconcile loading state from
     // the roster instead of relying solely on incremental terminal:activity
     // deltas (which are lost on server restart, WS reconnect, or a dropped
@@ -969,6 +1150,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         command: s.command, clients: sessionSockets.get(s.id)?.size || 0,
         topicId: s.topicId, type: s.type,
         claudeSessionId: s.claudeSessionId || null,
+        parentSessionKey: s.parentSessionKey || null,
         // Authoritative busy snapshot — see broadcastTerminalSessions.
         busy: terminalActivity.get(s.id)?.busy ?? false,
       }));
@@ -1102,6 +1284,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // an explicit DELETE never hit it, so these Maps grew unbounded across the
       // server's life. Safe (no-op) when there's no entry, e.g. a dormant row.
       clearTerminalActivity(deleteMatch.id);
+      // Reap any sub-agents this session spawned (no orphaned drivable PTYs).
+      cascadeKillChildren(deleteMatch.id);
       broadcastTerminalSessions();
       return json({ ok: true });
     }
@@ -1137,6 +1321,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           row.type || 'shell',
           row.skip_permissions !== 0,
           row.claude_session_id || undefined,
+          row.parent_session_key || undefined,
         );
         // Mark as active
         try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch {}
@@ -1181,6 +1366,110 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       }
 
       return json({ ok: true, filePath });
+    }
+
+    // --- Sub-agent orchestrator: /api/sessions/:sessionKey/agents/* ----------
+    // :sessionKey is the CALLER (parent) — the MCP bridge passes the caller's
+    // own sessionKey. spawn stamps it as the child's parentSessionKey; send/read/
+    // stop are ownership-guarded against it. Token-gated when GATEWAY_TOKEN is
+    // set. These are the ONLY cross-session control surface exposed to a model;
+    // the raw by-id /send and /buffer routes above remain human/legacy-only.
+    {
+      const spawnM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/spawn");
+      const listM = matchRoute(pathname, "/api/sessions/:sessionKey/agents");
+      const sendM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/send");
+      const readM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/read");
+      const stopM = matchRoute(pathname, "/api/sessions/:sessionKey/agents/:agentId/stop");
+
+      if (spawnM && method === "POST") {
+        if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+        const parentKey = decodeURIComponent(spawnM.sessionKey);
+        const body = await readJSON(req).catch(() => ({}));
+        const prompt = typeof body.prompt === "string" ? body.prompt : "";
+        if (!prompt) return errorResponse(400, "prompt (string) is required");
+        if (spawnedAgentDepth(parentKey) + 1 > MAX_AGENT_DEPTH) {
+          return errorResponse(429, `sub-agent depth limit (${MAX_AGENT_DEPTH}) reached`);
+        }
+        if (liveChildrenOf(parentKey).length >= MAX_CHILDREN_PER_PARENT) {
+          return errorResponse(429, `max ${MAX_CHILDREN_PER_PARENT} live sub-agents per session`);
+        }
+        const parent = sessions.get(parentKey);
+        const cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || process.env.HOME || "/");
+        const id = crypto.randomUUID();
+        const name = typeof body.name === "string" && body.name ? body.name : `agent ${id.slice(0, 8)}`;
+        try {
+          await ensureBridge();
+          const session = await createSession(id, name, cwd, undefined, 120, 30, undefined, "claude-code", true, undefined, parentKey);
+          // The roster broadcast carries parentSessionKey, so the sub-agent
+          // immediately appears nested under its parent in the sidebar tree.
+          broadcastTerminalSessions();
+          // Seed the first prompt once the TUI is ready (async, non-blocking).
+          void seedAgentPrompt(id, prompt);
+          return json({ agentId: id, name: session.name, cwd: session.cwd });
+        } catch (err: any) {
+          return errorResponse(502, `Failed to spawn sub-agent: ${err.message}`);
+        }
+      }
+
+      if (listM && method === "GET") {
+        if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+        const parentKey = decodeURIComponent(listM.sessionKey);
+        const agents = liveChildrenOf(parentKey).map(s => ({
+          agentId: s.id,
+          name: s.name,
+          cwd: s.cwd,
+          claudeSessionId: s.claudeSessionId || null,
+          busy: terminalActivity.get(s.id)?.busy ?? false,
+        }));
+        return json({ agents });
+      }
+
+      if (sendM && method === "POST") {
+        if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+        const parentKey = decodeURIComponent(sendM.sessionKey);
+        const child = resolveOwnedChild(parentKey, decodeURIComponent(sendM.agentId));
+        if (!child) return errorResponse(404, "sub-agent not found");
+        const body = await readJSON(req).catch(() => ({}));
+        const input = typeof body.input === "string" ? body.input : (typeof body.text === "string" ? body.text : "");
+        if (!input) return errorResponse(400, "input (string) is required");
+        noteTerminalInput(child.id);
+        sendToBridge({ type: "write", id: child.id, data: input });
+        // Submit it: Enter as a separate frame so the TUI acts on the line.
+        await new Promise(r => setTimeout(r, 120));
+        noteTerminalInput(child.id);
+        sendToBridge({ type: "write", id: child.id, data: "\r" });
+        return json({ ok: true, sent: input.length });
+      }
+
+      if (readM && method === "GET") {
+        if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+        const parentKey = decodeURIComponent(readM.sessionKey);
+        const child = resolveOwnedChild(parentKey, decodeURIComponent(readM.agentId));
+        if (!child) return errorResponse(404, "sub-agent not found");
+        const since = Number(url.searchParams.get("since") || "0");
+        const result = await readAgentOutput(child, since);
+        return json(result);
+      }
+
+      if (stopM && method === "POST") {
+        if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
+        const parentKey = decodeURIComponent(stopM.sessionKey);
+        const child = resolveOwnedChild(parentKey, decodeURIComponent(stopM.agentId));
+        if (!child) return errorResponse(404, "sub-agent not found");
+        const childClaudeId = child.claudeSessionId;
+        sendToBridge({ type: "kill", id: child.id });
+        sessions.delete(child.id);
+        const sockets = sessionSockets.get(child.id);
+        if (sockets) {
+          for (const ws of sockets) { try { ws.close(1000, "Sub-agent stopped"); } catch {} }
+          sessionSockets.delete(child.id);
+        }
+        try { getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [child.id]); } catch {}
+        if (childClaudeId) _tracker?.dropTerminalSession(childClaudeId);
+        clearTerminalActivity(child.id);
+        broadcastTerminalSessions();
+        return json({ ok: true });
+      }
     }
 
     return null;

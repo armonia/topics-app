@@ -28,6 +28,10 @@ export interface SidebarItem {
   archived: boolean;
   projectPath?: string;      // for project items: the path; for children: their parent project
   children?: SidebarItem[];  // only for project items (accordion content)
+  /** Sub-agents this terminal spawned (orchestrator → children). Rendered
+   *  nested one level deeper than the parent terminal row. Distinct from
+   *  `children` (project accordion) so project rendering never picks these up. */
+  subAgents?: SidebarItem[];
   // Original data references
   topic?: Topic;
   terminal?: TerminalSessionInfo;
@@ -158,7 +162,50 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const terminalsByProject = new Map<string, TerminalSessionInfo[]>();
   const standaloneTerminals: TerminalSessionInfo[] = [];
 
+  // Sub-agent map: orchestrator sessionKey → the children it spawned. A
+  // terminal session's sessionKey == its id, so a child nests under the parent
+  // terminal whose id == child.parentSessionKey. Children whose parent is NOT a
+  // terminal (e.g. a chat orchestrator) fall through to the flat grouping below
+  // so they still appear somewhere.
+  const terminalById = new Map(terminalSessions.map(t => [t.id, t]));
+  const subAgentsByParent = new Map<string, TerminalSessionInfo[]>();
   for (const ts of terminalSessions) {
+    if (ts.parentSessionKey && terminalById.has(ts.parentSessionKey)) {
+      const arr = subAgentsByParent.get(ts.parentSessionKey) || [];
+      arr.push(ts);
+      subAgentsByParent.set(ts.parentSessionKey, arr);
+    }
+  }
+  const isNestedSubAgent = (ts: TerminalSessionInfo) =>
+    !!ts.parentSessionKey && terminalById.has(ts.parentSessionKey);
+
+  // Build the nested sub-agent SidebarItems for a parent terminal, recursively
+  // (a sub-agent can spawn its own). Always visible — orchestrator-managed rows
+  // aren't gated on an open tab the way user-opened terminals are.
+  const buildSubAgentItems = (parentTerminalId: string): SidebarItem[] => {
+    const kids = (subAgentsByParent.get(parentTerminalId) || [])
+      .slice()
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return kids.map(ts => {
+      const nested = buildSubAgentItems(ts.id);
+      return {
+        id: `terminal:${ts.id}`,
+        type: 'terminal' as const,
+        name: ts.name,
+        icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
+        lastActivity: new Date(ts.createdAt).getTime(),
+        notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
+        archived: false,
+        terminal: ts,
+        ...(nested.length ? { subAgents: nested } : {}),
+      };
+    });
+  };
+
+  for (const ts of terminalSessions) {
+    // Sub-agents nested under a terminal parent are rendered inside that
+    // parent's row (buildSubAgentItems), never as their own flat entry.
+    if (isNestedSubAgent(ts)) continue;
     // Match terminal cwd to the most specific project path
     let matched = false;
     for (const pp of sortedProjectPaths) {
@@ -228,7 +275,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // detached-but-running session stays reachable from Processes / Agents.
     for (const ts of projectTerminals) {
       const termPaneId = `terminal:${ts.id}`;
-      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId)) continue;
+      const projSubAgents = buildSubAgentItems(ts.id);
+      // Tab-driven gate, EXCEPT orchestrator-managed rows: a session that is
+      // itself a sub-agent, or that has spawned sub-agents, stays visible so the
+      // tree can be monitored regardless of its own open tab.
+      const orchestratorManaged = !!ts.parentSessionKey || projSubAgents.length > 0;
+      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged) continue;
       children.push({
         id: termPaneId,
         type: 'terminal',
@@ -239,6 +291,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         archived: false,
         projectPath: pp,
         terminal: ts,
+        ...(projSubAgents.length ? { subAgents: projSubAgents } : {}),
       });
     }
 
@@ -298,7 +351,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   for (const ts of standaloneTerminals) {
     const paneId = `terminal:${ts.id}`;
-    if (!openPanelSet.has(paneId)) continue;
+    const subAgents = buildSubAgentItems(ts.id);
+    // A normal terminal shows only while its tab is open; but an orchestrator-
+    // managed row (one that has spawned sub-agents, or is itself a sub-agent)
+    // stays visible so the tree can be monitored even with its pane closed.
+    const orchestratorManaged = !!ts.parentSessionKey || subAgents.length > 0;
+    if (!openPanelSet.has(paneId) && !orchestratorManaged) continue;
     items.push({
       id: paneId,
       type: 'terminal',
@@ -308,6 +366,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
       archived: false,
       terminal: ts,
+      ...(subAgents.length ? { subAgents } : {}),
     });
   }
 

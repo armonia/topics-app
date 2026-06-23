@@ -1072,6 +1072,10 @@ export interface TerminalSessionInfo {
   topicId?: string;
   type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex';
   claudeSessionId?: string | null;
+  /** sessionKey of the orchestrator that spawned this session as a sub-agent.
+   *  Null for human-/chat-created sessions. Lets the roster nest sub-agents
+   *  under the session that spawned them. */
+  parentSessionKey?: string | null;
   /** Authoritative pty-busy snapshot from the server roster. Used to
    *  reconcile loading state so a missed terminal:activity busy:false delta
    *  (server restart / WS reconnect / dropped message) can't leave a session

@@ -22,6 +22,11 @@ import {
   callStopProcess,
   callListTasks,
   callUpdateTask,
+  callSpawnAgent,
+  callSendToAgent,
+  callReadAgent,
+  callListAgents,
+  callStopAgent,
   handleMessage,
 } from "./topics-mcp-server";
 
@@ -227,6 +232,11 @@ describe("handleMessage", () => {
       "list_tasks",
       "update_task",
       "move_session_to_project",
+      "spawn_agent",
+      "send_to_agent",
+      "read_agent",
+      "list_agents",
+      "stop_agent",
     ]);
     const browser = tools.find((t) => t.name === "open_browser_pane")!;
     expect(browser.inputSchema.required).toEqual(["url"]);
@@ -467,5 +477,138 @@ describe("callUpdateTask", () => {
     await expect(
       callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", project_id: "p", status: "done" }, fetchImpl),
     ).rejects.toThrow(/blocked by unfinished dependencies/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sub-agent orchestration
+// ---------------------------------------------------------------------------
+
+describe("callSpawnAgent", () => {
+  test("POSTs prompt (+optional name/cwd) to the session-keyed spawn endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ agentId: "kid1", name: "worker", cwd: "/p" }), { status: 200 });
+    });
+    const text = await callSpawnAgent(
+      { baseUrl: "http://x", sessionKey: "topic:abc" },
+      { prompt: "do it", name: "worker", cwd: "/p" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/agents/spawn");
+    expect(seen.init?.method).toBe("POST");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ prompt: "do it", name: "worker", cwd: "/p" });
+    expect(text).toContain("agentId=kid1");
+    expect(text).toContain('read_agent(agent_id="kid1")');
+  });
+
+  test("omits name/cwd when not provided", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ agentId: "kid1" }), { status: 200 });
+    });
+    await callSpawnAgent({ baseUrl: "http://x", sessionKey: "s" }, { prompt: "go" }, fetchImpl);
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ prompt: "go" });
+  });
+
+  test("throws when prompt missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callSpawnAgent({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/prompt.*required/i);
+  });
+
+  test("surfaces a depth/concurrency 429 from the server", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "max 5 live sub-agents per session" }), { status: 429 }),
+    );
+    await expect(
+      callSpawnAgent({ baseUrl: "http://x", sessionKey: "s" }, { prompt: "go" }, fetchImpl),
+    ).rejects.toThrow(/max 5 live sub-agents/);
+  });
+});
+
+describe("callSendToAgent", () => {
+  test("POSTs input to the agent send endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, sent: 2 }), { status: 200 });
+    });
+    await callSendToAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1", input: "hi" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/send");
+    expect(seen.init?.method).toBe("POST");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ input: "hi" });
+  });
+
+  test("ownership 404 from the server surfaces as an error", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "sub-agent not found" }), { status: 404 }),
+    );
+    await expect(
+      callSendToAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "notmine", input: "x" }, fetchImpl),
+    ).rejects.toThrow(/sub-agent not found/);
+  });
+});
+
+describe("callReadAgent", () => {
+  test("renders assistant + tool_use events and pages via since", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({
+        events: [
+          { type: "assistant", text: "hello" },
+          { type: "tool_use", name: "Bash", input: { command: "ls" } },
+        ],
+        nextOffset: 4096,
+        source: "jsonl",
+      }), { status: 200 });
+    });
+    const text = await callReadAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1", since: 100 }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/read?since=100");
+    expect(text).toContain("[assistant] hello");
+    expect(text).toContain("[tool_use] Bash");
+    expect(text).toContain("since=4096");
+  });
+
+  test("falls back to the raw buffer when the transcript isn't ready", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ events: [], nextOffset: 0, source: "buffer", buffer: "booting…" }), { status: 200 }),
+    );
+    const text = await callReadAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1" }, fetchImpl);
+    expect(text).toContain("booting…");
+  });
+});
+
+describe("callListAgents / callStopAgent", () => {
+  test("list formats busy/idle rows", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({ agents: [
+        { agentId: "kid1", name: "worker", cwd: "/p", busy: true },
+      ] }), { status: 200 });
+    });
+    const text = await callListAgents({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/agents");
+    expect(text).toContain("[busy] worker id=kid1");
+  });
+
+  test("stop POSTs to the agent stop endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const text = await callStopAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/stop");
+    expect(seen.init?.method).toBe("POST");
+    expect(text).toContain("stopped sub-agent kid1");
   });
 });
