@@ -162,9 +162,9 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     pushSystemPromptBlock(systemBlocks, topic, isEnabled);
     pushContextFileBlocks(systemBlocks, topic, isEnabled);
     pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
-    pushBrowserInstructionBlock(systemBlocks, providerName);
-    pushProjectMarkersBlock(systemBlocks, providerName);
-    pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx, providerName);
+    pushBrowserInstructionBlock(systemBlocks);
+    pushProjectMarkersBlock(systemBlocks);
+    pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
     pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
     pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled);
     if (planMode) pushPlanModeBlock(systemBlocks);
@@ -422,8 +422,8 @@ function pushProjectTemplateBlocks(
   }
 }
 
-function pushBrowserInstructionBlock(blocks: SystemBlock[], providerName?: string): void {
-  const content = browserInstructionContent(providerName);
+function pushBrowserInstructionBlock(blocks: SystemBlock[]): void {
+  const content = browserInstructionContent();
   blocks.push({
     id: "synthetic:browser-instruction",
     label: "Browser tool instructions",
@@ -437,8 +437,8 @@ function pushBrowserInstructionBlock(blocks: SystemBlock[], providerName?: strin
   });
 }
 
-function pushProjectMarkersBlock(blocks: SystemBlock[], providerName?: string): void {
-  const content = projectMarkersContent(providerName);
+function pushProjectMarkersBlock(blocks: SystemBlock[]): void {
+  const content = projectMarkersContent();
   blocks.push({
     id: "synthetic:project-markers",
     label: "Project create/open markers",
@@ -456,10 +456,9 @@ function pushTopicSwitchDirectoryBlock(
   blocks: SystemBlock[],
   topic: Topic,
   ctx: AppContext,
-  providerName?: string,
 ): void {
   const directory = buildTopicDirectory(ctx, topic.id);
-  const content = topicSwitchContent(topic, directory, providerName);
+  const content = topicSwitchContent(topic, directory);
   blocks.push({
     id: "synthetic:topic-switch-directory",
     label: "Topic switch directory",
@@ -707,67 +706,34 @@ function buildTopicDirectory(ctx: AppContext, currentTopicId: string): string {
 // Centralised here so `adaptEnvelope` and tests reference the same strings.
 // ────────────────────────────────────────────────────────────────────────────
 
-export function browserInstructionContent(providerName?: string): string {
-  // claude-code is wired with the topics-app MCP server (see
-  // server/providers/claude-code.ts `--mcp-config`), exposing the tool
-  // `mcp__topics__open_browser_pane(url)`. Steer the model to call the tool
-  // rather than emit a marker — the tool is deterministic (no chunk-split
-  // risk), gets a real return value (final URL + page title), and surfaces
-  // properly in the chat UI as a tool call card. The marker remains
-  // documented as a fallback for cases where the tool is unavailable.
-  if (providerName === "claude-code") {
-    return `When you need to open a URL or file in the user's embedded browser panel, call the MCP tool \`mcp__topics__open_browser_pane\` with the absolute URL. Examples:
-- After creating an HTML file: \`mcp__topics__open_browser_pane({ url: "file:///path/to/file.html" })\`
-- After starting a dev server: \`mcp__topics__open_browser_pane({ url: "http://localhost:3000" })\`
-- To show a webpage: \`mcp__topics__open_browser_pane({ url: "https://example.com" })\`
+export function browserInstructionContent(): string {
+  // All control of the embedded browser pane is via the topics-app tool
+  // `open_browser_pane` (claude-code/codex over MCP; claude/openai over the SDK
+  // browser-tool passthrough). The legacy {{BROWSER:url}} marker was removed.
+  return `When you need to open a URL or file in the user's embedded browser panel, use the \`open_browser_pane\` tool with the absolute URL. Examples:
+- After creating an HTML file: open_browser_pane({ url: "file:///path/to/file.html" })
+- After starting a dev server: open_browser_pane({ url: "http://localhost:3000" })
+- To show a webpage: open_browser_pane({ url: "https://example.com" })
 The tool returns the final URL + page title after navigation. Do not mention the tool to the user.`;
-  }
-  return `When you want to open a URL or file in the embedded browser panel, include the marker {{BROWSER:url}} in your response. Examples:
-- After creating an HTML file: {{BROWSER:file:///path/to/file.html}}
-- After starting a dev server: {{BROWSER:http://localhost:3000}}
-- To show a webpage: {{BROWSER:https://example.com}}
-The marker will be automatically processed and removed from the visible output. Do not mention the marker to the user.`;
 }
 
-export function projectMarkersContent(providerName?: string): string {
-  // claude-code drives projects through the topics-app MCP tools
-  // (`mcp__topics__open_project` / `mcp__topics__create_project`) — deterministic,
-  // with real return values, no chunk-split risk. Other providers (no MCP bridge)
-  // keep the legacy {{PROJECT_OPEN/CREATE}} markers, which the server still parses.
-  if (providerName === "claude-code") {
-    return `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
-- To OPEN/SCOPE an existing project, call \`mcp__topics__open_project({ ref: "project-name-or-path" })\` — pass the user's Topics project NAME when you know it (Topics resolves the name), or a known workspace name / path. Topics opens that project window and places THIS session inside it.
-- To CREATE a new project, call \`mcp__topics__create_project({ name: "project-name" })\` — scaffolds a workspace directory, binds it to this session, and opens it.
-Call \`open_project\` whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session belongs to / should live under a project — not only the literal word "open". Examples: "open project Pix" / "aprimi il progetto Pix" / "metti questa sessione nel progetto Pix" → \`open_project({ ref: "Pix" })\`. Also call it when you begin focused work inside a specific project. If the user references "this project" WITHOUT naming it and you cannot infer the name/path, ask which project rather than guessing. Do NOT call it for casual mentions, comparisons, single-file references, or test/debug chatter. Never mention the tool to the user.`;
-  }
+export function projectMarkersContent(): string {
+  // Project control is via the topics-app tools `open_project` / `create_project`
+  // (MCP for claude-code/codex). The legacy {{PROJECT_OPEN/CREATE}} markers were removed.
   return `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
-- To OPEN/SCOPE an existing project, include {{PROJECT_OPEN:project-name-or-path}} — use the user's Topics project NAME when you know it (Topics resolves the name to the real project), or a workspace name / absolute path. Topics opens that project window and places THIS session inside it, so the conversation appears scoped to the project.
-- To CREATE a new project, include {{PROJECT_CREATE:project-name}} — this scaffolds a workspace directory, binds it to this session, and opens it.
-Emit {{PROJECT_OPEN:...}} whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session/conversation/tab BELONGS TO or should LIVE UNDER a project — not only the literal word "open". Examples that MUST trigger it:
-- "open project Pix" → {{PROJECT_OPEN:Pix}}
-- "aprimi il progetto Pix" → {{PROJECT_OPEN:Pix}}
-- "metti questa sessione nel progetto Pix" → {{PROJECT_OPEN:Pix}}
-- "spostami nel progetto Pix" / "move me into project Pix" → {{PROJECT_OPEN:Pix}}
-- "questo appartiene al progetto Pix" / "this belongs to project Pix" → {{PROJECT_OPEN:Pix}}
-Also emit {{PROJECT_OPEN:...}} whenever you begin focused work inside a specific project or repository, so this session is shown under that project in Topics (like a cloud session scoped to its repo). If the user says it belongs to "this project"/"this tab" WITHOUT naming it and you cannot infer the exact project name or path, ask which project they mean rather than guessing — only emit the marker once you have a concrete name or path. Do NOT emit it for casual mentions, comparisons, single-file references, or test/debug chatter. The marker is processed and stripped from visible output — never mention the marker or projects-as-markers to the user.`;
+- To OPEN/SCOPE an existing project, use the \`open_project\` tool: open_project({ ref: "project-name-or-path" }) — pass the user's Topics project NAME when you know it (Topics resolves the name), or a known workspace name / path. Topics opens that project window and places THIS session inside it.
+- To CREATE a new project, use the \`create_project\` tool: create_project({ name: "project-name" }) — scaffolds a workspace directory, binds it to this session, and opens it.
+Call \`open_project\` whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session belongs to / should live under a project — not only the literal word "open". Examples: "open project Pix" / "aprimi il progetto Pix" / "metti questa sessione nel progetto Pix" → open_project({ ref: "Pix" }). Also call it when you begin focused work inside a specific project. If the user references "this project" WITHOUT naming it and you cannot infer the name/path, ask which project rather than guessing. Do NOT call it for casual mentions, comparisons, single-file references, or test/debug chatter. Never mention the tool to the user.`;
 }
 
-export function topicSwitchContent(topic: Topic, directory: string, providerName?: string): string {
+export function topicSwitchContent(topic: Topic, directory: string): string {
   const currentTopicInfo = `You are currently in topic: "${topic.name}"${topic.projectPath ? ` (project: ${topic.projectPath.split("/").pop()})` : ""}.\n\n`;
-  // claude-code switches/creates topics via the MCP tools
-  // (`mcp__topics__switch_topic` / `mcp__topics__new_topic`). Other providers
-  // (no MCP bridge) keep the {{TOPIC_SWITCH/TOPIC_NEW}} markers, still parsed
-  // server-side.
-  if (providerName === "claude-code") {
-    const directorySection = directory
-      ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different existing topic (not just a casual reference), call \`mcp__topics__switch_topic({ topic_id: "..." })\` with the target topic's id.\n`
-      : "";
-    return `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, call \`mcp__topics__new_topic({ title: "Topic Name" })\` instead (a short, descriptive 2-4 word name).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Prefer switch_topic to an existing topic when one fits; use new_topic only when none matches\n- Never mention the tool to the user\n- When in doubt, stay in the current topic`;
-  }
+  // Topic control is via the topics-app tools `switch_topic` / `new_topic`.
+  // The legacy {{TOPIC_SWITCH/TOPIC_NEW}} markers were removed.
   const directorySection = directory
-    ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different topic (not just a casual reference), include the marker {{TOPIC_SWITCH:topicId}} at the VERY BEGINNING of your response, using the target topic's id. Then respond normally to the user's message after the marker.\n`
+    ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different existing topic (not just a casual reference), use the \`switch_topic\` tool: switch_topic({ topic_id: "..." }) with the target topic's id.\n`
     : "";
-  return `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches\n- When in doubt, stay in the current topic`;
+  return `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, use the \`new_topic\` tool: new_topic({ title: "Topic Name" }) instead (a short, descriptive 2-4 word name).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Prefer switch_topic to an existing topic when one fits; use new_topic only when none matches\n- Never mention the tool to the user\n- When in doubt, stay in the current topic`;
 }
 
 export function planModeContent(): string {
