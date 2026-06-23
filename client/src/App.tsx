@@ -18,6 +18,7 @@ import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
+import { useAnimationPause } from './hooks/useAnimationPause';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -129,6 +130,9 @@ function App() {
   // transparent window so floating-splits gaps show the clear desktop while each
   // panel frosts; no-op off-Electron / when the addon is unavailable.
   useFloatingVibrancy(isElectron, appSettings.floatingSplits);
+  // Stop the always-running loaders / awaiting-pulse breathers from burning the
+  // compositor while the window is backgrounded (minimized / occluded / blurred).
+  useAnimationPause();
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
