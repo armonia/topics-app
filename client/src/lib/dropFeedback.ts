@@ -28,8 +28,11 @@ export const DROP_ACCENT = 'var(--primary)';
  *  the side". Slightly more opaque than a hairline so the half still reads on
  *  busy content. */
 export const DROP_REGION_FILL = 'color-mix(in srgb, var(--primary) 22%, transparent)';
-/** Resting fill of the full-width-row gutter while a drag is live but not over it. */
-export const DROP_GUTTER_FILL_IDLE = 'color-mix(in srgb, var(--primary) 7%, transparent)';
+/** Resting fill of the full-width-row gutter while a drag is live but not over
+ *  it. Kept clearly visible (not a faint hint) so the "drop here for a
+ *  full-width row" affordance is DISCOVERABLE the moment a drag starts — the
+ *  old 7%/0.7 band was effectively invisible until the cursor was already on it. */
+export const DROP_GUTTER_FILL_IDLE = 'color-mix(in srgb, var(--primary) 14%, transparent)';
 export const DROP_RADIUS = 4;
 /** Thickness of the solid seam accent / caret. */
 export const DROP_SEAM_PX = 2;
@@ -37,10 +40,13 @@ export const DROP_SEAM_PX = 2;
 export const FULL_ROW_GUTTER_PX = 26;
 
 // z-index, centralized so the two tiling subsystems agree on which indicator
-// wins when regions briefly overlap: caret < region = full-row < external drop.
+// wins when regions briefly overlap: caret < region < full-row < external drop.
+// The full-row gutter sits ABOVE the per-column regions so it stays visible at
+// the bottom/top corners (where a column's left/right region would otherwise
+// cover it) — that occlusion was part of why it wasn't discoverable.
 export const Z_DROP_CARET = 20;
 export const Z_DROP_REGION = 40;
-export const Z_DROP_FULLROW = 40;
+export const Z_DROP_FULLROW = 50;
 
 /**
  * Inline style for a split-region preview: the translucent half-footprint of
@@ -101,11 +107,13 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean): CSSPr
     height: FULL_ROW_GUTTER_PX,
     zIndex: Z_DROP_FULLROW,
     background: active ? DROP_REGION_FILL : DROP_GUTTER_FILL_IDLE,
-    // Solid seam accent on the inner edge (the one facing the content).
+    // Solid accent on the inner edge (facing the content) — this is a thin
+    // full-width band with a label, so the accent reads as the band's edge, not
+    // a competing split line.
     boxShadow: side === 'bottom'
       ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
       : `inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`,
-    opacity: active ? 1 : 0.7,
+    opacity: active ? 1 : 0.92,
     transition: 'background 140ms ease, opacity 140ms ease',
   };
 }
