@@ -184,7 +184,7 @@ function buildLegacyHistoryAware(providerName: string = "claude"): { systemMessa
 - After creating an HTML file: \`mcp__topics__open_browser_pane({ url: "file:///path/to/file.html" })\`
 - After starting a dev server: \`mcp__topics__open_browser_pane({ url: "http://localhost:3000" })\`
 - To show a webpage: \`mcp__topics__open_browser_pane({ url: "https://example.com" })\`
-The tool returns the final URL + page title after navigation. Prefer this tool over the legacy marker. As a fallback (when the tool is unavailable), you may still emit the marker {{BROWSER:url}} in your response — the marker is automatically processed and removed from the visible output, but the tool gives you a real return value. Do not mention the marker or tool to the user.`
+The tool returns the final URL + page title after navigation. Do not mention the tool to the user.`
       : `When you want to open a URL or file in the embedded browser panel, include the marker {{BROWSER:url}} in your response. Examples:
 - After creating an HTML file: {{BROWSER:file:///path/to/file.html}}
 - After starting a dev server: {{BROWSER:http://localhost:3000}}
@@ -195,7 +195,12 @@ The marker will be automatically processed and removed from the visible output. 
   }
   // 5. project markers
   {
-    const content = `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
+    const content = providerName === "claude-code"
+      ? `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
+- To OPEN/SCOPE an existing project, call \`mcp__topics__open_project({ ref: "project-name-or-path" })\` — pass the user's Topics project NAME when you know it (Topics resolves the name), or a known workspace name / path. Topics opens that project window and places THIS session inside it.
+- To CREATE a new project, call \`mcp__topics__create_project({ name: "project-name" })\` — scaffolds a workspace directory, binds it to this session, and opens it.
+Call \`open_project\` whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session belongs to / should live under a project — not only the literal word "open". Examples: "open project Pix" / "aprimi il progetto Pix" / "metti questa sessione nel progetto Pix" → \`open_project({ ref: "Pix" })\`. Also call it when you begin focused work inside a specific project. If the user references "this project" WITHOUT naming it and you cannot infer the name/path, ask which project rather than guessing. Do NOT call it for casual mentions, comparisons, single-file references, or test/debug chatter. Never mention the tool to the user.`
+      : `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
 - To OPEN/SCOPE an existing project, include {{PROJECT_OPEN:project-name-or-path}} — use the user's Topics project NAME when you know it (Topics resolves the name to the real project), or a workspace name / absolute path. Topics opens that project window and places THIS session inside it, so the conversation appears scoped to the project.
 - To CREATE a new project, include {{PROJECT_CREATE:project-name}} — this scaffolds a workspace directory, binds it to this session, and opens it.
 Emit {{PROJECT_OPEN:...}} whenever the user, in ANY phrasing or language, asks to open, switch to, move into, or nest this session under a project, OR says this session/conversation/tab BELONGS TO or should LIVE UNDER a project — not only the literal word "open". Examples that MUST trigger it:
@@ -212,10 +217,19 @@ Also emit {{PROJECT_OPEN:...}} whenever you begin focused work inside a specific
   {
     const directory = ""; // single topic in topicsData
     const currentTopicInfo = `You are currently in topic: "${topic.name}"${topic.projectPath ? ` (project: ${topic.projectPath.split("/").pop()})` : ""}.\n\n`;
-    const directorySection = directory
-      ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different topic (not just a casual reference), include the marker {{TOPIC_SWITCH:topicId}} at the VERY BEGINNING of your response, using the target topic's id. Then respond normally to the user's message after the marker.\n`
-      : "";
-    const content = `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches\n- When in doubt, stay in the current topic`;
+    const content = providerName === "claude-code"
+      ? (() => {
+          const directorySection = directory
+            ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different existing topic (not just a casual reference), call \`mcp__topics__switch_topic({ topic_id: "..." })\` with the target topic's id.\n`
+            : "";
+          return `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, call \`mcp__topics__new_topic({ title: "Topic Name" })\` instead (a short, descriptive 2-4 word name).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Prefer switch_topic to an existing topic when one fits; use new_topic only when none matches\n- Never mention the tool to the user\n- When in doubt, stay in the current topic`;
+        })()
+      : (() => {
+          const directorySection = directory
+            ? `Here are the available topics:\n${directory}\n\nIf the user's message CLEARLY belongs to a different topic (not just a casual reference), include the marker {{TOPIC_SWITCH:topicId}} at the VERY BEGINNING of your response, using the target topic's id. Then respond normally to the user's message after the marker.\n`
+            : "";
+          return `${currentTopicInfo}You have access to multiple conversation topics. ${directorySection}If the user wants to talk about a NEW subject that does NOT match any existing topic, you can CREATE a new topic by using {{TOPIC_NEW:Topic Name}} at the VERY BEGINNING of your response instead. Pick a short, descriptive name (2-4 words).\nRules:\n- Only switch/create when the user EXPLICITLY asks to change topic or starts a clearly unrelated conversation\n- NEVER switch/create for tool usage requests, test messages, debugging, or follow-up questions\n- Never switch for casual mentions, comparisons, or single-message requests\n- Do not mention the marker to the user\n- Prefer TOPIC_SWITCH to an existing topic when one fits; use TOPIC_NEW only when no existing topic matches\n- When in doubt, stay in the current topic`;
+        })();
     const idx = finalMessages.findIndex((m) => m.role !== "system");
     finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
   }
