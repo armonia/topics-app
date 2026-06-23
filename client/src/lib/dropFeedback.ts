@@ -22,8 +22,12 @@ import type { EdgeZone } from './dropZone';
  */
 
 export const DROP_ACCENT = 'var(--primary)';
-/** Fill of a split-region preview (the translucent footprint of the new pane). */
-export const DROP_REGION_FILL = 'color-mix(in srgb, var(--primary) 15%, transparent)';
+/** Fill of a split-region preview (the translucent footprint of the new pane).
+ *  The fill IS the indicator — deliberately NO border or seam line, so a
+ *  half-split reads as ONE filled area, not "a line in the middle + an area on
+ *  the side". Slightly more opaque than a hairline so the half still reads on
+ *  busy content. */
+export const DROP_REGION_FILL = 'color-mix(in srgb, var(--primary) 22%, transparent)';
 /** Resting fill of the full-width-row gutter while a drag is live but not over it. */
 export const DROP_GUTTER_FILL_IDLE = 'color-mix(in srgb, var(--primary) 7%, transparent)';
 export const DROP_RADIUS = 4;
@@ -39,28 +43,15 @@ export const Z_DROP_REGION = 40;
 export const Z_DROP_FULLROW = 40;
 
 /**
- * boxShadow `inset` accent on the SEAM edge — the inner boundary where the new
- * pane will meet the existing content — for each split direction.
- */
-function seamShadow(zone: EdgeZone): string {
-  switch (zone) {
-    case 'left':   return `inset -${DROP_SEAM_PX}px 0 0 0 ${DROP_ACCENT}`; // region left → seam on its right
-    case 'right':  return `inset ${DROP_SEAM_PX}px 0 0 0 ${DROP_ACCENT}`;  // region right → seam on its left
-    case 'top':    return `inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`; // region top → seam on its bottom
-    case 'bottom': return `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`;  // region bottom → seam on its top
-  }
-}
-
-/**
  * Inline style for a split-region preview: the translucent half-footprint of
- * the resulting pane plus a solid seam accent. No dashed perimeter.
+ * the resulting pane. The fill alone is the indicator — no border, no seam line
+ * (which would read as a second "preview in the middle"). The filled half's own
+ * edge already shows where the split lands.
  *
  * - `fullWidth` spans the whole container width (the full-width-row preview)
  *   instead of a single column — this is the visual tell vs a column split.
  * - `gutterInset` lifts the bottom edge up by N px so a `bottom`/`left`/`right`
  *   region stops above the full-width-row gutter and the two never collide.
- *
- * With no opts this reproduces the legacy half-area math exactly.
  */
 export function dropRegionStyle(
   zone: EdgeZone,
@@ -76,7 +67,6 @@ export function dropRegionStyle(
     left: fullWidth ? 0 : zone === 'right' ? '50%' : 0,
     right: fullWidth ? 0 : zone === 'left' ? '50%' : 0,
     background: DROP_REGION_FILL,
-    boxShadow: seamShadow(zone),
     borderRadius: DROP_RADIUS,
     transition: 'all 140ms ease',
   };

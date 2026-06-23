@@ -84,21 +84,20 @@ test.describe("Tab System Reliability", () => {
       await expect(overlay).toBeVisible({ timeout: 3000 });
 
       // Verify it's the left zone and carries the split-region visual signature:
-      // a translucent FILL + a solid SEAM accent (inset box-shadow), and NO
-      // dashed perimeter. The dashed box was the old double-indicator (it read as
-      // both a border line and a filled area); the new region is fill + seam only.
+      // a single translucent FILL — NO dashed perimeter and NO seam line. The
+      // fill alone is the indicator; a border or seam line reads as a SECOND
+      // preview ("a line in the middle + an area on the side"), the double-
+      // indicator we removed.
       const meta = await overlay.first().evaluate((el) => {
         const cs = getComputedStyle(el);
         return {
           zone: el.getAttribute('data-grid-split-overlay'),
           hasFill: cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent',
-          hasSeamAccent: cs.boxShadow.includes('inset'),
           hasDashedBorder: cs.borderStyle.includes('dashed'),
         };
       });
       expect(meta.zone).toBe('left');
       expect(meta.hasFill).toBe(true);
-      expect(meta.hasSeamAccent).toBe(true);
       expect(meta.hasDashedBorder).toBe(false);
     } finally {
       await deleteTopic(request, t1.id);
