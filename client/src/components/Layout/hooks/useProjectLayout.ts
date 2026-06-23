@@ -487,6 +487,33 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       const existing = panesRef.current.find(p => p.type === 'browser');
       if (existing) {
+        const existingCtx = getBrowserContextFromPaneId(existing.id);
+        // REBIND the project's shared browser pane to the incoming contextId when
+        // they differ. The project shares ONE browser pane across its tabs, but a
+        // caller (a terminal agent, a chat) drives it through its OWN contextId —
+        // the agent's browser_* tools resolve the native CDP target by that id. If
+        // we reused the pane as-is (registered under whoever opened it first), the
+        // new caller's contextId had no target → "No visible browser pane is open"
+        // even though a pane is right there. Renaming the pane id to
+        // browser:<contextId> remounts useNativeBrowser under the new id, which
+        // re-registers the CDP target so the caller drives THIS visible pane.
+        if (contextId && existingCtx && existingCtx !== contextId) {
+          const newId = createPaneId('browser', contextId);
+          if (!panesRef.current.some(p => p.id === newId)) {
+            setPanes(prev => prev.map(p => (p.id === existing.id ? { ...p, id: newId } : p)));
+            setGroups(prev => prev.map(g => ({
+              ...g,
+              paneIds: g.paneIds.map(id => (id === existing.id ? newId : id)),
+              activePaneId: g.activePaneId === existing.id ? newId : g.activePaneId,
+            })));
+            const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
+            if (grp) setFocusedGroupId(grp.id);
+            if (spawnerKey) setBrowserSpawner(contextId, spawnerKey);
+            seedPaneUrl(newId);
+            onBrowserNavigateUrl?.(url);
+            return;
+          }
+        }
         const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
         if (grp) {
           setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
