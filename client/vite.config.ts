@@ -44,9 +44,22 @@ function lastChangePlugin(): Plugin {
   };
 }
 
+// App version is the source-of-truth Electron package version — surfaced in
+// the status bar so you can tell at a glance which build is running.
+const __electronVersion = (() => {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, '../electron-app/package.json'), 'utf8'),
+    ).version as string;
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 export default defineConfig({
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __APP_VERSION__: JSON.stringify(__electronVersion),
   },
   plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss()],
   resolve: {

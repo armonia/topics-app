@@ -259,6 +259,39 @@ export async function getListeningPorts(): Promise<{ port: number; pid: number; 
   }
 }
 
+// Top CPU consumers, system-wide — so the status dropdown can answer "why is my
+// PC load high?" with the actual culprits instead of a vague verdict. One cached
+// `ps … -r` (sort by CPU) snapshot; refreshed at most every TOP_PROCS_TTL so a
+// dropdown polling every few seconds stays cheap.
+let cachedTopProcs: { pid: number; cpu: number; command: string }[] = [];
+let cachedTopProcsAt = 0;
+const TOP_PROCS_TTL = 3000;
+
+export async function getTopCpuProcesses(limit = 6): Promise<{ pid: number; cpu: number; command: string }[]> {
+  const now = Date.now();
+  if (now - cachedTopProcsAt < TOP_PROCS_TTL && cachedTopProcs.length) return cachedTopProcs.slice(0, limit);
+  try {
+    // -A all procs, -c accounting (short) command name, -o columns, -r sort by CPU desc.
+    const proc = Bun.spawn(["ps", "-Aco", "pid,pcpu,comm", "-r"], { stdout: "pipe", stderr: "ignore" });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    const rows: { pid: number; cpu: number; command: string }[] = [];
+    for (const line of text.split("\n").slice(1)) {
+      const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(.+)$/);
+      if (!m) continue;
+      const cpu = parseFloat(m[2]);
+      if (!(cpu > 0)) continue;
+      rows.push({ pid: +m[1], cpu: Math.round(cpu), command: m[3].trim() });
+      if (rows.length >= 12) break;
+    }
+    cachedTopProcs = rows;
+    cachedTopProcsAt = now;
+    return rows.slice(0, limit);
+  } catch {
+    return cachedTopProcs.slice(0, limit);
+  }
+}
+
 // Cached process table (ppid → child pids). ONE `ps` snapshot replaces the old
 // recursive `pgrep -P` storm, which spawned one process per tree node, per
 // session, every detector cycle (and per script on every GET /api/scripts) — a

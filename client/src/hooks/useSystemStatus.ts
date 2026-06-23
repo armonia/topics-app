@@ -18,6 +18,14 @@ export interface SystemStatus {
     heapUsedMB: number;
     heapTotalMB: number;
   };
+  cpu?: {
+    cores: number;
+    loadAvg1: number;
+    loadAvg5: number;
+    loadAvg15: number;
+    /** load1 / cores * 100, or null on platforms without loadavg (Windows). */
+    loadPercent: number | null;
+  };
   connections: {
     wsClients: number;
     activeStreams: number;
@@ -38,6 +46,8 @@ export interface SystemStatus {
     byType: Record<string, number>;
   };
   ports?: { port: number; pid: number; command: string }[];
+  /** System-wide top CPU consumers (sorted desc) — explains a high PC load. */
+  topProcesses?: { pid: number; cpu: number; command: string }[];
 }
 
 export function useSystemStatus(enabled = true, intervalMs = 30000) {

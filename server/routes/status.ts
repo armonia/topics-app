@@ -1,5 +1,6 @@
+import os from "os";
 import type { AppContext, RouteHandler } from "../types";
-import { getListeningPorts } from "./processes";
+import { getListeningPorts, getTopCpuProcesses } from "./processes";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
 
@@ -160,15 +161,30 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       const uptimeMs = Date.now() - SERVER_START_TIME;
       const memUsage = process.memoryUsage();
 
+      // PC-level CPU pressure. loadavg() is the OS run-queue length averaged
+      // over 1/5/15 min; dividing by core count gives a rough "how busy is the
+      // whole machine" percent. This is the signal that distinguishes "the PC
+      // is saturated (everything is slow)" from "Topics' renderer is the
+      // bottleneck" (which the Electron per-process metrics answer instead).
+      // On Windows loadavg() is always [0,0,0] — we surface that as null so the
+      // client hides the row rather than showing a fake 0%.
+      const cores = os.cpus().length || 1;
+      const [load1, load5, load15] = os.loadavg();
+      const loadSupported = load1 > 0 || load5 > 0 || load15 > 0;
+
       const topicsData = loadTopics();
       const activeTopicsCount = Object.values(topicsData.topics).filter(t => !t.archived).length;
 
       const streamKeys = Array.from(activeStreams.keys());
 
-      // Gather active ports (reuse cached lsof from processes.ts)
+      // Gather active ports + top CPU consumers (both reuse cached snapshots).
       let ports: { port: number; pid: number; command: string }[] = [];
+      let topProcesses: { pid: number; cpu: number; command: string }[] = [];
       try {
-        ports = await getListeningPorts();
+        [ports, topProcesses] = await Promise.all([
+          getListeningPorts(),
+          getTopCpuProcesses(6),
+        ]);
       } catch {}
 
       return json({
@@ -187,6 +203,13 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
           heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
         },
+        cpu: {
+          cores,
+          loadAvg1: Math.round(load1 * 100) / 100,
+          loadAvg5: Math.round(load5 * 100) / 100,
+          loadAvg15: Math.round(load15 * 100) / 100,
+          loadPercent: loadSupported ? Math.round((load1 / cores) * 100) : null,
+        },
         connections: {
           wsClients: wsClients.size,
           activeStreams: activeStreams.size,
@@ -199,6 +222,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
         sessions: lastSessionsStatus || { total: 0, byType: {} },
         ports,
+        topProcesses,
       });
     }
 
