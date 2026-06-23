@@ -17,27 +17,11 @@ const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 
 const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-// --- Server-side internal marker stripping (pure, arg-only) ---
-// Strip {{BROWSER:...}} markers from visible content (processed server-side for navigation)
-const stripBrowserMarker = (text: string): string => text.replace(/\{\{BROWSER:.*?\}\}/g, '');
-// Strip {{TOPIC_SWITCH:...}} and {{TOPIC_NEW:...}} markers from visible content (processed server-side for topic switching)
-const stripTopicSwitchMarker = (text: string): string => text.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}\s*/g, '').replace(/\{\{TOPIC_NEW:[^}]+\}\}\s*/g, '');
-// Strip {{PROJECT_CREATE:...}} and {{PROJECT_OPEN:...}} markers (server-side processed; previously leaked to UI — audit fix).
-const stripProjectMarker = (text: string): string => text.replace(/\{\{PROJECT_CREATE:[^}]+\}\}\s*/g, '').replace(/\{\{PROJECT_OPEN:[^}]+\}\}\s*/g, '');
-/**
- * Single entry point for stripping every server-side internal marker from
- * a visible string. The 9+ call sites in this file previously applied 2 of
- * the 3 marker families inconsistently (PROJECT_* leaked); centralising
- * makes the contract obvious and prevents regression when a new marker is
- * added. Also defensively strips an *unclosed* marker at end-of-string —
- * mirrors the server-side OPEN_MARKER_TAIL_REGEX in routes/topics.ts, so a
- * chunk-split delta that lands on the client without a closing `}}` doesn't
- * surface as raw `{{NAME:partial` text.
- */
-const cleanInvisibleMarkers = (text: string): string => {
-  const closedStripped = stripProjectMarker(stripTopicSwitchMarker(stripBrowserMarker(text)));
-  return closedStripped.replace(/\{\{(?:BROWSER|TOPIC_SWITCH|TOPIC_NEW|PROJECT_CREATE|PROJECT_OPEN):[^}]*$/, '');
-};
+// Topic/project/browser control moved from {{...}} markers to MCP/SDK tools,
+// so the model no longer emits markers and stored history was backfilled clean.
+// This is now a no-op kept at the call sites as a thin seam (cheap identity) in
+// case any legacy content needs future normalisation.
+const cleanInvisibleMarkers = (text: string): string => text;
 
 // Filter out internal gateway context messages
 const isContextMessage = (content: string): boolean => {

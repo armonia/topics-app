@@ -26,7 +26,6 @@ import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { loadMemoryForTopic } from "../routes/memory";
 import { buildProviderHistory } from "../utils/build-provider-history";
-import { stripMarkers, detectMarkers } from "../lib/markers";
 
 import type {
   ContextDiagnostics,
@@ -590,9 +589,9 @@ function buildHistoryWithDiagnostics(
   for (let i = 0; i < stored.length; i++) {
     const m = stored[i];
     const original = m.content || "";
-    const markers = detectMarkers(original);
-    const stripped = stripMarkers(original).trim();
-    const bytesDropped = original.length - stripped.length;
+    // Markers were removed (migrated to tools) — history is plain text now.
+    const stripped = original.trim();
+    const bytesDropped = 0;
 
     let excludeReason: HistoryExcludeReason | undefined;
 
@@ -609,7 +608,7 @@ function buildHistoryWithDiagnostics(
       entry: {
         storedMessageId: m.id,
         role: (m.role === "assistant" ? "assistant" : "user"),
-        strippedMarkers: markers,
+        strippedMarkers: [],
         bytesDropped,
         excluded: excludeReason !== undefined,
         excludeReason,

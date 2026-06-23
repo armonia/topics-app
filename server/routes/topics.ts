@@ -7,10 +7,6 @@ import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter } from "./history";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
-// computeCleanBroadcastDelta now lives in ./stream-markers (with the slow-stream
-// annotation helpers); re-exported here so routes/topics-marker-strip.test.ts —
-// which imports it from this module — keeps working unchanged.
-export { computeCleanBroadcastDelta } from "./stream-markers";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { awaitNativeCdpTarget } from "../browser-tools-handler";
@@ -18,42 +14,7 @@ import { isElectronCdpAvailable } from "../electron-cdp-probe";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
-import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
-
-
-/**
- * Internal markers emitted inline by LLMs in their response stream to trigger
- * side-effects in topics-app (open the browser pane, switch topic, create or
- * open a project). They are detected on the accumulated `fullContent` by
- * `detectAndBroadcastBrowserMarker` / `detectAndBroadcastTopicSwitch` /
- * `detectAndHandleProjectMarkers` (defined inside `createTopicsRouter`) and
- * stripped before persisting or broadcasting.
- *
- * `CLOSED_MARKER_REGEX` matches a fully-formed marker `{{NAME:body}}` anywhere
- * in a string — used to strip persisted state and chunk broadcasts.
- *
- * `OPEN_MARKER_TAIL_REGEX` matches a marker that has opened but not yet closed
- * at end-of-string (`...{{NAME:partial-body`). It defends against the
- * chunk-split case: when delta N contains `…{{BROWSER:https://exa` and
- * delta N+1 contains `mple.com}}`, the closed match on `fullContent` fires
- * correctly once N+1 arrives, but the delta N broadcast would otherwise leak
- * `{{BROWSER:https://exa` to the client. Stripping with this regex hides the
- * fragment until the close arrives. Marker dispatch is unchanged — only the
- * visible leak is suppressed.
- *
- * Going beyond this with state (e.g. delta-from-cumulative-clean accounting)
- * is intentional: see `WS-based chat` handler below for the
- * `lastBroadcastClean` accumulator that closes the remaining gap where a
- * single delta carries `{{...}} tail` (close + post-marker text in the same
- * chunk).
- *
- * The grammar itself now lives in `server/lib/markers.ts` (the single source
- * of truth, shared with the history pipelines and mirrored by the client).
- * Re-exported here so callers importing from this route module — notably
- * `topics-marker-strip.test.ts` — keep working unchanged.
- */
-export { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX };
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -527,35 +488,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   // The legacy per-request targetId memoization Map (used by the deleted
   // bridge handler) was deleted alongside the bridge block.
 
-  function detectAndBroadcastBrowserMarker(content: string, topic: Topic | null): string {
+  /**
+   * Auto-open the browser pane when the assistant mentions a localhost:PORT dev
+   * server in plain text (once per topic per stream). This is NOT a marker — it's
+   * a convenience heuristic on natural output — so it survived the marker removal.
+   * Explicit browser control is via the `open_browser_pane` tool.
+   * Returns content unchanged (no stripping); only the side-effect matters.
+   */
+  function detectLocalhostAutoNav(content: string, topic: Topic | null): string {
     if (!topic) return content;
-
-    // 1. Check for explicit {{BROWSER:url}} markers (highest priority).
-    //    Cheap substring guard before the regex scan — runs on every text
-    //    delta, so we skip the full-content regex unless the marker is present.
-    const browserMatch = content.includes('{{BROWSER:')
-      ? content.match(/\{\{BROWSER:(.*?)\}\}/)
-      : null;
-    if (browserMatch) {
-      let browserUrl = browserMatch[1];
-      if (browserUrl.startsWith("file:///")) {
-        browserUrl = `http://localhost:${process.env.PORT || 3333}/preview/${browserUrl.slice(8)}`;
-      } else if (!browserUrl.startsWith("http")) {
-        // Phase A: prefer worktree.absPath when topic is bound to a ready
-        // worktree; fall back to legacy projectPath for unbound topics.
-        const projectDir = resolveTopicCwd(topic);
-        if (projectDir) browserUrl = `http://localhost:${process.env.PORT || 3333}/preview${join(projectDir, browserUrl)}`;
-      }
-      console.log(`[Browser] Auto-navigate via marker: ${browserUrl}`);
-      broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: resolveContextIdForTopic(topic), url: browserUrl });
-      browserNavigatedTopics.add(topic.id);
-      return content.replace(/\{\{BROWSER:.*?\}\}/g, '');
-    }
-
-    // 2. Fallback: detect localhost:PORT URLs in response (only once per topic per stream)
-    //    Matches http://localhost:PORT, https://localhost:PORT, or bare localhost:PORT.
-    //    Cheap substring guard before the regex (the pattern always requires the
-    //    literal "localhost:") so we don't rescan every delta for nothing.
+    // Cheap substring guard before the regex (the pattern always requires the
+    // literal "localhost:") so we don't rescan every delta for nothing.
     if (!browserNavigatedTopics.has(topic.id) && content.includes('localhost:')) {
       const localhostMatch = content.match(/(?:https?:\/\/)?localhost:(\d{4,5})\b/);
       if (localhostMatch) {
@@ -569,7 +512,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
       }
     }
-
     return content;
   }
 
@@ -582,54 +524,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       lines.push(`- [id:${t.id}] ${t.name}${project}`);
     }
     return lines.join('\n');
-  }
-
-  function detectAndBroadcastTopicSwitch(content: string, currentTopic: Topic | null): { content: string; switchedToTopicId: string | null } {
-    if (!currentTopic) return { content, switchedToTopicId: null };
-
-    // Check for TOPIC_NEW first (create a new topic on the fly)
-    const newMatch = content.match(/\{\{TOPIC_NEW:([^}]+)\}\}/);
-    if (newMatch) {
-      const topicName = newMatch[1].trim();
-      if (topicName) {
-        const data = loadTopics();
-        const id = crypto.randomUUID();
-        const slug = slugify(topicName);
-        const newTopic: Topic = {
-          id, name: topicName, slug, parentId: null, links: [],
-          sessionKey: "topic:" + id.slice(0, 8), color: "#5865f2", icon: "MessageSquare",
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          archived: false, systemPrompt: "",
-          contextFiles: [], pinnedMessages: [],
-          sortOrder: Object.keys(data.topics).length,
-        };
-        // Inherit projectPath from current topic if it has one
-        if (currentTopic.projectPath) {
-          (newTopic as any).projectPath = currentTopic.projectPath;
-        }
-        data.topics[id] = newTopic;
-        // Targeted single-topic write — no diff against in-memory snapshot,
-        // so a sibling request that just created its own topic isn't trampled.
-        saveSingleTopic(newTopic);
-        broadcastToAll({ type: "topic:created", topic: newTopic });
-        console.log(`[TopicSwitch] Created new topic "${topicName}" and switching from "${currentTopic.name}"`);
-        broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, fromSessionKey: currentTopic.sessionKey, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
-        const cleaned = content.replace(/\{\{TOPIC_NEW:[^}]+\}\}/g, '');
-        return { content: cleaned, switchedToTopicId: newTopic.id };
-      }
-    }
-
-    // Check for TOPIC_SWITCH (switch to existing topic)
-    const match = content.match(/\{\{TOPIC_SWITCH:([\w-]+)\}\}/);
-    if (!match) return { content, switchedToTopicId: null };
-    const targetId = match[1];
-    const target = getTopicById(targetId);
-    if (!target || target.archived) {
-      return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: null };
-    }
-    console.log(`[TopicSwitch] Switching from "${currentTopic.name}" to "${target.name}"`);
-    broadcastToAll({ type: 'topic:switch', fromTopicId: currentTopic.id, fromSessionKey: currentTopic.sessionKey, toTopicId: target.id, toSessionKey: target.sessionKey });
-    return { content: content.replace(/\{\{TOPIC_SWITCH:[\w-]+\}\}/g, ''), switchedToTopicId: target.id };
   }
 
   function isExistingDir(p: string): boolean {
@@ -718,48 +612,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       broadcastToAll({ type: "pane:focus-suggest", topicId: t.id, projectPath: targetDir });
     }
     return true;
-  }
-
-  /**
-   * Detect {{PROJECT_CREATE:name}} and {{PROJECT_OPEN:path}} markers in AI responses.
-   * Creates or binds projects, opens them as project windows (nesting the
-   * current session), and strips markers from content.
-   */
-  function detectAndHandleProjectMarkers(content: string, currentTopic: Topic | null): string {
-    if (!currentTopic) return content;
-
-    // {{PROJECT_CREATE:name}} — scaffold a workspace dir, then open + nest.
-    const createMatch = content.match(/\{\{PROJECT_CREATE:([^}]+)\}\}/);
-    if (createMatch) {
-      const rawName = createMatch[1].trim();
-      const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
-      if (safeName) {
-        const targetDir = join(WORKSPACE_DIR, safeName);
-        if (!existsSync(targetDir)) {
-          mkdirSync(targetDir, { recursive: true });
-          writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
-          console.log(`[ProjectMarker] Created project "${safeName}" at ${targetDir}`);
-        }
-        bindTopicToProject(currentTopic.id, targetDir, { focus: true });
-      }
-      content = content.replace(/\{\{PROJECT_CREATE:[^}]+\}\}/g, "");
-    }
-
-    // {{PROJECT_OPEN:name-or-path}} — resolve against the user's real Topics
-    // projects (not just the workspace), then open + nest the session.
-    const openMatch = content.match(/\{\{PROJECT_OPEN:([^}]+)\}\}/);
-    if (openMatch) {
-      const targetDir = resolveProjectRef(openMatch[1]);
-      if (targetDir) {
-        bindTopicToProject(currentTopic.id, targetDir, { focus: true });
-        console.log(`[ProjectMarker] Opened project at ${targetDir}`);
-      } else {
-        console.log(`[ProjectMarker] Could not resolve PROJECT_OPEN ref: ${openMatch[1].trim()}`);
-      }
-      content = content.replace(/\{\{PROJECT_OPEN:[^}]+\}\}/g, "");
-    }
-
-    return content;
   }
 
   /**
@@ -882,8 +734,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   const chatRouter = createChatRouter(ctx, {
-    resolveProvider, detectAndBroadcastBrowserMarker, detectAndBroadcastTopicSwitch,
-    detectAndHandleProjectMarkers, bindTopicToProject, resolveProjectRef,
+    resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
   }, browserService);

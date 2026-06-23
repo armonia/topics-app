@@ -30,7 +30,6 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
-import { CLOSED_MARKER_REGEX, OPEN_MARKER_TAIL_REGEX } from "../lib/markers";
 import {
   adaptEnvelope,
   assembleTopicContext,
@@ -57,9 +56,7 @@ import { STREAM_SLOW_ANNOTATION, computeCleanBroadcastDelta, stripSlowAnnotation
  */
 export interface ChatDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
-  detectAndBroadcastBrowserMarker: (content: string, topic: Topic | null) => string;
-  detectAndBroadcastTopicSwitch: (content: string, currentTopic: Topic | null) => { content: string; switchedToTopicId: string | null };
-  detectAndHandleProjectMarkers: (content: string, currentTopic: Topic | null) => string;
+  detectLocalhostAutoNav: (content: string, topic: Topic | null) => string;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
   getProjectIdForTopic: (topicId: string) => string | null;
@@ -74,15 +71,14 @@ export interface ChatDeps {
 export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService?: BrowserService): RouteHandler {
   const {
     broadcastToAll, db, json, readJSON,
-    loadTopics, getTopicBySessionKey,
-    loadLocalMessages, appendLocalMessage,
+    getTopicBySessionKey,
+    appendLocalMessage,
     createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
   const {
-    resolveProvider, detectAndBroadcastBrowserMarker, detectAndBroadcastTopicSwitch,
-    detectAndHandleProjectMarkers, bindTopicToProject, resolveProjectRef,
+    resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
   } = deps;
@@ -503,8 +499,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             }
           };
-          let topicSwitchDetected = false;
-          let switchTargetTopicId: string | null = null;
           // Captured at stream-end if the provider's final message includes
           // usage (claude-code SDK does; codex turn.completed will too).
           // finalizeStream() reads these and persists them on the message so
@@ -839,35 +833,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             else if (reason === "aborted") logStreamAborted(logCtx);
             else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
-            // Topic switch handling
-            if (topicSwitchDetected && switchTargetTopicId) {
-              const targetData = loadTopics();
-              const targetTopic = targetData.topics[switchTargetTopicId];
-              if (targetTopic) {
-                const currentMsgs = loadLocalMessages(sessionKey);
-                const lastUserMsg = [...currentMsgs].reverse().find(m => m.role === 'user');
-                let userContent = '';
-                if (lastUserMsg) {
-                  userContent = lastUserMsg.content;
-                  appendLocalMessage(targetTopic.sessionKey, 'user', userContent);
-                }
-                appendLocalMessage(targetTopic.sessionKey, 'assistant', fullContent);
-                const sourceMsgs = loadLocalMessages(sessionKey);
-                const toRemove = sourceMsgs.slice(-2);
-                for (const m of toRemove) {
-                  const parentRow = ctx.db.prepare(`SELECT parent_id FROM messages WHERE id = ?`).get(m.id) as any;
-                  const pId = parentRow?.parent_id || null;
-                  ctx.db.prepare(`UPDATE messages SET parent_id = ? WHERE parent_id = ?`).run(pId, m.id);
-                  ctx.db.prepare(`DELETE FROM messages WHERE id = ?`).run(m.id);
-                }
-                broadcastToAll({
-                  type: "topic:switch:complete",
-                  fromTopicId: matchedTopic!.id, fromSessionKey: sessionKey,
-                  toTopicId: switchTargetTopicId, toSessionKey: targetTopic.sessionKey,
-                  userContent, assistantContent: fullContent,
-                });
-              }
-            }
+            // (Topic switching is now a tool — `switch_topic`/`new_topic` —
+            // which switches the UI mid-turn; the old marker path's message
+            // migration to the target topic was removed with the markers.)
 
             // Media detection
             setTimeout(() => {
@@ -907,17 +875,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 fullContent += newText;
                 appendTextBlock(newText);
 
-                // Strip internal markers before broadcasting to client
-                fullContent = detectAndBroadcastBrowserMarker(fullContent, matchedTopic);
-                if (!topicSwitchDetected && (fullContent.includes('{{TOPIC_SWITCH:') || fullContent.includes('{{TOPIC_NEW:'))) {
-                  const result = detectAndBroadcastTopicSwitch(fullContent, matchedTopic);
-                  fullContent = result.content;
-                  if (result.switchedToTopicId) { topicSwitchDetected = true; switchTargetTopicId = result.switchedToTopicId; }
-                }
-                // Detect project create/open markers
-                if (fullContent.includes('{{PROJECT_CREATE:') || fullContent.includes('{{PROJECT_OPEN:')) {
-                  fullContent = detectAndHandleProjectMarkers(fullContent, matchedTopic);
-                }
+                // Topic/project/browser are now driven by tools, not markers.
+                // The only surviving heuristic is auto-opening the browser pane
+                // when the model mentions a localhost:PORT dev server in prose.
+                detectLocalhostAutoNav(fullContent, matchedTopic);
 
                 // Broadcast clean content as a true delta against the cumulative
                 // marker-stripped state. See computeCleanBroadcastDelta() for
@@ -1169,17 +1130,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   const extra = finalText.slice(fullContent.length);
                   if (extra) {
                     fullContent = finalText;
-                    // Defensive: if finalText contains markers the per-delta
-                    // detect path missed, strip them out of the trailing
-                    // broadcast so they don't surface in the chat UI. The
-                    // server-side dispatch already fired (or will fire via
-                    // detectAndBroadcastBrowserMarker on the next delta);
-                    // here we only suppress the visible leak.
-                    const extraClean = extra
-                      .replace(CLOSED_MARKER_REGEX, "")
-                      .replace(OPEN_MARKER_TAIL_REGEX, "");
-                    if (extraClean) {
-                      broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extraClean });
+                    if (extra) {
+                      broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra });
                     }
                   }
                 }
@@ -1394,9 +1346,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const contentType = resp.headers.get("content-type") || "";
           if (contentType.includes("application/json")) {
             const data = await resp.json() as any;
-            let content = data?.choices?.[0]?.message?.content || "";
-            content = detectAndBroadcastBrowserMarker(content, matchedTopic);
-            content = detectAndHandleProjectMarkers(content, matchedTopic);
+            const content = data?.choices?.[0]?.message?.content || "";
+            detectLocalhostAutoNav(content, matchedTopic);
             if (data?.usage) {
               const model = data.model || "unknown";
               const inputTokens = data.usage.prompt_tokens || 0;

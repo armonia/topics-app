@@ -71,38 +71,9 @@ describe("buildProviderHistory", () => {
     expect(out.map((m) => m.content)).toEqual(["real prompt", "real reply"]);
   });
 
-  test("strips browser, topic-switch, and topic-new markers", () => {
+  test("drops messages that are empty after trimming", () => {
     const stored: StoredMessage[] = [
-      msg("user", "{{TOPIC_SWITCH:abc-123}} hi after switch"),
-      msg("assistant", "look at {{BROWSER:https://example.com}} ok"),
-      msg("user", "{{TOPIC_NEW:Untitled}} fresh topic"),
-    ];
-    const out = buildProviderHistory(stored);
-    expect(out.map((m) => m.content)).toEqual([
-      "hi after switch",
-      "look at  ok",
-      "fresh topic",
-    ]);
-  });
-
-  test("strips PROJECT_OPEN / PROJECT_CREATE markers (audit #4 leak regression)", () => {
-    const stored: StoredMessage[] = [
-      msg("assistant", "Opening it now {{PROJECT_OPEN:Pix}} done."),
-      msg("assistant", "{{PROJECT_CREATE:my-app}} scaffolded."),
-    ];
-    const out = buildProviderHistory(stored);
-    const joined = out.map((m) => m.content).join("\n");
-    expect(joined).not.toContain("{{PROJECT_OPEN");
-    expect(joined).not.toContain("{{PROJECT_CREATE");
-    expect(out.map((m) => m.content)).toEqual([
-      "Opening it now  done.",
-      "scaffolded.",
-    ]);
-  });
-
-  test("drops messages that become empty after marker stripping", () => {
-    const stored: StoredMessage[] = [
-      msg("user", "{{TOPIC_SWITCH:abc-123}}"),
+      msg("user", "   \n  "),
       msg("user", "actual message"),
     ];
     expect(buildProviderHistory(stored)).toEqual([
@@ -158,7 +129,7 @@ describe("buildProviderHistory", () => {
 
   test("preserves order across all filters", () => {
     const stored: StoredMessage[] = [
-      msg("user", "{{TOPIC_NEW:t}} init"),
+      msg("user", "init"),
       msg("assistant", "[Chat messages since your last reply"), // dropped
       msg("assistant", "ok", { partial: true }), // dropped
       msg("user", "second"),
