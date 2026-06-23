@@ -500,7 +500,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         if (contextId && existingCtx && existingCtx !== contextId) {
           const newId = createPaneId('browser', contextId);
           if (!panesRef.current.some(p => p.id === newId)) {
-            setPanes(prev => prev.map(p => (p.id === existing.id ? { ...p, id: newId } : p)));
+            // preview:false on rebind heals any legacy pane created before
+            // browser panes were made durable — so the persist effect keeps it.
+            setPanes(prev => prev.map(p => (p.id === existing.id ? { ...p, id: newId, preview: false } : p)));
             setGroups(prev => prev.map(g => ({
               ...g,
               paneIds: g.paneIds.map(id => (id === existing.id ? newId : id)),
@@ -1299,11 +1301,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         paneTitle = config.label;
       }
 
+      // A browser pane is a DURABLE resource (a live WebContentsView the user —
+      // or an agent — drives over many turns), not a throwaway single-click
+      // preview like a file. Born non-preview so the persistence-save effect
+      // (which drops `preview` panes from nonChatPanes) actually persists it and
+      // its url — without this, an agent-opened browser tab vanished on every
+      // app reload. Mirrors how `terminal` is treated, and how the standalone
+      // path already pins every browser pane (usePaneOrdering effectivePinnedIds).
+      const isDurableResource = type === 'terminal' || type === 'browser';
       const newPane: Pane = {
         id: paneId,
         type,
         title: paneTitle,
-        preview: type === 'terminal' ? false : true,
+        preview: isDurableResource ? false : true,
         ...(type === 'terminal' && subType ? { terminalType: normalizeTerminalAgent(subType) } : {}),
       };
 
@@ -1311,7 +1321,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const groupPanes =
         targetGroup?.paneIds.map(id => panes.find(p => p.id === id)).filter((p): p is Pane => !!p) || [];
       const existingPreview =
-        type !== 'terminal' ? findPreviewPane(groupPanes.filter(p => p.type === type), newPane.id) : null;
+        !isDurableResource ? findPreviewPane(groupPanes.filter(p => p.type === type), newPane.id) : null;
 
       if (existingPreview) {
         setPanes(prev => prev.map(p => (p.id === existingPreview.id ? newPane : p)));
