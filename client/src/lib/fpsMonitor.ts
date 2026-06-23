@@ -58,7 +58,27 @@ function pushSample(fps: number) {
   emit();
 }
 
+// INVARIANT: at most ONE pending continuation exists at any time — a single
+// rafId XOR a single timeoutId, never two. Two concurrent measure loops would
+// each increment `frames` on the same frame and DOUBLE the reported FPS (the
+// "200fps when I open the status bar" bug: requestActive used to schedule a
+// second loop while one was still running). Every (re)start routes through
+// scheduleMeasure(), which cancels whatever is pending first.
+function cancelPending() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  if (timeoutId !== undefined) { clearTimeout(timeoutId); timeoutId = undefined; }
+}
+
+function scheduleMeasure() {
+  cancelPending();
+  if (!running || document.hidden) return;
+  frames = 0;
+  windowStart = 0;
+  rafId = requestAnimationFrame(measure);
+}
+
 function measure(now: number) {
+  rafId = 0; // this callback has fired; nothing is pending until we reschedule
   if (!running) return;
   if (windowStart === 0) windowStart = now;
   frames++;
@@ -71,9 +91,12 @@ function measure(now: number) {
       // Active: keep measuring back-to-back for a live, per-second readout.
       rafId = requestAnimationFrame(measure);
     } else {
-      // Idle: let the renderer go quiet, then sample again.
+      // Idle: let the renderer go quiet, then sample again. Null timeoutId the
+      // instant it fires so requestActive can't mistake a fired timer for a
+      // sleeping loop and spin up a duplicate.
       timeoutId = setTimeout(() => {
-        if (running && !document.hidden) rafId = requestAnimationFrame(measure);
+        timeoutId = undefined;
+        scheduleMeasure();
       }, IDLE_MS);
     }
     return;
@@ -84,30 +107,19 @@ function measure(now: number) {
 function startLoop() {
   if (running) return;
   running = true;
-  frames = 0;
-  windowStart = 0;
-  if (!document.hidden) rafId = requestAnimationFrame(measure);
   document.addEventListener('visibilitychange', onVisibility);
+  scheduleMeasure();
 }
 
 function stopLoop() {
   running = false;
-  cancelAnimationFrame(rafId);
-  if (timeoutId) clearTimeout(timeoutId);
-  timeoutId = undefined;
+  cancelPending();
   document.removeEventListener('visibilitychange', onVisibility);
 }
 
 function onVisibility() {
-  if (document.hidden) {
-    cancelAnimationFrame(rafId);
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = undefined;
-  } else if (running) {
-    frames = 0;
-    windowStart = 0;
-    rafId = requestAnimationFrame(measure);
-  }
+  if (document.hidden) cancelPending();
+  else if (running) scheduleMeasure();
 }
 
 function subscribe(cb: () => void): () => void {
@@ -126,12 +138,11 @@ function subscribe(cb: () => void): () => void {
  */
 export function requestActive(): () => void {
   activeRefs++;
-  // If we were mid-idle-sleep, wake up now so the live view fills in promptly
-  // instead of waiting out the remaining idle window.
-  if (activeRefs === 1 && running && timeoutId) {
-    clearTimeout(timeoutId);
-    timeoutId = undefined;
-    if (!document.hidden) rafId = requestAnimationFrame(measure);
+  // If the loop is idling between bursts, wake it now so the live view fills in
+  // promptly. scheduleMeasure() cancels any pending timer/frame first, so this
+  // cannot create a second concurrent loop even if the idle timer already fired.
+  if (activeRefs === 1 && running && timeoutId !== undefined) {
+    scheduleMeasure();
   }
   return () => {
     if (activeRefs > 0) activeRefs--;
