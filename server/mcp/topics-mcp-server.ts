@@ -218,6 +218,47 @@ const TOOLS = [
       required: ["agent_id"],
     },
   },
+  // --- Topic / project control (tool-shaped successors to the legacy markers) --
+  {
+    name: "switch_topic",
+    description:
+      "Switch the user's view to an EXISTING topic (conversation thread) by id. Use when the user asks to go to / open another topic. UI-only: it does not move the current message.",
+    inputSchema: {
+      type: "object",
+      properties: { topic_id: { type: "string", description: "Target topic id." } },
+      required: ["topic_id"],
+    },
+  },
+  {
+    name: "new_topic",
+    description:
+      "Create a NEW topic (conversation thread) with the given title and switch the user to it. It inherits the current topic's project binding. Use when the user starts a clearly new subject.",
+    inputSchema: {
+      type: "object",
+      properties: { title: { type: "string", description: "Title for the new topic." } },
+      required: ["title"],
+    },
+  },
+  {
+    name: "create_project",
+    description:
+      "Scaffold a new project workspace (a folder + CLAUDE.md under the workspace dir) and nest the current session inside its project window. Use when the user asks to start a new project. Name is sanitized to [A-Za-z0-9_-].",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string", description: "Project name (alphanumeric / -_)." } },
+      required: ["name"],
+    },
+  },
+  {
+    name: "open_project",
+    description:
+      "Open an EXISTING project the user already has in Topics (by name, slug, or a path Topics knows) and nest the current session inside its window. Unknown / arbitrary paths are rejected.",
+    inputSchema: {
+      type: "object",
+      properties: { ref: { type: "string", description: "Project name, slug, or a known path." } },
+      required: ["ref"],
+    },
+  },
 ];
 
 interface ParsedArgs {
@@ -522,6 +563,59 @@ export async function callStopAgent(
   return `stopped sub-agent ${toolArgs.agent_id}`;
 }
 
+// --- Topic / project control bridge ----------------------------------------
+export async function callSwitchTopic(
+  args: ParsedArgs,
+  toolArgs: { topic_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.topic_id !== "string" || !toolArgs.topic_id) {
+    throw new Error("switch_topic: 'topic_id' (string) is required");
+  }
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/switch-topic`;
+  const body = await httpJson<{ toTopicId?: string }>(args, "POST", path, { topicId: toolArgs.topic_id }, fetchImpl);
+  return `switched to topic ${body?.toTopicId ?? toolArgs.topic_id}`;
+}
+
+export async function callNewTopic(
+  args: ParsedArgs,
+  toolArgs: { title?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.title !== "string" || !toolArgs.title) {
+    throw new Error("new_topic: 'title' (string) is required");
+  }
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/new-topic`;
+  const body = await httpJson<{ topicId?: string }>(args, "POST", path, { title: toolArgs.title }, fetchImpl);
+  return `created + switched to new topic "${toolArgs.title}" (id=${body?.topicId ?? "?"})`;
+}
+
+export async function callCreateProject(
+  args: ParsedArgs,
+  toolArgs: { name?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.name !== "string" || !toolArgs.name) {
+    throw new Error("create_project: 'name' (string) is required");
+  }
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/create-project`;
+  const body = await httpJson<{ projectPath?: string }>(args, "POST", path, { name: toolArgs.name }, fetchImpl);
+  return `created + opened project at ${body?.projectPath ?? toolArgs.name}`;
+}
+
+export async function callOpenProject(
+  args: ParsedArgs,
+  toolArgs: { ref?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.ref !== "string" || !toolArgs.ref) {
+    throw new Error("open_project: 'ref' (string) is required");
+  }
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/open-project`;
+  const body = await httpJson<{ projectPath?: string }>(args, "POST", path, { ref: toolArgs.ref }, fetchImpl);
+  return `opened project at ${body?.projectPath ?? toolArgs.ref}`;
+}
+
 export async function callListProcesses(
   args: ParsedArgs,
   _toolArgs: Record<string, unknown>,
@@ -642,6 +736,10 @@ const TOOL_HANDLERS: Record<
   read_agent: (a, t) => callReadAgent(a, t as { agent_id?: unknown; since?: unknown }),
   list_agents: (a, t) => callListAgents(a, t),
   stop_agent: (a, t) => callStopAgent(a, t as { agent_id?: unknown }),
+  switch_topic: (a, t) => callSwitchTopic(a, t as { topic_id?: unknown }),
+  new_topic: (a, t) => callNewTopic(a, t as { title?: unknown }),
+  create_project: (a, t) => callCreateProject(a, t as { name?: unknown }),
+  open_project: (a, t) => callOpenProject(a, t as { ref?: unknown }),
 };
 
 // Register the ref-based browser tools (observe/act/extract/get_text/screenshot/

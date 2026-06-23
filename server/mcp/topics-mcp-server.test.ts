@@ -237,6 +237,10 @@ describe("handleMessage", () => {
       "read_agent",
       "list_agents",
       "stop_agent",
+      "switch_topic",
+      "new_topic",
+      "create_project",
+      "open_project",
     ]);
     const browser = tools.find((t) => t.name === "open_browser_pane")!;
     expect(browser.inputSchema.required).toEqual(["url"]);

@@ -1550,6 +1550,87 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/sessions/:sessionKey/{switch-topic,new-topic,create-project,open-project}
+    //
+    // Tool-shaped successors to the {{TOPIC_SWITCH/TOPIC_NEW/PROJECT_CREATE/
+    // PROJECT_OPEN}} markers (the MCP `switch_topic`/`new_topic`/`create_project`/
+    // `open_project` tools + the SDK-passthrough dispatcher both hit these).
+    // Resolve the CALLER's chat topic from its sessionKey — a terminal tab has no
+    // chat topic, so it 404s (use move-to-project there). AI-driven: project refs
+    // go through resolveProjectRef(trustRawPaths:false), so a model (or prompt
+    // injection) can't open a pane rooted at /etc or ~/.ssh. switch/new reproduce
+    // the UI `topic:switch` broadcast but do NOT migrate already-streamed messages
+    // (that was marker-only mid-turn surgery, not reproducible by a tool call) —
+    // tool-driven switch is UI-only by design.
+    {
+      const switchM = matchRoute(pathname, "/api/sessions/:sessionKey/switch-topic");
+      const newM = matchRoute(pathname, "/api/sessions/:sessionKey/new-topic");
+      const createM = matchRoute(pathname, "/api/sessions/:sessionKey/create-project");
+      const openM = matchRoute(pathname, "/api/sessions/:sessionKey/open-project");
+
+      if (switchM && method === "POST") {
+        const cur = getTopicBySessionKey(decodeURIComponent(switchM.sessionKey));
+        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const body = (await readJSON(req)) as { topicId?: unknown } | null;
+        const targetId = typeof body?.topicId === "string" ? body.topicId : "";
+        if (!targetId) return json({ error: "topicId (string) is required" }, 400);
+        const target = getTopicById(targetId);
+        if (!target || target.archived) return json({ error: "target topic not found" }, 404);
+        broadcastToAll({ type: "topic:switch", fromTopicId: cur.id, fromSessionKey: cur.sessionKey, toTopicId: target.id, toSessionKey: target.sessionKey });
+        return json({ ok: true, toTopicId: target.id });
+      }
+
+      if (newM && method === "POST") {
+        const cur = getTopicBySessionKey(decodeURIComponent(newM.sessionKey));
+        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const body = (await readJSON(req)) as { title?: unknown } | null;
+        const title = typeof body?.title === "string" ? body.title.trim() : "";
+        if (!title) return json({ error: "title (string) is required" }, 400);
+        const data = loadTopics();
+        const id = crypto.randomUUID();
+        const newTopic: Topic = {
+          id, name: title, slug: slugify(title), parentId: null, links: [],
+          sessionKey: "topic:" + id.slice(0, 8), color: "#5865f2", icon: "MessageSquare",
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          archived: false, systemPrompt: "", contextFiles: [], pinnedMessages: [],
+          sortOrder: Object.keys(data.topics).length,
+        };
+        if (cur.projectPath) newTopic.projectPath = cur.projectPath;
+        saveSingleTopic(newTopic);
+        broadcastToAll({ type: "topic:created", topic: newTopic });
+        broadcastToAll({ type: "topic:switch", fromTopicId: cur.id, fromSessionKey: cur.sessionKey, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
+        return json({ ok: true, topicId: newTopic.id });
+      }
+
+      if (createM && method === "POST") {
+        const cur = getTopicBySessionKey(decodeURIComponent(createM.sessionKey));
+        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const body = (await readJSON(req)) as { name?: unknown } | null;
+        const rawName = typeof body?.name === "string" ? body.name.trim() : "";
+        const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
+        if (!safeName) return json({ error: "name (alphanumeric) is required" }, 400);
+        const targetDir = join(WORKSPACE_DIR, safeName);
+        if (!existsSync(targetDir)) {
+          mkdirSync(targetDir, { recursive: true });
+          writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+        }
+        bindTopicToProject(cur.id, targetDir, { focus: true });
+        return json({ ok: true, projectPath: targetDir });
+      }
+
+      if (openM && method === "POST") {
+        const cur = getTopicBySessionKey(decodeURIComponent(openM.sessionKey));
+        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const body = (await readJSON(req)) as { ref?: unknown } | null;
+        const ref = typeof body?.ref === "string" ? body.ref : "";
+        if (!ref) return json({ error: "ref (string) is required" }, 400);
+        const dir = resolveProjectRef(ref, { trustRawPaths: false });
+        if (!dir) return json({ error: "project not found (must be a project Topics already knows)" }, 404);
+        bindTopicToProject(cur.id, dir, { focus: true });
+        return json({ ok: true, projectPath: dir });
+      }
+    }
+
     // POST /api/topics/:id/browser/import-chrome
     // POST /api/sessions/:sessionKey/browser/import-chrome
     //
