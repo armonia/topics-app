@@ -13,8 +13,11 @@
  * RemoteBrowserPanel for the WS contextId). The contextId IS the topic-bound
  * key; partitionId is derived as `persist:topic-<contextId>`.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseBrowserWsMessage } from '@/types/browser-ws-messages';
+import { DEVICE_PRESETS, type DeviceMode, type BrowserConsoleEntry, type NavHistoryEntry } from '@/components/Browser/browserDevTypes';
+
+const CONSOLE_BUFFER_MAX = 300;
 
 export interface NativeBrowserHandle {
   url: string;
@@ -42,6 +45,18 @@ export interface NativeBrowserHandle {
   onFindResult(cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
   /** Phase 30.1 — Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
   setZoom(delta: number | 'reset'): Promise<number>;
+  /** Current device-emulation mode (default 'desktop'). */
+  deviceMode: DeviceMode;
+  /** Apply a device-emulation preset. 'custom' needs width/height; 'desktop'/'auto' disable emulation. */
+  setDevice(mode: DeviceMode, custom?: { width: number; height: number; deviceScaleFactor?: number }): void;
+  /** Recent page console messages (ring buffer) for the toolbar quick-console. */
+  consoleEntries: BrowserConsoleEntry[];
+  /** Counts for the toolbar badge. */
+  consoleSummary: { errors: number; warnings: number };
+  clearConsole(): void;
+  /** Fetch the back/forward navigation history for the Chrome-style menu. */
+  getNavEntries(): Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
+  goToNavIndex(index: number): Promise<void>;
 }
 
 export function useNativeBrowser(contextId: string, initialUrl?: string): NativeBrowserHandle {
@@ -53,6 +68,8 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   const [agentAction, setAgentAction] = useState<string | null>(null);
   const [ready, setReady] = useState<boolean>(false);
   const [faviconUrl, setFaviconUrl] = useState<string>('');
+  const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
 
   const cleanupsRef = useRef<Array<() => void>>([]);
   const mountedRef = useRef(true);
@@ -237,6 +254,41 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     return () => { try { ws.close(); } catch { /* ignore */ } };
   }, [contextId]);
 
+  // Page console messages → ring buffer for the toolbar quick-console.
+  useEffect(() => {
+    const api = window.electronAPI?.browserNative;
+    if (!api?.onConsoleMessage || !viewId) return;
+    return api.onConsoleMessage(viewId, (entry) => {
+      if (!mountedRef.current) return;
+      const lvl = (['log', 'info', 'warn', 'error', 'debug'].includes(entry.level) ? entry.level : 'log') as BrowserConsoleEntry['level'];
+      setConsoleEntries(prev => {
+        const next = [...prev, { id: entry.id, level: lvl, text: entry.text, source: entry.source }];
+        return next.length > CONSOLE_BUFFER_MAX ? next.slice(-CONSOLE_BUFFER_MAX) : next;
+      });
+    });
+  }, [viewId]);
+
+  // Clear the console buffer on a full document load (a fresh navigation starts
+  // a new console session — matches Chrome DevTools' "Clear on navigation").
+  useEffect(() => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return;
+    return api.onLoadingChange(viewId, (l) => {
+      if (l && mountedRef.current) setConsoleEntries([]);
+    });
+  }, [viewId]);
+
+  const consoleSummary = useMemo(() => {
+    let errors = 0, warnings = 0;
+    for (const e of consoleEntries) {
+      if (e.level === 'error') errors++;
+      else if (e.level === 'warn') warnings++;
+    }
+    return { errors, warnings };
+  }, [consoleEntries]);
+
+  const clearConsole = useCallback(() => setConsoleEntries([]), []);
+
   const navigate = useCallback(async (target: string) => {
     const api = window.electronAPI?.browserNative;
     if (!api) return;
@@ -322,9 +374,38 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     return await api.setZoom(viewId, delta).catch(() => 0);
   }, [viewId]);
 
+  // Device emulation. 'desktop'/'auto' disable emulation (null); mobile/tablet
+  // use presets; 'custom' uses the passed metrics.
+  const setDevice = useCallback((mode: DeviceMode, custom?: { width: number; height: number; deviceScaleFactor?: number }) => {
+    const api = window.electronAPI?.browserNative;
+    if (!api || !viewId) return;
+    setDeviceMode(mode);
+    let params: null | { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string } = null;
+    if (mode === 'mobile' || mode === 'tablet') {
+      const p = DEVICE_PRESETS[mode];
+      params = { width: p.width!, height: p.height!, deviceScaleFactor: p.deviceScaleFactor, mobile: p.mobile, userAgent: p.userAgent };
+    } else if (mode === 'custom' && custom) {
+      params = { width: custom.width, height: custom.height, deviceScaleFactor: custom.deviceScaleFactor, mobile: true };
+    }
+    api.setDevice(viewId, params).catch(() => {});
+  }, [viewId]);
+
+  const getNavEntries = useCallback(async (): Promise<{ entries: NavHistoryEntry[]; activeIndex: number }> => {
+    const api = window.electronAPI?.browserNative;
+    if (!api?.getNavEntries || !viewId) return { entries: [], activeIndex: -1 };
+    return await api.getNavEntries(viewId).catch(() => ({ entries: [], activeIndex: -1 }));
+  }, [viewId]);
+
+  const goToNavIndex = useCallback(async (index: number) => {
+    const api = window.electronAPI?.browserNative;
+    if (!api?.goToNavIndex || !viewId) return;
+    await api.goToNavIndex(viewId, index).catch(() => {});
+  }, [viewId]);
+
   return {
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl,
     navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools,
     findInPage, stopFind, onFindResult, setZoom,
+    deviceMode, setDevice, consoleEntries, consoleSummary, clearConsole, getNavEntries, goToNavIndex,
   };
 }

@@ -2238,6 +2238,20 @@ ipcMain.handle('browser-native:create', async (
     }
   };
 
+  // Forward page console messages to the renderer for the toolbar's quick
+  // console (error/warning count badge + panel). The close-hook sentinel (a
+  // console.debug emitted by our injected window.close override) is skipped so
+  // it never shows up as a real entry or inflates the error count.
+  let consoleSeq = 0;
+  const sendConsole = (_e: unknown, level: number, message: string, line?: number, sourceId?: string) => {
+    if (typeof message !== 'string' || message.includes('§§TOPICS_PAGE_CLOSE§§')) return;
+    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
+    // Electron console-message level: 0 verbose/debug, 1 info, 2 warning, 3 error.
+    const lvl = level >= 3 ? 'error' : level === 2 ? 'warn' : level === 0 ? 'debug' : 'log';
+    const src = sourceId ? `${String(sourceId).split('/').pop()}${line ? ':' + line : ''}` : undefined;
+    mainWindow.webContents.send(`browser-native:console:${viewId}`, { id: ++consoleSeq, level: lvl, text: message, source: src });
+  };
+
   wc.on('did-navigate', sendUrl);
   wc.on('did-navigate-in-page', sendUrl);
   wc.on('page-title-updated', sendTitle);
@@ -2246,6 +2260,7 @@ ipcMain.handle('browser-native:create', async (
   wc.on('page-favicon-updated', sendFavicon);
   wc.on('context-menu', onContextMenu);
   wc.on('found-in-page', sendFindResult);
+  wc.on('console-message', sendConsole);
 
   entry.cleanup = () => {
     wc.removeListener('did-navigate', sendUrl);
@@ -2256,6 +2271,7 @@ ipcMain.handle('browser-native:create', async (
     wc.removeListener('page-favicon-updated', sendFavicon);
     wc.removeListener('context-menu', onContextMenu);
     wc.removeListener('found-in-page', sendFindResult);
+    wc.removeListener('console-message', sendConsole);
   };
 
   // Wait for first paint before resolving CDP targetId — otherwise
@@ -2540,6 +2556,56 @@ ipcMain.handle('browser-native:set-zoom', async (
   const next = Math.max(-3, Math.min(5, wc.getZoomLevel() + delta));
   wc.setZoomLevel(next);
   return next;
+});
+
+// Device emulation (mobile/tablet/desktop/custom). Desktop/auto → disable
+// emulation (auto just fits the pane = the natural state). mobile/tablet/custom
+// → enableDeviceEmulation with the preset metrics + a matching mobile UA so the
+// page serves its responsive layout. Mirrors Chrome DevTools device mode.
+ipcMain.handle('browser-native:set-device', async (
+  _evt,
+  viewId: string,
+  params: null | { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string },
+): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) throw new Error(`browser-native:set-device — view ${viewId} not found`);
+  const wc = entry.view.webContents;
+  if (!params) {
+    wc.disableDeviceEmulation();
+    wc.setUserAgent(''); // reset to the app default UA
+    return;
+  }
+  wc.setUserAgent(params.userAgent ?? wc.getUserAgent());
+  wc.enableDeviceEmulation({
+    screenPosition: params.mobile ? 'mobile' : 'desktop',
+    screenSize: { width: params.width, height: params.height },
+    viewPosition: { x: 0, y: 0 },
+    deviceScaleFactor: params.deviceScaleFactor ?? 0,
+    viewSize: { width: params.width, height: params.height },
+    scale: 1,
+  });
+});
+
+// Back/forward navigation history (Chrome-style right-click / long-press menu).
+// Returns the full entry list + the active index; goToIndex jumps to one.
+ipcMain.handle('browser-native:nav-entries', async (
+  _evt,
+  viewId: string,
+): Promise<{ entries: { url: string; title: string; index: number }[]; activeIndex: number }> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) return { entries: [], activeIndex: -1 };
+  const nh = entry.view.webContents.navigationHistory;
+  const all = nh.getAllEntries().map((e, index) => ({ url: e.url, title: e.title || e.url, index }));
+  return { entries: all, activeIndex: nh.getActiveIndex() };
+});
+ipcMain.handle('browser-native:go-to-index', async (
+  _evt,
+  viewId: string,
+  index: number,
+): Promise<void> => {
+  const entry = nativeBrowsers.get(viewId);
+  if (!entry) return;
+  try { entry.view.webContents.navigationHistory.goToIndex(index); } catch { /* out of range */ }
 });
 
 // Phase 30.1 BROWSER-CHAT-06 polish — DevTools toggle for native WebContentsView.

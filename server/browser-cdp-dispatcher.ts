@@ -20,7 +20,7 @@
  * That registration is the only NEW server endpoint this dispatcher needs.
  */
 import type { Page } from 'playwright-core';
-import { RawCdpPage } from './browser-cdp-raw';
+import { RawCdpPage, type ConsoleEntry } from './browser-cdp-raw';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -78,6 +78,8 @@ export interface ElectronCdpDispatcher {
   unregisterTarget(contextId: string): void;
   /** Resolve a Page for a contextId, lazily connecting + finding by targetId. */
   getPage(contextId: string): Promise<Page>;
+  /** Recent captured page console entries for a contextId (browser_console tool). */
+  getConsole(contextId: string, opts?: { level?: "all" | "errors" | "warnings"; limit?: number }): Promise<ConsoleEntry[]>;
   /** Cleanup on shutdown. */
   close(): Promise<void>;
 }
@@ -151,6 +153,10 @@ export function createCdpDispatcher(_deps: CdpDispatcherDeps): ElectronCdpDispat
       }
       pageCache.set(targetId, page);
       return page as unknown as Page;
+    },
+    async getConsole(contextId, opts) {
+      const page = await this.getPage(contextId);
+      return (page as unknown as RawCdpPage).getConsole(opts);
     },
     async close() {
       for (const page of pageCache.values()) { try { page.close(); } catch { /* ignore */ } }

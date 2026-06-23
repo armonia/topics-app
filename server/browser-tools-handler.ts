@@ -381,6 +381,32 @@ export async function handleBrowserEval(
 }
 
 /**
+ * browser_console — return recent page console messages (logs + warnings +
+ * errors + uncaught exceptions) captured from the native pane. Lets the agent
+ * SEE what the page logged (e.g. a failed fetch, a React error) instead of
+ * guessing. Read-only: no withLock (it doesn't act on the page). Console capture
+ * lives on the CDP page (native pane); in pure-web mode it returns a note.
+ */
+export async function handleBrowserConsole(
+  _service: BrowserService,
+  contextId: string,
+  args: { level?: "all" | "errors" | "warnings"; limit?: number }
+): Promise<{ entries: { level: string; text: string }[]; errors: number; warnings: number; total: number } | { error: string }> {
+  console.log(`[BrowserTools] browser_console(${contextId}, level=${args?.level ?? "all"})`);
+  if (!cdpDispatcher || !(await isElectronCdpAvailable()) || !cdpDispatcher.isNativeBound(contextId)) {
+    return { error: "browser_console is available only for a visible native browser pane. Call open_browser_pane (with a url) first." };
+  }
+  try {
+    const all = await cdpDispatcher.getConsole(contextId, { level: args?.level ?? "all", limit: args?.limit });
+    let errors = 0, warnings = 0;
+    for (const e of all) { if (e.level === "error") errors++; else if (e.level === "warn") warnings++; }
+    return { entries: all.map((e) => ({ level: e.level, text: e.text })), errors, warnings, total: all.length };
+  } catch (err: unknown) {
+    return { error: `browser_console failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
  * Coerce the legacy `{schema:{properties:{...}}}` shape into the CSS-selector
  * `fields` map so old callers degrade gracefully: each property name is treated
  * as a selector (best effort). New callers pass `fields` directly.

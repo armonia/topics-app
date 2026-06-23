@@ -168,6 +168,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     setZoom: (viewId: string, delta: number | 'reset') =>
       ipcRenderer.invoke('browser-native:set-zoom', viewId, delta) as Promise<number>,
+    // Device emulation (mobile/tablet/custom; null = desktop/disable).
+    setDevice: (viewId: string, params: null | { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string }) =>
+      ipcRenderer.invoke('browser-native:set-device', viewId, params) as Promise<void>,
+    // Back/forward navigation history (for the Chrome-style long-press menu).
+    getNavEntries: (viewId: string) =>
+      ipcRenderer.invoke('browser-native:nav-entries', viewId) as Promise<{ entries: { url: string; title: string; index: number }[]; activeIndex: number }>,
+    goToNavIndex: (viewId: string, index: number) =>
+      ipcRenderer.invoke('browser-native:go-to-index', viewId, index) as Promise<void>,
+    // Page console messages (toolbar quick-console badge + panel).
+    onConsoleMessage: (viewId: string, callback: (entry: { id: number; level: string; text: string; source?: string }) => void) => {
+      const channel = `browser-native:console:${viewId}`;
+      const listener = (_e: unknown, entry: { id: number; level: string; text: string; source?: string }) => callback(entry);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
+    },
     onPermissionRequest: (callback: (info: { requestId: string; permission: string; url: string; partitionId: string }) => void) => {
       const listener = (_evt: unknown, info: { requestId: string; permission: string; url: string; partitionId: string }) => callback(info);
       ipcRenderer.on('browser-native:permission-request', listener);

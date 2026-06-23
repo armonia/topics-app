@@ -43,6 +43,7 @@ function mockDispatcher(opts: {
     isNativeBound: () => !!opts.nativeBound,
     unregisterTarget() {},
     getPage: opts.getPage ?? (async () => { throw new Error("getPage should not be called"); }),
+    getConsole: async () => [],
     close: async () => {},
   };
 }

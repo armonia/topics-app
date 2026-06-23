@@ -182,7 +182,6 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
           onBack={browser.goBack}
           onForward={browser.goForward}
           onRefresh={browser.reload}
-          onHome={browser.goHome}
           canGoBack={true}
           canGoForward={true}
           loading={browser.loading}
@@ -245,9 +244,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
         onUrlChange={browser.navigate}
         onBack={browser.goBack}
         onForward={browser.goForward}
-        onRefresh={browser.reload}
-        onHome={browser.goHome}
-        canGoBack={true}
+        onRefresh={browser.reload}        canGoBack={true}
         canGoForward={true}
         loading={browser.loading}
         history={history}
@@ -536,7 +533,6 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         onBack={browser.goBack}
         onForward={browser.goForward}
         onRefresh={browser.reload}
-        onHome={browser.goHome}
         canGoBack={true}
         canGoForward={true}
         loading={browser.loading}
@@ -548,6 +544,14 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         spawnerLabel={backToSpawner?.spawnerLabel}
         agentActive={browser.agentActive}
         agentAction={browser.agentAction}
+        onZoom={browser.setZoom}
+        deviceMode={browser.deviceMode}
+        onSetDevice={browser.setDevice}
+        consoleEntries={browser.consoleEntries}
+        consoleSummary={browser.consoleSummary}
+        onClearConsole={browser.clearConsole}
+        getNavEntries={browser.getNavEntries}
+        onGoToNavIndex={browser.goToNavIndex}
       />
       {/* Phase 30.1 polish — Find-in-page bar. Opens on Cmd+F, closes on Esc
           or "x" button. Sends each keystroke to the WebContentsView via
