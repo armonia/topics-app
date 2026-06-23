@@ -580,6 +580,33 @@ function createNativeBrowser(
     // is 'deny' but the original URL stays in scope).
     return { action: 'deny' };
   });
+  // Page-initiated close: a site (e.g. after an OAuth / "you may now close this
+  // window" flow) or the agent (browser_eval("window.close()")) calls
+  // window.close(). Chromium IGNORES window.close() on a top-level page it
+  // didn't script-open, so nothing happened and the Topics tab lingered. We
+  // override window.close() in the page's MAIN world (executeJavaScript runs
+  // there; the view is contextIsolation:true so a preload couldn't reach it) to
+  // emit a unique console sentinel, caught below and forwarded to the renderer,
+  // which closes the owning browser pane. Re-injected on every dom-ready since a
+  // fresh document resets the override.
+  const CLOSE_SENTINEL = '§§TOPICS_PAGE_CLOSE§§';
+  const injectCloseHook = () => {
+    wc.executeJavaScript(
+      `(function(){if(window.__topicsCloseHooked)return;window.__topicsCloseHooked=true;` +
+      `try{window.close=function(){try{console.debug(${JSON.stringify(CLOSE_SENTINEL)})}catch(e){}};}catch(e){}})();`,
+      true,
+    ).catch(() => { /* page navigating/destroyed — re-injected on next dom-ready */ });
+  };
+  wc.on('dom-ready', injectCloseHook);
+  wc.on('console-message', (_e, _level, message) => {
+    if (typeof message === 'string' && message.includes(CLOSE_SENTINEL)) {
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        // contextId === topicId (the id useNativeBrowser passed to create).
+        mainWindow.webContents.send('browser-native:page-close-request', { contextId: topicId });
+      }
+    }
+  });
+
   if (initialUrl && initialUrl !== 'about:blank') {
     // The initial URL is what the creating UI/open_browser_pane asked for — trust
     // its scheme (a human may open a local file) without disabling the guard.
@@ -2557,6 +2584,52 @@ ipcMain.handle('app:toggle-always-on-top', () => {
 
 ipcMain.handle('app:get-always-on-top', () => {
   return { alwaysOnTop };
+});
+
+ipcMain.handle('app:get-version', () => app.getVersion());
+
+// --- Performance metrics (PC + Topics-level diagnostics) ---
+// The renderer's FPS only tells half the story: a low number could mean the
+// machine is saturated (every app is janky) OR that Topics' own renderer is
+// the hog. These two signals disambiguate it:
+//   • per-process CPU from getAppMetrics() — which Electron process is busy
+//     (Tab = our renderer, GPU = the compositor, Browser = main)
+//   • getGPUFeatureStatus() — whether hardware acceleration is actually live.
+//     If gpu_compositing is software/disabled the whole UI repaints on the CPU
+//     and FPS collapses regardless of how light the page is. That's the single
+//     biggest "why is it slow" cause and it's invisible without this check.
+ipcMain.handle('perf:get-metrics', () => {
+  let rendererCPU = 0;
+  let gpuCPU = 0;
+  let totalCPU = 0;
+  try {
+    for (const m of app.getAppMetrics()) {
+      const c = m.cpu?.percentCPUUsage ?? 0;
+      totalCPU += c;
+      if (m.type === 'Tab') rendererCPU += c;
+      else if (m.type === 'GPU') gpuCPU += c;
+    }
+  } catch {}
+
+  let compositing = 'unknown';
+  let webgl = 'unknown';
+  let accelerated = false;
+  try {
+    const gpu = app.getGPUFeatureStatus() as unknown as Record<string, string>;
+    compositing = gpu?.gpu_compositing ?? 'unknown';
+    webgl = gpu?.webgl ?? 'unknown';
+    accelerated = /enabled/i.test(compositing);
+  } catch {}
+
+  return {
+    version: app.getVersion(),
+    cpu: {
+      renderer: Math.round(rendererCPU),
+      gpu: Math.round(gpuCPU),
+      total: Math.round(totalCPU),
+    },
+    gpu: { accelerated, compositing, webgl },
+  };
 });
 
 // --- Shell ---

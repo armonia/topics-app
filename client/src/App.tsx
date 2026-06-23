@@ -548,6 +548,28 @@ function App() {
     setShowFileSearch,
   });
 
+  // Page-initiated close: a site (post-OAuth "you may now close this window") or
+  // the agent (browser_eval("window.close()")) called window.close(). Electron
+  // forwards it here with the browser pane's contextId. Close the OWNING pane:
+  //  - app-level (group:default) → full deferred teardown (pane + server context).
+  //  - project-internal → dispatch a CustomEvent the owning ProjectWindow handles
+  //    (guarded by ownership there, so exactly one surface closes it). We must NOT
+  //    run the app-level teardown for a project pane — closeContext would tear down
+  //    the very context the project pane is still driving.
+  const openPanelsForCloseRef = useRef(openPanels);
+  openPanelsForCloseRef.current = openPanels;
+  useEffect(() => {
+    const api = window.electronAPI?.browserNative;
+    if (!api?.onPageCloseRequest) return;
+    return api.onPageCloseRequest((contextId) => {
+      if (openPanelsForCloseRef.current.includes(`browser:${contextId}`)) {
+        handleCloseBrowserDeferred(contextId);
+      } else {
+        window.dispatchEvent(new CustomEvent('browser:request-close', { detail: { contextId } }));
+      }
+    });
+  }, [handleCloseBrowserDeferred]);
+
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>

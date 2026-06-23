@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     relaunch: () => ipcRenderer.invoke('app:relaunch'),
     toggleAlwaysOnTop: () => ipcRenderer.invoke('app:toggle-always-on-top'),
     getAlwaysOnTop: () => ipcRenderer.invoke('app:get-always-on-top'),
+    getVersion: () => ipcRenderer.invoke('app:get-version'),
+  },
+
+  // Performance diagnostics — per-process CPU + GPU acceleration status, so the
+  // status-bar dropdown can tell "the PC is busy" from "Topics' renderer is".
+  perf: {
+    getMetrics: () => ipcRenderer.invoke('perf:get-metrics'),
   },
 
   // Phase B · DAEMON-03 — daemon lifecycle management (macOS)
@@ -196,6 +203,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = () => callback();
       ipcRenderer.on('browser-native:reflow', listener);
       return () => ipcRenderer.removeListener('browser-native:reflow', listener);
+    },
+    // A page (or the agent) called window.close() — close the owning browser pane.
+    onPageCloseRequest: (callback: (contextId: string) => void) => {
+      const listener = (_e: unknown, payload: { contextId?: string }) => {
+        if (payload && typeof payload.contextId === 'string') callback(payload.contextId);
+      };
+      ipcRenderer.on('browser-native:page-close-request', listener);
+      return () => ipcRenderer.removeListener('browser-native:page-close-request', listener);
     },
   },
 
