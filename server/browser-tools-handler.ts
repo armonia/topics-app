@@ -88,16 +88,27 @@ export async function awaitNativeCdpTarget(
 async function resolveOps(service: BrowserService, contextId: string): Promise<BrowserOps> {
   if (cdpDispatcher && (await isElectronCdpAvailable())) {
     let targetId = cdpDispatcher.getTargetId(contextId);
-    if (!targetId && cdpDispatcher.isNativeBound(contextId)) {
+    if (!targetId) {
+      // Wait briefly for the native pane to (re)register — covers the first-open
+      // mount race and a between-turns remount. We poll regardless of
+      // isNativeBound: after a server restart the in-memory native-bound set is
+      // empty even though a real pane is mounted (the persisted target map / the
+      // renderer heartbeat re-register within the window).
       targetId = await awaitNativeCdpTarget(contextId, 3000);
     }
     if (targetId) return cdpOps(cdpDispatcher, contextId, service);
-    if (cdpDispatcher.isNativeBound(contextId)) {
-      throw new Error(
-        "native browser pane not ready (still mounting or reopening) — retry shortly, " +
-          "or call open_browser_pane to (re)open it",
-      );
-    }
+    // IN ELECTRON THE AGENT MUST DRIVE THE USER'S VISIBLE WebContentsView — never
+    // the off-screen Playwright phantom (a different, headless browser the user
+    // can't see, with no shared auth/storage). When no native pane resolves, the
+    // pane simply isn't open/visible for this session; fail LOUD so the agent
+    // (re)opens a visible one instead of silently operating an invisible browser
+    // (the "tools work but the user sees nothing" bug). The Playwright path is
+    // reserved for true web mode (Electron CDP down), handled below.
+    throw new Error(
+      "No visible browser pane is open for this session. Call open_browser_pane " +
+        "(with a url) to open one the user can see in the app, then retry — browser " +
+        "tools won't drive an off-screen browser in the desktop app.",
+    );
   }
   return playwrightOps(service, contextId);
 }
