@@ -49,6 +49,13 @@ interface ColumnInsertDividerProps {
    * `colIdx + 1`.
    */
   onInsertBetween: (rowIdx: number, colIdx: number, e: React.DragEvent) => void;
+  /**
+   * Called while the divider is the active drop target, so the parent grid can
+   * clear its per-cell split-region preview. The divider's hit-box (±15px)
+   * overlaps the adjacent cell's edge band, so without this the cell's filled
+   * region stays painted AND the divider bar shows — two previews at once.
+   */
+  onClaimDropTarget?: () => void;
 }
 
 export function ColumnInsertDivider({
@@ -59,6 +66,7 @@ export function ColumnInsertDivider({
   onResizeStart,
   onEqualize,
   onInsertBetween,
+  onClaimDropTarget,
 }: ColumnInsertDividerProps) {
   const [hoverDuringDrag, setHoverDuringDrag] = useState(false);
 
@@ -74,9 +82,11 @@ export function ColumnInsertDivider({
       // stop the surrounding cell's dragover from re-claiming the drop target
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
+      // Clear the cell's split-region preview so ONLY the divider bar shows.
+      onClaimDropTarget?.();
       setHoverDuringDrag(true);
     },
-    [isDragActive],
+    [isDragActive, onClaimDropTarget],
   );
 
   const handleDragLeave = useCallback(() => setHoverDuringDrag(false), []);
@@ -143,6 +153,9 @@ interface RowInsertDividerProps {
    * is `rowIdx + 1`.
    */
   onInsertBetween: (rowIdx: number, e: React.DragEvent) => void;
+  /** See ColumnInsertDivider.onClaimDropTarget — clears the cell region so only
+   *  the divider bar shows while the divider is the active drop target. */
+  onClaimDropTarget?: () => void;
 }
 
 export function RowInsertDivider({
@@ -151,6 +164,7 @@ export function RowInsertDivider({
   onResizeStart,
   onEqualize,
   onInsertBetween,
+  onClaimDropTarget,
 }: RowInsertDividerProps) {
   const [hoverDuringDrag, setHoverDuringDrag] = useState(false);
 
@@ -163,9 +177,10 @@ export function RowInsertDivider({
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
+      onClaimDropTarget?.();
       setHoverDuringDrag(true);
     },
-    [isDragActive],
+    [isDragActive, onClaimDropTarget],
   );
 
   const handleDragLeave = useCallback(() => setHoverDuringDrag(false), []);
