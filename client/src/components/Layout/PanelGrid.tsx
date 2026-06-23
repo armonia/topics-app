@@ -1145,6 +1145,13 @@ export function PanelGrid({
     gridDropTargetRef.current = null;
   }, [gridDropTargetRef]);
 
+  // Clear the per-cell split-region preview. An insert divider calls this when
+  // it claims the drop, so its bar and a stale cell region never show together.
+  const clearGridDropTarget = useCallback(() => {
+    setGridDropTarget(null);
+    gridDropTargetRef.current = null;
+  }, [gridDropTargetRef]);
+
   // Belt-and-suspenders: a cross-cell move unmounts the dragged item inside its
   // drop handler, so the browser may never fire `dragend` on the now-detached
   // source — leaving the grid's edge-drop preview and the drag-active
@@ -1886,6 +1893,7 @@ export function PanelGrid({
                       onResizeStart={startHorizontalResize(rowIdx, colIdx, row.widths)}
                       onEqualize={equalizeHorizontal(rowIdx, row.itemKeys.length, () => rowColumnWeights(row))}
                       onInsertBetween={handleInsertBetweenColumns}
+                      onClaimDropTarget={clearGridDropTarget}
                     />
                   )}
                 </Fragment>
@@ -1901,6 +1909,7 @@ export function PanelGrid({
               onResizeStart={startVerticalResize(rowIdx, gridRowHeights)}
               onEqualize={equalizeVertical(gridRows.length, () => rowHeightWeights(gridRows))}
               onInsertBetween={handleInsertBetweenRows}
+              onClaimDropTarget={clearGridDropTarget}
             />
           )}
         </Fragment>
