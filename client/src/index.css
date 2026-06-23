@@ -1190,21 +1190,38 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   background-color: transparent !important;
 }
 
-/* ─── Resize-handle hover affordance ────────────────────────────────────────
+/* ─── Resize-handle hover/grab affordance ───────────────────────────────────
  * Every split divider (column / row / sub-stack / sidebar handle / project
  * panel sections) is a 1px hairline carrying `cursor-col-resize` /
- * `cursor-row-resize`, with a ~6px invisible grab zone (the ±3px overlay) and
- * a `hover:bg-primary` tint on the 1px line. That tint is the *only* feedback
- * that the edge is draggable — and 1px is too faint to notice (in floating
- * mode the line is fully transparent at rest, so a hover gave essentially
- * nothing). Users reported the handles "don't show on hover, you have to grab
- * blindly".
+ * `cursor-row-resize`, with a ±3px invisible grab overlay and a
+ * `hover:bg-primary` tint on the 1px line.
  *
- * Paint a wider (3px) accent bar centered on the line that fades in on hover,
- * so the draggable edge is obvious before it's grabbed. The bar is pure paint
- * (pointer-events:none) layered over the existing 6px grab zone — so it reads
- * as a 3px handle but the forgiving 6px hit area is unchanged. One rule covers
- * all divider surfaces in both tiling and floating modes. */
+ * Two problems made the handles feel dead on hover ("come se non funzionasse
+ * l'hover, devo cliccarci"):
+ *   1. Every grid divider is the LAST child of its `overflow-hidden` cell,
+ *      sitting flush against the cell's trailing edge. The ±3px overlay's
+ *      OUTWARD half (and the hover tint) overflowed the cell and got CLIPPED,
+ *      so only a ~3px sliver on the inward side ever reacted — and over a
+ *      terminal/native pane even the line center could be occluded.
+ *   2. A 1px tint is too faint to read as "draggable" (and is fully
+ *      transparent at rest in floating mode).
+ *
+ * Fix, one rule for every surface, both tiling and floating:
+ *   ::before = the real hit zone, extended INWARD (the always-unclipped side —
+ *   the divider is z>0 so it wins over its own cell's content). Pointer events
+ *   on the pseudo dispatch to the divider, so hover, mousedown-drag and
+ *   double-click all fire across a comfortable ~9px band instead of a 3px edge.
+ *   ::after = a 3px accent bar hugging the line and growing inward (so it's not
+ *   clipped), fading in on hover so the draggable edge is obvious before grab. */
+.cursor-col-resize::before,
+.cursor-row-resize::before {
+  content: '';
+  position: absolute;
+  pointer-events: auto;
+}
+.cursor-col-resize::before { top: 0; bottom: 0; left: -7px; right: -3px; }
+.cursor-row-resize::before { left: 0; right: 0; top: -7px; bottom: -3px; }
+
 .cursor-col-resize::after,
 .cursor-row-resize::after {
   content: '';
@@ -1215,16 +1232,9 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   transition: opacity 120ms ease;
   pointer-events: none;
 }
-.cursor-col-resize::after {
-  inset: 0 auto 0 50%;
-  width: 3px;
-  transform: translateX(-50%);
-}
-.cursor-row-resize::after {
-  inset: 50% 0 auto 0;
-  height: 3px;
-  transform: translateY(-50%);
-}
+/* Anchored at the trailing edge, growing inward — never crosses the cell clip. */
+.cursor-col-resize::after { top: 0; bottom: 0; right: 0; width: 3px; }
+.cursor-row-resize::after { left: 0; right: 0; bottom: 0; height: 3px; }
 .cursor-col-resize:hover::after,
 .cursor-row-resize:hover::after {
   opacity: 1;
