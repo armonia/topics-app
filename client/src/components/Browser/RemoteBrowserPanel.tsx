@@ -552,6 +552,7 @@ function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChan
         onClearConsole={browser.clearConsole}
         getNavEntries={browser.getNavEntries}
         onGoToNavIndex={browser.goToNavIndex}
+        suppressViewId={browser.viewId ?? undefined}
       />
       {/* Phase 30.1 polish — Find-in-page bar. Opens on Cmd+F, closes on Esc
           or "x" button. Sends each keystroke to the WebContentsView via

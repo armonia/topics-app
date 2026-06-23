@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
+import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 
 const ICON = 14;
 
@@ -55,15 +56,18 @@ const DEVICE_LABEL: Record<DeviceMode, string> = {
 };
 
 export function DeviceSwitcher({
-  mode, onSet,
+  mode, onSet, suppressViewId,
 }: {
   mode: DeviceMode;
   onSet: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
+  /** Native view id — hide this pane's OS-level view while the menu is open. */
+  suppressViewId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [cw, setCw] = useState('414');
   const [ch, setCh] = useState('896');
   const ref = useOutsideClose(open, () => setOpen(false));
+  useSuppressNativeBrowser(!!suppressViewId && open, suppressViewId);
   const Icon = DEVICE_ICON[mode];
   const active = mode !== 'desktop';
   return (
@@ -115,14 +119,17 @@ const LEVEL_STYLE: Record<BrowserConsoleEntry['level'], string> = {
 };
 
 export function ConsoleBadge({
-  entries, summary, onClear,
+  entries, summary, onClear, suppressViewId,
 }: {
   entries: BrowserConsoleEntry[];
   summary: { errors: number; warnings: number };
   onClear: () => void;
+  /** Native view id — hide this pane's OS-level view while the panel is open. */
+  suppressViewId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useOutsideClose(open, () => setOpen(false));
+  useSuppressNativeBrowser(!!suppressViewId && open, suppressViewId);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Auto-scroll to the newest entry when open.
   useEffect(() => { if (open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [open, entries.length]);
