@@ -1042,6 +1042,19 @@ input[type="range"]::-webkit-slider-thumb {
   will-change: opacity;
 }
 
+/* Pause EVERY keyframe animation while the window is backgrounded (driven by
+ * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
+ * the big transparent-vibrancy desktop window the always-running loaders
+ * (grid-lit) and parked-session breathers (awaiting-pulse) otherwise keep the
+ * compositor working every frame with nobody watching. `animation-play-state` is
+ * compositor-safe: the toggle costs one style recalc on blur/focus, never a
+ * per-frame cost, and CSS *transitions* are unaffected. */
+.anims-paused *,
+.anims-paused *::before,
+.anims-paused *::after {
+  animation-play-state: paused !important;
+}
+
 /* Material easing curves as CSS custom properties so components can opt in
  * without re-deriving them. */
 :root {
