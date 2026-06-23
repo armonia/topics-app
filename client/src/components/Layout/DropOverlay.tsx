@@ -41,7 +41,7 @@ export function InsertCaret({ side }: { side: 'left' | 'right' }) {
 export function FullWidthRowZone({
   side,
   active,
-  label = 'Full-width row',
+  label = 'Riga a tutta larghezza',
   onDragOver,
   onDragLeave,
   onDrop,
@@ -56,14 +56,14 @@ export function FullWidthRowZone({
   return (
     <div
       data-full-row-zone={side}
-      className="flex items-center justify-center"
+      className="flex items-center justify-center gap-1.5"
       style={fullRowZoneStyle(side, active)}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <span className="text-[10px] font-medium text-primary/90 pointer-events-none select-none uppercase tracking-wide">
-        {label}
+      <span className="text-[11px] font-semibold text-primary pointer-events-none select-none uppercase tracking-wide leading-none">
+        {side === 'top' ? '↑' : '↓'} {label}
       </span>
     </div>
   );
