@@ -55,6 +55,9 @@ export interface BrowserNativeAPI {
     attributes?: Record<string, string>;
   }>;
   onReflow(callback: () => void): () => void;
+  /** A page (or the agent) called window.close() — fires with the browser pane's
+   *  contextId so the renderer can close the owning pane. Returns an unsubscribe. */
+  onPageCloseRequest(callback: (contextId: string) => void): () => void;
 }
 
 // Phase 30.1 polish — Overlay menu API (transparent BrowserWindow above WebContentsView).
@@ -125,6 +128,19 @@ declare global {
        */
       app?: {
         relaunch(): Promise<void>;
+        getVersion?(): Promise<string>;
+      };
+      /**
+       * Performance diagnostics bridge (Electron only). `getMetrics()` returns
+       * per-process CPU and GPU-acceleration status so the status-bar dropdown
+       * can attribute low FPS to the PC vs. Topics' own renderer.
+       */
+      perf?: {
+        getMetrics(): Promise<{
+          version: string;
+          cpu: { renderer: number; gpu: number; total: number };
+          gpu: { accelerated: boolean; compositing: string; webgl: string };
+        }>;
       };
       // existing fields stay typed via the ad-hoc shape already used in App.tsx
       // (see client/src/types/electron.d.ts). We don't lock them down here to

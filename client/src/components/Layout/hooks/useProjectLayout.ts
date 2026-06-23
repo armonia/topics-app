@@ -585,9 +585,26 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     };
     window.addEventListener('browser:open-and-navigate', domHandler);
 
+    // Page-initiated close: a page (or the agent) called window.close(); App
+    // bridges it to this event. Close the browser pane IF this project owns it —
+    // the ownership guard means exactly one surface (app-level or the owning
+    // project window) acts, never both. Mirrors a normal tab close (deferred,
+    // animated, undo-able) via handleClosePane.
+    const closeHandler = (e: Event) => {
+      const ctx = (e as CustomEvent<{ contextId?: string }>).detail?.contextId;
+      if (!ctx) return;
+      const paneId = createPaneId('browser', ctx);
+      const pane = panesRef.current.find(p => p.id === paneId);
+      if (!pane) return; // not ours — another surface owns it
+      const grp = groupsRef.current.find(g => g.paneIds.includes(paneId));
+      if (grp) handleClosePaneRef.current?.(grp.id, paneId);
+    };
+    window.addEventListener('browser:request-close', closeHandler);
+
     return () => {
       unsubWS();
       window.removeEventListener('browser:open-and-navigate', domHandler);
+      window.removeEventListener('browser:request-close', closeHandler);
     };
     // handleAddPaneToGroupRef is read via ref to avoid re-registering on every
     // render. Deps are the stable identity inputs only.
