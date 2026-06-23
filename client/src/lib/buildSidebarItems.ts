@@ -128,6 +128,32 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   const items: SidebarItem[] = [];
 
+  // Browser-pane row builder, shared by the project-children loop (nested
+  // browsers) and §5 (top-level browsers). A browser pane is the only pane type
+  // that surfaces in the sidebar ONLY via the open-pane set — chats/terminals
+  // always appear through their topic/session rows — so it needs a row wherever
+  // it's hosted. `projectInternalBrowserIds` tracks the ones emitted as project
+  // children so §5 doesn't list them again at the top level.
+  const browserContextById = new Map(browserContexts.map((bc) => [bc.id, bc]));
+  const projectInternalBrowserIds = new Set<string>();
+  const buildBrowserItem = (paneId: string, projectPath?: string): SidebarItem => {
+    const contextId = paneId.slice('browser:'.length);
+    const bc = browserContextById.get(contextId);
+    // Resolution order: live page title → hostname of real URL → "Browser".
+    const hostname = bc?.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
+    return {
+      id: paneId,
+      type: 'browser',
+      name: bc?.title || hostname || 'Browser',
+      icon: 'globe',
+      lastActivity: bc?.lastActivity || 0,
+      notificationCount: 0,
+      archived: false,
+      ...(projectPath ? { projectPath } : {}),
+      browser: bc ?? { id: contextId, url: '', title: '', lastActivity: 0 },
+    };
+  };
+
   // ── 1. Group topics by project ───────────────────────────────────────────
 
   // Collect all known project paths (workspace + topics + open project panes)
@@ -295,6 +321,16 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       });
     }
 
+    // Browser panes opened INSIDE this project window — nested as project
+    // children (same tab-driven rule via internalPaneIds). Without this a
+    // project-internal browser had no sidebar row at all (it's not a topic, and
+    // §5 only saw top-level openPanels).
+    for (const paneId of internalPaneIds) {
+      if (!paneId.startsWith('browser:')) continue;
+      projectInternalBrowserIds.add(paneId);
+      children.push(buildBrowserItem(paneId, pp));
+    }
+
     // Project shows if: has project tab, or has visible children
     if (!hasProjectTab && children.length === 0) continue;
 
@@ -383,35 +419,13 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // `BrowserContextInfo` exists, use its title / url for the row label;
   // if not, fall back to "Browser". Either way the sidebar always lists
   // every open browser pane.
-  const browserContextById = new Map(browserContexts.map((bc) => [bc.id, bc]));
-  // A browser pane can live at the TOP LEVEL (openPanels) OR INSIDE a project
-  // window (projectOpenPanes[path]). Unlike chats/terminals — which always
-  // surface via their topic/session rows — a browser pane appears in the sidebar
-  // ONLY here, so a project-internal browser used to be invisible (and not
-  // restorable from the sidebar). Union both sources, deduped, so EVERY open
-  // browser pane gets a row regardless of which surface hosts it.
-  const browserPaneIds = new Set<string>();
-  for (const id of openPanelSet) if (id.startsWith('browser:')) browserPaneIds.add(id);
-  for (const ids of Object.values(projectOpenPanes)) {
-    for (const id of ids) if (id.startsWith('browser:')) browserPaneIds.add(id);
-  }
-  for (const paneId of browserPaneIds) {
-    const contextId = paneId.slice('browser:'.length);
-    const bc = browserContextById.get(contextId);
-    // Resolution order: live page title → hostname of real URL →
-    // literal "Browser". Raw context ids (`new-1234567`, UUIDs,
-    // `persist:topic-…`) are internals, never user-facing.
-    const hostname = bc?.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
-    items.push({
-      id: paneId,
-      type: 'browser',
-      name: bc?.title || hostname || 'Browser',
-      icon: 'globe',
-      lastActivity: bc?.lastActivity || 0,
-      notificationCount: 0,
-      archived: false,
-      browser: bc ?? { id: contextId, url: '', title: '', lastActivity: 0 },
-    });
+  // Top-level browser panes (openPanels). Project-internal ones are already
+  // emitted as nested project children above (projectInternalBrowserIds), so
+  // skip them here to avoid a duplicate top-level row.
+  for (const paneId of openPanelSet) {
+    if (!paneId.startsWith('browser:')) continue;
+    if (projectInternalBrowserIds.has(paneId)) continue;
+    items.push(buildBrowserItem(paneId));
   }
 
   // ── 6. Sort: notifications first (boost), then by lastActivity desc ───────
