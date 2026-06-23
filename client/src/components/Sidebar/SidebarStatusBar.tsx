@@ -4,10 +4,28 @@ import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
+import { useFps, useFpsActive } from '@/lib/fpsMonitor';
+import { PerfSection } from './PerfSection';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 
 declare const __BUILD_TIME__: string;
+declare const __APP_VERSION__: string;
+
+// App version baked at build time (from electron-app/package.json). In the
+// desktop app the live `electronAPI.app.getVersion()` is preferred at runtime
+// since an auto-update can change it after this bundle was built.
+const BUILD_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
+
+// Prefetch the lazy status panel chunk so the dropdown opens instantly instead
+// of flashing a "Loading…" while the chunk downloads on first click. Triggered
+// on hover/focus of the trigger button. Vite dedupes with the lazy() import().
+let _statusPanelPrefetched = false;
+function prefetchStatusPanel() {
+  if (_statusPanelPrefetched) return;
+  _statusPanelPrefetched = true;
+  import('./SystemStatusPanel').catch(() => { _statusPanelPrefetched = false; });
+}
 
 // Track last code update time — updates on HMR in dev, uses __BUILD_TIME__ in prod
 let _lastUpdateTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : new Date().toISOString();
@@ -57,71 +75,6 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
-// FPS indicator for the status bar. A naive `requestAnimationFrame` loop runs
-// forever at the display refresh rate (60/120Hz) just to count frames — that
-// alone pins the renderer/compositor awake and never lets it idle (it was a
-// meaningful chunk of this app's idle CPU). Instead we BURST-SAMPLE: measure
-// for ~1s, then sleep ~4s, so the renderer can go idle ~80% of the time while
-// the counter still refreshes every few seconds. Sampling also pauses while
-// the window is hidden.
-function useFps() {
-  const [fps, setFps] = useState(0);
-
-  useEffect(() => {
-    const MEASURE_MS = 1000;
-    const IDLE_MS = 4000;
-    let rafId = 0;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let frames = 0;
-    let start = 0;
-    let stopped = false;
-
-    const measure = (now: number) => {
-      if (stopped) return;
-      if (start === 0) start = now;
-      frames++;
-      const elapsed = now - start;
-      if (elapsed >= MEASURE_MS) {
-        setFps(Math.round((frames * 1000) / elapsed));
-        frames = 0;
-        start = 0;
-        // Idle, then sample again — renderer is free to settle in between.
-        timeoutId = setTimeout(() => {
-          if (!stopped && !document.hidden) rafId = requestAnimationFrame(measure);
-        }, IDLE_MS);
-        return;
-      }
-      rafId = requestAnimationFrame(measure);
-    };
-
-    const beginSampling = () => {
-      if (!stopped && !document.hidden) rafId = requestAnimationFrame(measure);
-    };
-
-    const onVisibility = () => {
-      if (document.hidden) {
-        cancelAnimationFrame(rafId);
-        if (timeoutId) clearTimeout(timeoutId);
-      } else {
-        frames = 0;
-        start = 0;
-        beginSampling();
-      }
-    };
-
-    beginSampling();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(rafId);
-      if (timeoutId) clearTimeout(timeoutId);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, []);
-
-  return fps;
-}
-
 export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: ConnectionStatus; dataNotice?: string | null } = {}) {
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
@@ -129,11 +82,24 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
   const gatewayOnline = status?.gateway.online ?? false;
   const latency = status?.gateway.latencyMs;
   const lastChangeTime = useLastChangeTime();
+  // Shared FPS monitor: idle burst-sampling for this number, live 1Hz while the
+  // dropdown is open (see useFpsActive below).
   const fps = useFps();
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
 
   const isElectron = !!window.electronAPI?.isElectron;
+  const isDev = import.meta.env.DEV;
+
+  // App version: build-time constant, overridden by the live Electron version
+  // when running in the desktop shell (more accurate after an auto-update).
+  const [appVersion, setAppVersion] = useState(BUILD_APP_VERSION);
+  useEffect(() => {
+    const getVersion = window.electronAPI?.app?.getVersion;
+    if (typeof getVersion === 'function') {
+      getVersion().then(v => { if (v) setAppVersion(v); }).catch(() => {});
+    }
+  }, []);
 
   const handleRefresh = async () => {
     if (isElectron) {
@@ -166,6 +132,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
   const statusBtnRef = useRef<HTMLButtonElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
 
+  // While the dropdown is open, hold the FPS monitor in its live (continuous,
+  // 1Hz) cadence so the sparkline updates in real time. It drops back to cheap
+  // idle bursts when closed.
+  useFpsActive(showStatusDropdown);
+
   // Close dropdown on outside click or Escape
   useEffect(() => {
     if (!showStatusDropdown) return;
@@ -191,8 +162,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
           ref={statusBtnRef}
           data-testid="connection-status"
           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+          onMouseEnter={prefetchStatusPanel}
+          onFocus={prefetchStatusPanel}
           className={`flex items-center gap-1.5 text-[11px] hover:bg-app-hover rounded px-1 py-0.5 transition-colors min-w-0 overflow-hidden ${showStatusDropdown ? 'bg-app-hover' : ''}`}
-          title="System Status"
+          title="Performance & stato sistema — apri per FPS live"
         >
           {openclawAvailable ? (
             <>
@@ -260,8 +233,26 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
           </span>
         )}
 
-        <span className="ml-auto flex-shrink-0 flex items-center gap-1 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap" title={`Last updated ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' ago' : 'dev'}`}>
-          {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
+        <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap">
+          {appVersion && (
+            <span
+              className="text-app-text-muted"
+              title={`Versione app ${appVersion}${isDev ? ' — build di sviluppo' : ''}`}
+            >
+              v{appVersion}
+            </span>
+          )}
+          {isDev && (
+            <span
+              className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-[10px] leading-tight"
+              title="Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce."
+            >
+              dev
+            </span>
+          )}
+          <span title={`Ultimo aggiornamento codice: ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' fa' : 'dev'}`}>
+            {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
+          </span>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -287,7 +278,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
             zIndex: 9999,
           }}
         >
-          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
+          {/* Performance block — non-lazy so the dropdown opens instantly with
+              the live FPS history; the heavier system panel streams in below. */}
+          <PerfSection />
+          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Caricamento…</div>}>
             <SystemStatusPanel enabled />
           </Suspense>
         </div>,
