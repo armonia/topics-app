@@ -87,3 +87,48 @@ describe("buildSidebarItems — project terminal gating", () => {
     expect(termChildren.map((c) => c.id)).toEqual(["terminal:s2"]);
   });
 });
+
+describe("buildSidebarItems — sub-agent nesting", () => {
+  const child = (id: string, parentSessionKey: string, cwd: string): TerminalSessionInfo =>
+    ({ ...term(id, cwd), parentSessionKey });
+
+  test("a sub-agent nests under its parent terminal (and not as a flat row)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      // Parent terminal open as a top-level tab; child has NO open tab.
+      terminalSessions: [term("parent", "/home/me"), child("kid", "parent", "/home/me")],
+      openPanels: ["parent" /* parent pane id below */],
+      projectOpenPanes: {},
+    });
+    // The parent standalone terminal row carries the child nested under it…
+    const parentRow = items.find((i) => i.id === "terminal:parent");
+    expect(parentRow).toBeTruthy();
+    expect((parentRow!.subAgents ?? []).map((s) => s.id)).toEqual(["terminal:kid"]);
+    // …and the child is NOT emitted as its own flat row.
+    expect(items.some((i) => i.id === "terminal:kid")).toBe(false);
+  });
+
+  test("an orchestrator stays visible even with its own tab closed (has sub-agents)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      terminalSessions: [term("parent", "/home/me"), child("kid", "parent", "/home/me")],
+      openPanels: [], // parent's own pane is closed
+      projectOpenPanes: {},
+    });
+    const parentRow = items.find((i) => i.id === "terminal:parent");
+    expect(parentRow).toBeTruthy();
+    expect((parentRow!.subAgents ?? []).map((s) => s.id)).toEqual(["terminal:kid"]);
+  });
+
+  test("a sub-agent whose parent is not a terminal (chat orchestrator) is not hidden", () => {
+    const items = buildSidebarItems({
+      ...base,
+      // parentSessionKey points at a chat session, not a terminal id.
+      terminalSessions: [child("kid", "topic:abcd1234", "/home/me")],
+      openPanels: [],
+      projectOpenPanes: {},
+    });
+    // Falls through to the flat standalone path; visible because it's a sub-agent.
+    expect(items.some((i) => i.id === "terminal:kid")).toBe(true);
+  });
+});

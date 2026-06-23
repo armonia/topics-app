@@ -293,8 +293,9 @@ export function TopicTree({
     // subtle "open" styling.
     const isFocused = focusedTopicId === paneId || isActiveInnerChild(item.projectPath, paneId);
     const isOpen = allOpenPaneIds.has(paneId);
+    const subAgents = item.subAgents || [];
 
-    return (
+    const row = (
       <TerminalSidebarItem
         key={item.id}
         session={ts}
@@ -307,6 +308,14 @@ export function TopicTree({
         onCloseTerminal={onCloseTerminal}
         onOpenAsProject={onOpenAsProject}
       />
+    );
+    if (subAgents.length === 0) return row;
+    // Sub-agents (orchestrator-spawned) render nested one level deeper.
+    return (
+      <div key={item.id}>
+        {row}
+        {subAgents.map(child => renderTerminalItem(child, depth + 1))}
+      </div>
     );
   };
 
