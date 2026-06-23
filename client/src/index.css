@@ -1228,7 +1228,12 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   position: absolute;
   background-color: var(--primary);
   border-radius: 2px;
-  opacity: 0;
+  /* ALWAYS faintly visible — not hover-gated. In floating-splits the dividers
+   * are transparent at rest, so the handle was invisible and the user couldn't
+   * find the (working) grab zone to hover it in the first place — a chicken-and-
+   * egg: you had to land on an invisible 1px line to reveal it. A resting tint
+   * makes every draggable edge discoverable; hover just intensifies it. */
+  opacity: 0.4;
   transition: opacity 120ms ease;
   pointer-events: none;
 }
