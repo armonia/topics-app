@@ -222,6 +222,7 @@ describe("handleMessage", () => {
       "browser_get_text",
       "browser_screenshot",
       "browser_read_screen",
+      "browser_console",
       "browser_eval",
       "browser_save_state",
       "browser_load_state",

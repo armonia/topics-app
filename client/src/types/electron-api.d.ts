@@ -41,6 +41,10 @@ export interface BrowserNativeAPI {
   stopFind(viewId: string): Promise<void>;
   onFindResult(viewId: string, callback: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
   setZoom(viewId: string, delta: number | 'reset'): Promise<number>;
+  setDevice(viewId: string, params: null | { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string }): Promise<void>;
+  getNavEntries(viewId: string): Promise<{ entries: { url: string; title: string; index: number }[]; activeIndex: number }>;
+  goToNavIndex(viewId: string, index: number): Promise<void>;
+  onConsoleMessage(viewId: string, callback: (entry: { id: number; level: string; text: string; source?: string }) => void): () => void;
   onPermissionRequest(callback: (info: { requestId: string; permission: string; url: string; partitionId: string }) => void): () => void;
   respondPermission(requestId: string, granted: boolean): void;
   onDownloadStart(callback: (info: { id: string; url: string; filename: string; totalBytes: number }) => void): () => void;

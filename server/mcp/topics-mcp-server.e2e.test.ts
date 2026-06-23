@@ -108,7 +108,7 @@ describe("MCP stdio server (subprocess)", () => {
     const names = resp.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
       "open_browser_pane", "import_chrome", "browser_observe", "browser_act",
-      "browser_extract", "browser_get_text", "browser_screenshot", "browser_read_screen", "browser_eval",
+      "browser_extract", "browser_get_text", "browser_screenshot", "browser_read_screen", "browser_console", "browser_eval",
       "browser_save_state", "browser_load_state",
       "run_script", "list_processes",
       "read_process_output", "stop_process", "list_tasks", "update_task",

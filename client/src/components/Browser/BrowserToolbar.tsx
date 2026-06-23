@@ -1,6 +1,24 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, Home, ExternalLink, Globe, Clock, Code2, CornerUpLeft } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft } from 'lucide-react';
 import { AgentActivityPill } from './AgentActivityPill';
+import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
+import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
+
+/** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
+ *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
+ *  data:, file paths). https:// is hidden like Chrome; other schemes are shown. */
+function splitUrlParts(raw: string): { scheme: string; host: string; rest: string } | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (!u.hostname) return null;
+    const scheme = u.protocol === 'https:' ? '' : `${u.protocol}//`;
+    const rest = `${u.pathname === '/' ? '' : u.pathname}${u.search}${u.hash}`;
+    return { scheme, host: u.hostname.replace(/^www\./, ''), rest };
+  } catch {
+    return null;
+  }
+}
 
 interface BrowserToolbarProps {
   url: string;
@@ -8,7 +26,6 @@ interface BrowserToolbarProps {
   onBack: () => void;
   onForward: () => void;
   onRefresh: () => void;
-  onHome: () => void;
   canGoBack: boolean;
   canGoForward: boolean;
   loading: boolean;
@@ -16,7 +33,7 @@ interface BrowserToolbarProps {
   history?: string[];
   /** Phase 30.1 polish — DevTools toggle for native WebContentsView. Hidden in web mode (undefined). */
   onToggleDevTools?: () => void;
-  /** Phase 30.1 polish — favicon URL emitted by Chromium. Empty during navigation; toolbar falls back to <Globe>. */
+  /** Phase 30.1 polish — favicon URL emitted by Chromium. Empty during navigation. */
   faviconUrl?: string;
   /** Phase 30.1 polish — register a focus-the-URL-bar callback. Cmd+L wires here. */
   onRegisterFocus?: (focusFn: () => void) => void;
@@ -33,6 +50,19 @@ interface BrowserToolbarProps {
   agentActive?: boolean;
   /** Human-readable label of the agent's current action ("Clicca", …). */
   agentAction?: string | null;
+  // --- Native dev controls (Electron only; omitted in web/screenshot mode) ---
+  /** Zoom (returns the new zoom level). When present, renders the zoom control. */
+  onZoom?: (delta: number | 'reset') => Promise<number>;
+  /** Device-emulation mode + setter. When both present, renders the switcher. */
+  deviceMode?: DeviceMode;
+  onSetDevice?: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
+  /** Quick-console data + clear. When present, renders the error/warning badge. */
+  consoleEntries?: BrowserConsoleEntry[];
+  consoleSummary?: { errors: number; warnings: number };
+  onClearConsole?: () => void;
+  /** Back/forward history (Chrome-style right-click / long-press menu). */
+  getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
+  onGoToNavIndex?: (index: number) => void;
 }
 
 export function BrowserToolbar({
@@ -41,7 +71,6 @@ export function BrowserToolbar({
   onBack,
   onForward,
   onRefresh,
-  onHome,
   canGoBack,
   canGoForward,
   loading,
@@ -53,6 +82,14 @@ export function BrowserToolbar({
   spawnerLabel,
   agentActive,
   agentAction,
+  onZoom,
+  deviceMode,
+  onSetDevice,
+  consoleEntries,
+  consoleSummary,
+  onClearConsole,
+  getNavEntries,
+  onGoToNavIndex,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -60,6 +97,35 @@ export function BrowserToolbar({
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [faviconError, setFaviconError] = useState(false);
+  const urlParts = useMemo(() => splitUrlParts(url), [url]);
+
+  // Back/forward navigation-history menu (Chrome-style right-click / long-press).
+  const [navMenu, setNavMenu] = useState<{ side: 'back' | 'forward'; entries: NavHistoryEntry[]; activeIndex: number } | null>(null);
+  const navMenuRef = useRef<HTMLDivElement>(null);
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  const openNavMenu = useCallback(async (side: 'back' | 'forward') => {
+    if (!getNavEntries) return;
+    const { entries, activeIndex } = await getNavEntries();
+    if (entries.length > 1) setNavMenu({ side, entries, activeIndex });
+  }, [getNavEntries]);
+  useEffect(() => {
+    if (!navMenu) return;
+    const h = (e: MouseEvent) => { if (navMenuRef.current && !navMenuRef.current.contains(e.target as Node)) setNavMenu(null); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [navMenu]);
+  const navButtonHandlers = (side: 'back' | 'forward', navFn: () => void) => ({
+    onClick: () => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } navFn(); },
+    onContextMenu: (e: React.MouseEvent) => { if (!getNavEntries) return; e.preventDefault(); void openNavMenu(side); },
+    onMouseDown: () => {
+      if (!getNavEntries) return;
+      longPressFiredRef.current = false;
+      longPressRef.current = setTimeout(() => { longPressFiredRef.current = true; void openNavMenu(side); }, 450);
+    },
+    onMouseUp: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
+    onMouseLeave: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
+  });
 
   // Reset favicon error state when URL changes (new favicon may load).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local error flag to the faviconUrl prop; resets to a constant so it converges immediately and can't loop (faviconUrl is not derived from this state)
@@ -134,36 +200,56 @@ export function BrowserToolbar({
           </div>
         </>
       )}
-      {/* Navigation buttons */}
+      {/* Navigation buttons. Right-click / long-press opens the history menu. */}
       <button
-        onClick={onBack}
+        {...navButtonHandlers('back', onBack)}
         disabled={!canGoBack}
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
-        title="Back"
+        title={getNavEntries ? 'Indietro (tieni premuto per la cronologia)' : 'Indietro'}
       >
         <ArrowLeft size={14} />
       </button>
       <button
-        onClick={onForward}
+        {...navButtonHandlers('forward', onForward)}
         disabled={!canGoForward}
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
-        title="Forward"
+        title={getNavEntries ? 'Avanti (tieni premuto per la cronologia)' : 'Avanti'}
       >
         <ArrowRight size={14} />
       </button>
+
+      {/* Back/forward history menu */}
+      {navMenu && (
+        <div
+          ref={navMenuRef}
+          className="absolute top-full left-2 mt-1 z-50 min-w-[260px] max-w-[460px] glass-surface border border-app-border rounded-md shadow-xl py-1"
+          data-testid="browser-nav-history-menu"
+        >
+          {(() => {
+            const items = navMenu.side === 'back'
+              ? navMenu.entries.filter(e => e.index < navMenu.activeIndex).reverse()
+              : navMenu.entries.filter(e => e.index > navMenu.activeIndex);
+            if (items.length === 0) {
+              return <div className="px-3 py-1.5 text-[11px] text-app-text-faint">Nessuna voce</div>;
+            }
+            return items.map((e) => (
+              <button key={e.index} type="button"
+                onClick={() => { onGoToNavIndex?.(e.index); setNavMenu(null); }}
+                className="w-full px-3 py-1.5 text-left hover:bg-app-hover"
+                title={e.url}>
+                <div className="text-[12px] text-app-text truncate">{e.title || e.url}</div>
+                <div className="text-[10px] text-app-text-faint truncate">{e.url}</div>
+              </button>
+            ));
+          })()}
+        </div>
+      )}
       <button
         onClick={onRefresh}
         className={`w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors ${loading ? 'animate-spin' : ''}`}
         title="Refresh"
       >
         <RotateCw size={14} />
-      </button>
-      <button
-        onClick={onHome}
-        className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
-        title="Home"
-      >
-        <Home size={14} />
       </button>
 
       {/* Back-to-spawner — surfaces only when this browser was opened from a
@@ -183,37 +269,68 @@ export function BrowserToolbar({
         </button>
       )}
 
-      {/* URL bar */}
+      {/* URL bar. When idle, the raw input text is hidden and a Chrome-style
+          pretty overlay (host emphasized, scheme/path muted) is painted on top;
+          the overlay is pointer-events:none so a click falls through to focus
+          the input for editing. No globe icon — just the favicon when present. */}
       <form onSubmit={handleSubmit} className="flex-1 min-w-0">
         <div className="relative flex items-center">
-          {/* Favicon (Electron native mode) or fallback Globe icon */}
-          {faviconUrl && !faviconError ? (
+          {faviconUrl && !faviconError && (
             <img
               src={faviconUrl}
               alt=""
-              className="absolute left-2 w-3 h-3 object-contain"
+              className="absolute left-2 w-3.5 h-3.5 object-contain pointer-events-none"
               onError={() => setFaviconError(true)}
               data-testid="browser-favicon"
             />
-          ) : (
-            <Globe size={12} className="absolute left-2 text-app-text-tertiary" />
           )}
-          <input
-            ref={urlInputRef}
-            type="text"
-            value={editing ? editUrl : url}
-            onChange={(e) => { setEditUrl(e.target.value); setEditing(true); }}
-            onFocus={() => { setEditUrl(url); setEditing(true); }}
-            onBlur={() => { setTimeout(() => setEditing(false), 200); }}
-            placeholder="Enter URL..."
-            data-testid="browser-url-input"
-            className="w-full pl-7 pr-2 py-1 text-[12px] bg-surface dark:bg-elevated border border-app-border-input rounded-md focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint transition-colors"
-          />
+          {(() => {
+            const hasFav = !!(faviconUrl && !faviconError);
+            const padL = hasFav ? 'pl-7' : 'pl-2.5';
+            const leftClass = hasFav ? 'left-7' : 'left-2.5';
+            const showPretty = !editing && !!urlParts;
+            return (
+              <>
+                <input
+                  ref={urlInputRef}
+                  type="text"
+                  value={editing ? editUrl : url}
+                  onChange={(e) => { setEditUrl(e.target.value); setEditing(true); }}
+                  onFocus={() => { setEditUrl(url); setEditing(true); }}
+                  onBlur={() => { setTimeout(() => setEditing(false), 200); }}
+                  placeholder="Cerca o inserisci un indirizzo"
+                  spellCheck={false}
+                  data-testid="browser-url-input"
+                  className={`w-full ${padL} pr-2 py-1 text-[12px] bg-surface dark:bg-elevated border border-app-border-input rounded-md focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint transition-colors ${showPretty ? 'text-transparent caret-transparent' : ''}`}
+                />
+                {showPretty && urlParts && (
+                  <div
+                    className={`absolute ${leftClass} right-2 py-1 text-[12px] truncate pointer-events-none select-none`}
+                    aria-hidden
+                    data-testid="browser-url-pretty"
+                  >
+                    {urlParts.scheme && <span className="text-app-text-faint">{urlParts.scheme}</span>}
+                    <span className="text-app-text-heading">{urlParts.host}</span>
+                    <span className="text-app-text-faint">{urlParts.rest}</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </form>
 
       {/* Agent activity — non-blocking pill (no page reflow). Lingers ~700ms. */}
       <AgentActivityPill active={!!agentActive} action={agentAction} />
+
+      {/* Native dev controls (Electron only) — console badge, device, zoom. */}
+      {consoleSummary && consoleEntries && onClearConsole && (
+        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
+      )}
+      {deviceMode && onSetDevice && (
+        <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
+      )}
+      {onZoom && <ZoomControl onZoom={onZoom} />}
 
       {/* Phase 30 BROWSER-CHAT-04 — URL history dropdown (per-topic, last 10) */}
       {history && history.length > 0 && (

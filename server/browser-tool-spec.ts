@@ -165,6 +165,20 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     surfaces: { passthrough: true, mcp: true },
   },
   {
+    name: "browser_console",
+    description:
+      "Read recent page console output (logs, warnings, errors, uncaught exceptions) captured from the pane. Use to DEBUG: see a failed fetch, a thrown error, a framework warning — instead of guessing. Returns { entries:[{level,text}], errors, warnings, total }.",
+    schema: {
+      type: "object",
+      properties: {
+        level: { type: "string", enum: ["all", "errors", "warnings"], description: "Filter: 'errors' only, 'warnings' (warn+error), or 'all' (default)." },
+        limit: { type: "number", description: "Max entries, most-recent kept (default 50)." },
+      },
+      required: [],
+    },
+    surfaces: { passthrough: true, mcp: true },
+  },
+  {
     name: "browser_eval",
     description:
       "Run JavaScript in the page and return the result (escape hatch for what the other tools can't do). Runs in the page sandbox only — cannot reach the host.",

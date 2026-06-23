@@ -133,14 +133,49 @@ function keyDescriptor(key: string): { key: string; code: string; windowsVirtual
  * Playwright-`Page`-compatible shim over a raw CDP page session. Only the
  * methods the helpers actually call are implemented (see file header).
  */
+/** A captured page console entry (for the browser_console agent tool). */
+export interface ConsoleEntry { level: "log" | "info" | "warn" | "error" | "debug"; text: string; ts: number }
+const CONSOLE_BUF_MAX = 200;
+
 export class RawCdpPage {
   private conn: CdpConnection;
   private _url = "about:blank";
   private _closed = false;
+  private consoleBuf: ConsoleEntry[] = [];
 
   private constructor(conn: CdpConnection, initialUrl: string) {
     this.conn = conn;
     this._url = initialUrl || "about:blank";
+    // Capture page console + uncaught exceptions into a ring buffer so the
+    // browser_console agent tool can report recent errors/logs. Runtime is
+    // enabled in connect(); listeners registered here catch everything after.
+    const pushConsole = (level: ConsoleEntry["level"], text: string) => {
+      if (!text || text.includes("§§TOPICS_PAGE_CLOSE§§")) return; // skip the window.close sentinel
+      this.consoleBuf.push({ level, text, ts: Date.now() });
+      if (this.consoleBuf.length > CONSOLE_BUF_MAX) this.consoleBuf.shift();
+    };
+    this.conn.on("Runtime.consoleAPICalled", (p) => {
+      const type = String((p as { type?: string }).type ?? "log");
+      const level: ConsoleEntry["level"] =
+        type === "error" || type === "assert" ? "error"
+        : type === "warning" ? "warn"
+        : type === "debug" ? "debug"
+        : type === "info" ? "info" : "log";
+      const args = ((p as { args?: unknown[] }).args ?? []) as Array<Record<string, unknown>>;
+      const text = args.map((a) => {
+        if (a == null) return "";
+        if (typeof a.value === "string") return a.value;
+        if (typeof a.value !== "undefined") { try { return JSON.stringify(a.value); } catch { return String(a.value); } }
+        if (typeof a.description === "string") return a.description;
+        if (typeof a.unserializableValue === "string") return a.unserializableValue;
+        return a.type === "undefined" ? "undefined" : String(a.subtype ?? a.type ?? "");
+      }).join(" ").trim();
+      pushConsole(level, text);
+    });
+    this.conn.on("Runtime.exceptionThrown", (p) => {
+      const d = (p as { exceptionDetails?: { text?: string; exception?: { description?: string } } }).exceptionDetails;
+      pushConsole("error", d?.exception?.description ?? d?.text ?? "Uncaught exception");
+    });
     // Keep _url current so url() can stay synchronous (Playwright's is sync).
     // Track BOTH full document navigations and SPA client-side route changes
     // (pushState/replaceState/hashchange fire navigatedWithinDocument, NOT
@@ -180,6 +215,16 @@ export class RawCdpPage {
   isClosed(): boolean { return this._closed || this.conn.isClosed(); }
   close(): void { this._closed = true; this.conn.close(); }
   url(): string { return this._url; }
+
+  /** Recent captured console entries (newest last). Optionally filter by level
+   *  and cap the count (most-recent kept). */
+  getConsole(opts?: { level?: "all" | "errors" | "warnings"; limit?: number }): ConsoleEntry[] {
+    let out = this.consoleBuf;
+    if (opts?.level === "errors") out = out.filter((e) => e.level === "error");
+    else if (opts?.level === "warnings") out = out.filter((e) => e.level === "error" || e.level === "warn");
+    const limit = opts?.limit && opts.limit > 0 ? opts.limit : 50;
+    return out.slice(-limit);
+  }
 
   async title(): Promise<string> {
     try { return (await this.evaluate("document.title")) as string; } catch { return ""; }
