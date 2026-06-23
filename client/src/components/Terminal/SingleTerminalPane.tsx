@@ -648,7 +648,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         {!isTouchDevice && !stale && (
           <button
             onClick={handleCopyOutput}
-            className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-black/40 text-white text-[11px] backdrop-blur-sm opacity-0 hover:opacity-100 transition-opacity"
+            // backdrop-blur ONLY on hover: the button is opacity-0 at rest, but a
+            // base `backdrop-blur` would still create a persistent blur(8px)
+            // compositor layer that the GPU re-samples every frame — and these
+            // tile across every visible terminal (9 invisible blurs = a big chunk
+            // of GPU compositing, measured via CDP trace). Gating it to hover keeps
+            // the exact glass look when shown and drops the idle GPU cost to zero.
+            className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-black/40 text-white text-[11px] opacity-0 hover:opacity-100 hover:backdrop-blur-sm transition-opacity"
             title="Copy output"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
