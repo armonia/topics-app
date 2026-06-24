@@ -5,7 +5,7 @@ import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
-import { getProjectGridWeight } from '../../state/projectGridWeights';
+import { getProjectGridWeight, type ProjectGridWeight } from '../../state/projectGridWeights';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
@@ -375,32 +375,39 @@ export function PanelGrid({
   // module store — NOT reactive — so a project's internal resize publishing a
   // new weight never re-renders this grid; the fresh value is simply read on the
   // next equalize click.
-  const cellProjectPath = useCallback((key: string): string | null => {
+  //
+  // A cell can hold MANY project tabs (a multi-tab split column), but only the
+  // ACTIVE one is mounted and publishes its split extent — background tabs have
+  // no registry entry. So we must weight by the *visible* project, NOT the first
+  // pane id: the old code returned `panelIds[0]`'s path, which on a multi-project
+  // column was usually a hidden background tab → its weight was absent → the cell
+  // counted as 1 and the outer equalize ignored the active project's split (the
+  // "non bilancia più i pesi" regression). Pick the project pane that actually
+  // has a published weight — that's the mounted/active one.
+  const cellProjectWeight = useCallback((key: string): ProjectGridWeight => {
     const item = itemMap.get(key);
-    if (!item) return null;
+    if (!item) return { cols: 1, rows: 1 };
     for (const pid of item.panelIds) {
       const pp = getProjectPathFromPaneId(pid);
-      if (pp) return pp;
+      if (!pp) continue;
+      const w = getProjectGridWeight(pp);
+      if (w) return w;
     }
-    return null;
+    return { cols: 1, rows: 1 };
   }, [itemMap]);
   const rowColumnWeights = useCallback((row: PanelGridRow): number[] =>
-    row.itemKeys.map((key) => {
-      const pp = cellProjectPath(key);
-      return pp ? getProjectGridWeight(pp)?.cols ?? 1 : 1;
-    }), [cellProjectPath]);
+    row.itemKeys.map((key) => cellProjectWeight(key).cols), [cellProjectWeight]);
   const rowHeightWeights = useCallback((rowsForWeight: PanelGridRow[]): number[] =>
     rowsForWeight.map((row) => {
       // A row is as tall as its tallest cell wants to be (max leaf rows), so a
       // project with a deep internal stack pulls its whole row taller.
       let w = 1;
       for (const key of row.itemKeys) {
-        const pp = cellProjectPath(key);
-        const r = pp ? getProjectGridWeight(pp)?.rows ?? 1 : 1;
+        const r = cellProjectWeight(key).rows;
         if (r > w) w = r;
       }
       return w;
-    }), [cellProjectPath]);
+    }), [cellProjectWeight]);
 
   /* ---- Grid rows state (initial values come from usePanelGridPersistence above) ---- */
 
