@@ -13,6 +13,8 @@
  * existing React dropdown (web build / no native browser).
  */
 
+import { overlayThemeColors } from './popoverStyles';
+
 export interface OverlayMenuItem {
   id: string;
   label: string;
@@ -45,5 +47,10 @@ export async function showOverlayMenu(opts: {
     side: opts.side ?? 'bottom',
     theme,
     estimatedWidth: opts.estimatedWidth,
+    // Pass the live app theme so the native overlay matches the in-app popovers
+    // instead of falling back to the hardcoded white panel — the same palette
+    // PaneAddMenu already sends. Without this the browser's native menus read as
+    // a different (unthemed) surface from the rest of the app.
+    colors: overlayThemeColors(),
   });
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X } from 'lucide-react';
 import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
+import { MODAL_PANEL } from '@/lib/modalStyles';
 
 interface SearchResult {
   file: string;
@@ -123,9 +124,9 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
   }, {});
 
   return (
-    <div data-testid="file-search" className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/40" onClick={onClose}>
+    <div data-testid="file-search" className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-black/30 dark:bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-[600px] max-h-[70vh] bg-surface dark:bg-app-panel rounded-lg shadow-2xl border border-app-border-input flex flex-col overflow-hidden"
+        className={`w-[600px] max-w-[92vw] max-h-[70vh] ${MODAL_PANEL} flex flex-col`}
         onClick={e => e.stopPropagation()}
       >
         {/* Search input */}

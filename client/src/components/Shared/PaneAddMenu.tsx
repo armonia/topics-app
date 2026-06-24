@@ -62,6 +62,7 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { overlayThemeColors } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import type { PaneType } from '../../types';
 
@@ -705,16 +706,9 @@ async function openElectronOverlayMenu({
   }
 
   const isDark = document.documentElement.classList.contains('dark');
-  const cs = getComputedStyle(document.documentElement);
-  const cssVar = (name: string, fallback: string) =>
-    cs.getPropertyValue(name).trim() || fallback;
-  const colors = {
-    bg: cssVar('--bg-surface', isDark ? '#1f2937' : '#ffffff'),
-    text: cssVar('--text', isDark ? '#e5e7eb' : '#1a1a1a'),
-    muted: cssVar('--text-muted', isDark ? '#9ca3af' : '#6b7280'),
-    border: cssVar('--border', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-    hover: cssVar('--bg-hover', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-  };
+  // Shared single source of truth — same themed palette the browser toolbar's
+  // native menus use via lib/overlayMenu.ts, so every native menu matches.
+  const colors = overlayThemeColors();
   return overlayApi.showMenu({
     anchor: { x: anchor.left, y: anchor.top, width: anchor.width, height: anchor.height },
     items,
