@@ -8,7 +8,7 @@ import { writeFile } from "fs/promises";
 import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
-import { augmentPath } from "../utils/path-env";
+import { augmentPath, realHome } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { discoverCodexSessionId, codexRolloutExists } from "../lib/codex-session";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
@@ -894,7 +894,12 @@ async function createSession(id: string, name: string, cwd: string, command?: st
 
   let env: Record<string, string | null> | undefined;
   if (isClaudeKind) {
-    env = { CLAUDECODE: null, PATH: augmentPath() };
+    // Pin HOME to the user's REAL home. The pty-bridge inherits whatever HOME the
+    // server (or a sandbox ancestor) was launched with; if that's a throwaway dir
+    // (e.g. /tmp/tcs-h-XXXX) every `claude` would read an empty ~/.claude.json
+    // there and re-onboard, losing the user's account/settings/MCP/history.
+    // realHome() is $HOME-independent, so this anchors claude to the real config.
+    env = { CLAUDECODE: null, PATH: augmentPath(), HOME: realHome() };
     // Master Topic mode: enable Claude Code Agent Teams (experimental).
     // Sub-safe pattern — `claude` runs interactive in PTY, lead delegates
     // to teammates via shared task list (see spec MASTER-01).
@@ -904,7 +909,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   } else if (sessionType === 'codex') {
     // Same PATH augmentation as claude: under launchd the server has a
     // minimal PATH (no Homebrew), so a bare `codex` would ENOENT silently.
-    env = { PATH: augmentPath() };
+    // HOME pinned to the real home for the same reason as claude — codex reads
+    // its auth/config from ~/.codex and would lose it under a sandbox HOME.
+    env = { PATH: augmentPath(), HOME: realHome() };
   }
 
   // Await the bridge's ack before populating in-memory + DB. If the

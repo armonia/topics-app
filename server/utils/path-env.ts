@@ -12,8 +12,31 @@
  */
 
 import { execFileSync } from "child_process";
+import { userInfo } from "os";
 
-const HOME = process.env.HOME || "";
+/**
+ * The user's REAL home directory, resolved from the OS account database
+ * (getpwuid) rather than the $HOME env var.
+ *
+ * WHY: when the server — or any ancestor process that launched it — runs under a
+ * sandbox that overrides $HOME to a throwaway dir (observed in the wild:
+ * `/tmp/tcs-h-XXXX`), every PTY we spawn inherits that bogus HOME. `claude` then
+ * reads a near-empty `~/.claude.json` *there* and shows its first-run "initial
+ * config" on every window — ignoring the user's real account, settings, MCP
+ * servers, and history. `os.userInfo().homedir` reads `pw_dir` for the current
+ * uid and is independent of $HOME, so it returns the real home even when $HOME is
+ * polluted. Cached; falls back to $HOME only if getpwuid fails.
+ */
+let _realHome: string | undefined;
+export function realHome(): string {
+  if (_realHome !== undefined) return _realHome;
+  let h = "";
+  try { h = userInfo().homedir || ""; } catch { /* getpwuid failed — fall back to $HOME */ }
+  _realHome = h || process.env.HOME || "";
+  return _realHome;
+}
+
+const HOME = realHome();
 
 // Order matters: earlier entries win. User-installed tools first, then
 // homebrew (Apple Silicon + Intel), then system defaults.

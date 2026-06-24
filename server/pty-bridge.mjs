@@ -6,6 +6,21 @@ import net from 'node:net';
 import fs from 'node:fs';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
+import { userInfo } from 'node:os';
+
+// The user's REAL home, from the OS account db (getpwuid) not $HOME. The bridge
+// can be (re)spawned by a server whose $HOME was clobbered by a sandbox ancestor
+// to a throwaway dir (seen: /tmp/tcs-h-XXXX). Without anchoring, every spawned
+// `claude`/`codex` reads an empty ~/.claude.json there and re-onboards. An
+// explicit per-create `env.HOME` still wins (test sandboxes rely on that).
+let _realHome;
+function realHome() {
+  if (_realHome !== undefined) return _realHome;
+  let h = '';
+  try { h = userInfo().homedir || ''; } catch { /* getpwuid failed */ }
+  _realHome = h || process.env.HOME || '';
+  return _realHome;
+}
 
 // --- Configuration ---
 const socketPath = process.argv.find((a, i) => process.argv[i - 1] === '--socket') || getDefaultSocketPath();
@@ -37,7 +52,9 @@ function handleMessage(msg, client) {
   switch (msg.type) {
     case 'create': {
       const { id, shell, args, cwd, cols, rows, env } = msg;
-      const mergedEnv = { ...process.env, ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
+      // HOME before ...env so a polluted process.env.HOME is overridden by the
+      // real home, but an explicit env.HOME (test sandboxes) still wins.
+      const mergedEnv = { ...process.env, HOME: realHome(), ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
       for (const key of Object.keys(mergedEnv)) {
         if (mergedEnv[key] == null) delete mergedEnv[key];
       }
@@ -52,7 +69,7 @@ function handleMessage(msg, client) {
         mergedEnv.LANG = 'en_US.UTF-8';
         mergedEnv.LC_CTYPE = 'en_US.UTF-8';
       }
-      const home = process.env.HOME || '';
+      const home = mergedEnv.HOME || realHome();
       const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
       const currentPath = mergedEnv.PATH || '';
       mergedEnv.PATH = [...extraPaths, currentPath].filter(Boolean).join(':');
@@ -60,7 +77,7 @@ function handleMessage(msg, client) {
         name: 'xterm-256color',
         cols: cols || 120,
         rows: rows || 30,
-        cwd: cwd || process.env.HOME,
+        cwd: cwd || mergedEnv.HOME || realHome(),
         env: mergedEnv,
       });
       sessions.set(id, { pty: p, buffer: { chunks: [], totalSize: 0 } });
