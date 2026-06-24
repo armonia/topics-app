@@ -161,6 +161,7 @@ describe('outbound registry contract', () => {
       'agents:sessions',
       'agents:spawned',
       'agents:stopped',
+      'browser:force-open',
       'browser:navigate',
       'chat:archived',
       'chat:created',
@@ -238,8 +239,8 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 80 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(80);
+  test('all 81 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(81);
   });
 });
 
