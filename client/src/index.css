@@ -1288,8 +1288,11 @@ html.electron-mac [data-testid="single-terminal-pane"] {
    * hair of separation, no more. */
   --float-gap: 2px;
   --float-radius: 10px;
-  /* Transparent so the gaps reveal the native window vibrancy underneath. */
-  background-color: transparent !important;
+  /* Transparent so the gaps reveal the native window vibrancy underneath.
+   * No !important needed: this unlayered rule already beats the layered
+   * Tailwind `bg-app-bg` utility on the same element (Tailwind v4 puts
+   * utilities in @layer, which always loses to unlayered CSS). */
+  background-color: transparent;
 }
 
 /* The tiling surface (PanelGrid / GroupLayout root) is pulled out by one gap
@@ -1297,7 +1300,7 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * parent's clip — leaving the edge cards flush to the window while the
  * between-card margins survive as the only gaps. */
 .floating-splits [data-split-surface] {
-  margin: calc(-1 * var(--float-gap)) !important;
+  margin: calc(-1 * var(--float-gap));
 }
 
 /* Every split is a rounded card; the native window vibrancy frosts its chrome.
@@ -1319,33 +1322,40 @@ html.electron-mac [data-testid="single-terminal-pane"] {
 /* When the sidebar is COLLAPSED (inline `width: 0px`) drop its gap margin so no
  * empty strip lingers on the left — the content sits flush to the edge. */
 .floating-splits [role="navigation"][aria-label="Topics sidebar"][style*="width: 0px"] {
-  margin: 0 !important;
+  /* The extra [style*=...] attribute selector already out-specifies the base
+   * sidebar rule above, and there's no inline margin to fight — no !important. */
+  margin: 0;
 }
 /* A card nested inside another card (a PROJECT panel whose own GroupLayout
  * splits are themselves data-split-cards) must NOT re-apply the floating frame
  * — otherwise it reads as a "double wrapper". Only the OUTERMOST card per
  * top-level panel floats; nested splits go flat. */
 .floating-splits [data-split-card] [data-split-card] {
-  margin: 0 !important;
-  border-radius: 0 !important;
+  /* Nested descendant selectors out-specify the single-class rules above, so
+   * these win on specificity + source order alone — no !important. */
+  margin: 0;
+  border-radius: 0;
 }
 .floating-splits [data-split-card] [data-split-surface] {
-  margin: 0 !important;
+  margin: 0;
 }
 
 /* Resize dividers (column / row / sub-stack handles and the sidebar handle)
  * all share `cursor-col-resize` / `cursor-row-resize` + a resting
- * `bg-app-border` line. We USED to null this in floating mode (transparent over
- * the gap) — but an invisible 1px line over a see-through gap is impossible to
- * aim a hover at: you can't reveal-on-hover something you can't find, so the
- * dividers felt completely dead to the pointer (a click still landed and
- * resized, which is why drag worked but hover never did). Keep a faint resting
- * seam in the gap instead — subtle enough not to fight the floating look,
- * visible enough to aim at; hover still lights it to primary. (Nested-card
- * dividers below already kept their line for the same reason.) */
+ * `bg-app-border` line. In floating mode that line would draw straight down a
+ * see-through gap and read as a fixed separator ("vedo le linee separatrici… in
+ * realtà servono solo in hover"), so null it at rest — the divider stays a fully
+ * transparent hit-zone. Discoverability no longer needs a resting seam: the
+ * z-50 lift (below) wins the pointer over adjacent pane content, and the
+ * ::before grab band extends ~10px across the gap, so a hover lands and lights
+ * the ::after primary bar even though nothing is painted at rest.
+ *
+ * No !important: this unlayered rule beats the layered Tailwind `bg-app-border`
+ * utility regardless of specificity (Tailwind v4 @layer always loses to
+ * unlayered CSS). */
 .floating-splits .cursor-col-resize:not(:hover),
 .floating-splits .cursor-row-resize:not(:hover) {
-  background-color: rgba(150, 150, 150, 0.1) !important;
+  background-color: transparent;
 }
 /* …EXCEPT a divider INSIDE a card. A project panel's own GroupLayout/PanelGrid
  * splits are nested cards rendered FLAT (margin:0, no vibrancy gap — see the
@@ -1353,8 +1363,9 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * just erases the project's split line. Restore the resting `bg-app-border`
  * (var(--border)) line for any divider nested under a card. Higher specificity
  * (the extra [data-split-card]) wins over the rule above for these only; the
- * top-level dividers (not inside a card) stay transparent over their gaps. */
+ * top-level dividers (not inside a card) stay transparent over their gaps.
+ * Specificity alone carries it — no !important. */
 .floating-splits [data-split-card] .cursor-col-resize:not(:hover),
 .floating-splits [data-split-card] .cursor-row-resize:not(:hover) {
-  background-color: var(--border) !important;
+  background-color: var(--border);
 }

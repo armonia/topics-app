@@ -186,7 +186,10 @@ export function GroupLayout({
       const left = container.querySelector(`[data-group-cell="${rowIdx}-${leftCol}"]`) as HTMLElement;
       const right = container.querySelector(`[data-group-cell="${rowIdx}-${rightCol}"]`) as HTMLElement;
       if (!left || !right) return null;
-      return { apply: (l: number, r: number) => { left.style.width = `${l * 100}%`; right.style.width = `${r * 100}%`; } };
+      // Live-drag feedback writes `flex` (not `width`): the cells size via
+      // `flex: <w> 1 0%` (flex-basis 0%), where an explicit width is ignored —
+      // same as the vertical axis below and PanelGrid's resolver.
+      return { apply: (l: number, r: number) => { left.style.flex = `${l} 1 0%`; right.style.flex = `${r} 1 0%`; } };
     },
     resolveVertical: (divider: HTMLElement) => {
       const rowIdx = divider.getAttribute('data-divider-row');
@@ -763,10 +766,19 @@ export function GroupLayout({
                     key={groupId}
                     data-group-cell={`${rowIdx}-${groupIdx}`}
                     className="flex min-h-0 min-w-0 overflow-hidden"
-                    // Fallback mirrors the row-height style above: a widths array
-                    // shorter than groupIds would otherwise yield `width: NaN%`
-                    // and collapse the cell.
-                    style={{ width: `${(row.widths[groupIdx] ?? 1 / row.groupIds.length) * 100}%` }}
+                    // flex-grow (NOT a fixed `width: X%`) so the columns ALWAYS
+                    // fill the row, exactly like PanelGrid's cells. A fixed
+                    // percent leaves a literal gap whenever `row.widths` doesn't
+                    // sum to 1 — which it transiently doesn't every time a pane
+                    // is closed: the emptied group is dropped from `groups` and
+                    // this row re-renders BEFORE the [groups] sync effect
+                    // renormalizes the surviving widths, so a 2-col [.6,.4] row
+                    // briefly renders one .6-wide column over a .4 void (and the
+                    // void persists if that effect ever fails to fire). With
+                    // flex-grow the lone survivor grabs all free space regardless
+                    // of the stale ratio — no gap, ever. The `?? 1/len` fallback
+                    // still guards a widths array shorter than groupIds.
+                    style={{ flex: `${row.widths[groupIdx] ?? 1 / row.groupIds.length} 1 0%` }}
                   >
                     {/* Column body: the primary group, plus any groups stacked
                         vertically under it (cellStacks) composed via CellSubStack

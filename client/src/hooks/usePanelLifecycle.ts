@@ -503,12 +503,28 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (isMobile) setSidebarCollapsed(true);
       return;
     }
+    // Already open INSIDE a project window: the pane is owned by that project's
+    // own layout (projectOpenPanes), so it never appears in the app-level
+    // openPanels the check above scans. Without this, a sidebar click on a
+    // project-owned browser falls through and spawns a SECOND standalone
+    // `browser:<ctx>` pane — but one native WebContentsView can only mount in a
+    // single DOM slot, so the user ends up with the live page in the project
+    // cell and an EMPTY browser in the new split (the bug the force-open guard
+    // and the PURGE_ORPHAN reconcile below already defend against on other
+    // paths). Focus the owning project instead of duplicating.
+    const owningProject = Object.entries(projectOpenPanesRef.current)
+      .find(([, ids]) => ids.includes(paneId))?.[0];
+    if (owningProject) {
+      setFocusedPanelId(createPaneId('project', owningProject));
+      if (isMobile) setSidebarCollapsed(true);
+      return;
+    }
     setPendingBrowserPane(contextId);
     setPendingSoloPanelId(paneId);
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-  }, [isMobile, setSidebarCollapsed, openPanelsRef]);
+  }, [isMobile, setSidebarCollapsed, openPanelsRef, projectOpenPanesRef]);
 
   // Server fallback for open_browser_pane: when the normal broadcast
   // (browser:navigate / browser:open-near-pane) mounted NO visible pane in any
