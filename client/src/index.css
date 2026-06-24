@@ -1226,6 +1226,14 @@ html.electron-mac [data-testid="single-terminal-pane"] {
 .cursor-col-resize,
 .cursor-row-resize {
   z-index: 50;
+  /* No colour transition on the 1px line. It carries Tailwind's
+   * `transition-colors`, so on un-hover it animated its hover tint back to the
+   * resting `--border` (a dark grey in dark mode) over ~150ms — out of sync with
+   * the ::after bar's 120ms opacity fade, leaving a thin dark line lingering "un
+   * attimo dopo" the pointer left. The line now snaps (it's covered by the bar
+   * during hover anyway); the bar's opacity fade is the only animated affordance.
+   * The ::after pseudo keeps its own transition (set on its own rule below). */
+  transition: none;
 }
 
 .cursor-col-resize::before,
@@ -1250,9 +1258,13 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   transition: opacity 120ms ease;
   pointer-events: none;
 }
-/* Anchored at the trailing edge, growing inward — never crosses the cell clip. */
-.cursor-col-resize::after { top: 0; bottom: 0; right: 0; width: 3px; }
-.cursor-row-resize::after { left: 0; right: 0; bottom: 0; height: 3px; }
+/* Centered ON the 1px hairline (was anchored to the trailing edge + grown
+ * inward, so the 3px bar bulged to one side and read as off-centre). Between
+ * top-level grid cells the divider is a flex sibling with room on both sides, so
+ * the centered bar shows in full; inside a clipped cell (GroupLayout sub-stack)
+ * the outermost ~1px is trimmed by the cell's overflow, still reading centered. */
+.cursor-col-resize::after { top: 0; bottom: 0; left: 50%; width: 3px; transform: translateX(-50%); }
+.cursor-row-resize::after { left: 0; right: 0; top: 50%; height: 3px; transform: translateY(-50%); }
 .cursor-col-resize:hover::after,
 .cursor-row-resize:hover::after {
   opacity: 1;
