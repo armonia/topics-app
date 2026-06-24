@@ -9,6 +9,8 @@ import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
+import { POPOVER_SURFACE, POPOVER_PANEL } from '@/lib/popoverStyles';
+import { MODAL_PANEL } from '@/lib/modalStyles';
 
 interface GitChangesProps {
   projectPath: string;
@@ -437,7 +439,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return createPortal(
       <div
         ref={contextMenuRef}
-        className="fixed glass-surface border border-app-border rounded-lg shadow-xl py-1 min-w-[180px] z-[10000] text-[12px]"
+        className={`fixed ${POPOVER_SURFACE} min-w-[180px] z-[10000] text-[12px]`}
         style={{ left: x, top: y }}
       >
         <div className="px-3 py-1 text-[11px] text-app-text-muted truncate border-b border-app-border mb-0.5">
@@ -786,7 +788,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {showBranches && branchBtnRef.current && createPortal(
           <div
             ref={branchDropdownRef}
-            className="fixed w-52 max-h-[220px] overflow-y-auto glass-surface border border-app-border rounded-md shadow-lg z-[9999]"
+            className={`fixed w-52 max-h-[220px] overflow-y-auto ${POPOVER_PANEL} z-[9999]`}
             style={{
               top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
               left: branchBtnRef.current.getBoundingClientRect().left,
@@ -1109,7 +1111,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && branchBtnRef.current && createPortal(
         <div
           ref={branchDropdownRef}
-          className="fixed w-56 max-h-[320px] overflow-y-auto glass-surface border border-app-border rounded-md shadow-lg z-[9999]"
+          className={`fixed w-56 max-h-[320px] overflow-y-auto ${POPOVER_PANEL} z-[9999]`}
           style={{
             top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
             left: branchBtnRef.current.getBoundingClientRect().left,
@@ -1162,11 +1164,11 @@ function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[];
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
       onClick={onCancel}
     >
       <div
-        className="bg-surface border border-app-border rounded-lg shadow-xl p-5 max-w-md w-full mx-4"
+        className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
         onClick={e => e.stopPropagation()}
       >
         <h3 className="text-sm font-semibold text-app-text-heading mb-2">

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
 import { overlayMenusAvailable, showOverlayMenu } from '../../lib/overlayMenu';
+import { POPOVER_SURFACE, POPOVER_PANEL } from '@/lib/popoverStyles';
 
 const ICON = 14;
 
@@ -93,7 +94,7 @@ export function DeviceSwitcher({
         <ChevronDown size={10} className="opacity-60" />
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 min-w-[160px] glass-surface border border-app-border rounded-md shadow-xl py-1"
+        <div className={`absolute top-full right-0 mt-1 z-50 min-w-[160px] ${POPOVER_SURFACE}`}
           data-testid="browser-device-menu">
           {(['desktop', 'mobile', 'tablet', 'auto'] as DeviceMode[]).map((m) => {
             const MI = DEVICE_ICON[m];
@@ -186,7 +187,7 @@ export function ConsoleBadge({
         {count > 0 && <span className="text-[10px] font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 w-[420px] max-w-[80vw] glass-surface border border-app-border rounded-md shadow-xl flex flex-col"
+        <div className={`absolute top-full right-0 mt-1 z-50 w-[420px] max-w-[80vw] ${POPOVER_PANEL} flex flex-col`}
           data-testid="browser-console-panel">
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-app-border">
             <span className="text-[11px] font-medium text-app-text-secondary">

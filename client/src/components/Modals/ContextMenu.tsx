@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { PenLine, Smile, Palette, Bot, Trash2, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
+import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 interface ContextMenuProps {
   x: number;
@@ -77,7 +78,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
       ref={menuRef}
       role="menu"
       aria-label={`Actions for ${topic.name}`}
-      className="fixed z-50 glass-surface rounded-xl shadow-xl border border-app-border-light py-1 min-w-[200px]"
+      className={`fixed z-50 ${POPOVER_SURFACE} min-w-[200px]`}
       style={{ left: pos.left, top: pos.top }}
     >
       {subMenu === 'none' && (
@@ -178,9 +179,7 @@ function MenuItem({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; la
     <button
       role="menuitem"
       onClick={onClick}
-      className={`w-full text-left px-4 py-3.5 md:py-2.5 text-[15px] md:text-[13px] flex items-center gap-2.5 hover:bg-app-hover transition-colors ${
-        danger ? 'text-red-600 hover:bg-red-600/10' : 'text-app-text'
-      }`}
+      className={`${danger ? POPOVER_ITEM_DANGER : POPOVER_ITEM}`}
     >
       <Icon size={14} className={danger ? 'text-red-500' : 'text-app-text-tertiary'} />
       {label}

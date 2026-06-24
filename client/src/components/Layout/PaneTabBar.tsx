@@ -19,6 +19,7 @@ import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinne
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_SURFACE } from '../../lib/selectionStyles';
+import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -782,7 +783,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {ctxMenu && createPortal(
         <div
           ref={ctxMenuRef}
-          className="fixed glass-surface border border-app-border rounded-lg shadow-xl py-1 z-[9999] min-w-[150px]"
+          className={`fixed ${POPOVER_SURFACE} z-[9999] min-w-[150px]`}
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
         >
           {/* Right-click "Close" is the explicit-confirmation path — bypass

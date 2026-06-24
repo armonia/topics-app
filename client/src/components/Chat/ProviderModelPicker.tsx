@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings, Zap, X, RefreshCw } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { POPOVER_PANEL } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -187,7 +188,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               if (row) { e.preventDefault(); select(row.provider, row.model); }
             }
           }}
-          className="glass-surface border border-app-border rounded-lg shadow-xl w-[320px] max-h-[70vh] flex flex-col overflow-hidden"
+          className={`${POPOVER_PANEL} w-[320px] max-h-[70vh] flex flex-col overflow-hidden`}
           data-testid="provider-model-popover"
           style={{
             position: 'fixed',

@@ -22,6 +22,10 @@
   }
   /* Outer wrapper anchors the panel to (0,0) of the overlay window so
      window dimensions == panel dimensions. */
+  /* Frame tokens mirror lib/popoverStyles.ts POPOVER_SURFACE: 8px radius
+     (rounded-lg), hairline border, and Tailwind's `shadow-lg` so the native
+     menu matches the in-app React popovers pixel-for-pixel. The bg is the
+     themed (opaque) --bg-surface passed from the app — see overlayThemeColors(). */
   #panel {
     position: fixed;
     top: 0;
@@ -29,7 +33,7 @@
     background: var(--ovl-bg, #ffffff);
     border: 1px solid var(--ovl-border, rgba(0,0,0,0.08));
     border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08);
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
     padding: 4px;
     min-width: 160px;
     box-sizing: border-box;
@@ -39,13 +43,14 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 10px;
+    /* px-3 py-1.5 rhythm of POPOVER_ITEM */
+    padding: 6px 12px;
     border: 0;
     background: transparent;
     color: var(--ovl-text, inherit);
     font: inherit;
     text-align: left;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     transition: background 0.05s;
   }
