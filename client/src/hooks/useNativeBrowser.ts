@@ -70,6 +70,11 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   const [faviconUrl, setFaviconUrl] = useState<string>('');
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
+  // Bumped when the keepalive ping discovers the main process reaped our view
+  // out from under us (reload-storm gap > keepalive grace). Re-runs the create
+  // effect so the pane recreates a fresh WebContentsView instead of staying
+  // blank forever — see the keepalive effect below.
+  const [recreateNonce, setRecreateNonce] = useState(0);
 
   const cleanupsRef = useRef<Array<() => void>>([]);
   const mountedRef = useRef(true);
@@ -194,8 +199,10 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     // initialUrl intentionally NOT a dep — it's mount-only (initialUrlRef).
     // Re-running on its change would destroy+recreate the view on every
     // persisted url update. Live nav uses navigate()/navigateUrl.
+    // recreateNonce IS a dep: bumping it (keepalive saw the view reaped) re-runs
+    // this effect to spin up a fresh WebContentsView for the same contextId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextId]);
+  }, [contextId, recreateNonce]);
 
   // Keepalive heartbeat — while this pane is mounted, ping the main process so
   // it keeps the WebContentsView alive (the reaper only collects a view whose
@@ -208,7 +215,22 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     if (!api || !viewId) return;
     let tick = 0;
     const ping = async () => {
-      try { await api.keepalive(viewId); } catch { /* view gone — reaper handles it */ }
+      // keepalive resolves false when the main process already reaped this view
+      // (a reload-storm gap exceeded the 20s grace). Pinging a dead id forever
+      // leaves the pane blank — recreate instead of waiting for the next external
+      // reload. An IPC error is NOT treated as dead (assume alive) to avoid
+      // thrashing on a transient blip. On an old main without the boolean return,
+      // keepalive resolves undefined → never === false → no-op (safe rollout).
+      let alive: boolean | void = true;
+      try { alive = await api.keepalive(viewId); } catch { alive = true; }
+      if (alive === false) {
+        if (!mountedRef.current) return;
+        console.warn('[useNativeBrowser] native view was reaped — recreating to self-heal');
+        setReady(false);
+        setViewId(null);
+        setRecreateNonce((n) => n + 1);
+        return; // skip the cdp refresh this tick; the recreate path re-registers
+      }
       // Every ~15s, refresh the server-side cdpTargetId registration (idempotent).
       if (tick++ % 3 === 0) {
         try {
