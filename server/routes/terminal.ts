@@ -10,6 +10,7 @@ import net from "net";
 import fs from "fs";
 import { augmentPath } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { discoverCodexSessionId, codexRolloutExists } from "../lib/codex-session";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
@@ -735,6 +736,35 @@ async function reconcileSessions(attempt = 0): Promise<void> {
             }
           } catch { /* swallow */ }
         }
+      } else if (row.type === 'codex') {
+        // Codex — RECREATE (don't park dormant) so the pane re-enters the live
+        // roster and the client reattaches, exactly like claude-code does with
+        // --resume. createSession resumes the prior conversation when we
+        // captured a rollout id (row.claude_session_id) and its rollout still
+        // exists, else relaunches a fresh codex in the same cwd.
+        //
+        // Why recreate instead of dormant: a dormant row is only auto-revived
+        // by the PROJECT layout (GET /sessions/dormant?cwd=); a STANDALONE
+        // (non-project) codex pane has no revive path, so parking it dormant
+        // stranded it as "[Session expired]". Recreating here gives standalone
+        // AND project codex the same restart-survival, with no client changes.
+        console.log(`[Terminal] Recreating codex session ${row.id}${row.claude_session_id ? ' with resume' : ' (fresh)'}`);
+        try {
+          await createSession(
+            row.id, row.name, row.cwd, undefined,
+            row.cols || 120, row.rows || 30,
+            row.topic_id || undefined, 'codex',
+            row.skip_permissions !== 0, row.claude_session_id || undefined,
+            row.parent_session_key || undefined,
+          );
+        } catch (err: any) {
+          // Transient boot failure (bridge not ready, spawn error): park dormant
+          // so a later project-window /revive can retry, rather than losing the
+          // row. The 1h sweep is shell-only (type='shell'), so a dormant codex
+          // row survives until then.
+          console.warn(`[Terminal] Failed to recreate codex session ${row.id}: ${err.message} — parking dormant`);
+          try { db.run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [row.id]); } catch {}
+        }
       } else {
         // Shell session — mark dormant instead of deleting.
         // Client can revive it (creates new PTY in same cwd) or it gets cleaned up after 1h.
@@ -840,7 +870,19 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // bundle — a bare `codex` ENOENTs silently, leaving a blank pane. The
     // shared resolver (used by the chat provider too) finds the bundle binary.
     file = resolveCodexBin() ?? 'codex';
-    args = [];
+    // RESUME the prior conversation when we captured a rollout id for this row
+    // AND codex's rollout file still exists on disk (the codex analogue of the
+    // claude `--resume` + transcript-exists guard). `claudeSessionId` here is
+    // the generic resumable-pointer slot — NOT a claude id; for codex it holds
+    // the UUID codex minted for its ~/.codex/sessions rollout, captured
+    // post-spawn by scheduleCodexIdCapture (see lib/codex-session.ts). Codex
+    // mints its own id, so we never pass --session-id; on a fresh launch
+    // claudeSessionId is undefined and we start clean, then capture the id.
+    if (claudeSessionId && codexRolloutExists(claudeSessionId)) {
+      args = ['resume', claudeSessionId];
+    } else {
+      args = [];
+    }
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -872,6 +914,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   // pane that silently never produces output.
   const ackPromise = awaitBridgeCreate(id);
   let ptyPid: number | undefined;
+  // Stamp the spawn instant so the codex rollout-id discovery (below) only
+  // considers a rollout written at/after this launch, not a stale one.
+  const spawnTimeMs = Date.now();
   try {
     sendToBridge({ type: "create", id, shell: file, args, cwd, cols, rows, ...(env ? { env } : {}) });
     ptyPid = await ackPromise; // bridge resolves the create-ack with the PTY pid
@@ -905,7 +950,14 @@ async function createSession(id: string, name: string, cwd: string, command?: st
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt, resolvedClaudeSessionId || null, parentSessionKey || null]
     );
-  } catch {}
+  } catch (err) {
+    // NEVER swallow silently: a failed persist means the session won't survive a
+    // server/bridge restart (reconcileSessions has no DB row to reattach or
+    // revive). A swallowed CHECK-constraint violation on `type` is exactly how
+    // codex/claude-code-team panes vanished on restart before migration 029
+    // widened the constraint — log loudly so the next such mismatch is obvious.
+    console.error(`[Terminal] FAILED to persist session ${id} (type=${sessionType}) — it will NOT survive a restart:`, err);
+  }
 
   // Register topic-less claude sessions with the tracker so their hooks resolve
   // and drive the authoritative phase signal. Topic-bound ones already have a
@@ -915,7 +967,51 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     _tracker?.registerTerminalSession(resolvedClaudeSessionId);
   }
 
+  // Codex mints its session UUID itself (no --session-id to pre-assign), so we
+  // discover it from the rollout codex writes shortly after start and persist
+  // it as the resumable pointer. Runs for BOTH a fresh launch and a resume:
+  // resuming may append to the same rollout or spawn a child, and either way we
+  // want the pointer to track the latest so the NEXT restart resumes current
+  // state. Best-effort + async — failure just leaves the pane non-resumable.
+  if (sessionType === 'codex') {
+    scheduleCodexIdCapture(id, cwd, spawnTimeMs);
+  }
+
   return session;
+}
+
+/**
+ * After a codex PTY launches, poll ~/.codex/sessions for the rollout it just
+ * wrote (matched by cwd + recency) and stash its UUID on the terminal_sessions
+ * row's resumable-pointer slot (`claude_session_id`) + the in-memory session,
+ * then rebroadcast so the roster carries it. Bounded, self-cancelling (stops if
+ * the pane is closed), and `unref`'d so it never holds the process open.
+ */
+function scheduleCodexIdCapture(sessionId: string, cwd: string, sinceMs: number): void {
+  let attempts = 0;
+  const poll = () => {
+    if (!sessions.has(sessionId)) return; // pane closed before we captured it
+    const found = discoverCodexSessionId({ cwd, sinceMs });
+    if (found) {
+      const s = sessions.get(sessionId);
+      if (s && s.claudeSessionId !== found) {
+        s.claudeSessionId = found;
+        try {
+          getDatabase().run("UPDATE terminal_sessions SET claude_session_id = ? WHERE id = ?", [found, sessionId]);
+        } catch (e) {
+          console.warn(`[Terminal] codex session-id persist failed for ${sessionId}:`, e);
+        }
+        broadcastTerminalSessions();
+      }
+      return;
+    }
+    if (++attempts < 12) {
+      const t = setTimeout(poll, 1000);
+      t.unref?.();
+    }
+  };
+  const t = setTimeout(poll, 800);
+  t.unref?.();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
