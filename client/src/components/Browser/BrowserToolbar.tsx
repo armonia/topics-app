@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLe
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
+import { overlayMenusAvailable, showOverlayMenu } from '../../lib/overlayMenu';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
@@ -64,11 +64,6 @@ interface BrowserToolbarProps {
   /** Back/forward history (Chrome-style right-click / long-press menu). */
   getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   onGoToNavIndex?: (index: number) => void;
-  /** Native WebContentsView id (Electron only). When present, this toolbar's
-   *  own dropdowns (history, console, device) suppress THIS pane's OS-level
-   *  view while open so they don't render behind the live page. Web/screenshot
-   *  mode has no native view → omitted → no suppression. */
-  suppressViewId?: string;
 }
 
 export function BrowserToolbar({
@@ -96,7 +91,6 @@ export function BrowserToolbar({
   onClearConsole,
   getNavEntries,
   onGoToNavIndex,
-  suppressViewId,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -111,11 +105,27 @@ export function BrowserToolbar({
   const navMenuRef = useRef<HTMLDivElement>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
-  const openNavMenu = useCallback(async (side: 'back' | 'forward') => {
+  const openNavMenu = useCallback(async (side: 'back' | 'forward', anchorEl: HTMLElement | null) => {
     if (!getNavEntries) return;
     const { entries, activeIndex } = await getNavEntries();
-    if (entries.length > 1) setNavMenu({ side, entries, activeIndex });
-  }, [getNavEntries]);
+    const filtered = side === 'back'
+      ? entries.filter(e => e.index < activeIndex).reverse()
+      : entries.filter(e => e.index > activeIndex);
+    if (filtered.length === 0) return;
+    // Native menu above the OS-level WebContentsView (Electron); React dropdown
+    // is the web/screenshot fallback.
+    if (overlayMenusAvailable()) {
+      const id = await showOverlayMenu({
+        anchorEl,
+        items: filtered.map(e => ({ id: String(e.index), label: e.title || e.url })),
+        side: 'bottom',
+        estimatedWidth: 340,
+      });
+      if (id != null) onGoToNavIndex?.(Number(id));
+      return;
+    }
+    setNavMenu({ side, entries, activeIndex });
+  }, [getNavEntries, onGoToNavIndex]);
   useEffect(() => {
     if (!navMenu) return;
     const h = (e: MouseEvent) => { if (navMenuRef.current && !navMenuRef.current.contains(e.target as Node)) setNavMenu(null); };
@@ -124,21 +134,16 @@ export function BrowserToolbar({
   }, [navMenu]);
   const navButtonHandlers = (side: 'back' | 'forward', navFn: () => void) => ({
     onClick: () => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } navFn(); },
-    onContextMenu: (e: React.MouseEvent) => { if (!getNavEntries) return; e.preventDefault(); void openNavMenu(side); },
-    onMouseDown: () => {
+    onContextMenu: (e: React.MouseEvent) => { if (!getNavEntries) return; e.preventDefault(); void openNavMenu(side, e.currentTarget as HTMLElement); },
+    onMouseDown: (e: React.MouseEvent) => {
       if (!getNavEntries) return;
       longPressFiredRef.current = false;
-      longPressRef.current = setTimeout(() => { longPressFiredRef.current = true; void openNavMenu(side); }, 450);
+      const anchorEl = e.currentTarget as HTMLElement;
+      longPressRef.current = setTimeout(() => { longPressFiredRef.current = true; void openNavMenu(side, anchorEl); }, 450);
     },
     onMouseUp: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
     onMouseLeave: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
   });
-
-  // The recent-URLs and back/forward menus open downward into the page area,
-  // so on a native pane they'd render behind the OS-level WebContentsView.
-  // Suppress just this pane's view while either is open. (Console/device
-  // dropdowns suppress themselves from inside BrowserDevControls.)
-  useSuppressNativeBrowser(!!suppressViewId && (historyOpen || navMenu !== null), suppressViewId);
 
   // Reset favicon error state when URL changes (new favicon may load).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local error flag to the faviconUrl prop; resets to a constant so it converges immediately and can't loop (faviconUrl is not derived from this state)
@@ -338,10 +343,10 @@ export function BrowserToolbar({
 
       {/* Native dev controls (Electron only) — console badge, device, zoom. */}
       {consoleSummary && consoleEntries && onClearConsole && (
-        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} suppressViewId={suppressViewId} />
+        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
       )}
       {deviceMode && onSetDevice && (
-        <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} suppressViewId={suppressViewId} />
+        <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
       )}
       {onZoom && <ZoomControl onZoom={onZoom} />}
 
@@ -350,7 +355,20 @@ export function BrowserToolbar({
         <div className="relative" ref={historyMenuRef}>
           <button
             type="button"
-            onClick={() => setHistoryOpen(open => !open)}
+            onClick={async (e) => {
+              // Native menu above the WebContentsView (Electron); React dropdown fallback on web.
+              if (overlayMenusAvailable()) {
+                const id = await showOverlayMenu({
+                  anchorEl: e.currentTarget,
+                  items: history!.slice(0, 10).map((u) => ({ id: u, label: u })),
+                  side: 'bottom',
+                  estimatedWidth: 380,
+                });
+                if (id != null) onUrlChange(id);
+                return;
+              }
+              setHistoryOpen(open => !open);
+            }}
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
             title="Recent URLs"
             data-testid="browser-history-button"

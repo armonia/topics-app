@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { AgentProfileCard } from './AgentProfileCard';
 import { AgentProfileEditor } from './AgentProfileEditor';
 import { AgentAssignPanel } from './AgentAssignPanel';
@@ -21,12 +20,6 @@ export function AgentRoster() {
   const [viewingSessions, setViewingSessions] = useState<AgentProfile | null>(null);
   const [assigningProfile, setAssigningProfile] = useState<AgentProfile | null>(null);
   const [assignTopicId, setAssignTopicId] = useState<string>('');
-
-  // The roster is a pane view, not a modal — but its inline "sessions" overlay
-  // is a full-screen MODAL_OVERLAY that would render behind a native browser
-  // pane in a sibling split. (editingProfile/assigningProfile open
-  // AgentProfileEditor/AgentAssignPanel, which suppress themselves.)
-  useSuppressNativeBrowser(!!viewingSessions);
 
   const fetchProfiles = useCallback(async () => {
     try {

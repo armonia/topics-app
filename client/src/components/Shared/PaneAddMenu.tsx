@@ -62,7 +62,6 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import type { PaneType } from '../../types';
 
@@ -472,12 +471,6 @@ export function PaneAddMenu({
     window.addEventListener(OPEN_ADD_PALETTE_EVENT, handler);
     return () => window.removeEventListener(OPEN_ADD_PALETTE_EVENT, handler);
   }, [presentation]);
-
-  // The add menu (palette or dropdown) opens over the pane area, so on a native
-  // browser pane it would render behind the OS-level WebContentsView. Hide
-  // native panes while it's open. (Global: this menu doesn't know a viewId, and
-  // it's transient — sibling panes blank only for the moment it's open.)
-  useSuppressNativeBrowser(open);
 
   const hasMenuItems = !!onNewChat || (availableTypes ?? getAddableTypesForScope(scope)).length > 0;
   if (!hasMenuItems) return null;

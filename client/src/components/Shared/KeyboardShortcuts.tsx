@@ -1,6 +1,5 @@
 import { X } from 'lucide-react';
 import { MODAL_BACKDROP } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 
 interface Shortcut {
   keys: string;
@@ -58,8 +57,6 @@ interface KeyboardShortcutsProps {
 }
 
 export function KeyboardShortcuts({ isOpen, onClose, isElectron }: KeyboardShortcutsProps) {
-  // Full-screen modal → hide native browser panes while open (OS-level view).
-  useSuppressNativeBrowser(isOpen);
   if (!isOpen) return null;
 
   return (

@@ -17,7 +17,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from '../../hooks/useNativeBrowser';
-import { BROWSER_SUPPRESS_EVENT, currentSuppressSnapshot } from '../../lib/browserSuppress';
+
+/** Inset (px) of each native WebContentsView vs its placeholder, exposing a DOM
+ *  gutter at pane boundaries so resize dividers stay pointer-reachable. */
+const NATIVE_VIEW_GUTTER = 6;
 
 interface NativeBrowserPlaceholderProps {
   browser: NativeBrowserHandle;
@@ -38,24 +41,6 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
   // the browser. We hide the view for the duration of the drag, then
   // restore it on dragend/drop.
   const [dragging, setDragging] = useState(false);
-
-  // OS-level overlay suppression. The WebContentsView composites ABOVE the
-  // React DOM, so any HTML overlay over this pane (⌘K palette, a modal, or one
-  // of the toolbar's own dropdowns) would be hidden behind the live page. While
-  // such an overlay is open we shrink the view to zero bounds so the React
-  // overlay shows. `global` covers full-screen modals; a viewId match covers a
-  // single pane's toolbar popover. Driven by lib/browserSuppress (no DOM
-  // observer — that previously caused an FPS regression).
-  const [suppressed, setSuppressed] = useState(false);
-  useEffect(() => {
-    const compute = () => {
-      const { global, viewIds } = currentSuppressSnapshot();
-      setSuppressed(global || (!!browser.viewId && viewIds.includes(browser.viewId)));
-    };
-    compute();
-    window.addEventListener(BROWSER_SUPPRESS_EVENT, compute);
-    return () => window.removeEventListener(BROWSER_SUPPRESS_EVENT, compute);
-  }, [browser.viewId]);
 
   // Agent activity NO LONGER touches this view's bounds. The agent drives the
   // SAME native WebContentsView over CDP, so the user already watches it work;
@@ -126,14 +111,24 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       //   (display:none doesn't reliably fire ResizeObserver, so we
       //   trust the explicit prop instead of relying on the rect)
       // - a global drag is in progress (drop preview must be visible)
-      // - an HTML overlay is suppressing this view (⌘K, a modal, or a toolbar
-      //   dropdown that would otherwise render behind the OS-level page)
       // NOTE: agent activity does NOT affect bounds — the view fills the
       // placeholder at all times (the "controlling" indicator lives in the
       // toolbar, so the page never shifts when the agent acts).
-      const next = (!isVisible || dragging || suppressed)
+      // Pull the OS-level view IN by a hair on every side. The WebContentsView
+      // composites ABOVE the DOM, so when it fills the placeholder edge-to-edge
+      // it sits on top of the 1px resize dividers that live at the pane
+      // boundary — the real pointer hits the page, never the DOM divider, so
+      // hover/grab feel dead next to a browser pane. z-index can't lift a DOM
+      // handle over a native view; the only fix is to expose a thin DOM gutter
+      // where the divider's grab zone can actually receive the pointer.
+      const next = (!isVisible || dragging)
         ? { x: 0, y: 0, width: 0, height: 0 }
-        : { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+        : {
+            x: rect.left + NATIVE_VIEW_GUTTER,
+            y: rect.top + NATIVE_VIEW_GUTTER,
+            width: Math.max(0, rect.width - 2 * NATIVE_VIEW_GUTTER),
+            height: Math.max(0, rect.height - 2 * NATIVE_VIEW_GUTTER),
+          };
 
       // Coalesce — skip the IPC if bounds didn't change. setBounds rounds
       // to integers main-side, so we round here too for cheap equality.
@@ -229,7 +224,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: depend on the specific fields the effect reads (viewId/setBounds — grep-verified the only browser.* uses), NOT the whole `browser` object. useNativeBrowser rebuilds that object every render, so depending on it re-ran this ResizeObserver/MutationObserver/rAF-poll/listener effect on EVERY render. setBounds is useCallback([viewId]) so its identity only changes with viewId (already a dep). The rule can't see the member coverage and asks for the parent object.
-  }, [browser.viewId, browser.setBounds, dragging, isVisible, suppressed]);
+  }, [browser.viewId, browser.setBounds, dragging, isVisible]);
 
   return (
     <div

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 
 interface AgentProfileEditorProps {
@@ -19,8 +18,6 @@ const ROLE_OPTIONS = [
 const EMOJI_OPTIONS = ['\uD83E\uDD16', '\uD83E\uDDD1\u200D\uD83D\uDCBB', '\uD83D\uDC7E', '\uD83E\uDDE0', '\u2699\uFE0F', '\uD83D\uDD2C', '\uD83D\uDCE1', '\uD83D\uDEE0\uFE0F'];
 
 export function AgentProfileEditor({ profile, onSave, onClose }: AgentProfileEditorProps) {
-  // Mounted only when open → hide native browser panes for its lifetime.
-  useSuppressNativeBrowser(true);
   const [name, setName] = useState(profile?.name || '');
   const [role, setRole] = useState<AgentProfile['role']>(profile?.role || 'worker');
   const [avatarEmoji, setAvatarEmoji] = useState(profile?.avatarEmoji || '\uD83E\uDD16');
