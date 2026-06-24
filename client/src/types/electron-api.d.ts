@@ -116,11 +116,37 @@ export interface OverlayAPI {
   showMenu(opts: OverlayShowMenuOptions): Promise<string | null>;
 }
 
+/** A modal request rendered by the overlay host window. `data` is the modal's
+ *  snapshot (e.g. ⌘K's topics/projects/closed-tabs), passed by value. */
+export interface OverlayHostState {
+  modal: string;
+  data?: unknown;
+}
+
+/** A modal action relayed from the overlay window back to the main renderer. */
+export interface OverlayHostAction {
+  type: string;
+  args: unknown[];
+}
+
+export interface OverlayHostAPI {
+  // main-renderer side
+  show(payload: OverlayHostState): void;
+  hide(): void;
+  onAction(cb: (action: OverlayHostAction) => void): () => void;
+  onClosed(cb: () => void): () => void;
+  // overlay-window side
+  onRender(cb: (state: OverlayHostState | null) => void): () => void;
+  action(action: OverlayHostAction): void;
+  closed(): void;
+}
+
 declare global {
   interface Window {
     electronAPI?: {
       browserNative?: BrowserNativeAPI;
       overlay?: OverlayAPI;
+      overlayHost?: OverlayHostAPI;
       /** Whether the page is running inside the Electron shell. Some callsites
        *  branch on this to short-circuit reload / cache-bust paths in favor
        *  of the native equivalents below. */

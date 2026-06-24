@@ -570,6 +570,77 @@ function App() {
     });
   }, [handleCloseBrowserDeferred]);
 
+  // ── ⌘K overlay-host routing ────────────────────────────────────────────
+  // In Electron the command palette must paint ABOVE the native browser
+  // WebContentsView, so we render it in the transparent always-on-top overlay
+  // window (electron-app/overlay-host.ts) instead of inline. The data snapshot
+  // is sent on open; each palette action is relayed back here and run against
+  // the SAME handlers the inline palette uses. On the web there's no overlay
+  // API, so the inline palette below renders as before.
+  const overlayHostAvailable = typeof window !== 'undefined' && !!window.electronAPI?.overlayHost;
+
+  const cmdDataRef = useRef<Record<string, unknown>>({});
+  cmdDataRef.current = {
+    scope: searchScope,
+    topics,
+    workspaceProjects,
+    themeMode,
+    dark: themeMode === 'dark'
+      || (themeMode === 'system' && typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches),
+    projectPath: focusedProjectPath,
+    enableNewChat: appSettings.enableNewChat,
+    closedTabs,
+  };
+
+  const runCommandActionRef = useRef<(a: { type: string; args: unknown[] }) => void>(() => {});
+  runCommandActionRef.current = ({ type, args }) => {
+    switch (type) {
+      case 'onOpenTopic': handleTopicClick(args[0] as string); break;
+      case 'onOpenProject': handleProjectClick(args[0] as string); break;
+      case 'onNewTopic': handleQuickCreateTopic(); break;
+      case 'onNewProject': if (isElectron) handleOpenProjectPicker(); break;
+      case 'onNewClaude': handleQuickCreateTerminal('claude-code', claudeSkipPermissions); break;
+      case 'onNewCodex': handleQuickCreateTerminal('codex'); break;
+      case 'onNewTerminal': handleQuickCreateTerminal('shell'); break;
+      case 'onToggleTheme': toggleTheme(); break;
+      case 'onOpenSettings': setShowSearch(false); setShowSettings(true); break;
+      case 'onOpenFileSearch': {
+        setShowSearch(false);
+        if (focusedProjectPath) { setShowFileSearch({ projectPath: focusedProjectPath }); break; }
+        const pps = [...new Set(Object.values(topics).map(t => t.projectPath).filter(Boolean))] as string[];
+        if (pps.length >= 1) setShowFileSearch({ projectPath: pps[0] });
+        break;
+      }
+      case 'onOpenFile': {
+        const path = args[0] as string;
+        const topicId = focusedProjectPath ? createPaneId('project', focusedProjectPath) : focusedPanelId;
+        window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId } }));
+        setShowSearch(false);
+        break;
+      }
+      case 'onReopenClosedTab':
+        handleReopenClosedTab(args[0] as Parameters<typeof handleReopenClosedTab>[0]);
+        break;
+    }
+  };
+
+  // Register the relay listeners once.
+  useEffect(() => {
+    const oh = window.electronAPI?.overlayHost;
+    if (!oh) return;
+    const offAction = oh.onAction((a) => runCommandActionRef.current(a));
+    const offClosed = oh.onClosed(() => setShowSearch(false));
+    return () => { offAction?.(); offClosed?.(); };
+  }, []);
+
+  // Show / hide the overlay-host palette as showSearch toggles (snapshot on open).
+  useEffect(() => {
+    const oh = window.electronAPI?.overlayHost;
+    if (!oh) return;
+    if (showSearch) oh.show({ modal: 'command-palette', data: cmdDataRef.current });
+    else oh.hide();
+  }, [showSearch]);
+
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
@@ -1051,8 +1122,10 @@ function App() {
         </Suspense>
       )}
 
-      {/* Command Palette (⌘K = everything, ⌘F = projects scope) */}
-      {showSearch && (
+      {/* Command Palette (⌘K = everything, ⌘F = projects scope). In Electron it
+          renders in the overlay-host window (above the native browser); inline
+          only on the web where there's no overlay API. */}
+      {showSearch && !overlayHostAvailable && (
         <Suspense fallback={null}>
           <CommandPalette
             isOpen={showSearch}

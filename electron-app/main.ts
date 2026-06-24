@@ -9,6 +9,7 @@ import https from 'https';
 import fs from 'fs';
 import WebSocket from 'ws';
 import { initOverlayManager, showMenu as showOverlayMenu } from './overlay-manager';
+import { initOverlayHost } from './overlay-host';
 
 // Per-region native vibrancy addon (macOS). Loaded defensively: any failure
 // (non-mac, missing/incompatible binary) yields a no-op so the app still boots
@@ -917,6 +918,11 @@ function createWindow(): void {
   // tray, or re-shown after being hidden during sleep). Registered after the
   // initial show() above, so it only fires on LATER shows.
   mainWindow.on('show', () => recomposeWindow(mainWindow));
+
+  // Overlay host — transparent always-on-top window for full-screen modals
+  // (⌘K, Settings) that must paint ABOVE the native browser WebContentsView.
+  // Loads the app in overlay mode lazily on first use; tracks this window.
+  initOverlayHost(mainWindow, SERVER_URL);
 
   const connectWhenReady = async () => {
     if (!mainWindow || mainWindow.isDestroyed() || appLoaded) return;
