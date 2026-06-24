@@ -4,7 +4,6 @@ import { Virtuoso } from 'react-virtuoso';
 import { GitBranch, Clock, RefreshCw, User, ArrowDown, ArrowUp, GitCommit, Plus, Minus, CheckCircle, Sparkles, ChevronDown, ChevronRight, Undo2, Globe, Trash2, Link, FileText } from 'lucide-react';
 import type { GitStatus as _GitStatus } from '../../types';
 import { gitApi, filesApi } from '../../lib/api';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { basename as pathBasename } from '../../lib/path-utils';
 import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
@@ -1148,8 +1147,6 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 // ── Discard confirmation dialog ──────────────────────────────────────
 
 function DiscardConfirmDialog({ files, onConfirm, onCancel }: { files: string[]; onConfirm: () => void; onCancel: () => void }) {
-  // Full-screen confirm, mounted only when open → hide native browser panes.
-  useSuppressNativeBrowser(true);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();

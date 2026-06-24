@@ -3,7 +3,6 @@ import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, Che
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 
@@ -31,9 +30,6 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, isElectron = false }: GlobalSettingsProps) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [section, setSection] = useState<SectionId>('appearance');
-  // Full-screen modal → hide every native browser pane while open (it would
-  // otherwise composite over this dialog as an OS-level layer).
-  useSuppressNativeBrowser(isOpen);
 
   useEffect(() => {
     setLocalSettings(settings);

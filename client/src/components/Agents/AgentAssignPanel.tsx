@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, UserPlus, UserMinus } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 
 interface AgentAssignPanelProps {
@@ -11,8 +10,6 @@ interface AgentAssignPanelProps {
 }
 
 export function AgentAssignPanel({ topicId, topicName, onClose }: AgentAssignPanelProps) {
-  // Mounted only when open → hide native browser panes for its lifetime.
-  useSuppressNativeBrowser(true);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

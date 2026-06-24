@@ -4,7 +4,6 @@ import { useRefMirror } from '../../hooks/useRefMirror';
 import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
 import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
 import { worktreesApi } from '../../lib/api';
 
 interface TopicSettingsModalProps {
@@ -22,8 +21,6 @@ interface ProviderInfo {
 }
 
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
-  // Full-screen modal → hide native browser panes while open (OS-level view).
-  useSuppressNativeBrowser(isOpen);
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(topic.autonomyLevel || 'ask');
   const [topicName, setTopicName] = useState(topic.name);

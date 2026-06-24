@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
-import { useSuppressNativeBrowser } from '../../lib/browserSuppress';
+import { overlayMenusAvailable, showOverlayMenu } from '../../lib/overlayMenu';
 
 const ICON = 14;
 
@@ -56,24 +56,38 @@ const DEVICE_LABEL: Record<DeviceMode, string> = {
 };
 
 export function DeviceSwitcher({
-  mode, onSet, suppressViewId,
+  mode, onSet,
 }: {
   mode: DeviceMode;
   onSet: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
-  /** Native view id — hide this pane's OS-level view while the menu is open. */
-  suppressViewId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [cw, setCw] = useState('414');
   const [ch, setCh] = useState('896');
   const ref = useOutsideClose(open, () => setOpen(false));
-  useSuppressNativeBrowser(!!suppressViewId && open, suppressViewId);
   const Icon = DEVICE_ICON[mode];
   const active = mode !== 'desktop';
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(o => !o)} title={`Dispositivo: ${DEVICE_LABEL[mode]}`}
+      <button type="button" title={`Dispositivo: ${DEVICE_LABEL[mode]}`}
         data-testid="browser-device-switcher"
+        onClick={async (e) => {
+          // Native menu over the WebContentsView (Electron); React dropdown
+          // (with the custom W×H inputs) is the web fallback.
+          if (overlayMenusAvailable()) {
+            const id = await showOverlayMenu({
+              anchorEl: e.currentTarget,
+              items: (['desktop', 'mobile', 'tablet', 'auto'] as DeviceMode[]).map(m => ({
+                id: m, label: `${mode === m ? '✓  ' : '     '}${DEVICE_LABEL[m]}`,
+              })),
+              side: 'bottom',
+              estimatedWidth: 180,
+            });
+            if (id) onSet(id as DeviceMode);
+            return;
+          }
+          setOpen(o => !o);
+        }}
         className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${active ? 'text-accent' : 'text-app-text-secondary'}`}>
         <Icon size={ICON} />
         <ChevronDown size={10} className="opacity-60" />
@@ -119,17 +133,14 @@ const LEVEL_STYLE: Record<BrowserConsoleEntry['level'], string> = {
 };
 
 export function ConsoleBadge({
-  entries, summary, onClear, suppressViewId,
+  entries, summary, onClear,
 }: {
   entries: BrowserConsoleEntry[];
   summary: { errors: number; warnings: number };
   onClear: () => void;
-  /** Native view id — hide this pane's OS-level view while the panel is open. */
-  suppressViewId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useOutsideClose(open, () => setOpen(false));
-  useSuppressNativeBrowser(!!suppressViewId && open, suppressViewId);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Auto-scroll to the newest entry when open.
   useEffect(() => { if (open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [open, entries.length]);
@@ -139,8 +150,37 @@ export function ConsoleBadge({
   const count = hasErr ? summary.errors : hasWarn ? summary.warnings : 0;
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(o => !o)} title="Console"
+      <button type="button" title="Console"
         data-testid="browser-console-badge"
+        onClick={async (e) => {
+          // Native menu over the WebContentsView (Electron): a clear action plus
+          // the recent entries (select to copy). React panel is the web fallback.
+          if (overlayMenusAvailable()) {
+            const recent = entries.slice(-30).reverse();
+            const id = await showOverlayMenu({
+              anchorEl: e.currentTarget,
+              items: [
+                { id: '__clear__', label: `Svuota · ${summary.errors} err · ${summary.warnings} warn` },
+                { id: '__div__', label: '', divider: true },
+                ...(recent.length
+                  ? recent.map(en => ({
+                      id: String(en.id),
+                      label: `${en.level === 'error' ? '✖' : en.level === 'warn' ? '⚠' : '›'}  ${en.text.slice(0, 140)}`,
+                    }))
+                  : [{ id: '__empty__', label: 'Nessun messaggio' }]),
+              ],
+              side: 'bottom',
+              estimatedWidth: 460,
+            });
+            if (id === '__clear__') onClear();
+            else if (id && id !== '__empty__') {
+              const en = entries.find(x => String(x.id) === id);
+              if (en) navigator.clipboard?.writeText(en.text).catch(() => {});
+            }
+            return;
+          }
+          setOpen(o => !o);
+        }}
         className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? 'text-red-400' : hasWarn ? 'text-amber-400' : 'text-app-text-secondary'}`}>
         <Terminal size={ICON} />
         {count > 0 && <span className="text-[10px] font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
