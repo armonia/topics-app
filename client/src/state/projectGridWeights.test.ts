@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { computeProjectGridWeight, setProjectGridWeight, getProjectGridWeight, clearProjectGridWeight } from './projectGridWeights';
+import { computeProjectGridWeight, setProjectGridWeight, getProjectGridWeight, clearProjectGridWeight, subscribeProjectGridWeights } from './projectGridWeights';
 import type { GroupLayoutRow } from '../types';
 
 const row = (groupIds: string[], cellStacks?: GroupLayoutRow['cellStacks']): GroupLayoutRow => ({
@@ -52,5 +52,77 @@ describe('projectGridWeights registry', () => {
     expect(getProjectGridWeight(path)).toEqual({ cols: 2, rows: 3 });
     clearProjectGridWeight(path);
     expect(getProjectGridWeight(path)).toBeUndefined();
+  });
+});
+
+describe('projectGridWeights change notifications (auto-rebalance trigger)', () => {
+  // Notifications are coalesced to a microtask; this flushes one tick AFTER the
+  // pending notify callback (queueMicrotask is FIFO).
+  const flush = () => new Promise<void>((r) => queueMicrotask(r));
+
+  test('first publish and same-value re-publish do NOT notify; a real change does', async () => {
+    const p = '/tmp/notify-change';
+    const seen: Array<ReadonlySet<string>> = [];
+    const unsub = subscribeProjectGridWeights((c) => seen.push(c));
+    setProjectGridWeight(p, { cols: 1, rows: 1 }); // first publish (restoring layout) — must be silent
+    await flush();
+    expect(seen).toHaveLength(0);
+    setProjectGridWeight(p, { cols: 1, rows: 1 }); // same value (e.g. an inner RESIZE) — silent
+    await flush();
+    expect(seen).toHaveLength(0);
+    setProjectGridWeight(p, { cols: 2, rows: 1 }); // split added → notify
+    await flush();
+    expect(seen).toHaveLength(1);
+    expect([...seen[0]]).toContain(p);
+    unsub();
+    clearProjectGridWeight(p);
+    await flush();
+  });
+
+  test('clearing an existing entry notifies (tab swap); clearing a missing one does not', async () => {
+    const p = '/tmp/notify-clear';
+    setProjectGridWeight(p, { cols: 1, rows: 1 });
+    await flush();
+    const seen: Array<ReadonlySet<string>> = [];
+    const unsub = subscribeProjectGridWeights((c) => seen.push(c));
+    clearProjectGridWeight(p);
+    await flush();
+    expect(seen).toHaveLength(1);
+    clearProjectGridWeight(p); // already gone
+    await flush();
+    expect(seen).toHaveLength(1);
+    unsub();
+  });
+
+  test('multiple changes in one tick coalesce into a single batched notification', async () => {
+    const a = '/tmp/notify-a', b = '/tmp/notify-b';
+    setProjectGridWeight(a, { cols: 1, rows: 1 });
+    setProjectGridWeight(b, { cols: 1, rows: 1 });
+    await flush();
+    const seen: Array<ReadonlySet<string>> = [];
+    const unsub = subscribeProjectGridWeights((c) => seen.push(c));
+    setProjectGridWeight(a, { cols: 2, rows: 1 });
+    setProjectGridWeight(b, { cols: 3, rows: 1 });
+    await flush();
+    expect(seen).toHaveLength(1);
+    expect([...seen[0]].sort()).toEqual([a, b].sort());
+    unsub();
+    clearProjectGridWeight(a);
+    clearProjectGridWeight(b);
+    await flush();
+  });
+
+  test('unsubscribe stops delivery', async () => {
+    const p = '/tmp/notify-unsub';
+    setProjectGridWeight(p, { cols: 1, rows: 1 });
+    await flush();
+    const seen: Array<ReadonlySet<string>> = [];
+    const unsub = subscribeProjectGridWeights((c) => seen.push(c));
+    unsub();
+    setProjectGridWeight(p, { cols: 2, rows: 1 });
+    await flush();
+    expect(seen).toHaveLength(0);
+    clearProjectGridWeight(p);
+    await flush();
   });
 });
