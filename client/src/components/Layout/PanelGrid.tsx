@@ -5,7 +5,7 @@ import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
-import { getProjectGridWeight, type ProjectGridWeight } from '../../state/projectGridWeights';
+import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeight } from '../../state/projectGridWeights';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
@@ -15,7 +15,7 @@ import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion } from './DropOverlay';
-import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation } from './gridWidths';
+import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths } from './gridWidths';
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 
@@ -409,6 +409,19 @@ export function PanelGrid({
       return w;
     }), [cellProjectWeight]);
 
+  // True when a cell hosts any of the given project paths (active OR background
+  // tab) — used to scope an auto-rebalance to only the rows that actually
+  // changed, leaving unrelated rows' manual widths untouched.
+  const cellReferencesProject = useCallback((key: string, paths: ReadonlySet<string>): boolean => {
+    const item = itemMap.get(key);
+    if (!item) return false;
+    for (const pid of item.panelIds) {
+      const pp = getProjectPathFromPaneId(pid);
+      if (pp && paths.has(pp)) return true;
+    }
+    return false;
+  }, [itemMap]);
+
   /* ---- Grid rows state (initial values come from usePanelGridPersistence above) ---- */
 
   // Sync gridRows when naturalGridItems change.
@@ -690,6 +703,35 @@ export function PanelGrid({
   // dispatched a setGridRows then synchronously read the ref before the
   // effect ran (e.g. drop → reorder → re-validate).
   const gridRowsRef = useRefMirror(gridRows);
+
+  // Auto-rebalance: when a project's internal split count changes (a column/row
+  // added or removed, or the visible project in a multi-tab cell swapped), reflow
+  // the OUTER columns/rows so every leaf pane stays equal — the no-double-click
+  // twin of the weighted equalize. Scoped to rows hosting the changed project, so
+  // an unrelated split keeps its manual sizes. A same-value re-publish / inner
+  // RESIZE never fires (computeProjectGridWeight ignores widths), so dragging an
+  // inner divider doesn't fight the user's outer sizing.
+  useEffect(() => subscribeProjectGridWeights((changed) => {
+    setGridRows(prev => {
+      let mutated = false;
+      const next = prev.map(row => {
+        if (!row.itemKeys.some(k => cellReferencesProject(k, changed))) return row;
+        const nw = weightedWidths(rowColumnWeights(row));
+        if (nw.length !== row.widths.length || nw.every((x, i) => Math.abs(x - row.widths[i]) < 1e-4)) return row;
+        mutated = true;
+        return { ...row, widths: nw };
+      });
+      return mutated ? next : prev;
+    });
+    const rows = gridRowsRef.current;
+    if (rows.some(row => row.itemKeys.some(k => cellReferencesProject(k, changed)))) {
+      setGridRowHeights(prev => {
+        const nh = weightedWidths(rowHeightWeights(rows));
+        if (nh.length !== prev.length || nh.every((x, i) => Math.abs(x - prev[i]) < 1e-4)) return prev;
+        return nh;
+      });
+    }
+  }), [cellReferencesProject, rowColumnWeights, rowHeightWeights, setGridRows, setGridRowHeights, gridRowsRef]);
 
   /* ---- Split pane: move a topic to its own solo pane ----
    *

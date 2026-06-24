@@ -25,6 +25,35 @@ export interface ProjectGridWeight {
 
 const weights = new Map<string, ProjectGridWeight>();
 
+// Subscribers notified when a project's published weight actually CHANGES (a
+// split column/row added or removed, or the visible project in a multi-tab cell
+// swapped) — never on a same-value re-publish or the first publish on mount. The
+// standalone grid (PanelGrid) subscribes to auto-rebalance the outer split so an
+// inner split added/removed reflows the columns without a manual double-click
+// ("stessa cosa quando si aggiungono o rimuovono tab"). Notifications are
+// coalesced to one microtask so a burst of mount/unmount churn (a tab switch =
+// clear + set) rebalances once, after the registry has settled.
+type WeightListener = (changed: ReadonlySet<string>) => void;
+const listeners = new Set<WeightListener>();
+let pendingChanged: Set<string> | null = null;
+function notifyWeightChange(projectPath: string): void {
+  if (listeners.size === 0) return;
+  const first = pendingChanged === null;
+  (pendingChanged ??= new Set()).add(projectPath);
+  if (!first) return;
+  queueMicrotask(() => {
+    const batch = pendingChanged;
+    pendingChanged = null;
+    if (batch && listeners.size > 0) for (const l of listeners) l(batch);
+  });
+}
+
+/** Subscribe to weight changes; returns an unsubscribe fn. */
+export function subscribeProjectGridWeights(listener: WeightListener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 /**
  * Compute a project's split extent from its GroupLayout rows.
  *
@@ -64,7 +93,14 @@ export function computeProjectGridWeight(
 
 /** Publish a project's current internal split extent (called by ProjectWindow). */
 export function setProjectGridWeight(projectPath: string, weight: ProjectGridWeight): void {
+  const prev = weights.get(projectPath);
   weights.set(projectPath, weight);
+  // Only a real change (not the first publish, not a same-value re-publish)
+  // should reflow the outer grid — the first publish on mount must NOT disturb
+  // the persisted layout being restored.
+  if (prev && (prev.cols !== weight.cols || prev.rows !== weight.rows)) {
+    notifyWeightChange(projectPath);
+  }
 }
 
 /** Read a project's internal split extent, or undefined if it isn't open. */
@@ -74,5 +110,9 @@ export function getProjectGridWeight(projectPath: string): ProjectGridWeight | u
 
 /** Drop a project's record (called when its window unmounts / path changes). */
 export function clearProjectGridWeight(projectPath: string): void {
-  weights.delete(projectPath);
+  // A clear means the cell's visible project is changing (tab switch / close);
+  // notify so the outer grid re-weights from whatever is now mounted there. The
+  // coalescing microtask runs after the new active project has published, so the
+  // rebalance reads the settled registry.
+  if (weights.delete(projectPath)) notifyWeightChange(projectPath);
 }
