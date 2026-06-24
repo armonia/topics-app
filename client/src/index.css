@@ -1345,7 +1345,7 @@ html.electron-mac [data-testid="single-terminal-pane"] {
  * dividers below already kept their line for the same reason.) */
 .floating-splits .cursor-col-resize:not(:hover),
 .floating-splits .cursor-row-resize:not(:hover) {
-  background-color: rgba(150, 150, 150, 0.45) !important;
+  background-color: rgba(150, 150, 150, 0.1) !important;
 }
 /* …EXCEPT a divider INSIDE a card. A project panel's own GroupLayout/PanelGrid
  * splits are nested cards rendered FLAT (margin:0, no vibrancy gap — see the
