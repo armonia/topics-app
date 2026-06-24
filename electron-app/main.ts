@@ -2331,11 +2331,16 @@ ipcMain.handle('browser-native:destroy', async (_evt, viewId: string): Promise<v
 });
 
 // Liveness heartbeat from the renderer — refreshes the view's keepalive
-// watermark so the reaper keeps it alive while its pane is mounted. A no-op for
-// a gone view (benign — same lenient contract as set-bounds/navigate).
-ipcMain.handle('browser-native:keepalive', async (_evt, viewId: string): Promise<void> => {
+// watermark so the reaper keeps it alive while its pane is mounted. Returns
+// whether the view still exists: `false` means the main process already reaped
+// it out from under a still-mounted pane (a reload-storm gap exceeded the
+// keepalive grace). The renderer uses that signal to recreate the view and
+// self-heal, instead of pinging a dead id forever and leaving the pane blank.
+ipcMain.handle('browser-native:keepalive', async (_evt, viewId: string): Promise<boolean> => {
   const entry = nativeBrowsers.get(viewId);
-  if (entry) entry.lastSeenAlive = Date.now();
+  if (!entry) return false;
+  entry.lastSeenAlive = Date.now();
+  return true;
 });
 
 // Internal — bypasses grace period (used by orphan sweep + reuse cancel).
@@ -2418,9 +2423,18 @@ ipcMain.handle('browser-native:set-bounds', async (
 });
 
 ipcMain.handle('browser-native:get-cdp-target-id', async (_evt, viewId: string): Promise<string> => {
+  // Lenient on a missing view — SAME contract as navigate/keepalive/set-bounds
+  // (every other per-view handler treats a gone view as a benign no-op). This
+  // one is POLLED in a loop by useNativeBrowser (mount-time resolve + the ~15s
+  // self-heal refresh). A view can legitimately be reaped between renderer churn
+  // (reload storm) and the next poll, so throwing here flooded the main log with
+  // "view not found" stack traces — which read as a broken app. Return ''
+  // (which the renderer already treats as "not resolved yet, retry/skip") so the
+  // race stays silent. resolveCdpTargetIdForView can also throw (no CDP match /
+  // wedged endpoint); collapse that to '' too — the caller handles empty.
   const entry = nativeBrowsers.get(viewId);
-  if (!entry) throw new Error(`browser-native:get-cdp-target-id — view ${viewId} not found`);
-  return await resolveCdpTargetIdForView(entry.view);
+  if (!entry) return '';
+  return await resolveCdpTargetIdForView(entry.view).catch(() => '');
 });
 
 // Phase 30.1 polish — Overlay window IPC: renderer requests a menu, main

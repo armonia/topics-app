@@ -24,8 +24,10 @@ export interface BrowserNativeAPI {
   isAvailable: true;       // truthy gate; absence -> web mode
   create(opts: BrowserNativeCreateOptions): Promise<BrowserNativeCreateResult>;
   destroy(viewId: string): Promise<void>;
-  /** Liveness heartbeat: keeps the native view alive between renderer churn. */
-  keepalive(viewId: string): Promise<void>;
+  /** Liveness heartbeat: keeps the native view alive between renderer churn.
+   *  Resolves `false` when the view has been reaped (gone) so the renderer can
+   *  recreate it and self-heal instead of pinging a dead id forever. */
+  keepalive(viewId: string): Promise<boolean>;
   navigate(viewId: string, url: string): Promise<{ url: string; title: string }>;
   goBack(viewId: string): Promise<void>;
   goForward(viewId: string): Promise<void>;
