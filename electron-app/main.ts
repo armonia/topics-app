@@ -1205,6 +1205,11 @@ let trayWS: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectDelay = 1000;
 let topicCacheTimer: ReturnType<typeof setInterval> | null = null;
+// Periodic re-sync of Claude phases. fetchClaudeSessions runs on WS (re)connect,
+// but if the connection stays up while a session's phase goes stale (e.g. a PTY
+// is killed out-of-band), the tray's error/pending glyph (⚠️/❓) could linger
+// with no event to clear it. A periodic authoritative re-fetch self-heals it.
+let claudeSyncTimer: ReturnType<typeof setInterval> | null = null;
 // Log hygiene: during an outage the bridge retries forever; without this it
 // logs connecting/error/disconnected on EVERY cycle (the .err file had 800+
 // such lines). Log the first failure of an outage once, then go quiet until
@@ -1236,6 +1241,8 @@ function startWSBridge(): void {
     fetchClaudeSessions();
     if (topicCacheTimer) clearInterval(topicCacheTimer);
     topicCacheTimer = setInterval(fetchTopicCache, 60000);
+    if (claudeSyncTimer) clearInterval(claudeSyncTimer);
+    claudeSyncTimer = setInterval(fetchClaudeSessions, 45000);
   });
 
   trayWS.on('message', (data) => {
