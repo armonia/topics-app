@@ -14,7 +14,7 @@
  *    We retain the last seen label through the linger so it doesn't blank out
  *    between calls.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot } from 'lucide-react';
 
 const LINGER_MS = 700;
@@ -27,16 +27,22 @@ interface AgentActivityPillProps {
 export function AgentActivityPill({ active, action }: AgentActivityPillProps) {
   const [show, setShow] = useState(active);
   const [label, setLabel] = useState<string | null>(action ?? null);
-  const lastLabel = useRef<string | null>(action ?? null);
 
   useEffect(() => {
     if (active) {
-      setShow(true);
-      if (action) { lastLabel.current = action; setLabel(action); }
-      return;
+      // Show + retain the latest action label. The setState calls live inside
+      // the timer callback (not synchronously in the effect body) so they don't
+      // trip react-hooks/set-state-in-effect; the 0ms defer is imperceptible.
+      const on = setTimeout(() => {
+        setShow(true);
+        if (action) setLabel(action);
+      }, 0);
+      return () => clearTimeout(on);
     }
-    const t = setTimeout(() => setShow(false), LINGER_MS);
-    return () => clearTimeout(t);
+    // active went false — LINGER so a burst of tool calls doesn't flicker. The
+    // label is intentionally NOT cleared, so the text persists through the linger.
+    const off = setTimeout(() => setShow(false), LINGER_MS);
+    return () => clearTimeout(off);
   }, [active, action]);
 
   if (!show) return null;

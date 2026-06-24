@@ -201,7 +201,6 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     // persisted url update. Live nav uses navigate()/navigateUrl.
     // recreateNonce IS a dep: bumping it (keepalive saw the view reaped) re-runs
     // this effect to spin up a fresh WebContentsView for the same contextId.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextId, recreateNonce]);
 
   // Keepalive heartbeat — while this pane is mounted, ping the main process so
