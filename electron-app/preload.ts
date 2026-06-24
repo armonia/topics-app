@@ -244,6 +244,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }) => ipcRenderer.invoke('overlay:show-menu', opts) as Promise<string | null>,
   },
 
+  // Overlay host — full-screen React modals (⌘K, Settings) rendered in a
+  // transparent always-on-top window ABOVE the native browser WebContentsView.
+  // The MAIN renderer uses show/hide/onAction/onClosed; the OVERLAY window
+  // (loaded with ?overlay=1) uses onRender/action/closed.
+  overlayHost: {
+    /** (main) Show a modal in the overlay window with a data snapshot. */
+    show: (payload: { modal: string; data?: unknown }) => ipcRenderer.send('overlay-host:show', payload),
+    /** (main) Hide the overlay window. */
+    hide: () => ipcRenderer.send('overlay-host:hide'),
+    /** (main) Receive a relayed modal action {type,args}. Returns an unsubscribe. */
+    onAction: (cb: (action: { type: string; args: unknown[] }) => void) => {
+      const l = (_e: unknown, a: { type: string; args: unknown[] }) => cb(a);
+      ipcRenderer.on('overlay-host:action', l);
+      return () => ipcRenderer.removeListener('overlay-host:action', l);
+    },
+    /** (main) The overlay closed itself (Esc / backdrop). Returns an unsubscribe. */
+    onClosed: (cb: () => void) => {
+      const l = () => cb();
+      ipcRenderer.on('overlay-host:closed', l);
+      return () => ipcRenderer.removeListener('overlay-host:closed', l);
+    },
+    /** (overlay) Receive the modal+data to render, or null to clear. Returns an unsubscribe. */
+    onRender: (cb: (state: { modal: string; data?: unknown } | null) => void) => {
+      const l = (_e: unknown, s: { modal: string; data?: unknown } | null) => cb(s);
+      ipcRenderer.on('overlay-host:render', l);
+      return () => ipcRenderer.removeListener('overlay-host:render', l);
+    },
+    /** (overlay) Relay a modal action back to the main renderer. */
+    action: (action: { type: string; args: unknown[] }) => ipcRenderer.send('overlay-host:action', action),
+    /** (overlay) Tell main the modal closed itself. */
+    closed: () => ipcRenderer.send('overlay-host:closed'),
+  },
+
   // Dialog
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
