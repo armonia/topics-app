@@ -53,7 +53,7 @@ const DEVICE_ICON: Record<DeviceMode, typeof Monitor> = {
   desktop: Monitor, mobile: Smartphone, tablet: Tablet, auto: Maximize, custom: SlidersHorizontal,
 };
 const DEVICE_LABEL: Record<DeviceMode, string> = {
-  desktop: 'Desktop', mobile: 'Mobile', tablet: 'Tablet', auto: 'Auto', custom: 'Custom',
+  desktop: 'Desktop', mobile: 'Mobile', tablet: 'Tablet', auto: 'Auto', custom: 'Responsive',
 };
 
 export function DeviceSwitcher({
@@ -78,7 +78,7 @@ export function DeviceSwitcher({
           if (overlayMenusAvailable()) {
             const id = await showOverlayMenu({
               anchorEl: e.currentTarget,
-              items: (['desktop', 'mobile', 'tablet', 'auto'] as DeviceMode[]).map(m => ({
+              items: (['desktop', 'mobile', 'tablet', 'auto', 'custom'] as DeviceMode[]).map(m => ({
                 id: m, label: `${mode === m ? '✓  ' : '     '}${DEVICE_LABEL[m]}`,
               })),
               side: 'bottom',
@@ -96,7 +96,7 @@ export function DeviceSwitcher({
       {open && (
         <div className={`absolute top-full right-0 mt-1 z-50 min-w-[160px] ${POPOVER_SURFACE}`}
           data-testid="browser-device-menu">
-          {(['desktop', 'mobile', 'tablet', 'auto'] as DeviceMode[]).map((m) => {
+          {(['desktop', 'mobile', 'tablet', 'auto', 'custom'] as DeviceMode[]).map((m) => {
             const MI = DEVICE_ICON[m];
             return (
               <button key={m} type="button"

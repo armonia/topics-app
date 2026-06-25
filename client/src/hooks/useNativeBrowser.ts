@@ -48,8 +48,14 @@ export interface NativeBrowserHandle {
   setZoom(delta: number | 'reset'): Promise<number>;
   /** Current device-emulation mode (default 'desktop'). */
   deviceMode: DeviceMode;
-  /** Apply a device-emulation preset. 'custom' needs width/height; 'desktop'/'auto' disable emulation. */
+  /** Apply a device preset. 'mobile'/'tablet' emulate; 'custom' = responsive
+   *  resize (real view sized to width/height, no emulation); 'desktop'/'auto'
+   *  fill the pane. */
   setDevice(mode: DeviceMode, custom?: { width: number; height: number; deviceScaleFactor?: number }): void;
+  /** Responsive-resize viewport (px) when deviceMode==='custom'; null otherwise. */
+  responsiveSize: { width: number; height: number } | null;
+  /** Live-set the responsive viewport (called continuously while dragging a handle). */
+  setResponsiveSize(width: number, height: number): void;
   /** Recent page console messages (ring buffer) for the toolbar quick-console. */
   consoleEntries: BrowserConsoleEntry[];
   /** Counts for the toolbar badge. */
@@ -70,6 +76,11 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   const [ready, setReady] = useState<boolean>(false);
   const [faviconUrl, setFaviconUrl] = useState<string>('');
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  // Responsive-resize viewport (px) when deviceMode==='custom'. We shrink the
+  // REAL WebContentsView to this size (the page reflows naturally, no CDP
+  // emulation) and expose DOM drag-handles around it — a "responsive design
+  // mode" the user can drag, instead of fixed presets only.
+  const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   // Bumped when the keepalive ping discovers the main process reaped our view
   // out from under us (reload-storm gap > keepalive grace). Re-runs the create
@@ -401,15 +412,29 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     const api = window.electronAPI?.browserNative;
     if (!api || !viewId) return;
     setDeviceMode(mode);
+    // 'custom' = responsive-resize mode: we physically size the WebContentsView
+    // (NativeBrowserPlaceholder) so the page reflows like a real window — no CDP
+    // device emulation. Disable any active emulation and let the placeholder
+    // pick an initial size (null) the user can then drag via the handles.
+    if (mode === 'custom') {
+      setResponsiveSizeState(custom ? { width: Math.round(custom.width), height: Math.round(custom.height) } : null);
+      api.setDevice(viewId, null).catch(() => {});
+      return;
+    }
+    setResponsiveSizeState(null);
     let params: null | { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string } = null;
     if (mode === 'mobile' || mode === 'tablet') {
       const p = DEVICE_PRESETS[mode];
       params = { width: p.width!, height: p.height!, deviceScaleFactor: p.deviceScaleFactor, mobile: p.mobile, userAgent: p.userAgent };
-    } else if (mode === 'custom' && custom) {
-      params = { width: custom.width, height: custom.height, deviceScaleFactor: custom.deviceScaleFactor, mobile: true };
     }
     api.setDevice(viewId, params).catch(() => {});
   }, [viewId]);
+
+  // Live-set the responsive viewport while the user drags a resize handle. Pure
+  // state — the placeholder's effect re-issues setBounds so the view follows.
+  const setResponsiveSize = useCallback((width: number, height: number) => {
+    setResponsiveSizeState({ width: Math.round(width), height: Math.round(height) });
+  }, []);
 
   const getNavEntries = useCallback(async (): Promise<{ entries: NavHistoryEntry[]; activeIndex: number }> => {
     const api = window.electronAPI?.browserNative;
@@ -427,6 +452,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl,
     navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools,
     findInPage, stopFind, onFindResult, setZoom,
-    deviceMode, setDevice, consoleEntries, consoleSummary, clearConsole, getNavEntries, goToNavIndex,
+    deviceMode, setDevice, responsiveSize, setResponsiveSize,
+    consoleEntries, consoleSummary, clearConsole, getNavEntries, goToNavIndex,
   };
 }
