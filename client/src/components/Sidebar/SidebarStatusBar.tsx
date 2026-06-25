@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw } from 'lucide-react';
+import { Wifi, RefreshCw, Bot, Hourglass } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
@@ -88,7 +88,13 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
-export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: ConnectionStatus; dataNotice?: string | null } = {}) {
+export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
+  wsStatus?: ConnectionStatus;
+  dataNotice?: string | null;
+  /** Live Claude Code agent counts: `working` = running/tool-running,
+   *  `awaiting` = parked for your input. Undefined hides the chip. */
+  agentCounts?: { working: number; awaiting: number };
+} = {}) {
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
   const openclawAvailable = useOpenClawAvailable();
@@ -246,6 +252,32 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
             <span className={`text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
           )}
         </button>
+
+        {/* Live Claude Code agents: 🤖 = working now (running/tool-running),
+            ⏳ = parked awaiting your input. Hidden when neither, matching the
+            bar's "only show live signals" convention (fps, ws-status). */}
+        {agentCounts && (agentCounts.working > 0 || agentCounts.awaiting > 0) && (
+          <span
+            data-testid="agent-count"
+            className="flex items-center gap-1.5 text-[11px] flex-shrink-0 tabular-nums"
+            title={`Agenti Claude Code\n· ${agentCounts.working} al lavoro${
+              agentCounts.awaiting ? `\n· ${agentCounts.awaiting} in attesa di una tua risposta` : ''
+            }`}
+          >
+            {agentCounts.working > 0 && (
+              <span className="flex items-center gap-0.5 text-emerald-500">
+                <Bot size={12} className="animate-pulse" />
+                {agentCounts.working}
+              </span>
+            )}
+            {agentCounts.awaiting > 0 && (
+              <span className="flex items-center gap-0.5 text-amber-500">
+                <Hourglass size={10} />
+                {agentCounts.awaiting}
+              </span>
+            )}
+          </span>
+        )}
 
         {/* WebSocket connection status — moved here from the sidebar header.
             Only visible when not connected; offline = red, connecting/
