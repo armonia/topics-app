@@ -236,7 +236,12 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
     pubblicato), `chromiumoxide = "0.9.1"` (client CDP Rust), `raw-window-handle = "0.6.2"`
     (handle nativo da Tauri). Resta da spike: download framework CEF (~170MB) + bundling
     macOS .app (helper processes in `Contents/Frameworks` — fiddly; esiste tool dedicato).
-- **D2 — Terminale**: ✅ **`portable-pty` Rust nativo subito** (no bun pty-bridge sidecar).
+- **D2 — Terminale**: ⚠️ **RICLASSIFICATO → Tier 2** (scoperta in implementazione). Con il
+  local-serve, i terminali restano serviti dal **pty-bridge del server** via `:3333/ws/terminal`
+  (funzionano nel desktop senza codice nativo). Spostare il pty in Rust dentro Tauri
+  richiederebbe un transport divergente (Tauri IPC invece della WS server) + duplicare la
+  session-layer (`routes/terminal.ts`, 1642 LOC): è accoppiato alla migrazione server→Rust →
+  appartiene a **Tier 2**. **Tier 1 tiene il pty sul server.** (Beneficio: Tier 1 più snello.)
   - **Contratto da rispettare** (oggi `pty-bridge.mjs`, 371 LOC, NDJSON):
     in `create{id,shell,args,cwd,cols,rows,env}` · `write{id,data}` · `resize{id,cols,rows}`
     · `kill{id}` · `list` · `buffer{id}` · `ping`; out `created{id,pid}` · `data{id,data}`
