@@ -142,7 +142,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
     : serverMemMB;
   const memHigh = electronMemMB !== null ? totalMemMB! > 3072 : (serverMemMB ?? 0) > 512;
   const memTitle = electronMemMB !== null
-    ? `App Topics: ${totalMemMB} MB (working set)\n· Electron ${electronMemMB} MB su ${perf!.memory.processCount} processi (renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB})\n· server ${serverMemMB ?? '—'} MB\nInclude pagine condivise tra processi → leggera sovrastima della memoria unica`
+    ? `App Topics: ${totalMemMB} MB — memoria residente (RSS)\n· Electron ${electronMemMB} MB su ${perf!.memory.processCount} processi (renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB})\n· server ${serverMemMB ?? '—'} MB\nActivity Monitor mostra un numero più alto (footprint): l'RSS non conta memoria compressa + superfici GPU`
     : status
       ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria totale dell'app è disponibile solo nell'app desktop`
       : '';
