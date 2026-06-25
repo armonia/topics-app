@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wifi, Server, HardDrive, RefreshCw, Clock, RotateCcw, MessageSquare } from 'lucide-react';
+import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
@@ -69,14 +69,8 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             color="green"
           />
 
-          {/* Memory */}
-          <StatusRow
-            icon={<HardDrive size={12} />}
-            label="Memory"
-            value={`${status.server.memoryMB} MB`}
-            detail={`heap ${status.server.heapUsedMB} MB`}
-            color={status.server.memoryMB > 512 ? 'yellow' : 'green'}
-          />
+          {/* Memory lives in the PerfSection block above (full per-process
+              breakdown + server RSS) — not repeated here. */}
 
           {/* Cron Jobs — OpenClaw only */}
           {openclawAvailable && (
