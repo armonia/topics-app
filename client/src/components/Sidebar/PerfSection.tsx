@@ -245,7 +245,7 @@ export function PerfSection() {
             <span className="text-[9px] text-app-text-muted">sistema · per core</span>
           </div>
           {topByCommand.map(([command, { cpu, count, isTopics }]) => (
-            <div key={command} className="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-app-hover">
+            <div key={command} className="flex items-center gap-2 px-1.5 py-0.5 rounded">
               <span className={`text-[10px] truncate flex-1 ${isTopics ? 'text-primary font-medium' : 'text-app-text-secondary'}`}>
                 {command}{count > 1 && <span className="text-app-text-muted"> ×{count}</span>}
               </span>
