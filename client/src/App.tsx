@@ -742,7 +742,7 @@ function App() {
             the same 6px the tab strip, the sidebar cards, and the list's
             vertical padding use — one inset on every sidebar axis. */}
         <div
-          data-tauri-drag-region
+          data-tauri-drag-region="deep"
           className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET }}
         >
