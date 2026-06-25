@@ -74,7 +74,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             icon={<HardDrive size={12} />}
             label="Memory"
             value={`${status.server.memoryMB} MB`}
-            detail={`heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB`}
+            detail={`heap ${status.server.heapUsedMB} MB`}
             color={status.server.memoryMB > 512 ? 'yellow' : 'green'}
           />
 
