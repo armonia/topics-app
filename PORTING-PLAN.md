@@ -106,13 +106,17 @@ gate non è verde.
 **Obiettivo:** sostituire Electron con Tauri v2 (Rust + system WebView), tenendo
 React e il server Bun come sidecar. Consolidare il path web/PWA.
 
-> **✅ ARCHITETTURA VERIFICATA (2026-06-25).** Tauri inietta l'IPC nativo SOLO nelle
-> pagine servite localmente (`tauri://`), MAI in un origin http remoto — provato con
-> self-test su file (locale: `internals=true` + `perf_metrics` risponde `139MB`;
-> remoto `:3333`: niente). Conseguenza: la shell serve `/public` **localmente** e
-> parla col server `:3333` solo per i dati. Implementato e committato (`331d27c`):
-> client WS via `serverWsBase()` + shim globale `fetch` per i path `/api`; CORS
-> additivo lato server. Tutto **gated su `isTauri`** → web/Electron invariati.
+> **✅✅ TIER-1 CORE VALIDATO END-TO-END (2026-06-25).** La Tauri release carica
+> `/public` localmente (`tauri://localhost`), il client rileva `isTauri` e si connette
+> a **`https://127.0.0.1:3333`** (cert "Armonia Local CA" trusted dal keychain) + `wss`
+> per la WS app; il CORS server (live dopo `kickstart -k topics-server`) risponde
+> `Access-Control-Allow-Origin: tauri://localhost`. **Prova**: il processo WKWebView
+> Networking dell'app teneva **33 connessioni ESTABLISHED a :3333**, UI popolata.
+> **Footprint ~90 MB (app 54 + GPU 11 + Net 10 + WebContent 15) vs Electron 221-926 MB
+> → −59%…−90%.** Il restart del server ha **preservato i PTY** (log: "PTYs preserved").
+>
+> Verificato anche il vincolo IPC: Tauri inietta `__TAURI_INTERNALS__` SOLO su origin
+> locale `tauri://`, mai su http remoto (self-test su file). Da qui il local-serve.
 
 **Scope:**
 - [x] T1.0 — **Spike Tauri** ✅: `desktop-tauri/` scaffolded (Rust 1.96 + Tauri v2),
