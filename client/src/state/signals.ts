@@ -574,6 +574,50 @@ export function useAnyAgentActive(): boolean {
   return useSignalsStore((s) => s.agentActiveTopics.size > 0);
 }
 
+/**
+ * Global live agent counts for the status bar, counted from the SAME signals the
+ * tab spinners and blue "awaiting" fills read — so the number can never drift
+ * from what's on screen:
+ *   - working  = claude/codex sessions producing output right now. A terminal
+ *     counts via `terminalLoadingFrom` (phase-active OR pty-busy-and-not-resting)
+ *     — crucially the pty-busy fallback means a session stuck at `starting`
+ *     (hooks never advanced it) still counts, which raw phase counting missed —
+ *     plus chat topics mid-stream (live or hydrated).
+ *   - awaiting = sessions parked for the user (the blue-fill set): claude
+ *     terminals awaiting + chat topics awaiting.
+ *
+ * `roster` is the authoritative terminal session list (App's `terminalSessions`)
+ * — needed to enumerate which ids are claude/codex and apply the loading rule.
+ */
+export function useAgentActivityCounts(
+  roster: ReadonlyArray<{ id: string; type: string }>,
+): { working: number; awaiting: number } {
+  const sig = useSignalsStore(
+    useShallow((s) => ({
+      active: s.claudePhaseActiveTermIds,
+      resting: s.claudePhaseRestingTermIds,
+      busy: s.terminalBusyIds,
+      awaitingTerm: s.claudePhaseAwaitingTermIds,
+      liveStream: s.liveStreamTopics,
+      hydratedStream: s.hydratedStreamTopics,
+      awaitingTopics: s.awaitingFeedbackTopics,
+    })),
+  );
+  return useMemo(() => {
+    let working = 0;
+    for (const t of roster) {
+      if (t.type !== 'claude-code' && t.type !== 'claude-code-team' && t.type !== 'codex') continue;
+      if (terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting)) working++;
+    }
+    // Chat sessions mid-reply (distinct id space from terminals → no overlap).
+    const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
+    working += streamingTopics.size;
+    // Awaiting = the blue-fill set across both surfaces.
+    const awaiting = sig.awaitingTerm.size + sig.awaitingTopics.size;
+    return { working, awaiting };
+  }, [roster, sig]);
+}
+
 // ---- Attention facade (read by the notification layer) ---------------------
 
 /** Reactive attention sets for getBadgeCount. */
