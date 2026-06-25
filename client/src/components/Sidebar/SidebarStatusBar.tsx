@@ -5,6 +5,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
 import { useFps, useFpsActive } from '@/lib/fpsMonitor';
+import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
@@ -85,11 +86,38 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
   // Shared FPS monitor: idle burst-sampling for this number, live 1Hz while the
   // dropdown is open (see useFpsActive below).
   const fps = useFps();
+  // Real desktop footprint + CPU. The hook self-guards (null in web mode, and
+  // pauses while the window is hidden), so an always-on call is cheap; it polls
+  // every 5s in Electron. This is the number that fixes the "status bar says
+  // 69 MB but the app is eating way more" gap: 69 MB was just the Bun server's
+  // RSS, while `perf.memory.totalMB` sums every Electron process.
+  const perf = usePerfMetrics(true, 5000);
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
 
   const isElectron = !!window.electronAPI?.isElectron;
   const isDev = import.meta.env.DEV;
+
+  // Total app memory: Electron processes (all renderers/GPU/main) + the Bun
+  // server (a separate process, not in getAppMetrics). In web mode there's no
+  // per-process data, so we fall back to the server RSS alone — the old number,
+  // now honestly scoped by its tooltip.
+  const serverMemMB = status?.server.memoryMB ?? null;
+  // Optional-chain `memory`: it crosses the IPC boundary, so a renderer running
+  // ahead of a not-yet-rebuilt Electron main (auto-update / partial deploy) sees
+  // an old payload without `memory`. `?.memory?.` degrades to the server-only
+  // fallback instead of throwing. Every read below is gated on electronMemMB,
+  // so a non-null value guarantees perf.memory exists.
+  const electronMemMB = perf?.memory?.totalMB ?? null;
+  const totalMemMB = electronMemMB !== null
+    ? electronMemMB + (serverMemMB ?? 0)
+    : serverMemMB;
+  const memHigh = electronMemMB !== null ? totalMemMB! > 3072 : (serverMemMB ?? 0) > 512;
+  const memTitle = electronMemMB !== null
+    ? `App Topics: ${totalMemMB} MB\n· Electron ${electronMemMB} MB su ${perf!.memory.processCount} processi (renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB})\n· server ${serverMemMB ?? '—'} MB`
+    : status
+      ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB) — la memoria totale dell'app è disponibile solo nell'app desktop`
+      : '';
 
   // App version: build-time constant, overridden by the live Electron version
   // when running in the desktop shell (more accurate after an auto-update).
@@ -186,12 +214,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
               title={status ? 'Topics server reachable' : 'Topics server unreachable'}
             />
           )}
-          {status && (
+          {totalMemMB !== null && (
             <span
-              className={`text-app-text-muted tabular-nums ${status.server.memoryMB > 512 ? 'text-amber-500' : ''}`}
-              title={`heap: ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB`}
+              className={`text-app-text-muted tabular-nums ${memHigh ? 'text-amber-500' : ''}`}
+              title={memTitle}
             >
-              {status.server.memoryMB}MB
+              {totalMemMB}MB
+            </span>
+          )}
+          {perf && (
+            <span
+              className={`text-app-text-muted tabular-nums ${perf.cpu.total > 150 ? 'text-amber-500' : ''}`}
+              title={`CPU app: ${perf.cpu.total}% (renderer ${perf.cpu.renderer}% · GPU ${perf.cpu.gpu}%) — somma su tutti i core`}
+            >
+              {perf.cpu.total}%
             </span>
           )}
           {fps > 0 && (
