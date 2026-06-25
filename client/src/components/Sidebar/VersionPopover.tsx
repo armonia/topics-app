@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { isDesktop } from '@/lib/shell';
 
 function platformLabel(): string {
   const p = (window.electronAPI as { platform?: string } | undefined)?.platform;
@@ -32,7 +33,7 @@ export function VersionPopover({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const isElectron = !!window.electronAPI?.isElectron;
+  const isElectron = isDesktop; // shell-resolved desktop (Electron or Tauri)
   const { available, status, check, download, install } = useUpdater();
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
