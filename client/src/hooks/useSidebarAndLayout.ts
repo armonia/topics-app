@@ -26,6 +26,8 @@ import { useStorageSync } from './useStorageSync';
 import { loadSettings, saveSettings } from '../lib/settings';
 import { generateUUID } from '../utils/uuid';
 import { DRAG_SLOP_PX } from './useGridResize';
+import { isDesktop } from '../lib/shell';
+import { showTrafficLights, hideTrafficLights } from '../lib/shell/window';
 
 const getWindowId = (): string => {
   let id = sessionStorage.getItem('topics-window-id');
@@ -131,16 +133,15 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   // Electron detection (constant per session)
   const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
 
-  // Show/hide macOS traffic lights with Topics dropdown
+  // Show/hide macOS traffic lights with Topics dropdown (Electron + Tauri).
   useEffect(() => {
-    if (!isElectron) return;
-    const api = (window as unknown as { electronAPI?: { window?: { showTrafficLights?: () => void; hideTrafficLights?: () => void } } }).electronAPI?.window;
+    if (!isDesktop) return;
     if (showTopicsMenu) {
-      api?.showTrafficLights?.();
+      showTrafficLights();
     } else {
-      api?.hideTrafficLights?.();
+      hideTrafficLights();
     }
-  }, [showTopicsMenu, isElectron]);
+  }, [showTopicsMenu]);
 
   // App settings + cross-tab sync
   const [appSettings, setAppSettings] = useState<AppSettings>(loadSettings);

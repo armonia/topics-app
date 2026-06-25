@@ -9,6 +9,13 @@
 // APIs the shell bridge calls directly.
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Desired traffic-light visibility (hidden by default; the client flips it when
+/// the Topics menu opens). AppKit re-shows the buttons on focus/resize when the
+/// titlebar is transparent (`Overlay`), so we re-assert this state on those
+/// window events — mirroring the Electron shell's re-pin pattern.
+static TRAFFIC_LIGHTS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
 /// Per-process footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU. NOTE: on
@@ -109,6 +116,52 @@ async fn run_tls_proxy() {
     }
 }
 
+/// Show/hide the macOS traffic-light buttons (close/miniaturise/zoom) on the
+/// given window. WKWebView's frameless `Overlay` titlebar shows them by default;
+/// the Electron shell hides them and reveals them only while the Topics menu is
+/// open. Tauri exposes no JS API for this, so we toggle the NSWindow's three
+/// standard buttons directly. No-op off macOS.
+#[cfg(target_os = "macos")]
+fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
+    use cocoa::appkit::{NSWindow, NSWindowButton};
+    use cocoa::base::{id, nil};
+    use objc::{msg_send, sel, sel_impl};
+
+    let ptr = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(e) => {
+            eprintln!("[chrome] ns_window() failed: {e}");
+            return;
+        }
+    };
+    let mut hit = 0;
+    unsafe {
+        for button in [
+            NSWindowButton::NSWindowCloseButton,
+            NSWindowButton::NSWindowMiniaturizeButton,
+            NSWindowButton::NSWindowZoomButton,
+        ] {
+            let b: id = ptr.standardWindowButton_(button);
+            if b != nil {
+                let _: () = msg_send![b, setHidden: !visible];
+                hit += 1;
+            }
+        }
+    }
+    let _ = hit;
+}
+
+/// Reveal or hide the window's traffic lights. Driven by the client when the
+/// Topics dropdown opens/closes (mirrors Electron's `window:showTrafficLights`).
+#[tauri::command]
+fn set_traffic_lights(window: tauri::WebviewWindow, visible: bool) {
+    TRAFFIC_LIGHTS_VISIBLE.store(visible, Ordering::Relaxed);
+    #[cfg(target_os = "macos")]
+    apply_traffic_lights(&window, visible);
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -128,9 +181,29 @@ pub fn run() {
             // data server (whose cert WKWebView rejects) over plain HTTP/WS.
             tauri::async_runtime::spawn(run_tls_proxy());
 
+            // Traffic lights hidden by default — revealed on demand when the
+            // Topics menu opens (parity with the Electron shell).
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                for (_label, win) in app.webview_windows() {
+                    apply_traffic_lights(&win, false);
+                    // Re-assert the desired visibility whenever AppKit might have
+                    // reset it (focus gained/lost, resize) — otherwise the buttons
+                    // reappear on the first focus of a transparent-titlebar window.
+                    let w = win.clone();
+                    win.on_window_event(move |event| match event {
+                        tauri::WindowEvent::Focused(_) | tauri::WindowEvent::Resized(_) => {
+                            apply_traffic_lights(&w, TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed));
+                        }
+                        _ => {}
+                    });
+                }
+            }
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![perf_metrics])
+        .invoke_handler(tauri::generate_handler![perf_metrics, set_traffic_lights])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
