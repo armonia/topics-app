@@ -106,12 +106,22 @@ gate non è verde.
 **Obiettivo:** sostituire Electron con Tauri v2 (Rust + system WebView), tenendo
 React e il server Bun come sidecar. Consolidare il path web/PWA.
 
+> **✅ ARCHITETTURA VERIFICATA (2026-06-25).** Tauri inietta l'IPC nativo SOLO nelle
+> pagine servite localmente (`tauri://`), MAI in un origin http remoto — provato con
+> self-test su file (locale: `internals=true` + `perf_metrics` risponde `139MB`;
+> remoto `:3333`: niente). Conseguenza: la shell serve `/public` **localmente** e
+> parla col server `:3333` solo per i dati. Implementato e committato (`331d27c`):
+> client WS via `serverWsBase()` + shim globale `fetch` per i path `/api`; CORS
+> additivo lato server. Tutto **gated su `isTauri`** → web/Electron invariati.
+
 **Scope:**
 - [x] T1.0 — **Spike Tauri** ✅: `desktop-tauri/` scaffolded (Rust 1.96 + Tauri v2),
       carica il server live `:3333`. Misurato **117 MB vs Electron 221-926 MB**. GO.
-- [ ] T1.1 — Astrarre `window.electronAPI` dietro un'interfaccia `shellBridge`
-      (i 17 file → un solo punto di swap).
-- [ ] T1.2 — Bridge IPC: `preload.ts` (48 canali) → Tauri commands (il ~50% non-browser).
+- [x] T1.1 — **Shell bridge** ✅ (`client/src/lib/shell/`): `detectShell()` electron/tauri/web,
+      `capabilities`, facade `app`/`perf`, `net` (serverWsBase + fetch-shim). Additivo, typecheck verde.
+- [~] T1.2 — Bridge IPC: plugin nativi (opener/process/os) + comando `perf_metrics` live;
+      facade `app`/`perf` pronti. Resta: migrare i ~22 callsite dal `electronAPI` al facade.
+      ⚠️ CORS server committato ma **non applicato** (serve restart prod, da fare insieme).
 - [ ] T1.3 — Shell nativa: tray, global shortcut, powerMonitor, nativeTheme,
       **vibrancy per-region** (`window-vibrancy` + pezzo custom dello split).
 - [ ] T1.4 — Terminale: pty via `portable-pty` (Rust nativo, **D2 risolto**); rispetta
