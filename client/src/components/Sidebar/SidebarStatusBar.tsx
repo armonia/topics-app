@@ -136,13 +136,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // an old payload without `memory`. `?.memory?.` degrades to the server-only
   // fallback instead of throwing. Every read below is gated on electronMemMB,
   // so a non-null value guarantees perf.memory exists.
+  const memMetric = perf?.memory?.metric;
+  // Headline = the Electron app's own memory (what Activity Monitor groups as
+  // "Topics"). The Bun server is a SEPARATE OS process (shown separately in
+  // Activity Monitor too), so it's surfaced in the tooltip, not added in — that
+  // keeps this number directly comparable to Activity Monitor's "Topics" row.
   const electronMemMB = perf?.memory?.totalMB ?? null;
-  const totalMemMB = electronMemMB !== null
-    ? electronMemMB + (serverMemMB ?? 0)
-    : serverMemMB;
+  const totalMemMB = electronMemMB !== null ? electronMemMB : serverMemMB;
   const memHigh = electronMemMB !== null ? totalMemMB! > 3072 : (serverMemMB ?? 0) > 512;
   const memTitle = electronMemMB !== null
-    ? `App Topics: ${totalMemMB} MB — memoria residente (RSS)\n· Electron ${electronMemMB} MB su ${perf!.memory.processCount} processi (renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB})\n· server ${serverMemMB ?? '—'} MB\nActivity Monitor mostra un numero più alto (footprint): l'RSS non conta memoria compressa + superfici GPU`
+    ? `App Topics: ${totalMemMB} MB — ${memMetric === 'footprint' ? 'footprint, ≈ Activity Monitor (RSS + memoria compressa + GPU)' : 'memoria residente (RSS)'}\n· renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB} MB (${perf!.memory.processCount} processi)\n· server Bun (processo separato): ${serverMemMB ?? '—'} MB`
     : status
       ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria totale dell'app è disponibile solo nell'app desktop`
       : '';
