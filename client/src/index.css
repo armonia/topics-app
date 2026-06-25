@@ -1154,6 +1154,25 @@ html.electron-mac .chrome-glass .chrome-glass {
   background-color: transparent !important;
 }
 
+/* Tauri-mac: no per-region native vibrancy addon (that's Electron's path), so the
+ * window is PLAIN transparent and the chrome frosts ITSELF via CSS backdrop-blur
+ * over the clear desktop. Result: floating-splits gaps fall through to the REAL
+ * desktop (matching Electron's "clear live desktop" look the user expects),
+ * while the sidebar / tab bars / pane chrome still read as frosted glass. The
+ * tint already comes from the `.electron-mac` rules above; here we only add the
+ * blur (via Tailwind @apply so the minifier keeps BOTH prefixed + unprefixed
+ * `backdrop-filter` — a raw pair gets collapsed to -webkit-only and silently
+ * no-ops). Content panes keep their opaque `bg-surface`, so text stays crisp. */
+html.tauri-mac [role="navigation"][aria-label="Topics sidebar"],
+html.tauri-mac .chrome-glass {
+  @apply backdrop-blur-2xl backdrop-saturate-150;
+}
+/* Single blur layer — a nested glass must not re-blur (compounds the frost). */
+html.tauri-mac .chrome-glass .chrome-glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /* Floating popovers — dropdowns, menus, context menus, autocompletes — read as
  * the SAME frosted glass as the chrome instead of an opaque `bg-surface` block.
  * In dark mode `--bg-surface` is #181a20 (a blue-tinted grey); rendered opaque
