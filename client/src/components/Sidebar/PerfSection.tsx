@@ -131,13 +131,13 @@ export function PerfSection() {
               label="Renderer"
               value={`${perf.cpu.renderer}%`}
               color={perf.cpu.renderer > 80 ? 'text-amber-500' : 'text-app-text'}
-              title="CPU del processo renderer di Topics (questo è il costo di Topics)"
+              title="CPU del renderer di Topics — per-processo, può superare 100% (scala diversa da PC load)"
             />
             <PerfStat
               label="GPU"
               value={`${perf.cpu.gpu}%`}
               color={undefined}
-              title="CPU del processo GPU/compositor di Electron"
+              title="CPU del processo GPU/compositor — per-processo, può superare 100% (scala diversa da PC load)"
             />
           </>
         ) : (
@@ -151,16 +151,19 @@ export function PerfSection() {
           label="PC load"
           value={loadPercent !== null ? `${loadPercent}%` : 'n/d'}
           color={loadPercent !== null && loadPercent > 85 ? 'text-amber-500' : 'text-app-text'}
-          title={status?.cpu ? `load avg ${status.cpu.loadAvg1} su ${status.cpu.cores} core` : 'Carico medio del sistema'}
+          title={status?.cpu ? `Carico dell'intera macchina (sistema, 0–100%) — load avg ${status.cpu.loadAvg1} su ${status.cpu.cores} core` : 'Carico medio del sistema (0–100%)'}
         />
       </div>
 
       {/* Memory footprint — the REAL one. The status bar used to show only the
           Bun server's RSS (~70 MB); this is the full desktop figure: every
           Electron process (renderers, GPU, main, utility) + the server. */}
-      <div className="flex items-center justify-between px-0.5 pt-0.5">
+      <div
+        className="flex items-center justify-between px-0.5 pt-0.5"
+        title="Working set di tutti i processi Electron + RSS del server Bun. Include pagine condivise tra processi, quindi è una leggera sovrastima della memoria unica."
+      >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria
+          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">working set</span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
           {totalMemMB !== null ? `${totalMemMB} MB` : '—'}
