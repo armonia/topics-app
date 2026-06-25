@@ -162,6 +162,50 @@ fn set_traffic_lights(window: tauri::WebviewWindow, visible: bool) {
     let _ = window;
 }
 
+/// Set the NSWindow's appearance to match the app's resolved light/dark theme.
+/// The traffic lights and — crucially — the per-region NSVisualEffectViews read
+/// the window's effective appearance, so a single setAppearance also re-tints the
+/// vibrancy material (light frost in light mode, dark frost in dark mode) with no
+/// per-view work. Electron does this via `nativeTheme.themeSource`; we set the
+/// NSAppearance directly since Tauri exposes no JS API for it. No-op off macOS.
+#[cfg(target_os = "macos")]
+fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let ptr = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(_) => return,
+    };
+    unsafe {
+        let name = if dark {
+            "NSAppearanceNameDarkAqua"
+        } else {
+            "NSAppearanceNameAqua"
+        };
+        let ns_name: id = NSString::alloc(nil).init_str(name);
+        let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: ns_name];
+        if appearance != nil {
+            let _: () = msg_send![ptr, setAppearance: appearance];
+        }
+    }
+}
+
+/// Client-driven: sync native chrome (window appearance + vibrancy tint) to the
+/// resolved theme ("dark" | "light"). Mirrors Electron's `theme.setResolved`.
+#[tauri::command]
+fn set_theme(window: tauri::WebviewWindow, theme: String) {
+    #[cfg(target_os = "macos")]
+    {
+        let dark = theme == "dark";
+        let win = window.clone();
+        let _ = window.run_on_main_thread(move || apply_appearance(&win, dark));
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, theme);
+}
+
 // ─────────────────────── Per-region vibrancy (macOS) ───────────────────────
 //
 // Tauri's `windowEffects` is whole-window — one NSVisualEffectView covers
@@ -555,6 +599,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             perf_metrics,
             set_traffic_lights,
+            set_theme,
             vibrancy_set_regions,
             browser_open,
             browser_navigate,
