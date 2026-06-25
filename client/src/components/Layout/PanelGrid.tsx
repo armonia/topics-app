@@ -827,6 +827,16 @@ export function PanelGrid({
     // Mark as solo (only after limit checks pass)
     setSoloCells(prev => addSoloCell(prev, topicId));
 
+    // Native browser panes are OS-level WebContentsViews that don't follow the
+    // DOM reflow on their own. This split rearranges cells and, during the
+    // transition, can briefly leave a view overlapping the NEW tab strip — a
+    // mousedown on that tab then hits the view, not the tab, so the tab "won't
+    // drag" right after splitting a browser out. Hide every browser view for the
+    // reflow (the same signal a divider-resize uses) and re-measure once it
+    // settles. Dispatched past every limit guard above so a no-op never flashes.
+    window.dispatchEvent(new Event('topics:pane-resize-start'));
+    setTimeout(() => window.dispatchEvent(new Event('topics:pane-resize-end')), 400);
+
     setGridRows(prev => {
       // Re-check limits in the updater — `prev` may have shifted between
       // the ref read above and React running this updater.

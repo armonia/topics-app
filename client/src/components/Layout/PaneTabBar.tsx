@@ -288,22 +288,34 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_SCOPE, dndScope);
     }
     e.dataTransfer.effectAllowed = 'move';
-    // Custom drag image: styled tab preview instead of browser default file icon.
-    // The element must be in the DOM and rendered at setDragImage time.
-    // We remove it after one frame (browser captures the image synchronously).
+    // Custom drag image: a compact tab-like chip instead of the browser's
+    // default file icon. The element must be in the DOM and rendered at
+    // setDragImage time; we remove it after one frame (the browser captures the
+    // image synchronously). Styled to match app chrome (elevated surface +
+    // border + a small accent dot) and the title is truncated so a long label
+    // (e.g. a browser pane's URL) can't blow the chip up into an ugly wall of
+    // text — the old version was a bare full-width primary block.
     const ghost = document.createElement('div');
     const pane = panes.find(p => p.id === paneId);
-    ghost.textContent = pane?.title || paneId;
     ghost.style.cssText = `
-      position:fixed;left:-200px;top:-200px;
-      padding:6px 14px;border-radius:8px;
-      font:500 13px/1 Inter,system-ui,sans-serif;
-      background:color-mix(in srgb, var(--primary) 90%, transparent);color:#fff;
+      position:fixed;left:-300px;top:-300px;
+      display:inline-flex;align-items:center;gap:7px;
+      max-width:240px;padding:5px 11px;border-radius:9px;
+      font:500 12px/1.2 Inter,system-ui,sans-serif;
+      background:var(--bg-elevated);color:var(--text);
+      border:1px solid var(--border);
+      box-shadow:0 8px 24px rgba(0,0,0,0.22);
       white-space:nowrap;pointer-events:none;
-      box-shadow:0 4px 12px rgba(0,0,0,0.15);
     `;
+    const dot = document.createElement('span');
+    dot.style.cssText = 'flex:0 0 auto;width:7px;height:7px;border-radius:9999px;background:var(--primary);';
+    const label = document.createElement('span');
+    label.textContent = pane?.title || paneId;
+    label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    ghost.append(dot, label);
     document.body.appendChild(ghost);
-    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+    // Grab point near the chip's left edge so it trails the cursor like a tab.
+    e.dataTransfer.setDragImage(ghost, 14, ghost.offsetHeight / 2);
     dragGhostRef.current = ghost;
     // Remove after browser captures the image (next frame)
     requestAnimationFrame(() => {
