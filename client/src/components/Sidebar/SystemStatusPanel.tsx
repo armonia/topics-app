@@ -3,7 +3,6 @@ import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare } from 'lucide
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
-import { usePaneStore } from '../../state/pane/store';
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -34,12 +33,6 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const [confirmingRestart, setConfirmingRestart] = useState(false);
 
   const gatewayOnline = status?.gateway.online ?? false;
-
-  // Topic chat tabs actually OPEN right now (mounted panes), straight from the
-  // client pane store. This is the real "active/open" number — distinct from
-  // the server's "non-archived topics" count (status.topics.activeCount),
-  // which counts every topic that simply isn't archived.
-  const openChatTabs = usePaneStore(s => Object.values(s.panes).filter(p => p.type === 'chat').length);
 
   return (
     // pt-2: breathing room so the first row isn't squashed against the
@@ -85,28 +78,15 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
             />
           )}
 
-          {/* Connections. "Streams" (server activeStreams) was removed: it
-              double-counted the agent chip's live-work signal from a different
-              source and could visibly disagree on a missed stream:end. */}
-          <div className="flex items-center gap-3 px-2 py-1.5 rounded bg-elevated">
-            <div className="flex-1 flex items-center gap-2" title="WebSocket — connessioni client attive">
-              <span className="text-[11px] text-app-text-muted">WS</span>
-              <span className="text-[11px] font-medium text-app-text">
-                {status.connections.wsClients}
-              </span>
-            </div>
-            <div className="flex-1 flex items-center gap-2" title="Chat aperte come tab in questo momento">
-              <span className="text-[11px] text-app-text-muted">Tab aperti</span>
-              <span className={`text-[11px] font-medium ${openChatTabs > 0 ? 'text-primary' : 'text-app-text'}`}>
-                {openChatTabs}
-              </span>
-            </div>
-          </div>
+          {/* Connections row removed: "WS" (server-wide socket count across all
+              windows/devices) and "Tab aperti" (chat-only pane count) sat side by
+              side looking related but measured unrelated things and contradicted
+              each other — pure plumbing the user couldn't act on. */}
 
-          {/* 2-state model: Aperti (cella sopra = tab montate) vs Chiusi (archiviati). */}
+          {/* Topics archive size — a real feature stat, clearly labeled. */}
           <StatusRow
             icon={<MessageSquare size={12} />}
-            label="Chiusi"
+            label="Archiviati"
             value={`${status.topics.totalCount - status.topics.activeCount}`}
             detail={`${status.topics.totalCount} totali`}
             color="green"

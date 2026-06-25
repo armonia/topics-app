@@ -85,7 +85,6 @@ export function PerfSection() {
     ? Math.round(history.reduce((s, d) => s + d.fps, 0) / history.length)
     : 0;
 
-  const loadPercent = status?.cpu?.loadPercent ?? null;
   const accelerated = perf?.gpu.accelerated;
   const topProcesses = status?.topProcesses ?? [];
 
@@ -138,37 +137,26 @@ export function PerfSection() {
       </div>
       <FpsSparkline data={history} />
 
-      {/* PC vs Topics resource stats */}
-      <div className="flex gap-1.5">
-        {perf ? (
-          <>
-            <PerfStat
-              label="Renderer"
-              value={`${perf.cpu.renderer}%`}
-              color={perf.cpu.renderer > 80 ? 'text-amber-500' : 'text-app-text'}
-              title="CPU del renderer di Topics — per-processo, può superare 100% (scala diversa da PC load)"
-            />
-            <PerfStat
-              label="GPU"
-              value={`${perf.cpu.gpu}%`}
-              color={undefined}
-              title="CPU del processo GPU/compositor — per-processo, può superare 100% (scala diversa da PC load)"
-            />
-          </>
-        ) : (
+      {/* Topics' own CPU cost (renderer + GPU process). "PC load" was removed:
+          it was load1/cores*100, which exceeds 100% on an overloaded machine
+          (e.g. "229%") and read as broken — and the Top CPU list below already
+          shows what's actually loading the machine. */}
+      {perf && (
+        <div className="flex gap-1.5">
           <PerfStat
-            label="Renderer"
-            value="—"
-            title="CPU per-processo disponibile solo nell'app desktop (Electron)"
+            label="CPU renderer"
+            value={`${perf.cpu.renderer}%`}
+            color={perf.cpu.renderer > 80 ? 'text-amber-500' : 'text-app-text'}
+            title="CPU del renderer di Topics — somma per-processo, può superare 100% come in Activity Monitor"
           />
-        )}
-        <PerfStat
-          label="PC load"
-          value={loadPercent !== null ? `${loadPercent}%` : 'n/d'}
-          color={loadPercent !== null && loadPercent > 85 ? 'text-amber-500' : 'text-app-text'}
-          title={status?.cpu ? `Carico dell'intera macchina (sistema, 0–100%) — load avg ${status.cpu.loadAvg1} su ${status.cpu.cores} core` : 'Carico medio del sistema (0–100%)'}
-        />
-      </div>
+          <PerfStat
+            label="CPU GPU"
+            value={`${perf.cpu.gpu}%`}
+            color={undefined}
+            title="CPU del processo GPU/compositor di Topics — somma per-processo"
+          />
+        </div>
+      )}
 
       {/* Memory footprint — the REAL one. The status bar used to show only the
           Bun server's RSS (~70 MB); this is the full desktop figure: every
