@@ -9,7 +9,11 @@
  */
 import { usePaneStore } from './store';
 
-function isRealUrl(url: string | undefined | null): url is string {
+/** A URL worth persisting/restoring: not blank, not the empty page, not a
+ *  failed-navigation error page (`chrome-error:`). Exported so every persist
+ *  callsite (standalone + project layouts) shares ONE guard instead of
+ *  re-implementing it inline and drifting (e.g. forgetting `chrome-error:`). */
+export function isRealUrl(url: string | undefined | null): url is string {
   return !!url && url !== 'about:blank' && !url.startsWith('chrome-error:');
 }
 

@@ -602,6 +602,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             key={pane.stableKey ?? pane.id}
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
+            role="tab"
+            // Tauri: exclude this tab from window-drag SYNCHRONOUSLY at mount.
+            // The `.app-no-drag` class only becomes a Tauri opt-out once the
+            // debounced (250ms) MutationObserver in wireTauriDragRegions mirrors
+            // it to this attribute — so a freshly mounted tab (e.g. right after a
+            // browser split spawns a new cell + tab strip) spends up to ~250ms
+            // inside its `deep` drag-region ancestor: mousedown drags the WINDOW,
+            // not the tab, and the tab "feels frozen / won't drag". Setting the
+            // attribute declaratively removes that gap. Inert in Electron/web
+            // (unknown data-* attribute); the observer's `:not([data-tauri-drag-
+            // region])` guard then skips it, so no double-processing.
+            data-tauri-drag-region="false"
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
