@@ -29,6 +29,11 @@ interface BrowserServiceOptions {
   maxContexts?: number;
   cleanupIntervalMs?: number;
   inactivityTimeoutMs?: number;
+  /** Grace window (ms) after the LAST context is gone before the headless
+   *  Chromium process itself is reaped. The context sweep only closes
+   *  pages/contexts; this closes the whole browser so an idle server with no
+   *  open panes holds zero Chromium processes. Relaunches lazily on next use. */
+  browserIdleTimeoutMs?: number;
   defaultViewport?: { width: number; height: number };
   screenshotQuality?: number;
   /** CDP remote debugging port (default: 19222 — matches OpenClaw 'topics' browser profile) */
@@ -148,6 +153,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     maxContexts = 20,
     cleanupIntervalMs = 60_000,
     inactivityTimeoutMs = 30 * 60 * 1000,
+    browserIdleTimeoutMs = 5 * 60 * 1000,
     defaultViewport = { width: 1280, height: 720 },
     screenshotQuality = 70,
     cdpPort = 19222,
@@ -175,6 +181,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   }>();
   let browser: Browser | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  // Wall-clock of the last activity across ANY context. Drives the browser-idle
+  // reaper below: once no context remains and this is older than the grace
+  // window, the Chromium process is closed (it relaunches lazily on next use).
+  let lastActivityAt = Date.now();
 
   async function ensureBrowser(): Promise<Browser> {
     if (browser && browser.isConnected()) return browser;
@@ -286,6 +296,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
   function touchActivity(entry: BrowserContextEntry) {
     entry.lastActivity = Date.now();
+    lastActivityAt = entry.lastActivity;
   }
 
   async function setupPage(entry: BrowserContextEntry, _id: string) {
@@ -315,14 +326,20 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     });
   }
 
-  // Cleanup inactive contexts
+  // Reap inactive contexts, then the idle Chromium itself. Started from
+  // createBrowserService (NOT from launch(), which the server never calls in
+  // its lazy-launch setup) so the reaper is always live. Idempotent.
   function startCleanup() {
+    if (cleanupTimer) return;
     cleanupTimer = setInterval(() => {
       const now = Date.now();
       // Snapshot the stale ids first — destroyContext mutates `contexts`
-      // asynchronously, so we must not delete mid-iteration.
+      // asynchronously, so we must not delete mid-iteration. Skip any context
+      // with a live screencast: a viewer is watching it right now, and frames
+      // don't bump lastActivity, so reaping it would blank the pane.
       const stale: string[] = [];
       for (const [id, entry] of contexts) {
+        if (screencastSessions.has(id)) continue;
         if (now - entry.lastActivity > inactivityTimeoutMs) stale.push(id);
       }
       for (const id of stale) {
@@ -335,11 +352,31 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // which froze the pane (black frame) when the context was re-created.
         service.destroyContext(id).catch(() => {});
       }
+
+      // Reap the headless Chromium once every context is gone and it has sat
+      // idle past the grace window. destroyContext above only tears down
+      // pages/contexts — without this the browser process (browser + GPU +
+      // network + utility procs, ~hundreds of MB) would linger for the entire
+      // server lifetime even with zero open panes. ensureBrowser() relaunches
+      // it lazily on the next navigate/createContext, so this is recoverable.
+      // (contexts mutate async from the loop above, so a just-emptied map is
+      // caught on the next tick — that's fine, it's a slow reaper.)
+      if (browser && browser.isConnected() && contexts.size === 0 &&
+          now - lastActivityAt > browserIdleTimeoutMs) {
+        const idleMin = Math.round((now - lastActivityAt) / 60000);
+        console.log(`[BrowserService] Reaping idle Chromium (0 contexts, idle ${idleMin}min) — relaunches on demand`);
+        const b = browser;
+        browser = null;  // null first so a racing ensureBrowser relaunches cleanly
+        b.close().catch(() => {});
+      }
     }, cleanupIntervalMs);
   }
 
   const service: BrowserService = {
     async launch() {
+      // Optional pre-warm: eagerly spin up Chromium. The server does NOT call
+      // this (it relies on lazy launch); the reaper is started at creation
+      // below, independent of this. startCleanup() is idempotent.
       await ensureBrowser();
       startCleanup();
       console.log("[BrowserService] Ready");
@@ -417,6 +454,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           persistCookies: opts?.persistCookies,
         };
         contexts.set(id, entry);
+        lastActivityAt = entry.lastActivity;  // a fresh context counts as activity
         await setupPage(entry, id);
 
         // Auto-save storageState every 30s + on context close.
@@ -999,6 +1037,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
     },
   };
+
+  // Start the reaper now — the server uses lazy launch and never calls
+  // launch(), so this is the only thing that arms context + Chromium cleanup.
+  startCleanup();
 
   return service;
 }
