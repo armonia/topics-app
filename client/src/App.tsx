@@ -141,10 +141,10 @@ function App() {
     setAppSettings,
   } = layout.handlers;
 
-  // Native per-region vibrancy (macOS desktop only). Streams panel rects to the
-  // transparent window so floating-splits gaps show the clear desktop while each
-  // panel frosts; no-op off-Electron / when the addon is unavailable.
-  useFloatingVibrancy(isElectron, appSettings.floatingSplits);
+  // Native per-region vibrancy (macOS desktop only — Electron + Tauri). Streams
+  // panel rects to the transparent window so floating-splits gaps show the clear
+  // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
+  useFloatingVibrancy(appSettings.floatingSplits);
   // Stop the always-running loaders / awaiting-pulse breathers from burning the
   // compositor while the window is backgrounded (minimized / occluded / blurred).
   useAnimationPause();
