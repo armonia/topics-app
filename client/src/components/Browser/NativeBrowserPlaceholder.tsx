@@ -18,9 +18,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { NativeBrowserHandle } from '../../hooks/useNativeBrowser';
 
-/** Inset (px) of each native WebContentsView vs its placeholder, exposing a DOM
- *  gutter at pane boundaries so resize dividers stay pointer-reachable. */
-const NATIVE_VIEW_GUTTER = 6;
+/** Inset (px) of each native WebContentsView vs its placeholder. 0 = the page
+ *  fills the pane edge-to-edge (no visible "padding" frame), so the browser
+ *  integrates seamlessly into the UI. Resize dividers stay reachable from the
+ *  ADJACENT pane's grab zone (DOM dividers extend ±15px into the neighbour, and
+ *  a resize hides the view on `topics:pane-resize-start`); only a divider
+ *  between TWO native browser panes loses its grab strip — re-introduce a small
+ *  inset here if that combination needs it. */
+const NATIVE_VIEW_GUTTER = 0;
 
 interface NativeBrowserPlaceholderProps {
   browser: NativeBrowserHandle;
@@ -41,6 +46,45 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
   // the browser. We hide the view for the duration of the drag, then
   // restore it on dragend/drop.
   const [dragging, setDragging] = useState(false);
+
+  // Latest device-mode / responsive-size, read inside the bounds effect WITHOUT
+  // adding them to its deps (which would tear down + re-register the whole
+  // ResizeObserver/listener stack on every drag frame).
+  const modeRef = useRef(browser.deviceMode);
+  modeRef.current = browser.deviceMode;
+  const respRef = useRef(browser.responsiveSize);
+  respRef.current = browser.responsiveSize;
+
+  // Responsive-resize: drag a handle to resize the emulated viewport. We HIDE
+  // the native view for the drag (via the same pane-resize events the divider
+  // uses) so the renderer keeps the pointer stream — the OS-level view would
+  // otherwise steal pointermove the instant the cursor crossed it. A DOM
+  // outline previews the target size; on release the view re-shows at it.
+  const MIN_RESP = 240;
+  const onResizeHandle = (axis: 'x' | 'y' | 'xy') => (e: React.PointerEvent) => {
+    e.preventDefault();
+    const el = placeholderRef.current;
+    if (!el) return;
+    const pr = el.getBoundingClientRect();
+    const start = browser.responsiveSize ?? {
+      width: Math.max(MIN_RESP, Math.round(pr.width * 0.7)),
+      height: Math.max(MIN_RESP, Math.round(pr.height * 0.7)),
+    };
+    window.dispatchEvent(new Event('topics:pane-resize-start'));
+    const move = (ev: PointerEvent) => {
+      let w = start.width, h = start.height;
+      if (axis !== 'y') w = Math.max(MIN_RESP, Math.min(Math.round(ev.clientX - pr.left), Math.round(pr.width)));
+      if (axis !== 'x') h = Math.max(MIN_RESP, Math.min(Math.round(ev.clientY - pr.top), Math.round(pr.height)));
+      browser.setResponsiveSize(w, h);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.dispatchEvent(new Event('topics:pane-resize-end'));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
 
   // Agent activity NO LONGER touches this view's bounds. The agent drives the
   // SAME native WebContentsView over CDP, so the user already watches it work;
@@ -121,14 +165,32 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       // hover/grab feel dead next to a browser pane. z-index can't lift a DOM
       // handle over a native view; the only fix is to expose a thin DOM gutter
       // where the divider's grab zone can actually receive the pointer.
+      const mode = modeRef.current;
+      const resp = respRef.current;
+      // Responsive mode (deviceMode==='custom'): seed a sensible initial size on
+      // first entry, then size the view to it (top-left) so the page reflows
+      // like a real window — the uncovered pane area holds the drag handles.
+      if (mode === 'custom' && !resp && isVisible && !dragging) {
+        browser.setResponsiveSize(
+          Math.max(MIN_RESP, Math.round(rect.width * 0.7)),
+          Math.max(MIN_RESP, Math.round(rect.height * 0.7)),
+        );
+      }
       const next = (!isVisible || dragging)
         ? { x: 0, y: 0, width: 0, height: 0 }
-        : {
-            x: rect.left + NATIVE_VIEW_GUTTER,
-            y: rect.top + NATIVE_VIEW_GUTTER,
-            width: Math.max(0, rect.width - 2 * NATIVE_VIEW_GUTTER),
-            height: Math.max(0, rect.height - 2 * NATIVE_VIEW_GUTTER),
-          };
+        : (mode === 'custom' && resp)
+          ? {
+              x: rect.left,
+              y: rect.top,
+              width: Math.max(0, Math.min(resp.width, Math.round(rect.width))),
+              height: Math.max(0, Math.min(resp.height, Math.round(rect.height))),
+            }
+          : {
+              x: rect.left + NATIVE_VIEW_GUTTER,
+              y: rect.top + NATIVE_VIEW_GUTTER,
+              width: Math.max(0, rect.width - 2 * NATIVE_VIEW_GUTTER),
+              height: Math.max(0, rect.height - 2 * NATIVE_VIEW_GUTTER),
+            };
 
       // Coalesce — skip the IPC if bounds didn't change. setBounds rounds
       // to integers main-side, so we round here too for cheap equality.
@@ -226,6 +288,44 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: depend on the specific fields the effect reads (viewId/setBounds — grep-verified the only browser.* uses), NOT the whole `browser` object. useNativeBrowser rebuilds that object every render, so depending on it re-ran this ResizeObserver/MutationObserver/rAF-poll/listener effect on EVERY render. setBounds is useCallback([viewId]) so its identity only changes with viewId (already a dep). The rule can't see the member coverage and asks for the parent object.
   }, [browser.viewId, browser.setBounds, dragging, isVisible]);
 
+  // Re-issue bounds when entering/leaving responsive mode or when the size
+  // changes via a non-drag path (preset select, W×H input). The main effect
+  // intentionally does NOT depend on deviceMode/responsiveSize (it would
+  // re-register its observers every drag frame), so nudge a single setBounds
+  // here. Seeds the initial size on first entry. During a drag this early-
+  // returns (the view is hidden); on release the new size lands here.
+  useEffect(() => {
+    const el = placeholderRef.current;
+    if (!el || !browser.viewId || !isVisible || dragging) return;
+    const rect = el.getBoundingClientRect();
+    if (browser.deviceMode === 'custom') {
+      if (!browser.responsiveSize) {
+        browser.setResponsiveSize(
+          Math.max(MIN_RESP, Math.round(rect.width * 0.7)),
+          Math.max(MIN_RESP, Math.round(rect.height * 0.7)),
+        );
+        return;
+      }
+      browser.setBounds({
+        x: rect.left,
+        y: rect.top,
+        width: Math.max(0, Math.min(browser.responsiveSize.width, Math.round(rect.width))),
+        height: Math.max(0, Math.min(browser.responsiveSize.height, Math.round(rect.height))),
+      });
+    } else {
+      browser.setBounds({
+        x: rect.left + NATIVE_VIEW_GUTTER,
+        y: rect.top + NATIVE_VIEW_GUTTER,
+        width: Math.max(0, rect.width - 2 * NATIVE_VIEW_GUTTER),
+        height: Math.max(0, rect.height - 2 * NATIVE_VIEW_GUTTER),
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- MIN_RESP is a module-level constant
+  }, [browser.viewId, browser.deviceMode, browser.responsiveSize, browser.setBounds, browser.setResponsiveSize, isVisible, dragging]);
+
+  const resp = browser.responsiveSize;
+  const responsive = browser.deviceMode === 'custom' && !!resp;
+
   return (
     <div
       ref={placeholderRef}
@@ -242,6 +342,52 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       {/* The "agent is controlling" indicator lives in the toolbar
           (AgentActivityPill) — it no longer insets this view, so the page
           never jumps when the agent acts. */}
+
+      {/* Responsive design mode — drag handles around the (smaller) viewport.
+          The native view sizes to resp W×H at the top-left; the rest of the
+          pane is this DOM, where the handles live. While dragging, the view is
+          hidden and this outline previews the target size. */}
+      {responsive && resp && (
+        <>
+          <div
+            className="absolute left-0 top-0 border-r border-b border-primary/50 pointer-events-none"
+            style={{ width: resp.width, height: resp.height }}
+            aria-hidden
+          />
+          {/* right edge — width */}
+          <div
+            onPointerDown={onResizeHandle('x')}
+            className="absolute top-0 bottom-0 w-2.5 z-10 cursor-ew-resize group"
+            style={{ left: resp.width }}
+            data-testid="browser-responsive-handle-x"
+            title="Trascina per la larghezza"
+          >
+            <div className="absolute inset-y-0 left-0 w-0.5 bg-primary/40 group-hover:bg-primary transition-colors" />
+          </div>
+          {/* bottom edge — height */}
+          <div
+            onPointerDown={onResizeHandle('y')}
+            className="absolute left-0 right-0 h-2.5 z-10 cursor-ns-resize group"
+            style={{ top: resp.height }}
+            data-testid="browser-responsive-handle-y"
+            title="Trascina per l'altezza"
+          >
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-primary/40 group-hover:bg-primary transition-colors" />
+          </div>
+          {/* corner — both */}
+          <div
+            onPointerDown={onResizeHandle('xy')}
+            className="absolute w-3.5 h-3.5 z-20 cursor-nwse-resize bg-primary rounded-sm shadow ring-2 ring-surface"
+            style={{ left: resp.width - 6, top: resp.height - 6 }}
+            data-testid="browser-responsive-handle-xy"
+            title="Trascina per ridimensionare"
+          />
+          {/* size readout */}
+          <div className="absolute left-2 bottom-2 z-10 px-2 py-0.5 rounded-md glass-surface border border-app-border text-[11px] tabular-nums text-app-text-secondary pointer-events-none select-none">
+            {resp.width} × {resp.height}
+          </div>
+        </>
+      )}
     </div>
   );
 }
