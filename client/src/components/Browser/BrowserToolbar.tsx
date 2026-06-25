@@ -122,7 +122,6 @@ export function BrowserToolbar({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const hasDevPills = !!onZoom || !!(deviceMode && onSetDevice) || !!(consoleSummary && consoleEntries && onClearConsole);
 
   // Back/forward navigation-history menu (Chrome-style right-click / long-press).
   const [navMenu, setNavMenu] = useState<{ side: 'back' | 'forward'; entries: NavHistoryEntry[]; activeIndex: number } | null>(null);
@@ -216,7 +215,7 @@ export function BrowserToolbar({
   }, [url]);
 
   return (
-    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 py-1.5 bg-elevated dark:bg-app-panel border-b border-app-border">
+    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 py-1.5 glass-surface border-b border-app-border">
       {/* Phase 30.1 polish — Chrome-style indeterminate progress bar at the
           bottom of the toolbar while loading. Inline keyframes + minimal
           DOM (single absolutely-positioned bar, ~3 LOC). */}
@@ -365,10 +364,22 @@ export function BrowserToolbar({
       {/* Agent activity — non-blocking pill (no page reflow). Lingers ~700ms. */}
       <AgentActivityPill active={!!agentActive} action={agentAction} />
 
+      {/* Native dev controls (Electron only) — console / device / zoom. Kept
+          INLINE at every width: their own surfaces (console panel, device
+          presets) anchor correctly only when NOT nested inside another popover,
+          so folding them into the overflow made the console menu mis-anchor. */}
+      {consoleSummary && consoleEntries && onClearConsole && (
+        <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
+      )}
+      {deviceMode && onSetDevice && (
+        <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
+      )}
+      {onZoom && <ZoomControl onZoom={onZoom} />}
+
       {compact ? (
-        /* Narrow pane — fold every trailing control into one overflow "⋯" menu
-           so the URL bar keeps its width. The menu reuses the shared popover
-           (DropdownPortal) so it matches the rest of the app. */
+        /* Narrow pane — only the SECONDARY actions (history / DevTools / open
+           external) fold into one overflow "⋯" menu so the URL bar keeps its
+           width. Reuses the shared DropdownPortal popover. */
         <>
           <button
             ref={overflowBtnRef}
@@ -388,18 +399,6 @@ export function BrowserToolbar({
             onClose={() => setOverflowOpen(false)}
             align="right"
           >
-            {hasDevPills && (
-              <>
-                <div className="flex items-center gap-1 px-2 py-1">
-                  {onZoom && <ZoomControl onZoom={onZoom} />}
-                  {deviceMode && onSetDevice && <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />}
-                  {consoleSummary && consoleEntries && onClearConsole && (
-                    <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
-                  )}
-                </div>
-                <div className={POPOVER_DIVIDER} />
-              </>
-            )}
             {history && history.length > 0 && (
               <>
                 {history.slice(0, 8).map((entry) => (
@@ -438,15 +437,6 @@ export function BrowserToolbar({
         </>
       ) : (
         <>
-          {/* Native dev controls (Electron only) — console badge, device, zoom. */}
-          {consoleSummary && consoleEntries && onClearConsole && (
-            <ConsoleBadge entries={consoleEntries} summary={consoleSummary} onClear={onClearConsole} />
-          )}
-          {deviceMode && onSetDevice && (
-            <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
-          )}
-          {onZoom && <ZoomControl onZoom={onZoom} />}
-
           {/* Phase 30 BROWSER-CHAT-04 — URL history dropdown (per-topic, last 10) */}
           {history && history.length > 0 && (
             <div className="relative" ref={historyMenuRef}>

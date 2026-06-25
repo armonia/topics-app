@@ -30,7 +30,11 @@
     position: fixed;
     top: 0;
     left: 0;
-    background: var(--ovl-bg, #ffffff);
+    background: var(--ovl-bg, rgba(255,255,255,0.85));
+    /* Frost the WebContentsView behind the (transparent) overlay window, so the
+       native menu reads like the in-app `.glass-surface` popovers. */
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    backdrop-filter: blur(24px) saturate(1.5);
     border: 1px solid var(--ovl-border, rgba(0,0,0,0.08));
     border-radius: 8px;
     box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);

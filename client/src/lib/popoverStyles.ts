@@ -75,10 +75,11 @@ export const POPOVER_SHEET =
  * the browser's native menus look unthemed next to the rest). Reads the live
  * CSS custom properties off <html> so custom themes are honoured too.
  *
- * The bg is the OPAQUE `--bg-surface`: a transparent Electron overlay window
- * can't reliably backdrop-blur the WebContentsView behind it, so we keep the
- * native panel opaque-but-themed (radius/shadow/colours matched in overlay.html)
- * rather than risk an unfrosted see-through panel over busy page content.
+ * The bg is the TRANSLUCENT glass tint matching `.glass-surface` so the native
+ * panel frosts the content behind it like the in-app popovers — the overlay
+ * window turns on `backdrop-filter` (overlay.html) to blur the WebContentsView
+ * underneath. Alpha is kept high enough (~0.85) that text stays crisp even if a
+ * given GPU path doesn't composite the blur.
  */
 export function overlayThemeColors(): {
   bg: string;
@@ -91,7 +92,8 @@ export function overlayThemeColors(): {
   const cs = getComputedStyle(document.documentElement);
   const cssVar = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
   return {
-    bg: cssVar('--bg-surface', isDark ? '#1f2937' : '#ffffff'),
+    // Mirror the `.glass-surface` tint (index.css) so native ≡ React popovers.
+    bg: isDark ? 'hsl(224 26% 6% / 0.85)' : 'hsl(220 20% 94% / 0.85)',
     text: cssVar('--text', isDark ? '#e5e7eb' : '#1a1a1a'),
     muted: cssVar('--text-muted', isDark ? '#9ca3af' : '#6b7280'),
     border: cssVar('--border', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
