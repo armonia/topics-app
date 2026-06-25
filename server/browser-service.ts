@@ -180,6 +180,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     subscribers: Set<ScreencastOnFrame>;
   }>();
   let browser: Browser | null = null;
+  // Single-flight launch guard: in-flight chromium.launch() promise, shared by
+  // all concurrent ensureBrowser() callers so a cold start spawns ONE Chromium.
+  let browserLaunching: Promise<Browser> | null = null;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   // Wall-clock of the last activity across ANY context. Drives the browser-idle
   // reaper below: once no context remains and this is older than the grace
@@ -188,6 +191,19 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
   async function ensureBrowser(): Promise<Browser> {
     if (browser && browser.isConnected()) return browser;
+    // Coalesce concurrent cold-starts. After a server restart every WS browser
+    // pane reconnects at once → getOrCreate → ensureBrowser, all racing past the
+    // isConnected() check before `browser` is set. Without this guard each ran
+    // chromium.launch(), spawning N Chromium instances and orphaning all but the
+    // last (only that one is tracked by `browser`, so only it is reapable) — a
+    // multi-hundred-MB leak on every concurrent boot.
+    if (browserLaunching) return browserLaunching;
+    browserLaunching = launchBrowserOnce();
+    try { return await browserLaunching; }
+    finally { browserLaunching = null; }
+  }
+
+  async function launchBrowserOnce(): Promise<Browser> {
     const pw = await import("playwright-core");
 
     // Path resolution chain (priority order):
