@@ -534,7 +534,14 @@ pub fn run() {
                     let w = win.clone();
                     win.on_window_event(move |event| match event {
                         tauri::WindowEvent::Focused(_) | tauri::WindowEvent::Resized(_) => {
-                            apply_traffic_lights(&w, TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed));
+                            // In fullscreen the titlebar is gone, so FORCE the
+                            // traffic lights visible — otherwise (hidden-by-default
+                            // + hidden green button) the only way out is the View ▸
+                            // Full Screen accelerator, which is a trap for anyone
+                            // who doesn't know it. Otherwise honor the menu state.
+                            let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
+                                || w.is_fullscreen().unwrap_or(false);
+                            apply_traffic_lights(&w, visible);
                         }
                         _ => {}
                     });
