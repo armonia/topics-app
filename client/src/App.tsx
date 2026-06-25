@@ -19,11 +19,13 @@ import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { isDesktop, isTauri } from './lib/shell';
+import { wireTauriDragRegions } from './lib/shell/window';
 
-// Tauri-on-macOS: the native traffic lights are always visible (titleBarStyle
-// Overlay) and sit at the window's top-left, over the sidebar header — so that
-// header needs a left inset to clear them (Electron instead hides the lights and
-// reveals them on demand, so it needs no inset).
+// Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
+// default and revealed only while the Topics menu is open (the Rust shell hides
+// them on launch; `set_traffic_lights` toggles them). So — same as Electron — no
+// permanent left inset is needed; instead, while the menu is open the "Topics"
+// label is hidden so the revealed lights occupy that spot.
 const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
 import { useAnimationPause } from './hooks/useAnimationPause';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
@@ -99,6 +101,11 @@ function App() {
       });
     }
   }, []);
+
+  // Tauri: make the Electron drag-region chrome draggable under WKWebView by
+  // mirroring `.app-drag-region`/`.app-no-drag` onto Tauri's drag attributes.
+  // No-op off Tauri; safe to run once on mount.
+  useEffect(() => { wireTauriDragRegions(); }, []);
 
   // Check if we're in detached/pop-out mode (single topic window)
   const urlParams = new URLSearchParams(window.location.search);
@@ -737,7 +744,7 @@ function App() {
         <div
           data-tauri-drag-region
           className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
-          style={{ paddingRight: ROW_INSET, paddingLeft: isTauriMac ? 76 : ROW_INSET }}
+          style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Close button on mobile */}
@@ -761,13 +768,13 @@ function App() {
                   }
                   setShowTopicsMenu(!showTopicsMenu);
                 }}
-                className={`flex items-center ${isElectron ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
+                className={`flex items-center ${isElectron || isTauriMac ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                   showTopicsMenu ? 'bg-app-hover' : 'hover:bg-app-hover'
                 }`}
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isElectron && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${(isElectron || isTauriMac) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>

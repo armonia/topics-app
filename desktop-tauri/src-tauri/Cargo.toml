@@ -33,3 +33,11 @@ sysinfo = "0.33"
 tokio = { version = "1", features = ["net", "io-util", "rt"] }
 tokio-native-tls = "0.3"
 native-tls = "0.2"
+
+# macOS-only: toggle the native traffic-light buttons (close/min/zoom) so they
+# stay hidden by default and reveal only when the Topics menu opens — matching
+# the Electron shell's `setWindowButtonVisibility`. Tauri has no JS API for this,
+# so we reach the NSWindow's standardWindowButton(_:) directly.
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.26"
+objc = "0.2"
