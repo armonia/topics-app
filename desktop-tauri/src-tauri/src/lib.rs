@@ -44,6 +44,71 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     PerfMetrics { version, total_mb, cpu_percent, partial: true }
 }
 
+/// Loopback port the WKWebView reaches the data server through (plain HTTP/WS).
+const PROXY_PORT: u16 = 13333;
+/// The real (TLS) data server.
+const UPSTREAM: &str = "127.0.0.1:3333";
+
+/// TLS-origination proxy: accept plain TCP on 127.0.0.1:PROXY_PORT and pipe it,
+/// byte-for-byte, over a TLS connection to the data server. WKWebView won't trust
+/// the server's local-CA certificate, but it happily speaks plain HTTP/WS to
+/// loopback — so the shell connects to http://127.0.0.1:PROXY_PORT and this task
+/// adds the TLS the server requires. Transparent: HTTP, WebSocket upgrades and
+/// SSE streams all pass through untouched (no L7 parsing), and the client's
+/// `Origin: tauri://localhost` is preserved so the server's CORS still matches.
+async fn run_tls_proxy() {
+    use tokio::io::copy_bidirectional;
+    use tokio::net::{TcpListener, TcpStream};
+
+    let listener = match TcpListener::bind(("127.0.0.1", PROXY_PORT)).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[proxy] bind 127.0.0.1:{PROXY_PORT} failed: {e}");
+            return;
+        }
+    };
+    let tls = match native_tls::TlsConnector::builder()
+        // The server presents a local-CA cert for 127.0.0.1; we originate the TLS
+        // ourselves to a hard-coded loopback address, so cert/hostname validation
+        // adds nothing here — the trust boundary is "is it really 127.0.0.1:3333".
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()
+    {
+        Ok(c) => tokio_native_tls::TlsConnector::from(c),
+        Err(e) => {
+            eprintln!("[proxy] TLS connector build failed: {e}");
+            return;
+        }
+    };
+    println!("[proxy] loopback TLS proxy 127.0.0.1:{PROXY_PORT} -> https://{UPSTREAM}");
+
+    loop {
+        let (mut inbound, _) = match listener.accept().await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let tls = tls.clone();
+        tauri::async_runtime::spawn(async move {
+            let upstream = match TcpStream::connect(UPSTREAM).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[proxy] upstream connect failed: {e}");
+                    return;
+                }
+            };
+            let mut tls_stream = match tls.connect("127.0.0.1", upstream).await {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[proxy] upstream TLS handshake failed: {e}");
+                    return;
+                }
+            };
+            let _ = copy_bidirectional(&mut inbound, &mut tls_stream).await;
+        });
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -58,6 +123,11 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // Start the loopback TLS-origination proxy so the shell can reach the
+            // data server (whose cert WKWebView rejects) over plain HTTP/WS.
+            tauri::async_runtime::spawn(run_tls_proxy());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![perf_metrics])

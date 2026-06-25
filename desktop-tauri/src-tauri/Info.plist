@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- App Transport Security: the shell talks PLAIN HTTP/WS to the in-process
+       loopback TLS proxy (see src/lib.rs run_tls_proxy / PROXY_PORT). ATS blocks
+       cleartext by default, so allow local networking. This is loopback-only;
+       no arbitrary cleartext is enabled. Merged into the bundle Info.plist by
+       `tauri build`. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+</dict>
+</plist>

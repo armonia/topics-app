@@ -8,12 +8,17 @@
 
 import { isTauri } from './index';
 
-// The data server (Bun) the desktop shell connects to. The prod server serves
-// HTTPS/WSS (TLS via the "Armonia Local CA" cert). Single constant so the
-// host/scheme is trivial to change.
-const DESKTOP_SERVER_HOST = '127.0.0.1:3333';
-const DESKTOP_SERVER_HTTP = `https://${DESKTOP_SERVER_HOST}`;
-const DESKTOP_SERVER_WS = `wss://${DESKTOP_SERVER_HOST}`;
+// The data server (Bun) serves HTTPS/WSS with a local-CA ("Armonia Local CA")
+// certificate. WKWebView (the Tauri shell's engine) refuses that cert, so the
+// shell does NOT hit :3333 directly. Instead the Rust side runs a loopback
+// TLS-origination proxy (src-tauri/src/lib.rs `run_tls_proxy`) on this port: the
+// webview speaks plain HTTP/WS to it, and the proxy adds the TLS to reach :3333.
+// Plain HTTP/WS to loopback is something WKWebView accepts, so this sidesteps the
+// cert-trust problem without weakening system trust. Keep the port in sync with
+// PROXY_PORT in lib.rs.
+const DESKTOP_SERVER_HOST = '127.0.0.1:13333';
+const DESKTOP_SERVER_HTTP = `http://${DESKTOP_SERVER_HOST}`;
+const DESKTOP_SERVER_WS = `ws://${DESKTOP_SERVER_HOST}`;
 
 /** HTTP base for the data server: '' (same-origin) off-desktop, absolute on Tauri. */
 export function serverHttpBase(): string {
