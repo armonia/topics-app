@@ -415,6 +415,43 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Single-instance FIRST (plugin requirement): a duplicate launch focuses
+        // the running window instead of spawning a process that can't bind :13333.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
+        // Navigation guard: a stray external nav in the MAIN webview would escape
+        // tauri://localhost and white-screen the whole app (no recovery but
+        // restart). Allow only the app origin + the loopback proxy; route anything
+        // else to the OS browser. Browser PANES (label "browserpane-*") navigate
+        // freely — they're meant to load the open web.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("nav-guard")
+                .on_navigation(|webview, url| {
+                    if webview.label() != "main" {
+                        return true;
+                    }
+                    let allowed = matches!(url.scheme(), "tauri" | "ipc" | "about" | "blob" | "data")
+                        || (url.scheme() == "http"
+                            && url.host_str() == Some("127.0.0.1")
+                            && url.port() == Some(PROXY_PORT));
+                    if !allowed {
+                        use tauri::Manager;
+                        use tauri_plugin_opener::OpenerExt;
+                        let _ = webview
+                            .app_handle()
+                            .opener()
+                            .open_url(url.to_string(), None::<&str>);
+                    }
+                    allowed
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
@@ -450,11 +487,14 @@ pub fn run() {
                 .separator()
                 .fullscreen()
                 .build()?;
+            // NOTE: no `.close_window()` — its default ⌘W accelerator would close
+            // the whole window, but in Topics ⌘W closes the focused PANE (handled
+            // in the renderer, useKeyboardShortcuts). The window is closed via the
+            // traffic-light button. (A pane-close menu accelerator that also works
+            // when a child browser webview holds focus lands in the browser phase.)
             let window_menu = SubmenuBuilder::new(handle, "Window")
                 .minimize()
                 .maximize()
-                .separator()
-                .close_window()
                 .build()?;
             MenuBuilder::new(handle)
                 .items(&[&app_menu, &edit_menu, &view_menu, &window_menu])
