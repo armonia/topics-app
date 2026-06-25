@@ -131,9 +131,14 @@ React e il server Bun come sidecar. Consolidare il path web/PWA.
 - [ ] T1.4 — Terminale: pty via `portable-pty` (Rust nativo, **D2 risolto**); rispetta
       il contratto NDJSON + migra/bridge la session-layer di `routes/terminal.ts`.
 - [ ] T1.5 — **Browser pane nativo = CEF on-demand** (D1 risolto). Sotto-piano ~14 sett.:
-      - [ ] T1.5a — **SPIKE macOS (sett.1-3, IL gate)**: CEF-in-Tauri come NSView child,
-            `zPosition=-1`, `drawsBackground=NO`, **`hitTest:→nil`** (trapianta `vibrancy.mm`);
-            verifica compositing + cold-init CEF (~0.5-2s) deferribile oltre il first paint.
+      - [~] T1.5a — **SPIKE macOS** (in corso). ✅ **cef-rs COMPILA su questa macchina**
+            (`cef 149.1.0` + `cef-dll-sys`, 38s) — serviva solo **`cmake` + `ninja`** (installati
+            via brew; CEF si auto-scarica). ✅ Il bundling `.app` macOS (framework + helper) è
+            **automatizzato dal tool ufficiale `bundle-cef-app`** (`cargo run --bin bundle-cef-app
+            -- <name> -o target/bundle` → `open …​.app`) — NON è più un blocco manuale.
+            Spike crate isolato in `desktop-tauri/cef-spike/`. Resta: provare `cefsimple` (finestra
+            CEF reale) poi l'embedding NSView-child in Tauri (`zPosition=-1`, `drawsBackground=NO`,
+            **`hitTest:→nil`** trapiantato da `vibrancy.mm`) + compositing.
       - [ ] T1.5b — CDP layer (sett.3-5): raw-attach a CEF, porta `browser-cdp-raw.ts`.
       - [ ] T1.5c — Geometry sync (sett.5-6): ResizeObserver→Tauri cmd→`set_bounds`, watchdog 500ms.
       - [ ] T1.5d — Windows HWND `SetParent` (sett.7-9); Linux X11 (sett.10-13, più debole, no Wayland).
