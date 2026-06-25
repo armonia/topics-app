@@ -7,6 +7,7 @@ import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
 import { useFps, useFpsActive } from '@/lib/fpsMonitor';
 import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
+import { VersionPopover } from './VersionPopover';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 
@@ -157,6 +158,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   }, []);
 
   const handleRefresh = async () => {
+    // Immediate spin so the click is acknowledged (in Electron the app then
+    // relaunches; in web we clear caches + hard-reload).
+    setRefreshing(true);
     if (isElectron) {
       // `app` is declared optional on the electron API surface — older
       // builds didn't expose it. Fall through to the web reload path
@@ -167,7 +171,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
         return;
       }
     }
-    setRefreshing(true);
     try {
       // Clear all caches
       const keys = await caches.keys();
@@ -186,6 +189,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const statusBtnRef = useRef<HTMLButtonElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Version chip → info + auto-update popover.
+  const [showVersionPopover, setShowVersionPopover] = useState(false);
+  const versionBtnRef = useRef<HTMLButtonElement>(null);
 
   // While the dropdown is open, hold the FPS monitor in its live (continuous,
   // 1Hz) cadence so the sparkline updates in real time. It drops back to cheap
@@ -324,16 +331,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
 
         <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap">
           {appVersion && (
-            <span
-              className="text-app-text-muted"
-              title={
-                isDev
-                  ? `Versione app ${appVersion} — build di sviluppo`
-                  : `Versione app ${appVersion}${BUILD_TIME ? ` — compilato il ${formatBuildDate(BUILD_TIME)}` : ''}`
-              }
+            <button
+              ref={versionBtnRef}
+              onClick={() => setShowVersionPopover(v => !v)}
+              className={`text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded px-1 -mx-0.5 transition-colors ${showVersionPopover ? 'bg-app-hover text-app-text-secondary' : ''}`}
+              title="Info versione e aggiornamenti"
             >
               v{appVersion}
-            </span>
+            </button>
           )}
           {isDev && (
             <span
@@ -389,6 +394,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
           </Suspense>
         </div>,
         document.body
+      )}
+
+      {showVersionPopover && (
+        <VersionPopover
+          anchorEl={versionBtnRef.current}
+          appVersion={appVersion}
+          isDev={isDev}
+          buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}
+          onClose={() => setShowVersionPopover(false)}
+        />
       )}
     </>
   );
