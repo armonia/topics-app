@@ -18,6 +18,18 @@ declare const __APP_VERSION__: string;
 // since an auto-update can change it after this bundle was built.
 const BUILD_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
 
+// When this bundle was compiled (`vite build`). In dev the "X fa" chip tracks
+// live HMR and means "last code change"; in prod that branch is dead code, so
+// the value is just the build timestamp — showing it as "ultimo aggiornamento
+// codice" is misleading. In prod we drop the relative chip and surface this as
+// an absolute build date in the version tooltip instead.
+const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '';
+function formatBuildDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' });
+  } catch { return iso; }
+}
+
 // Prefetch the lazy status panel chunk so the dropdown opens instantly instead
 // of flashing a "Loading…" while the chunk downloads on first click. Triggered
 // on hover/focus of the trigger button. Vite dedupes with the lazy() import().
@@ -114,9 +126,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
     : serverMemMB;
   const memHigh = electronMemMB !== null ? totalMemMB! > 3072 : (serverMemMB ?? 0) > 512;
   const memTitle = electronMemMB !== null
-    ? `App Topics: ${totalMemMB} MB\n· Electron ${electronMemMB} MB su ${perf!.memory.processCount} processi (renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB})\n· server ${serverMemMB ?? '—'} MB`
+    ? `App Topics: ${totalMemMB} MB (working set)\n· Electron ${electronMemMB} MB su ${perf!.memory.processCount} processi (renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB})\n· server ${serverMemMB ?? '—'} MB\nInclude pagine condivise tra processi → leggera sovrastima della memoria unica`
     : status
-      ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB}/${status.server.heapTotalMB} MB) — la memoria totale dell'app è disponibile solo nell'app desktop`
+      ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria totale dell'app è disponibile solo nell'app desktop`
       : '';
 
   // App version: build-time constant, overridden by the live Electron version
@@ -225,7 +237,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
           {perf && (
             <span
               className={`text-app-text-muted tabular-nums ${perf.cpu.total > 150 ? 'text-amber-500' : ''}`}
-              title={`CPU app: ${perf.cpu.total}% (renderer ${perf.cpu.renderer}% · GPU ${perf.cpu.gpu}%) — somma su tutti i core`}
+              title={`CPU app: ${perf.cpu.total}% (renderer ${perf.cpu.renderer}% · GPU ${perf.cpu.gpu}% · altri ${Math.max(0, perf.cpu.total - perf.cpu.renderer - perf.cpu.gpu)}%) — somma % sui processi, può superare 100% come in Activity Monitor`}
             >
               {perf.cpu.total}%
             </span>
@@ -273,7 +285,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
           {appVersion && (
             <span
               className="text-app-text-muted"
-              title={`Versione app ${appVersion}${isDev ? ' — build di sviluppo' : ''}`}
+              title={
+                isDev
+                  ? `Versione app ${appVersion} — build di sviluppo`
+                  : `Versione app ${appVersion}${BUILD_TIME ? ` — compilato il ${formatBuildDate(BUILD_TIME)}` : ''}`
+              }
             >
               v{appVersion}
             </span>
@@ -286,9 +302,15 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: { wsStatus?: Connecti
               dev
             </span>
           )}
-          <span title={`Ultimo aggiornamento codice: ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' fa' : 'dev'}`}>
-            {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
-          </span>
+          {/* Relative "X fa" only in dev, where it tracks live HMR and honestly
+              means "last code change". In prod it'd be a frozen build timestamp
+              mislabeled as an update — the build date lives in the version
+              tooltip above instead. */}
+          {isDev && (
+            <span title={`Ultimo aggiornamento codice: ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' fa' : 'dev'}`}>
+              {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
+            </span>
+          )}
           <button
             onClick={handleRefresh}
             disabled={refreshing}

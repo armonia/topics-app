@@ -2707,8 +2707,7 @@ ipcMain.handle('perf:get-metrics', () => {
   // magnitude vs. the old server-only number.
   let rendererMem = 0; // KB — sum of all 'Tab' (renderer) processes
   let gpuMem = 0;      // KB — GPU/compositor process
-  let otherMem = 0;    // KB — Browser/main + Utility + everything else
-  let totalMem = 0;    // KB
+  let totalMem = 0;    // KB ('altri' = total − renderer − gpu, derived below)
   let processCount = 0;
   try {
     for (const m of app.getAppMetrics()) {
@@ -2719,7 +2718,6 @@ ipcMain.handle('perf:get-metrics', () => {
       totalMem += ws;
       if (m.type === 'Tab') { rendererCPU += c; rendererMem += ws; }
       else if (m.type === 'GPU') { gpuCPU += c; gpuMem += ws; }
-      else { otherMem += ws; }
     }
   } catch {}
 
@@ -2733,6 +2731,14 @@ ipcMain.handle('perf:get-metrics', () => {
     accelerated = /enabled/i.test(compositing);
   } catch {}
 
+  // Round the total + named buckets, then derive `other` as the RESIDUAL so the
+  // parts always reconcile to the headline total (independent rounding of each
+  // bucket could otherwise drift the sum off the total by a few MB, making the
+  // "renderer · GPU · altri" breakdown not add up to the big number).
+  const totalMB = Math.round(totalMem / 1024);
+  const rendererMB = Math.round(rendererMem / 1024);
+  const gpuMB = Math.round(gpuMem / 1024);
+
   return {
     version: app.getVersion(),
     cpu: {
@@ -2741,10 +2747,10 @@ ipcMain.handle('perf:get-metrics', () => {
       total: Math.round(totalCPU),
     },
     memory: {
-      totalMB: Math.round(totalMem / 1024),
-      rendererMB: Math.round(rendererMem / 1024),
-      gpuMB: Math.round(gpuMem / 1024),
-      otherMB: Math.round(otherMem / 1024),
+      totalMB,
+      rendererMB,
+      gpuMB,
+      otherMB: Math.max(0, totalMB - rendererMB - gpuMB),
       processCount,
     },
     gpu: { accelerated, compositing, webgl },
