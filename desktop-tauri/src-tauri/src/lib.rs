@@ -345,16 +345,6 @@ pub fn run() {
                 }
             }
 
-            // Dev-only: run an arbitrary JS snippet in the main webview once at
-            // launch (e.g. flip a localStorage setting + reload to reach a state
-            // for a screenshot). Gated on an env var, no-op otherwise.
-            if let Ok(js) = std::env::var("TOPICS_DEBUG_EVAL") {
-                use tauri::Manager;
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.eval(&js);
-                }
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
