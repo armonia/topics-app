@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Topics",
+  "version": "0.1.0",
+  "identifier": "io.armonia.topics.tauri",
+  "build": {
+    "frontendDist": "../../public",
+    "devUrl": "http://localhost:3333"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Topics",
+        "url": "http://localhost:3333",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

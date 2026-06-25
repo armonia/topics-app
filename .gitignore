@@ -122,3 +122,7 @@ landing/_capture.mjs
 landing/*-shot.png
 landing/app.png
 landing/demo-src/node_modules/
+
+# Tauri desktop shell
+desktop-tauri/src-tauri/target/
+desktop-tauri/src-tauri/gen/
