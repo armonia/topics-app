@@ -1,7 +1,8 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2 } from 'lucide-react';
+import { Globe, Loader2, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useNativeBrowser } from '../../hooks/useNativeBrowser';
+import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
@@ -11,7 +12,6 @@ import { PermissionBar } from './PermissionBar';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
-import { openExternalOnce } from '../../lib/openExternal';
 import type { Topic } from '../../types';
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
@@ -77,19 +77,30 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
     );
   }
 
-  // ============ Tauri: no streaming. ============
-  // The Tauri shell is a SINGLE WKWebView, so every streaming browser pane runs
-  // in the one renderer process — each keeps a /ws/browser screencast open (even
-  // when not visible, via keep-alive) and decodes a steady flow of screenshot
-  // frames, which balloons that one renderer's memory. Electron offloads each
-  // browser pane to its own WebContentsView process; Tauri has no equivalent yet
-  // (native CEF pane is post-Tier-1, and the browser pane is explicitly out of
-  // Tier-1 scope). So render a zero-cost placeholder: no hook, no WS, no frames.
+  // ============ Tauri NATIVE path — real child WKWebView (multi-webview). ============
+  // Like Electron's WebContentsView but via Window::add_child (browser_* commands).
+  // Reuses NativeBrowserPlaceholder for the layout-slot → setBounds geometry.
   if (isTauri) {
-    return <TauriBrowserPlaceholder url={navigateUrl || initialUrl} />;
+    return (
+      <TauriBrowserPanelInner
+        contextId={contextId}
+        initialUrl={initialUrl}
+        navigateUrl={navigateUrl}
+        onUrlChange={onUrlChange}
+        onNavigateConsumed={onNavigateConsumed}
+        isVisible={isVisible}
+        onFocusPanel={onFocusPanel}
+        topics={topics}
+      />
+    );
   }
 
-  // ============ Phase 30 streaming code path (web fallback, byte-identical) ============
+  // ============ Streaming code path — web AND Tauri. ============
+  // Tauri has no per-pane native view (that's the post-Tier-1 "D1" decision), so
+  // it shares the web screencast path: an interactive screenshot <img> driven by
+  // the server's headless browser over /ws/browser (reachable via the loopback
+  // TLS proxy — see lib/shell/net). To keep the single WKWebView renderer's
+  // memory in check, only the VISIBLE pane streams (isVisible → useRemoteBrowser).
   return (
     <RemoteBrowserPanelStreaming
       contextId={contextId}
@@ -99,68 +110,8 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       onNavigateConsumed={onNavigateConsumed}
       onFocusPanel={onFocusPanel}
       topics={topics}
+      isVisible={isVisible}
     />
-  );
-}
-
-/** Tauri-only browser-pane stand-in. Mounts no streaming hook (so it costs no
- *  WebSocket, CDP screencast or image memory in the shared WKWebView renderer).
- *  Always interactive: a URL field opens any page in the system browser, so the
- *  pane is useful even before a URL is set (the old version rendered a fully
- *  inert wall of text when `url` was falsy). `app-no-drag` + the explicit Tauri
- *  drag-region opt-out keep clicks/focus working — without it the pane body sits
- *  under a window-drag region in the Tauri shell and swallows the pointer. */
-function TauriBrowserPlaceholder({ url }: { url?: string }) {
-  const [draft, setDraft] = useState(url ?? '');
-  const label = url ? url.replace(/^https?:\/\//, '') : '';
-  const open = (raw: string) => {
-    const u = raw.trim();
-    if (!u) return;
-    openExternalOnce(/^https?:\/\//i.test(u) ? u : `https://${u}`);
-  };
-  return (
-    <div
-      className="flex-1 flex flex-col items-center justify-center min-h-0 bg-surface text-center px-6 gap-4 app-no-drag"
-      data-tauri-drag-region="false"
-    >
-      <div className="flex flex-col items-center gap-2">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-app-hover">
-          <Globe size={26} className="text-app-text-muted" />
-        </div>
-        <p className="text-[13px] font-medium text-app-text">Browser integrato non attivo qui</p>
-        <p className="text-[11px] text-app-text-faint max-w-[280px] leading-relaxed">
-          In questa build è disattivato per tenere bassa la memoria. Apri la
-          pagina nel browser di sistema.
-        </p>
-      </div>
-      <form
-        className="flex items-center gap-1.5 w-full max-w-[320px]"
-        onSubmit={(e) => { e.preventDefault(); open(draft); }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Incolla un URL…"
-          spellCheck={false}
-          className="flex-1 min-w-0 text-[12px] px-2.5 py-1.5 rounded-md bg-app-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary transition-colors"
-        />
-        <button
-          type="submit"
-          disabled={!draft.trim()}
-          className="shrink-0 text-[12px] px-3 py-1.5 rounded-md bg-primary text-white font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
-        >
-          Apri
-        </button>
-      </form>
-      {label && label !== draft && (
-        <button
-          onClick={() => open(url!)}
-          className="text-[11px] text-app-text-faint hover:text-app-text-muted transition-colors max-w-[300px] truncate"
-        >
-          Apri {label} nel browser di sistema
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -192,8 +143,72 @@ function useBackToSpawner(
   }, [spawnerTopicId, onFocusPanel, topics]);
 }
 
-function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed, onFocusPanel, topics }: RemoteBrowserPanelProps) {
-  const browser = useRemoteBrowser(contextId);
+/**
+ * Tauri native browser pane. Mirrors the Electron native path: a real child
+ * WKWebView (driven by useTauriBrowser → browser_* Rust commands) composited
+ * over the React layout via the shared NativeBrowserPlaceholder. The toolbar is
+ * a compact native-feel address bar; full BrowserToolbar parity (devtools,
+ * find, zoom, device modes) comes once those WKWebView capabilities are bridged.
+ */
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true }: RemoteBrowserPanelProps) {
+  const browser = useTauriBrowser(contextId, initialUrl);
+  const [urlInput, setUrlInput] = useState(initialUrl ?? '');
+  const editingRef = useRef(false);
+  useReportBrowserActivity(contextId, browser.loading);
+
+  // Reflect the live URL into the address bar (unless the user is mid-edit).
+  useEffect(() => {
+    if (!editingRef.current) setUrlInput(browser.url);
+  }, [browser.url]);
+
+  // Surface URL changes to the layout (tab title / persisted pane url).
+  useEffect(() => {
+    if (browser.url) onUrlChange?.(browser.url);
+  }, [browser.url, onUrlChange]);
+
+  // External navigation (agent / spawner / restored pane url).
+  useEffect(() => {
+    if (navigateUrl) {
+      void browser.navigate(navigateUrl);
+      onNavigateConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when navigateUrl changes
+  }, [navigateUrl]);
+
+  const btn = 'w-7 h-7 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0 disabled:opacity-40 app-no-drag';
+
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-surface" data-testid="browser-native-panel">
+      <div className="flex items-center gap-1 px-2 h-10 border-b border-app-border flex-shrink-0 app-no-drag">
+        <button className={btn} title="Indietro" onClick={() => void browser.goBack()}><ArrowLeft size={16} aria-hidden /></button>
+        <button className={btn} title="Avanti" onClick={() => void browser.goForward()}><ArrowRight size={16} aria-hidden /></button>
+        <button className={btn} title="Ricarica" onClick={() => void browser.reload()}>
+          {browser.loading ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <RotateCw size={15} aria-hidden />}
+        </button>
+        <form
+          className="flex-1 min-w-0"
+          onSubmit={(e) => { e.preventDefault(); editingRef.current = false; void browser.navigate(urlInput); }}
+        >
+          <input
+            value={urlInput}
+            onChange={(e) => { editingRef.current = true; setUrlInput(e.target.value); }}
+            onBlur={() => { editingRef.current = false; setUrlInput(browser.url); }}
+            placeholder="Cerca o inserisci un indirizzo"
+            data-testid="browser-url-input"
+            spellCheck={false}
+            className="w-full h-7 px-3 text-[12px] rounded-md bg-app-bg border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary transition-colors"
+          />
+        </form>
+      </div>
+      <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
+    </div>
+  );
+}
+
+function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true }: RemoteBrowserPanelProps) {
+  // isVisible gates the screencast: only the visible pane streams frames (keeps
+  // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
+  const browser = useRemoteBrowser(contextId, isVisible);
   const { imgRef } = browser;
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
@@ -247,11 +262,14 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
   }, [clickT]);
 
   // localhost iframe fallback — early-return path with full toolbar.
-  // This component is the WEB streaming path only: Electron returns its native
-  // pane and Tauri returns the placeholder before we ever get here (see
-  // RemoteBrowserPanel above), so the live <iframe> only ever runs on the web,
-  // where a frame-bust hijack just swaps one browser tab — not the desktop app.
-  const isLocalhost = browser.url && LOCAL_HOST_RX.test(browser.url);
+  // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and a
+  // localhost SPA that frame-busts (`top.location = …`) would navigate the main
+  // frame away from Topics and destroy the app (WKWebView doesn't reliably honour
+  // the iframe `sandbox` top-nav restriction). Under Tauri we use the streaming
+  // path instead (a screenshot <img> driven by the server's headless browser),
+  // which can't touch the host frame. Electron uses its native pane; web keeps
+  // the live iframe (a hijack there only swaps one browser tab, not the app).
+  const isLocalhost = !isTauri && browser.url && LOCAL_HOST_RX.test(browser.url);
   if (isLocalhost) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
