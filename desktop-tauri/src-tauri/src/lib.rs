@@ -162,12 +162,156 @@ fn set_traffic_lights(window: tauri::WebviewWindow, visible: bool) {
     let _ = window;
 }
 
+// ───────────────────────── Native browser pane ─────────────────────────
+//
+// Electron parity: each browser pane is a real native child webview (own
+// WebContent process), positioned over the React layout's pane slot — exactly
+// like Electron's WebContentsView, and far lighter than streaming screenshots
+// over WS. The client (useTauriNativeBrowser) owns the geometry: it measures the
+// slot's rect every layout/resize/scroll and drives `browser_set_bounds`, and to
+// keep HTML overlays (dropdowns/menus/modals) on top — native views always
+// composite above web content — it parks the webview OFF-SCREEN via the same
+// command when a popover overlaps it (the Electron shell hides the view the same
+// way during resize / when chrome covers it).
+
+/// Per-pane webview label. Keep the prefix distinctive so it never collides with
+/// the main UI webview ("main") or any future window label.
+fn browser_label(id: &str) -> String {
+    format!("browserpane-{id}")
+}
+
+/// Create (or, if it already exists, reuse) the native webview for a browser
+/// pane and place it at the given window-relative rect.
+#[tauri::command]
+fn browser_open(
+    app: tauri::AppHandle,
+    id: String,
+    url: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let label = browser_label(&id);
+    if app.get_webview(&label).is_some() {
+        // Already open — treat as navigate + reposition (idempotent mount).
+        let _ = browser_navigate(app.clone(), id.clone(), url);
+        return browser_set_bounds(app, id, x, y, width, height);
+    }
+    let window = app.get_window("main").ok_or("no 'main' window")?;
+    let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
+    window
+        .add_child(
+            tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed)),
+            tauri::LogicalPosition::new(x, y),
+            tauri::LogicalSize::new(width.max(1.0), height.max(1.0)),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Navigate an existing browser pane to a new URL.
+#[tauri::command]
+fn browser_navigate(app: tauri::AppHandle, id: String, url: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app
+        .get_webview(&browser_label(&id))
+        .ok_or("no such browser pane")?;
+    let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
+    wv.navigate(parsed).map_err(|e| e.to_string())
+}
+
+/// Reposition/resize a browser pane. To HIDE it (e.g. a dropdown overlaps it, the
+/// tab is inactive, or a pane-resize is in flight) the client passes an
+/// off-screen origin — keeping the native view alive (no reload) but out of the
+/// way so HTML overlays show through.
+#[tauri::command]
+fn browser_set_bounds(
+    app: tauri::AppHandle,
+    id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app
+        .get_webview(&browser_label(&id))
+        .ok_or("no such browser pane")?;
+    wv.set_position(tauri::LogicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    wv.set_size(tauri::LogicalSize::new(width.max(1.0), height.max(1.0)))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Destroy a browser pane's native webview.
+#[tauri::command]
+fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(wv) = app.get_webview(&browser_label(&id)) {
+        wv.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
+        // Native menu — a WKWebView shell with NO app menu also has no working
+        // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
+        // explicit View ▸ Reload (Cmd+R / Cmd+Shift+R), matching the Electron app.
+        .menu(|handle| {
+            use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
+            let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
+            let force_reload =
+                MenuItem::with_id(handle, "force-reload", "Force Reload", true, Some("CmdOrCtrl+Shift+R"))?;
+            let app_menu = SubmenuBuilder::new(handle, "Topics")
+                .about(None)
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+            let edit_menu = SubmenuBuilder::new(handle, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let view_menu = SubmenuBuilder::new(handle, "View")
+                .item(&reload)
+                .item(&force_reload)
+                .separator()
+                .fullscreen()
+                .build()?;
+            let window_menu = SubmenuBuilder::new(handle, "Window")
+                .minimize()
+                .maximize()
+                .separator()
+                .close_window()
+                .build()?;
+            MenuBuilder::new(handle)
+                .items(&[&app_menu, &edit_menu, &view_menu, &window_menu])
+                .build()
+        })
+        .on_menu_event(|app, event| {
+            use tauri::Manager;
+            if matches!(event.id().0.as_str(), "reload" | "force-reload") {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.eval("window.location.reload()");
+                }
+            }
+        })
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -201,9 +345,26 @@ pub fn run() {
                 }
             }
 
+            // Dev-only: run an arbitrary JS snippet in the main webview once at
+            // launch (e.g. flip a localStorage setting + reload to reach a state
+            // for a screenshot). Gated on an env var, no-op otherwise.
+            if let Ok(js) = std::env::var("TOPICS_DEBUG_EVAL") {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.eval(&js);
+                }
+            }
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![perf_metrics, set_traffic_lights])
+        .invoke_handler(tauri::generate_handler![
+            perf_metrics,
+            set_traffic_lights,
+            browser_open,
+            browser_navigate,
+            browser_set_bounds,
+            browser_close
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
