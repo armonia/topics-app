@@ -1190,12 +1190,15 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   background-color: transparent !important;
 }
 
-/* NOTE: we do NOT make the native-browser cell transparent. Exposing the window
- * vibrancy behind a WebContentsView re-composites the OS vibrancy layer ABOVE
- * the view and BLANKS the web content (the page vanishes — observed). The cell
- * keeps its opaque `bg-surface`; the toolbar is bg-transparent so it reads as
- * the pane surface (no distinct slab) without exposing vibrancy. True window-
- * vibrancy on the toolbar is incompatible with the native browser view. */
+/* Browser pane chrome rides the window vibrancy: the layout CELL hosting a
+ * native browser drops its opaque `bg-surface` so the (transparent) toolbar
+ * strip frosts the window backdrop like the rest of the app. The web CONTENT
+ * keeps its own opaque bg via NativeBrowserPlaceholder, so the WebContentsView
+ * still composites over an opaque surface (vibrancy is exposed only in the
+ * toolbar strip, where there is no native view). `:has(>)` = Chromium ≥105. */
+html.electron-mac :has(> [data-testid="browser-native-panel"]) {
+  background-color: transparent !important;
+}
 
 /* ─── Resize-handle hover/grab affordance ───────────────────────────────────
  * Every split divider (column / row / sub-stack / sidebar handle / project
