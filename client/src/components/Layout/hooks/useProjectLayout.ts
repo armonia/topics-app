@@ -1880,6 +1880,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         return;
       }
 
+      // Native browser panes are OS-level WebContentsViews that don't follow the
+      // DOM reflow on their own. This split rearranges cells and, during the
+      // transition, can briefly leave a view overlapping the NEW tab strip — a
+      // mousedown on that tab then hits the view, not the tab, so the tab "won't
+      // drag" right after splitting a browser out. Hide every browser view for
+      // the reflow (the same signal a divider-resize uses) and re-measure once it
+      // settles, so the tab strip is never occluded. Dispatched here, past every
+      // guard above, so a no-op split never flashes the views.
+      window.dispatchEvent(new Event('topics:pane-resize-start'));
+      setTimeout(() => window.dispatchEvent(new Event('topics:pane-resize-end')), 400);
+
       const newGroupId = createGroupId();
       const newGroup: PaneGroup = {
         id: newGroupId,
