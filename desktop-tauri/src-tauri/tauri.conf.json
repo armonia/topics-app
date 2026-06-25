@@ -4,8 +4,7 @@
   "version": "0.1.0",
   "identifier": "io.armonia.topics.tauri",
   "build": {
-    "frontendDist": "../../public",
-    "devUrl": "http://localhost:5173"
+    "frontendDist": "../../public"
   },
   "app": {
     "windows": [

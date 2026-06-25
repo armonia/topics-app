@@ -10,6 +10,7 @@ import { DownloadStrip } from './DownloadStrip';
 import { PermissionBar } from './PermissionBar';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
+import { isTauri } from '../../lib/shell';
 import type { Topic } from '../../types';
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
@@ -172,7 +173,14 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
   }, [clickT]);
 
   // localhost iframe fallback — early-return path with full toolbar.
-  const isLocalhost = browser.url && LOCAL_HOST_RX.test(browser.url);
+  // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and a
+  // localhost SPA that frame-busts (`top.location = …`) would navigate the main
+  // frame away from Topics and destroy the app (WKWebView doesn't reliably honour
+  // the iframe `sandbox` top-nav restriction). Under Tauri we fall through to the
+  // streaming path (a screenshot <img> driven by the server's headless browser),
+  // which can't touch the host frame. Electron uses its native pane; web keeps the
+  // live iframe (a hijack there only swaps one browser tab, not the desktop app).
+  const isLocalhost = !isTauri && browser.url && LOCAL_HOST_RX.test(browser.url);
   if (isLocalhost) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -197,6 +205,18 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
             className="w-full h-full border-0"
             title="Local site"
             data-testid="browser-localhost-iframe"
+            // SECURITY/ISOLATION: confine the framed site to its own browsing
+            // context. WITHOUT a sandbox, a localhost app (e.g. an SPA login page)
+            // can frame-bust via `top.location = …` and navigate the ENTIRE host
+            // webview away from Topics — which is exactly what happens in the
+            // Tauri shell (the main UI is a WKWebView, not a separate native
+            // pane like Electron's WebContentsView), nuking the whole app.
+            // Omitting `allow-top-navigation*` blocks that hijack while still
+            // letting the framed app run scripts, submit its login form, keep its
+            // own origin/storage, and open OAuth popups. In-frame self-navigation
+            // (window.location) is unaffected — only top/parent navigation is denied.
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+            referrerPolicy="no-referrer-when-downgrade"
           />
         </div>
       </div>

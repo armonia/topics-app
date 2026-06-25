@@ -27,3 +27,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-os = "2"
 sysinfo = "0.33"
+# Loopback TLS-origination proxy: the WKWebView talks plain HTTP/WS to a local
+# port; this re-originates TLS to the data server (whose local-CA cert WKWebView
+# won't trust). tokio comes via tauri's async runtime.
+tokio = { version = "1", features = ["net", "io-util", "rt"] }
+tokio-native-tls = "0.3"
+native-tls = "0.2"
