@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare } from 'lucide-react';
+import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare, Layers } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
 import { openclawControlApi } from '../../lib/api';
+import { usePaneStore } from '../../state/pane/store';
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -33,6 +34,10 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const [confirmingRestart, setConfirmingRestart] = useState(false);
 
   const gatewayOnline = status?.gateway.online ?? false;
+
+  // ALL open tabs (panes) right now — chat, terminal, browser, editor, file…
+  // not just chat (the old "Tab aperti" counted chat-only and under-reported).
+  const openTabs = usePaneStore(s => Object.keys(s.panes).length);
 
   return (
     // pt-2: breathing room so the first row isn't squashed against the
@@ -82,6 +87,15 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               windows/devices) and "Tab aperti" (chat-only pane count) sat side by
               side looking related but measured unrelated things and contradicted
               each other — pure plumbing the user couldn't act on. */}
+
+          {/* Open tabs — every pane kind (chat/terminal/browser/editor/file),
+              the honest count (the old chat-only "Tab aperti" under-reported). */}
+          <StatusRow
+            icon={<Layers size={12} />}
+            label="Tab aperti"
+            value={`${openTabs}`}
+            color={openTabs > 0 ? 'green' : 'yellow'}
+          />
 
           {/* Topics archive size — a real feature stat, clearly labeled. */}
           <StatusRow

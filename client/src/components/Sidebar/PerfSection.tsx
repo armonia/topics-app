@@ -57,9 +57,11 @@ function FpsSparkline({ data }: { data: FpsSample[] }) {
   );
 }
 
-function PerfStat({ label, value, color, title }: { label: string; value: string; color?: string; title?: string }) {
+function PerfStat({ label, value, color, title, className }: { label: string; value: string; color?: string; title?: string; className?: string }) {
+  // Width is controlled by the parent grid (col-span) so the CPU row and the
+  // Memory row share the same 4-column rhythm and line up vertically.
   return (
-    <div className="flex-1 flex flex-col items-center gap-0.5 px-2 py-1 rounded bg-elevated" title={title}>
+    <div className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded bg-elevated ${className ?? ''}`} title={title}>
       <span className="text-[9px] uppercase tracking-wide text-app-text-muted">{label}</span>
       <span className={`text-[11px] font-medium tabular-nums ${color ?? 'text-app-text'}`}>{value}</span>
     </div>
@@ -142,15 +144,17 @@ export function PerfSection() {
           (e.g. "229%") and read as broken — and the Top CPU list below already
           shows what's actually loading the machine. */}
       {perf && (
-        <div className="flex gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label="CPU renderer"
+            className="col-span-2"
             value={`${perf.cpu.renderer}%`}
             color={perf.cpu.renderer > 80 ? 'text-amber-500' : 'text-app-text'}
             title="CPU del renderer di Topics — somma per-processo, può superare 100% come in Activity Monitor"
           />
           <PerfStat
             label="CPU GPU"
+            className="col-span-2"
             value={`${perf.cpu.gpu}%`}
             color={undefined}
             title="CPU del processo GPU/compositor di Topics — somma per-processo"
@@ -177,7 +181,7 @@ export function PerfSection() {
           )}
         </span>
       </div>
-      <div className="flex gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         {mem ? (
           <>
             <PerfStat
@@ -196,6 +200,7 @@ export function PerfSection() {
         ) : (
           <PerfStat
             label="Server"
+            className="col-span-4"
             value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
             title="In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server"
           />

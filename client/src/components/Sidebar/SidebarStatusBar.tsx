@@ -114,6 +114,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
 
   const isElectron = !!window.electronAPI?.isElectron;
   const isDev = import.meta.env.DEV;
+  // "Last local update" chip. Show it in dev (HMR-tracked) AND when this build
+  // is RECENT — the desktop app runs the BUILT bundle (import.meta.env.DEV is
+  // false) even while developing locally, so a fresh `vite build` is the only
+  // signal that a local change landed. A genuinely shipped release is >24h old,
+  // so the chip auto-hides there instead of being a meaningless ever-growing
+  // counter (the earlier "30s fa che non è vero" complaint).
+  let buildIsRecent = false;
+  try {
+    buildIsRecent = !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
+  } catch { buildIsRecent = false; }
 
   // Total app memory: Electron processes (all renderers/GPU/main) + the Bun
   // server (a separate process, not in getAppMetrics). In web mode there's no
@@ -333,11 +343,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               dev
             </span>
           )}
-          {/* Relative "X fa" only in dev, where it tracks live HMR and honestly
-              means "last code change". In prod it'd be a frozen build timestamp
-              mislabeled as an update — the build date lives in the version
-              tooltip above instead. */}
-          {isDev && (
+          {/* Relative "X fa" = last local update. Shown in dev (HMR-tracked) and
+              for a recent local build (the desktop app runs the built bundle even
+              while developing). Hidden on a stale shipped release. */}
+          {(isDev || buildIsRecent) && (
             <span title={`Ultimo aggiornamento codice: ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' fa' : 'dev'}`}>
               {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
             </span>
