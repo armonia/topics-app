@@ -53,4 +53,18 @@ export function installDesktopFetchShim(): void {
     }
     return orig(input, init);
   };
+
+  // EventSource (SSE) has the same relative-URL problem as fetch — a bare
+  // '/api/activity/stream' would resolve against tauri://localhost (no server)
+  // and the activity feed would be dead. EventSource is a constructor, so we
+  // subclass it to rewrite leading-'/' URLs to the data-server origin.
+  const OrigES = window.EventSource;
+  if (OrigES) {
+    class DesktopEventSource extends OrigES {
+      constructor(url: string | URL, init?: EventSourceInit) {
+        super(typeof url === 'string' && url.startsWith('/') ? base + url : url, init);
+      }
+    }
+    window.EventSource = DesktopEventSource as typeof EventSource;
+  }
 }

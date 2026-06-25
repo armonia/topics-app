@@ -10,6 +10,8 @@ import { PerfSection } from './PerfSection';
 import { VersionPopover } from './VersionPopover';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
+import { isDesktop } from '@/lib/shell';
+import { getVersion, relaunch } from '@/lib/shell/app';
 
 declare const __BUILD_TIME__: string;
 declare const __APP_VERSION__: string;
@@ -113,7 +115,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
 
-  const isElectron = !!window.electronAPI?.isElectron;
+  // Desktop = Electron OR Tauri (shell-resolved). Gates the relaunch button +
+  // the live-version override + the "·desktop" affordances; under Tauri these
+  // now route through the shell bridge (was hard-wired to electronAPI → web path).
+  const isElectron = isDesktop;
   const isDev = import.meta.env.DEV;
   // "Last local update" chip. Show it in dev (HMR-tracked) AND when this build
   // is RECENT — the desktop app runs the BUILT bundle (import.meta.env.DEV is
@@ -154,25 +159,19 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // when running in the desktop shell (more accurate after an auto-update).
   const [appVersion, setAppVersion] = useState(BUILD_APP_VERSION);
   useEffect(() => {
-    const getVersion = window.electronAPI?.app?.getVersion;
-    if (typeof getVersion === 'function') {
-      getVersion().then(v => { if (v) setAppVersion(v); }).catch(() => {});
-    }
+    // Shell-resolved: live Electron/Tauri app version, build-time constant on web.
+    getVersion().then(v => { if (v) setAppVersion(v); }).catch(() => {});
   }, []);
 
   const handleRefresh = async () => {
     // Immediate spin so the click is acknowledged (in Electron the app then
     // relaunches; in web we clear caches + hard-reload).
     setRefreshing(true);
-    if (isElectron) {
-      // `app` is declared optional on the electron API surface — older
-      // builds didn't expose it. Fall through to the web reload path
-      // when missing so the button is never inert.
-      const relaunch = window.electronAPI?.app?.relaunch;
-      if (relaunch) {
-        await relaunch();
-        return;
-      }
+    if (isDesktop) {
+      // True process restart via the shell bridge (Electron app.relaunch / Tauri
+      // process plugin). Falls through to the web cache-bust reload below if the
+      // host can't relaunch, so the button is never inert.
+      try { await relaunch(); return; } catch { /* fall through */ }
     }
     try {
       // Clear all caches

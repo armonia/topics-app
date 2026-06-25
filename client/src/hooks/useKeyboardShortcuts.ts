@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import { isDesktop } from '../lib/shell';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, type ClosedTabRecord } from '../state/pane/adapters';
@@ -254,7 +255,12 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      if (isElectron && isMod && e.key === 'w') {
+      // Desktop (Electron + Tauri): ⌘W closes the focused PANE, not the window.
+      // Under Tauri the native menu's close_window accelerator is removed (lib.rs)
+      // so this is the sole ⌘W handler; it reaches the focused pane whenever focus
+      // is in the main webview (a child browser webview that has focus swallows
+      // the keydown — that edge gets a menu accelerator in the browser-pane phase).
+      if (isDesktop && isMod && e.key === 'w') {
         e.preventDefault();
         const fp = focusedPanelIdRef.current;
         if (!fp) return;
@@ -272,7 +278,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
-      if (isElectron && isMod && e.key >= '1' && e.key <= '9') {
+      if (isDesktop && isMod && e.key >= '1' && e.key <= '9') {
         const idx = parseInt(e.key) - 1;
         const panels = openPanelsRef.current;
         const projectPanes = projectOpenPanesRef.current;

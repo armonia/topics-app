@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { isTauri } from '../lib/shell';
+import { tauriInvoke } from '../lib/shell/tauri';
 
 export interface PerfMetrics {
   version: string;
@@ -25,8 +27,26 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
 
   useEffect(() => {
-    const getMetrics = window.electronAPI?.perf?.getMetrics;
-    if (!active || typeof getMetrics !== 'function') return;
+    const electronGet = window.electronAPI?.perf?.getMetrics;
+    // Electron exposes the rich per-process breakdown. Tauri's perf_metrics
+    // command reports the shell process only (content/GPU are launchd-reparented
+    // XPC — honest multi-process attribution is a later phase), so map its small
+    // shape onto PerfMetrics with zeroed sub-process figures and a 'rss' metric.
+    const getMetrics: (() => Promise<PerfMetrics>) | null =
+      typeof electronGet === 'function'
+        ? electronGet
+        : isTauri
+          ? async () => {
+              const m = await tauriInvoke<{ version: string; total_mb: number; cpu_percent: number }>('perf_metrics');
+              return {
+                version: m.version,
+                cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
+                memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
+                gpu: { accelerated: false, compositing: '', webgl: '' },
+              };
+            }
+          : null;
+    if (!active || !getMetrics) return;
     let alive = true;
     const tick = async () => {
       if (document.hidden) return; // don't probe the process tree when unseen
