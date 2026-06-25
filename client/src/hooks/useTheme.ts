@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ThemeMode, WSMessage } from '../types';
 import { useServerState } from './useServerState';
+import { isTauri } from '../lib/shell';
+import { tauriInvoke } from '../lib/shell/tauri';
 
 function getEffectiveTheme(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
@@ -32,6 +34,12 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
     }).electronAPI?.theme;
     if (electronTheme && typeof electronTheme.setResolved === 'function') {
       electronTheme.setResolved(effective).catch(() => {});
+    }
+    // Tauri native chrome: set the NSWindow appearance so the traffic lights and
+    // the per-region vibrancy material re-tint to match light/dark (set_theme in
+    // src-tauri/src/lib.rs). No-op off macOS / on web.
+    if (isTauri) {
+      void tauriInvoke('set_theme', { theme: effective }).catch(() => {});
     }
   }, [themeMode]);
 
