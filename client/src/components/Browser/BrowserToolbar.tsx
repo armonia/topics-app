@@ -342,7 +342,7 @@ export function BrowserToolbar({
                   placeholder="Cerca o inserisci un indirizzo"
                   spellCheck={false}
                   data-testid="browser-url-input"
-                  className={`w-full ${padL} pr-2 py-1 text-[12px] bg-surface dark:bg-elevated border border-app-border-input rounded-md focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint transition-colors ${showPretty ? 'text-transparent caret-transparent' : ''}`}
+                  className={`w-full ${padL} pr-2 py-1 text-[12px] rounded-md border border-transparent bg-transparent hover:bg-black/5 dark:hover:bg-white/5 focus:bg-surface dark:focus:bg-elevated focus:border-app-border-input focus:outline-none text-app-text-heading placeholder-app-text-faint transition-colors ${showPretty ? 'text-transparent caret-transparent' : ''}`}
                 />
                 {showPretty && urlParts && (
                   <div
