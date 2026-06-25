@@ -84,11 +84,26 @@ export function PerfSection() {
   const avg = history.length
     ? Math.round(history.reduce((s, d) => s + d.fps, 0) / history.length)
     : 0;
-  const min = history.length ? history.reduce((m, d) => Math.min(m, d.fps), Infinity) : 0;
 
   const loadPercent = status?.cpu?.loadPercent ?? null;
   const accelerated = perf?.gpu.accelerated;
   const topProcesses = status?.topProcesses ?? [];
+
+  // Aggregate the system top-CPU list by command name. With ~20 Claude Code
+  // terminals running, the raw list is several identical "claude"/"node" rows
+  // distinguished only by a hidden PID; summing per name (with a ×count) turns
+  // that into one legible "claude ×6  140%" row. CPU is per-core (ps %cpu), so
+  // a sum can exceed 100% — the header says "per core".
+  const topByCommand = (() => {
+    const m = new Map<string, { cpu: number; count: number; isTopics: boolean }>();
+    for (const p of topProcesses) {
+      const e = m.get(p.command) ?? { cpu: 0, count: 0, isTopics: /topics|electron/i.test(p.command) };
+      e.cpu += p.cpu;
+      e.count += 1;
+      m.set(p.command, e);
+    }
+    return [...m.entries()].sort((a, b) => b[1].cpu - a[1].cpu).slice(0, 5);
+  })();
 
   // Real footprint = every Electron process + the (separate) Bun server.
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
@@ -105,9 +120,9 @@ export function PerfSection() {
     verdict = { text: 'Accelerazione hardware OFF — causa principale dei pochi FPS', color: 'text-red-500' };
   } else if (perf && perf.cpu.renderer > 80) {
     verdict = { text: 'Renderer Topics sotto carico — è Topics a costare', color: 'text-amber-500' };
-  } else if (fps >= 50) {
-    verdict = { text: 'Fluido', color: 'text-emerald-500' };
   }
+  // No "Fluido" line in the good case: the FPS headline + sparkline above
+  // already say it. The verdict only speaks up when there's a real problem.
 
   return (
     <div className="px-2 pt-2 pb-1 space-y-1.5 border-b border-app-border">
@@ -118,7 +133,7 @@ export function PerfSection() {
         </span>
         <span className="flex items-baseline gap-2 tabular-nums">
           <span className={`text-[15px] font-semibold leading-none ${fpsColor(fps)}`}>{fps || '—'}</span>
-          <span className="text-[10px] text-app-text-muted">avg {avg || '—'} · min {Number.isFinite(min) ? min : '—'}</span>
+          <span className="text-[10px] text-app-text-muted">avg {avg || '—'}</span>
         </span>
       </div>
       <FpsSparkline data={history} />
@@ -223,25 +238,22 @@ export function PerfSection() {
 
       {/* Top CPU consumers — what's actually loading the PC right now. The user
           asked "perché ho il PC load?": this answers it concretely. */}
-      {topProcesses.length > 0 && (
+      {topByCommand.length > 0 && (
         <div className="space-y-0.5 pt-0.5">
           <div className="flex items-center justify-between px-1.5">
             <span className="text-[9px] uppercase tracking-wide text-app-text-muted">Top CPU</span>
-            <span className="text-[9px] text-app-text-muted">sistema</span>
+            <span className="text-[9px] text-app-text-muted">sistema · per core</span>
           </div>
-          {topProcesses.slice(0, 5).map((p) => {
-            const isTopics = /topics|electron/i.test(p.command);
-            return (
-              <div key={p.pid} className="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-app-hover" title={`PID ${p.pid}`}>
-                <span className={`text-[10px] truncate flex-1 ${isTopics ? 'text-primary font-medium' : 'text-app-text-secondary'}`}>
-                  {p.command}
-                </span>
-                <span className={`text-[10px] tabular-nums flex-shrink-0 ${p.cpu >= 80 ? 'text-amber-500' : 'text-app-text-muted'}`}>
-                  {p.cpu}%
-                </span>
-              </div>
-            );
-          })}
+          {topByCommand.map(([command, { cpu, count, isTopics }]) => (
+            <div key={command} className="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-app-hover">
+              <span className={`text-[10px] truncate flex-1 ${isTopics ? 'text-primary font-medium' : 'text-app-text-secondary'}`}>
+                {command}{count > 1 && <span className="text-app-text-muted"> ×{count}</span>}
+              </span>
+              <span className={`text-[10px] tabular-nums flex-shrink-0 ${cpu >= 80 ? 'text-amber-500' : 'text-app-text-muted'}`}>
+                {Math.round(cpu)}%
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
