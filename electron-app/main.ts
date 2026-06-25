@@ -2695,12 +2695,31 @@ ipcMain.handle('perf:get-metrics', () => {
   let rendererCPU = 0;
   let gpuCPU = 0;
   let totalCPU = 0;
+  // Per-process working set (KB → MB at the end). This is the piece the status
+  // bar was missing: it only ever showed the Bun server's RSS (~70 MB), which
+  // is a tiny slice of the real desktop footprint. The full app is every
+  // Chromium process Electron spawns — main (Browser), GPU, Utility, and one
+  // renderer per window AND per native browser pane (WebContentsView). Summing
+  // their working sets is the standard Electron "how much RAM am I using"
+  // figure (≈ what Activity Monitor shows per process). Note: it counts shared
+  // pages in more than one process, so it slightly overstates *unique* memory —
+  // acceptable for a footprint indicator, and clearly the right order of
+  // magnitude vs. the old server-only number.
+  let rendererMem = 0; // KB — sum of all 'Tab' (renderer) processes
+  let gpuMem = 0;      // KB — GPU/compositor process
+  let otherMem = 0;    // KB — Browser/main + Utility + everything else
+  let totalMem = 0;    // KB
+  let processCount = 0;
   try {
     for (const m of app.getAppMetrics()) {
+      processCount++;
       const c = m.cpu?.percentCPUUsage ?? 0;
       totalCPU += c;
-      if (m.type === 'Tab') rendererCPU += c;
-      else if (m.type === 'GPU') gpuCPU += c;
+      const ws = m.memory?.workingSetSize ?? 0; // reported in KB
+      totalMem += ws;
+      if (m.type === 'Tab') { rendererCPU += c; rendererMem += ws; }
+      else if (m.type === 'GPU') { gpuCPU += c; gpuMem += ws; }
+      else { otherMem += ws; }
     }
   } catch {}
 
@@ -2720,6 +2739,13 @@ ipcMain.handle('perf:get-metrics', () => {
       renderer: Math.round(rendererCPU),
       gpu: Math.round(gpuCPU),
       total: Math.round(totalCPU),
+    },
+    memory: {
+      totalMB: Math.round(totalMem / 1024),
+      rendererMB: Math.round(rendererMem / 1024),
+      gpuMB: Math.round(gpuMem / 1024),
+      otherMB: Math.round(otherMem / 1024),
+      processCount,
     },
     gpu: { accelerated, compositing, webgl },
   };
