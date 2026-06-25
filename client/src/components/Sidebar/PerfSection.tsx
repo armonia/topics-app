@@ -167,10 +167,10 @@ export function PerfSection() {
           Electron process (renderers, GPU, main, utility) + the server. */}
       <div
         className="flex items-center justify-between px-0.5 pt-0.5"
-        title="Working set di tutti i processi Electron + RSS del server Bun. Include pagine condivise tra processi, quindi è una leggera sovrastima della memoria unica."
+        title="Memoria residente (RSS) di tutti i processi Electron + RSS del server Bun. Activity Monitor mostra un valore più alto (footprint), che include anche memoria compressa e superfici GPU."
       >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">working set</span>
+          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">RSS</span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
           {totalMemMB !== null ? `${totalMemMB} MB` : '—'}
