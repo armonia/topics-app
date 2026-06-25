@@ -53,6 +53,7 @@ import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
+import { ensureClaudeHooksInstalled } from "./server/lib/claude-hooks-install";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
@@ -291,6 +292,12 @@ const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
+// Auto-install the Claude Code hook wrappers so the phase machine gets the
+// authoritative "turn finished" signal out of the box. Without this, sessions
+// stay at `starting` and the client falls back to a noisy pty-silence heuristic
+// (the "random notifications" bug). Idempotent, non-destructive, never throws —
+// the token was already minted inside createClaudeHooksRouter above.
+ensureClaudeHooksInstalled(import.meta.dir);
 // Replay JSONL tails for any session whose state was lost on the previous
 // shutdown, then start the reaper. Both are fire-and-forget — they advance
 // state independently of the live hook stream.

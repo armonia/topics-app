@@ -4,6 +4,8 @@ import type { AppSettings, ClaudeSessionPhase, TerminalSessionInfo, Topic, WSMes
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
+import { useProjectFocusStore } from '../state/projectFocus';
+import { getProjectPathFromPaneId } from '../state/pane/adapters/paneConfig';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -288,13 +290,33 @@ export function useCompletionNotifier({
   const prevPhaseRef = useRef<Map<string, ClaudeSessionPhase>>(new Map());
   useWSSubscription(onWSMessage, 'session:state', (msg) => {
       const state = msg.state;
-      if (!state || !msg.sessionKey) return;
+      if (!state) return;
 
-      const sessionKey = msg.sessionKey;
+      // Two flavours of Claude session reach here:
+      //   - WEBCHAT chats: carry `sessionKey` (`topic:<id>`). Their replies are
+      //     also surfaced by the Electron main process via `message:new`.
+      //   - TERMINAL Claude Code sessions (a pane running `claude`): carry NO
+      //     sessionKey, only `state.claudeSessionId`. They store no chat message,
+      //     so main.ts NEVER banners their turn completion — that gap is the
+      //     "no native notification when Claude replies in a coding session"
+      //     bug. We resolve them off the live terminal roster and banner here.
+      const sessionKey = msg.sessionKey ?? state.sessionKey ?? null;
+      const claudeSessionId = state.claudeSessionId || null;
+      const phaseKey = sessionKey || claudeSessionId;
+      if (!phaseKey) return;
+
       const phase = state.phase;
-      const prev = prevPhaseRef.current.get(sessionKey);
-      prevPhaseRef.current.set(sessionKey, phase);
+      const prev = prevPhaseRef.current.get(phaseKey);
       if (prev === phase) return; // no-op repeats
+      // Record for the next diff, but PRUNE terminal/dormant phases so the map
+      // doesn't accumulate one dead entry per session for the lifetime of this
+      // always-mounted hook (each terminal session gets a fresh claudeSessionId).
+      // Mirrors main.ts CLAUDE_GONE_PHASES + the cooldownRef pruning above.
+      if (phase === 'completed' || phase === 'dormant' || phase === 'error') {
+        prevPhaseRef.current.delete(phaseKey);
+      } else {
+        prevPhaseRef.current.set(phaseKey, phase);
+      }
 
       const cfg = settingsRef.current;
       if (!cfg.notificationsEnabled) return;
@@ -306,49 +328,97 @@ export function useCompletionNotifier({
         phase === 'completed';
       if (!isActionable) return;
 
-      // Resolve the friendly topic name. The session-key convention for
-      // Topics chats is `topic:<8-char-id>`; we scan the topics map for the
-      // first one whose `sessionKey` matches. Falls back to a generic label.
+      // Resolve a friendly label + owning topic. First try a webchat topic whose
+      // `sessionKey` matches; otherwise match a terminal session by
+      // claudeSessionId (its `name` is the user-renameable tab title).
       let topicId: string | null = null;
       let label = 'Claude';
-      for (const t of Object.values(topicsRef.current)) {
-        if (t.sessionKey === sessionKey) {
-          topicId = t.id;
-          label = t.name || 'Claude';
-          break;
+      let isTerminal = false;
+      let terminalId: string | null = null;
+      if (sessionKey) {
+        for (const t of Object.values(topicsRef.current)) {
+          if (t.sessionKey === sessionKey) {
+            topicId = t.id;
+            label = t.name || 'Claude';
+            break;
+          }
+        }
+      }
+      if (!topicId && claudeSessionId) {
+        const ts = terminalSessionsRef.current.find((t) => t.claudeSessionId === claudeSessionId);
+        if (ts) {
+          isTerminal = true;
+          terminalId = ts.id;
+          const tn = ts.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
+          label = ts.name || tn || 'Claude Code';
+          topicId = ts.topicId ?? null;
         }
       }
 
+      // Focus suppression. A focused CHAT panel id is `chat:<topicId>`; a focused
+      // TERMINAL panel id contains the terminal session id (`terminal:<id>`).
+      // topicIdFromPanel only resolves chats, so the terminal case needs its own
+      // check — without it a Claude Code terminal you're actively watching would
+      // still banner+ding every turn, ignoring notifyEvenWhenFocused (matches the
+      // pty `terminal:activity` path's own focus check).
       const focusedTopicId = topicIdFromPanel(focusedRef.current);
-      const isFocused = topicId !== null && topicId === focusedTopicId;
+      const focusedPanel = focusedRef.current;
+      // A terminal nested INSIDE a project window keeps the App-level focus on
+      // the `project:<path>` pane — its active inner pane is tracked separately
+      // in useProjectFocusStore. So also treat the terminal as focused when it
+      // is the active inner pane of the currently-focused project (otherwise a
+      // Claude Code terminal you're watching inside a project still dings).
+      const focusedProjectPath = focusedPanel ? getProjectPathFromPaneId(focusedPanel) : null;
+      const projectInnerActive = focusedProjectPath
+        ? useProjectFocusStore.getState().activePaneByProject[focusedProjectPath]
+        : null;
+      const isFocused =
+        (topicId !== null && topicId === focusedTopicId) ||
+        (isTerminal && !!terminalId && (
+          (!!focusedPanel && focusedPanel.includes(terminalId)) ||
+          projectInnerActive === `terminal:${terminalId}`
+        ));
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
 
-      // 10s cooldown. Key by topicId FIRST so this phase notification and the
-      // agents:sessions completion (which keys by topicId) collapse into ONE
-      // toast for the same chat instead of double-firing. Fall back to
-      // claudeSessionId / sessionKey when no topic resolved. (This handler only
-      // runs for chats — it early-returns on a null sessionKey above — so the
-      // pty `terminal:activity` path never collides here.)
-      const cooldownKey = topicId || state.claudeSessionId || sessionKey;
+      // 10s cooldown. For a TERMINAL, key by claudeSessionId so this collapses
+      // with the pty `terminal:activity` fallback (which keys by claudeSessionId)
+      // into ONE cue. For a webchat, key by topicId FIRST so it collapses with the
+      // agents:sessions completion (which keys by topicId). Both fall back through
+      // the remaining identifiers.
+      const cooldownKey = isTerminal
+        ? (claudeSessionId || topicId || sessionKey!)
+        : (topicId || claudeSessionId || sessionKey!);
       const now = Date.now();
       const last = cooldownRef.current.get(cooldownKey) ?? 0;
       if (now - last < 10_000) return;
       cooldownRef.current.set(cooldownKey, now);
 
-      // osBanner off in Electron — main.ts already banners chat replies
-      // (message:new) and session:state error/approval; firing here too doubles.
+      // Native-banner ownership (avoid the double banner AUDIT F283 flagged):
+      //   - webchat awaiting-user/completed → main.ts banners via message:new.
+      //   - error / awaiting-approval (chat OR terminal) → main.ts banners via
+      //     its own session:state handler.
+      //   - terminal awaiting-user/completed → NOBODY else banners, so the
+      //     renderer owns it (osBanner true even in Electron).
+      const rendererOwnsBanner = isTerminal && (phase === 'awaiting-user' || phase === 'completed');
+      const osBanner = rendererOwnsBanner ? true : !isElectron;
+      // Sound de-dup: when main.ts owns the native banner (Electron + osBanner
+      // false), it ALSO plays the OS chime (showNotification silent:false). Don't
+      // also play the renderer's WebAudio tone there, or one event makes TWO
+      // sounds. The renderer keeps the tone only when IT owns the banner (which
+      // it posts silent), or in a plain browser tab where there is no main.
+      const playSound = cfg.notificationsSound && !(isElectron && !osBanner);
       switch (phase) {
         case 'awaiting-user':
-          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound, !isElectron);
+          fire('ok', `${label}: in attesa di te`, playSound, osBanner);
           break;
         case 'awaiting-approval':
-          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound, !isElectron);
+          fire('warn', `${label}: serve un'approvazione`, playSound, osBanner);
           break;
         case 'completed':
-          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound, !isElectron);
+          fire('ok', `${label}: lavoro completato`, playSound, osBanner);
           break;
         case 'error':
-          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound, !isElectron);
+          fire('warn', `${label}: errore — interventi richiesti`, playSound, osBanner);
           break;
       }
   });
@@ -396,10 +466,18 @@ export function useCompletionNotifier({
       const isFocused = !!focused && focused.includes(msg.id);
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
 
+      // Longer cooldown than the authoritative paths (10s). This pty-silence
+      // proxy is the ONLY signal for genuinely hook-less sessions, where a
+      // single Claude turn has several >1.5s mid-turn lulls — each used to fire
+      // a fresh "lavoro completato" (the random-dings bug). With the phase guard
+      // above plus auto-installed Claude Code hooks this path rarely runs at all;
+      // when it does, a 30s window caps it to at most one cue per session per
+      // 30s instead of one per lull. Shares cooldownRef with the phase path so a
+      // session that briefly lacked a phase signal still dedups against it.
       const cooldownKey = ts?.claudeSessionId || `terminal:${msg.id}`;
       const now = Date.now();
       const last = cooldownRef.current.get(cooldownKey) ?? 0;
-      if (now - last < 10_000) return;
+      if (now - last < 30_000) return;
       cooldownRef.current.set(cooldownKey, now);
 
       const topicName = ts?.topicId ? topicsRef.current[ts.topicId]?.name : undefined;

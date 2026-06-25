@@ -1189,7 +1189,28 @@ const trayState: TrayState = {
 let trayIcons: Partial<TrayIcons> = {};
 
 function loadTrayIcons(): void {
-  const baseIcon = nativeImage.createFromPath(path.join(__dirname, 'tray-icon.png')).resize({ width: 18, height: 18 });
+  // `__dirname` is dist/ at runtime. In dev the build step copies tray-icon.png
+  // INTO dist/, so it's found there. In the PACKAGED app electron-builder's
+  // `files` list ships tray-icon.png at the asar ROOT (one level up from dist/),
+  // NOT under dist/ — so the dist/ path misses and createFromPath returns an
+  // EMPTY image. An empty nativeImage still produces a clickable tray, but it
+  // renders fully transparent — the "icona cliccabile ma trasparente" bug.
+  // Try both locations and use the first that actually loaded.
+  const candidates = [
+    path.join(__dirname, 'tray-icon.png'),       // dev: copied into dist/
+    path.join(__dirname, '..', 'tray-icon.png'), // packaged: asar root
+  ];
+  let baseIcon = nativeImage.createEmpty();
+  for (const candidate of candidates) {
+    const img = nativeImage.createFromPath(candidate);
+    if (!img.isEmpty()) {
+      baseIcon = img.resize({ width: 18, height: 18 });
+      break;
+    }
+  }
+  if (baseIcon.isEmpty()) {
+    console.error('[Topics Electron] tray-icon.png not found in any candidate path:', candidates);
+  }
   baseIcon.setTemplateImage(true);
 
   trayIcons = {

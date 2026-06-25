@@ -8,6 +8,7 @@ import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
 import { signalsActions, useSignalsStore, projectHasAwaitingChild } from '../../state/signals';
+import { usePaneStore } from '../../state/pane/store';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -18,7 +19,7 @@ import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_SURFACE } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_SURFACE, ACTIVE_FOCUS_TAB_SURFACE, ACTIVE_FOCUS_TAB_SHADOW } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
@@ -179,6 +180,70 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
+
+  // Inline rename state for terminal (Claude Code) session tabs. The displayed
+  // label for a terminal tab comes from the live roster session `name` (see the
+  // `label` computation in the map below), so committing a rename just PATCHes
+  // the server — the `terminal:sessions` broadcast then relabels every tab.
+  const [editingPaneId, setEditingPaneId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  // Single-resolution guard. Enter/Escape resolve the edit AND unmount the input
+  // (it only renders while editing). If the browser then fires a blur on the
+  // detached node, the onBlur handler must not commit a second time (duplicate
+  // PATCH) or, after Escape, commit at all. Reset when a new edit starts.
+  const editResolvedRef = useRef(false);
+  useEffect(() => {
+    if (editingPaneId && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [editingPaneId]);
+
+  const startRename = useCallback((paneId: string) => {
+    const pane = panes.find((p) => p.id === paneId);
+    if (!pane || pane.type !== 'terminal') return;
+    const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
+    const current = (sid && terminalSessions.find((t) => t.id === sid)?.name) || pane.title || '';
+    editResolvedRef.current = false;
+    setEditValue(current);
+    setEditingPaneId(paneId);
+  }, [panes, terminalSessions]);
+
+  const commitRename = useCallback((paneId: string) => {
+    if (editResolvedRef.current) return; // already resolved (e.g. unmount blur) — no-op
+    editResolvedRef.current = true;
+    setEditingPaneId(null);
+    const pane = panes.find((p) => p.id === paneId);
+    if (!pane || pane.type !== 'terminal') return;
+    const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
+    const name = editValue.replace(/\s+/g, ' ').trim();
+    if (!sid || !name) return;
+    // Persist on the session; the roster broadcast relabels the tab live (and
+    // the sidebar row + server-side dormant /revive title).
+    fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }).catch(() => {});
+    // Keep the pane's OWN title in sync so the rename survives a close→reopen:
+    // CLOSE_PANE captures pane.title into the closed-tab record and the recreate
+    // path POSTs a fresh session with it (the original session row is deleted on
+    // close, so the roster name alone wouldn't survive). Best-effort — a no-op
+    // for project-layout panes not in the global store, whose live label still
+    // follows the roster name. Mirrors persistBrowserPaneUrl's UPDATE_PANE.
+    try {
+      const store = usePaneStore.getState();
+      if (store.panes[paneId]) {
+        store.dispatch({ type: 'UPDATE_PANE', payload: { id: paneId, updates: { title: name } } });
+      }
+    } catch { /* best-effort */ }
+  }, [panes, editValue]);
+
+  const cancelRename = useCallback(() => {
+    editResolvedRef.current = true;
+    setEditingPaneId(null);
+  }, []);
 
   // Auto-scroll the active tab into view when it changes. The FIRST positioning
   // (mount / reload) must be INSTANT — a tab bar that was already scrolled
@@ -556,10 +621,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const termSid = pane.type === 'terminal' ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id)) : null;
         const isClaudeCodeTab = pane.type === 'terminal' && (pane.terminalType === 'claude-code' || (!!termSid && claudeCodeSessionIds.has(termSid)));
         const isCodexTab = pane.type === 'terminal' && !isClaudeCodeTab && (pane.terminalType === 'codex' || (!!termSid && codexSessionIds.has(termSid)));
-        // Selection reads in the SAME visual language as the sidebar (shared
-        // SELECTED_SURFACE): the focused tab is a clearly raised NEUTRAL card,
-        // every other split group still shows ITS active tab one step softer,
-        // and inactive tabs stay quiet. No blue/colour wash anywhere.
+        // Selection grammar: the ACTIVE-FOCUS tab (the one whose pane holds the
+        // app's writing cursor) lights up — neutral fill + primary-tinted name +
+        // a primary ring/glow (ACTIVE_FOCUS_TAB_SURFACE + ACTIVE_FOCUS_TAB_SHADOW)
+        // — so it's findable among many open tabs. The active tab of a split
+        // group that does NOT own focus stays a quiet neutral card
+        // (SELECTED_SURFACE_SOFT); inactive tabs stay quiet. Awaiting (solid
+        // blue) still outranks focus.
         const isSelected = activePaneId === pane.id;
         const isFullyActive = isSelected && groupIsFocused && isAppFocused;
         const isActiveDimmed = isSelected && !(groupIsFocused && isAppFocused);
@@ -575,7 +643,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               : pane.type === 'project'
                 ? (!!pane.projectPath && projectHasAwaitingChild(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds))
                 : false;
-        const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
+        // Terminal tabs show the live roster session `name` so a rename (which
+        // PATCHes the session) reflects immediately via the terminal:sessions
+        // broadcast, without having to mutate the pane title in two pane stores.
+        const rosterName = pane.type === 'terminal' && termSid
+          ? terminalSessions.find((t) => t.id === termSid)?.name
+          : undefined;
+        const label = rosterName || pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
+        const isEditing = editingPaneId === pane.id;
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
@@ -602,7 +677,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             key={pane.stableKey ?? pane.id}
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
-            style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
+            style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0, ...(isFullyActive && !isAwaiting ? { boxShadow: ACTIVE_FOCUS_TAB_SHADOW } : {}) }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
             // sum past the fixed 150px and spill into the next tab. The label
@@ -611,18 +686,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               isAwaiting
                 ? AWAITING_SURFACE
                 : isFullyActive
-                  ? SELECTED_SURFACE
+                  ? ACTIVE_FOCUS_TAB_SURFACE
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
                     : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
-            onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
+            onDoubleClick={() => { if (pane.preview && onPinPane) { onPinPane(pane.id); return; } if (pane.type === 'terminal') startRename(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
             onTouchStart={(e) => handleLongPressStart(pane.id, e.currentTarget)}
             onTouchEnd={handleLongPressCancel}
             onTouchMove={handleLongPressCancel}
-            draggable={!isTouch && !!onReorderPanes}
+            draggable={!isTouch && !!onReorderPanes && !isEditing}
             onDragStart={handleTabDragStart(pane.id)}
             onDragOver={handleTabDragOver(paneIdx)}
             onDragEnd={handleTabDragEnd}
@@ -675,7 +750,26 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Icon size={14} />
               </span>
             ) : null}
-            <span className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            {isEditing ? (
+              <input
+                ref={renameInputRef}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') { e.preventDefault(); commitRename(pane.id); }
+                  else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                }}
+                onBlur={() => commitRename(pane.id)}
+                spellCheck={false}
+                aria-label="Rinomina sessione"
+                className="flex-1 min-w-0 bg-transparent border-b border-app-border outline-none text-[11px] text-app-text"
+              />
+            ) : (
+              <span className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''}`}>{label}</span>
+            )}
             {/* Project tabs intentionally do NOT show git status numbers (changed
                 files / ahead-behind / running processes) — the sidebar project row
                 dropped them (cryptic numbers) and the two surfaces must read the
@@ -861,15 +955,26 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               </button>
             </>
           )}
-          {onRename && (
-            <button
-              onClick={() => { onRename(ctxMenu.paneId); setCtxMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            >
-              <Edit3 size={14} />
-              <span>Rename</span>
-            </button>
-          )}
+          {(() => {
+            // Rename: terminal (Claude Code) tabs get an inline editor here;
+            // other pane types only show this when a parent supplies onRename.
+            const ctxPane = panes.find((p) => p.id === ctxMenu.paneId);
+            const isTerminal = ctxPane?.type === 'terminal';
+            if (!isTerminal && !onRename) return null;
+            return (
+              <button
+                onClick={() => {
+                  if (isTerminal) startRename(ctxMenu.paneId);
+                  else onRename?.(ctxMenu.paneId);
+                  setCtxMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <Edit3 size={14} />
+                <span className="flex-1 text-left">Rinomina</span>
+              </button>
+            );
+          })()}
           {(() => {
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
             const isChat = ctxPane?.type === 'chat';

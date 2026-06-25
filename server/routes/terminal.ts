@@ -1408,6 +1408,35 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       return json({ ok: true });
     }
 
+    // --- Rename a terminal session (PATCH name) ---
+    // Lets the user give a started Claude Code session a meaningful label for
+    // organisation. Updates the live in-memory session (if mounted) AND the
+    // persisted row (so the name survives a restart / applies to a dormant
+    // session), then re-broadcasts the roster so every client tab relabels.
+    const renameMatch = matchRoute(pathname, "/api/terminal/sessions/:id");
+    if (method === "PATCH" && renameMatch) {
+      let body: any;
+      try { body = await readJSON(req); } catch { return errorResponse(400, "Body must be JSON"); }
+      if (!body || typeof body.name !== "string") {
+        return errorResponse(400, "name (string) is required");
+      }
+      // Collapse internal whitespace/newlines and cap the length so a pasted
+      // blob can't break the tab strip.
+      const name = body.name.replace(/\s+/g, " ").trim().slice(0, 120);
+      if (!name) return errorResponse(400, "name must not be empty");
+
+      const session = sessions.get(renameMatch.id);
+      const db = getDatabase();
+      const dbRow = db.query("SELECT id FROM terminal_sessions WHERE id = ?").get(renameMatch.id) as any;
+      if (!session && !dbRow) return errorResponse(404, "Terminal session not found");
+
+      if (session) session.name = name;
+      try { db.run("UPDATE terminal_sessions SET name = ? WHERE id = ?", [name, renameMatch.id]); } catch {}
+
+      broadcastTerminalSessions();
+      return json({ ok: true, id: renameMatch.id, name });
+    }
+
     // --- Dormant sessions: list and revive ---
 
     if (method === "GET" && pathname === "/api/terminal/sessions/dormant") {

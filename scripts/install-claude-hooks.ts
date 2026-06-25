@@ -87,7 +87,10 @@ function ensureWrapperInstalled(): void {
 function buildEntry(event: string): HookEntry {
   return {
     type: "command",
-    command: `${WRAPPER_DEST} ${event}`,
+    // Quote the path so `/bin/sh -c` can't word-split a home dir containing a
+    // space. Trailing ` ${event}` unchanged → hasOurEntry/uninstall still match.
+    // Keep in sync with server/lib/claude-hooks-install.ts.
+    command: `"${WRAPPER_DEST}" ${event}`,
     timeout: 5,
     topics_app: true,
   };
