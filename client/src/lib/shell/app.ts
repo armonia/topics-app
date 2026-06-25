@@ -30,6 +30,26 @@ export async function openExternal(url: string): Promise<void> {
   }
 }
 
+/** Native folder picker — returns the chosen directory path, or null if the user
+ *  cancelled. No-op (null) on web/PWA where there's no OS dialog. */
+export async function selectDirectory(): Promise<string | null> {
+  switch (shellKind) {
+    case 'electron': {
+      const api = (window as unknown as { electronAPI?: { selectDirectory?: () => Promise<string | null> } }).electronAPI;
+      return (await api?.selectDirectory?.()) ?? null;
+    }
+    case 'tauri': {
+      // tauri-plugin-dialog: open({ directory: true }) → string | string[] | null.
+      const sel = await tauriInvoke<string | string[] | null>('plugin:dialog|open', {
+        options: { directory: true, multiple: false, title: 'Apri / Crea progetto' },
+      });
+      return typeof sel === 'string' ? sel : null;
+    }
+    default:
+      return null;
+  }
+}
+
 /** Hard-restart the desktop app (bypasses the service worker). No-op on web. */
 export async function relaunch(): Promise<void> {
   switch (shellKind) {

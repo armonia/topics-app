@@ -456,6 +456,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_dialog::init())
         // Native menu — a WKWebView shell with NO app menu also has no working
         // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
         // explicit View ▸ Reload (Cmd+R / Cmd+Shift+R), matching the Electron app.
