@@ -8,11 +8,12 @@
 
 import { isTauri } from './index';
 
-// The data server (Bun) the desktop shell connects to. Single constant so the
-// host/port/scheme is trivial to change (e.g. when TLS is enabled on :3333).
+// The data server (Bun) the desktop shell connects to. The prod server serves
+// HTTPS/WSS (TLS via the "Armonia Local CA" cert). Single constant so the
+// host/scheme is trivial to change.
 const DESKTOP_SERVER_HOST = '127.0.0.1:3333';
-const DESKTOP_SERVER_HTTP = `http://${DESKTOP_SERVER_HOST}`;
-const DESKTOP_SERVER_WS = `ws://${DESKTOP_SERVER_HOST}`;
+const DESKTOP_SERVER_HTTP = `https://${DESKTOP_SERVER_HOST}`;
+const DESKTOP_SERVER_WS = `wss://${DESKTOP_SERVER_HOST}`;
 
 /** HTTP base for the data server: '' (same-origin) off-desktop, absolute on Tauri. */
 export function serverHttpBase(): string {
