@@ -2,7 +2,8 @@ import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
-import { setColumnStackHeights } from './groupLayoutStacks';
+import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
+import { equalizeWidths, weightedWidths } from './gridWidths';
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -206,6 +207,66 @@ export function GroupLayout({
   }), []);
 
   const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, callbacks, resizeOptions);
+
+  // Vertical leaf depth of a row = its deepest column's sub-stack (primary + any
+  // groups stacked under it). A 2-deep column needs twice the row height so each
+  // stacked leaf matches a leaf in a plain row — the project-internal twin of the
+  // main grid's project-cell weighting.
+  const rowVerticalDepth = useCallback((row: GroupLayoutRow): number => {
+    let d = 1;
+    for (const gid of row.groupIds) {
+      const cd = columnDepth(row, gid);
+      if (cd > d) d = cd;
+    }
+    return d;
+  }, []);
+
+  // Auto-equalize the columns of a row whenever its column COUNT changes (a split
+  // added or removed) — the project-internal twin of the main grid's
+  // auto-rebalance, so leaf panes stay equal without a manual double-click. Keyed
+  // by each row's first group id so REORDERING rows never triggers a spurious
+  // reset; a manual column drag (no count change) is preserved between edits.
+  const prevColCountsRef = useRef<Map<string, number>>(
+    new Map(rows.map((r) => [r.groupIds[0], r.groupIds.length])),
+  );
+  useEffect(() => {
+    const prev = prevColCountsRef.current;
+    const nextCounts = new Map<string, number>();
+    let changed = false;
+    const nextRows = rows.map((r) => {
+      const key = r.groupIds[0];
+      nextCounts.set(key, r.groupIds.length);
+      const had = prev.get(key);
+      if (had !== undefined && had !== r.groupIds.length && r.groupIds.length > 1) {
+        changed = true;
+        return { ...r, widths: equalizeWidths(r.groupIds.length) };
+      }
+      return r;
+    });
+    prevColCountsRef.current = nextCounts;
+    if (changed) onUpdateRows(nextRows);
+  }, [rows, onUpdateRows]);
+
+  // Auto-equalize row heights when the row COUNT changes or a column's vertical
+  // sub-stack depth changes — WEIGHTED by each row's depth so every leaf ends the
+  // same height (a row with a 2-deep column gets twice the height). The signature
+  // is the depth multiset + count, so it's reorder-invariant; a manual height
+  // drag (no structural change) is preserved.
+  const rowSig = (rs: GroupLayoutRow[]) =>
+    rs.length + '|' + rs.map(rowVerticalDepth).slice().sort((a, b) => a - b).join(',');
+  const prevRowSigRef = useRef<string>(rowSig(rows));
+  useEffect(() => {
+    const sig = rowSig(rows);
+    const prev = prevRowSigRef.current;
+    prevRowSigRef.current = sig;
+    // No change, nothing to balance (≤1 row), or the empty→populated initial
+    // fill (which must not overwrite the persisted heights being restored).
+    if (prev === sig || rows.length <= 1 || prev.startsWith('0|')) return;
+    const nh = weightedWidths(rows.map(rowVerticalDepth));
+    if (nh.length === rowHeights.length && nh.every((x, i) => Math.abs(x - rowHeights[i]) < 1e-4)) return;
+    onUpdateRowHeights(nh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rowSig is a render-local pure helper; deps are the structural inputs (rows), the compared heights, and the stable setter
+  }, [rows, rowHeights, rowVerticalDepth, onUpdateRowHeights]);
 
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
   const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone } | null>(null);
@@ -816,7 +877,7 @@ export function GroupLayout({
                 className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
                 title="Double-click to equalize heights"
                 onMouseDown={startVerticalResize(rowIdx, rowHeights)}
-                onDoubleClick={equalizeVertical(rows.length)}
+                onDoubleClick={equalizeVertical(rows.length, () => rows.map(rowVerticalDepth))}
               >
                 <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
               </div>
