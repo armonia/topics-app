@@ -73,5 +73,25 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P4 theme sync DONE** (build green: vite + cargo). Added a Rust `set_theme`
+  command (sets NSWindow appearance Aqua/DarkAqua → the traffic lights AND the
+  per-region NSVisualEffectViews re-tint to match light/dark for free) + a Tauri
+  branch in `useTheme.ts` (was electronAPI-only → dead under Tauri). Files:
+  desktop-tauri/src-tauri/src/lib.rs, client/src/hooks/useTheme.ts. Needs runtime
+  visual check (light/dark toggle re-tints chrome).
+- **Sidebar-seam bug (task #1) — DEFERRED, needs GUI repro by user.** Investigated:
+  the CSS already zeroes the collapsed sidebar's gap margin (index.css:1346,
+  `[role=navigation][aria-label="Topics sidebar"][style*="width: 0px"] { margin:0 }`),
+  and the vibrancy region logic should drop the sidebar rect on collapse (collect()
+  filters `w>1`, so a width-0 sidebar is removed). So the seam isn't an obvious CSS
+  or region-list bug. Most likely candidates to check WITH the GUI: (a) the content
+  `[data-split-card]`'s 2px left margin not being clipped by the `[data-split-surface]`
+  `-2px` pull once the sidebar (the former left element) is gone → a 2px transparent
+  strip at x=0; (b) a region-update lag during the ~200ms `sidebar-transition` (the
+  120ms settle + 700ms poll eventually correct it, but the transient could read as
+  "strange"). NOT fixed blind (can't verify visually overnight) — flagged for the
+  user. A safe candidate fix once confirmed: clip the content surface flush-left
+  when the sidebar is collapsed, and/or flush the vibrancy regions on the sidebar
+  `transitionend`.
 - (loop start) worktree created, backlog set. Vibrancy frost CONFIRMED working
   (the `zPosition=-1` removal fixed it). Sidebar-collapse seam bug is task #1.
