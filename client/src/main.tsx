@@ -8,6 +8,11 @@ import { OverlayHostApp } from './OverlayHost'
 // persistence transports, and the 500 ms GET fallback) lives inside
 // client/src/state/pane/. main.tsx is intentionally a thin shell.
 import { bootstrapPaneStore } from './state/pane/bootstrap';
+import { installDesktopFetchShim } from './lib/shell/net';
+
+// Desktop shell (Tauri) serves the UI locally; rewrite relative API fetches to
+// the data server origin BEFORE any bootstrap fetch fires. No-op off-desktop.
+installDesktopFetchShim();
 
 const container = document.getElementById('root')
 if (!container) {

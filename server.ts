@@ -447,6 +447,34 @@ try {
   throw err;
 }
 
+// PORTING-PLAN.md Tier 1 — CORS for the Tauri desktop shell, which serves the UI
+// locally (tauri://localhost) and calls this server cross-origin for /api + /ws.
+// Provably a no-op for the existing web/Electron clients: their Origin is never a
+// tauri/desktop origin, so corsAllowOrigin() returns "" and nothing is added.
+function corsAllowOrigin(req: Request): string {
+  const origin = req.headers.get("origin") || "";
+  // macOS WKWebView → tauri://localhost; Windows WebView2 → http(s)://tauri.localhost
+  if (origin === "tauri://localhost" || origin === "http://tauri.localhost" || origin === "https://tauri.localhost") {
+    return origin;
+  }
+  return "";
+}
+function applyDesktopCors(req: Request, resp: Response): void {
+  const origin = corsAllowOrigin(req);
+  if (!origin) return;
+  resp.headers.set("Access-Control-Allow-Origin", origin);
+  resp.headers.set("Vary", "Origin");
+}
+function corsPreflightHeaders(origin: string): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
+
 const server = Bun.serve<WSData>({
   port: PORT,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
@@ -641,6 +669,12 @@ const server = Bun.serve<WSData>({
       return new Response("Not Found", { status: 404 });
     }
 
+    // Desktop shell (Tauri) CORS preflight — no-op for non-desktop origins.
+    if (isApiRequest && method === "OPTIONS") {
+      const o = corsAllowOrigin(req);
+      if (o) return new Response(null, { status: 204, headers: corsPreflightHeaders(o) });
+    }
+
     // Route through handlers
     if (isApiRequest) {
       const response = await topicsRouter(req, url, pathname, method)
@@ -677,7 +711,10 @@ const server = Bun.serve<WSData>({
         || await claudeHooksRouter(req, url, pathname, method)
 ;
 
-      if (response) return response;
+      if (response) {
+        applyDesktopCors(req, response);
+        return response;
+      }
       logRequest(method, pathname, 404, startTime);
     }
 

@@ -5,13 +5,12 @@
   "identifier": "io.armonia.topics.tauri",
   "build": {
     "frontendDist": "../../public",
-    "devUrl": "http://localhost:3333"
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "windows": [
       {
         "title": "Topics",
-        "url": "http://localhost:3333",
         "width": 1400,
         "height": 900,
         "resizable": true,
