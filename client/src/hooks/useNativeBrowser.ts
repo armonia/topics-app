@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseBrowserWsMessage } from '@/types/browser-ws-messages';
+import { serverWsBase } from '@/lib/shell/net';
 import { DEVICE_PRESETS, type DeviceMode, type BrowserConsoleEntry, type NavHistoryEntry } from '@/components/Browser/browserDevTypes';
 
 const CONSOLE_BUFFER_MAX = 300;
@@ -252,8 +253,7 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
   // Subscribe to /ws/browser/:contextId for agent_active broadcast.
   // Uses the same protocol as Phase 30 — single source of truth for lock UX.
   useEffect(() => {
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${wsProto}//${window.location.host}/ws/browser/${contextId}`);
+    const ws = new WebSocket(`${serverWsBase()}/ws/browser/${contextId}`);
     ws.addEventListener('message', (e) => {
       try {
         const raw = JSON.parse(typeof e.data === 'string' ? e.data : '');

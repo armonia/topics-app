@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { parseBrowserWsMessage, type BrowserWsMessage } from '@/types/browser-ws-messages';
+import { serverWsBase } from '@/lib/shell/net';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -255,8 +256,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
   // on close/error after FALLBACK_DELAY_MS.
   useEffect(() => {
     mountedRef.current = true;
-    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${wsProto}://${window.location.host}/ws/browser/${encodedId}`;
+    const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}`;
     let ws: WebSocket;
     try {
       ws = new WebSocket(wsUrl);

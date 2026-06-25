@@ -3,6 +3,7 @@ import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
 import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 import { validateInbound } from '../schemas/ws-inbound';
+import { serverWsBase } from '../lib/shell/net';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -53,8 +54,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const ws = new WebSocket(`${serverWsBase()}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {

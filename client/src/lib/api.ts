@@ -24,6 +24,10 @@ import type {
   Machine,
 } from '../types';
 
+// Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
+// UI is served locally (tauri://localhost), so a global fetch shim rewrites these
+// relative paths to the data server origin — see installDesktopFetchShim() in
+// lib/shell/net.ts (PORTING-PLAN.md Tier 1). Callsites stay unchanged.
 const API_BASE = '/api';
 
 export class ApiError extends Error {

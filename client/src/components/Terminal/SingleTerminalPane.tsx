@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
@@ -325,8 +326,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     }
 
     function connectWs() {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal/${sessionId}`);
+      const ws = new WebSocket(`${serverWsBase()}/ws/terminal/${sessionId}`);
       ws.binaryType = 'arraybuffer';
 
       // Update ref so onData/paste always use the current WS
