@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Wifi, Server, RefreshCw, Clock, RotateCcw, MessageSquare, Layers } from 'lucide-react';
 import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { useOpenClawAvailable } from '../../hooks/useOpenClawAvailable';
@@ -45,6 +45,17 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
       setRefreshing(false);
     }
   };
+
+  // "Aggiornato X fa" — the real last-fetch time. Every status update (manual
+  // refresh OR the 30s auto-poll) lands a new object, so this resets then. A 1s
+  // ticker re-renders so the counter actually counts up live (it was frozen).
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  useEffect(() => { if (status) setLastRefreshedAt(Date.now()); }, [status]);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const gatewayOnline = status?.gateway.online ?? false;
 
@@ -129,9 +140,11 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
         >
           <RefreshCw size={12} className={refreshing || loading ? 'animate-spin' : ''} />
-          {status?.gateway.lastCheckedAt
-            ? formatTimeAgo(status.gateway.lastCheckedAt)
-            : 'Aggiorna'}
+          {refreshing
+            ? 'Aggiorno…'
+            : lastRefreshedAt !== null
+              ? `aggiornato ${formatAgo(lastRefreshedAt)}`
+              : 'Aggiorna'}
         </button>
         {openclawAvailable && (
           <button
@@ -193,14 +206,13 @@ function StatusRow({ icon, label, value, detail, color }: StatusRowProps) {
   );
 }
 
-function formatTimeAgo(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
+function formatAgo(ms: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (seconds < 3) return 'ora';
+  if (seconds < 60) return `${seconds}s fa`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.floor(minutes / 60)}h ago`;
+  if (minutes < 60) return `${minutes}m fa`;
+  return `${Math.floor(minutes / 60)}h fa`;
 }
 
 function formatGatewayStatus(status: string): string {
