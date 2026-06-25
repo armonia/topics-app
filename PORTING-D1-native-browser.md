@@ -66,6 +66,37 @@ l'unica che mantiene parità CDP al 100% **E** taglia la RAM idle del ~47-87%, a
 rischio *medio* (non *high* come le alternative WKWebView-multiengine o ibride).
 Punto fragile reale: embedding cross-OS oltre macOS → spike-first.
 
+## ✅ Integrazione CEF↔Tauri — design concreto (API confermate sul Mac, 2026-06-25)
+
+Spike risolto: cef-rs builda+gira+renderizza qui (vedi PORTING-PLAN T1.5a). Le API
+per l'embedding sono state **verificate nel sorgente delle crate installate**, quindi
+il cantiere è completamente specificato — niente più incognite, solo costruzione.
+
+**Mappa API (tutte presenti in `cef 149.1.0` + `tauri 2.11.3`):**
+- `tauri::Window::ns_view() -> *mut c_void` — l'NSView della finestra Tauri (il parent).
+- `cef::WindowInfo::default().set_as_child(parent_view: cef_window_handle_t, bounds: &Rect)`
+  — su macOS setta `parent_view` → browser **windowed, child nativo** (NON OSR/screencast).
+- `cef::browser_host_create_browser(Some(&window_info), Some(&mut client), url, &settings, …)`.
+- `cef::Settings { external_message_pump: 1, … }` + callback `on_schedule_message_pump_work`
+  → si chiama `cef::do_message_loop_work()` dal loop di tao (Tauri). Coesistenza sul main thread.
+
+**Ricetta (ordine):**
+1. **Il binario Tauri diventa CEF host**: in `main()`, PRIMA di `tauri::Builder`, fare
+   `library_loader` (macOS) + `cef::execute_process(...)` (dispatch sub-process) + `cef::initialize(settings con external_message_pump, app)`. Helper bin separato (`*_helper`)
+   come in `examples/cefsimple/src/bin/`.
+2. **Bundle** via `bundle-cef-app` (già provato): produce `.app` con `Chromium Embedded
+   Framework.framework` + i 5 helper. Va integrato con `tauri build` (post-step) o si usa il
+   bundler cef sul prodotto Tauri.
+3. **Crea il pane**: alla apertura di un browser-pane, `window.ns_view()` → `WindowInfo::set_as_child(ns_view, bounds_del_pane)` → `browser_host_create_browser`. La CEF view appare come child nativo sopra la WKWebView.
+4. **Geometry sync**: su resize del pane, riposiziona l'NSView CEF + `browser.host().was_resized()`. Watchdog 500ms (pattern atrium / `electron-blank-vibrancy-window`).
+5. **Occlusione/z-order**: la CEF view è nativa → sta SOPRA la WKWebView (stesso problema della WebContentsView Electron). Soluzione = il pattern `hitTest:→nil` già in `electron-app/native/vibrancy/vibrancy.mm` quando un overlay è aperto.
+6. **CDP/parità agent**: passa `--remote-debugging-port=N` nella command line CEF; punta
+   `server/browser-cdp-raw.ts` (oggi su `19333`) a `ws://127.0.0.1:N`. I 23 op portano 1:1.
+
+**Punto fragile unico rimasto**: la coesistenza del message-loop CEF↔tao sul main thread macOS
+(external_message_pump). È l'unica parte da debuggare con attenzione; tutto il resto è wiring.
+**Effort residuo**: giorni (non settimane di incognite) — è costruzione, non ricerca.
+
 ## Nota sullo scaffold
 
 `desktop-tauri/` attuale è un `create-tauri-app` di default (no multiwebview/CEF
