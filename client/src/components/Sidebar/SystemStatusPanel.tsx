@@ -78,12 +78,14 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               icon={<Clock size={12} />}
               label="Cron Jobs"
               value={`${status.cronJobs.enabled}/${status.cronJobs.total}`}
-              detail={status.cronJobs.nextRun ? `next: ${formatTimeAgo(status.cronJobs.nextRun)}` : 'enabled'}
+              detail="attivi"
               color={status.cronJobs.total === 0 ? 'yellow' : 'green'}
             />
           )}
 
-          {/* Connections */}
+          {/* Connections. "Streams" (server activeStreams) was removed: it
+              double-counted the agent chip's live-work signal from a different
+              source and could visibly disagree on a missed stream:end. */}
           <div className="flex items-center gap-3 px-2 py-1.5 rounded bg-elevated">
             <div className="flex-1 flex items-center gap-2" title="WebSocket — connessioni client attive">
               <span className="text-[11px] text-app-text-muted">WS</span>
@@ -91,16 +93,8 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
                 {status.connections.wsClients}
               </span>
             </div>
-            <div className="flex-1 flex items-center gap-2" title="Streams — flussi dati in tempo reale attivi">
-              <span className="text-[11px] text-app-text-muted">Streams</span>
-              <span className={`text-[11px] font-medium ${
-                status.connections.activeStreams > 0 ? 'text-primary' : 'text-app-text'
-              }`}>
-                {status.connections.activeStreams}
-              </span>
-            </div>
-            <div className="flex-1 flex items-center gap-2" title="Aperti — chat aperte come tab in questo momento">
-              <span className="text-[11px] text-app-text-muted">Aperti</span>
+            <div className="flex-1 flex items-center gap-2" title="Chat aperte come tab in questo momento">
+              <span className="text-[11px] text-app-text-muted">Tab aperti</span>
               <span className={`text-[11px] font-medium ${openChatTabs > 0 ? 'text-primary' : 'text-app-text'}`}>
                 {openChatTabs}
               </span>
