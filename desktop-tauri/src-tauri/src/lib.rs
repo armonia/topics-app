@@ -8,7 +8,7 @@
 // open-external and relaunch are covered by the official plugins below, whose JS
 // APIs the shell bridge calls directly.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Desired traffic-light visibility (hidden by default; the client flips it when
@@ -160,6 +160,162 @@ fn set_traffic_lights(window: tauri::WebviewWindow, visible: bool) {
     apply_traffic_lights(&window, visible);
     #[cfg(not(target_os = "macos"))]
     let _ = window;
+}
+
+// ─────────────────────── Per-region vibrancy (macOS) ───────────────────────
+//
+// Tauri's `windowEffects` is whole-window — one NSVisualEffectView covers
+// everything, so a transparent floating-splits gap shows FROSTED material, never
+// the clear desktop. Electron gets "frosted cards + clear gaps" with a native
+// addon that paints a SEPARATE NSVisualEffectView under each card. We do the
+// same: the window is plain-transparent, the client measures each card/sidebar
+// rect and calls `vibrancy_set_regions`, and we keep one NSVisualEffectView per
+// region (inserted BELOW the webview, blending behind the window). Where the
+// webview is translucent (chrome) the vibrancy shows; the gaps between regions
+// have no view, so they fall through to the real desktop.
+
+#[derive(Deserialize)]
+struct VibRegion {
+    id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    #[serde(default)]
+    radius: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn vibrancy_views() -> &'static std::sync::Mutex<std::collections::HashMap<String, usize>> {
+    static V: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, usize>>> =
+        std::sync::OnceLock::new();
+    V.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// `hitTest:` override for the frost views: always return nil so the
+/// NSVisualEffectView is CLICK-THROUGH. Without this, once Tauri reorders the
+/// browser-pane child webviews (or one is parked off-screen) the exposed frost
+/// view swallows physical clicks over its rect — the "vibrancy hitTest eats
+/// clicks" bug the Electron app already burned a trail on.
+#[cfg(target_os = "macos")]
+extern "C" fn region_hit_test(
+    _this: &objc::runtime::Object,
+    _sel: objc::runtime::Sel,
+    _point: cocoa::foundation::NSPoint,
+) -> cocoa::base::id {
+    cocoa::base::nil
+}
+
+/// Lazily register `TopicsRegionVibrancyView`: an NSVisualEffectView subclass
+/// whose only change is the click-through `hitTest:` above. Registered once per
+/// process (OnceLock); subsequent calls return the cached class.
+#[cfg(target_os = "macos")]
+fn region_vibrancy_class() -> &'static objc::runtime::Class {
+    use objc::declare::ClassDecl;
+    use objc::runtime::{Class, Object, Sel};
+    use objc::{class, sel, sel_impl};
+    static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let p = *PTR.get_or_init(|| unsafe {
+        let superclass = class!(NSVisualEffectView);
+        let mut decl = ClassDecl::new("TopicsRegionVibrancyView", superclass)
+            .expect("register TopicsRegionVibrancyView");
+        decl.add_method(
+            sel!(hitTest:),
+            region_hit_test
+                as extern "C" fn(&Object, Sel, cocoa::foundation::NSPoint) -> cocoa::base::id,
+        );
+        decl.register() as *const Class as usize
+    });
+    unsafe { &*(p as *const objc::runtime::Class) }
+}
+
+/// Reconcile the live NSVisualEffectViews to exactly the requested regions
+/// (create new, move/resize existing, remove dropped). MUST run on the main
+/// thread (AppKit view mutation).
+#[cfg(target_os = "macos")]
+fn apply_vibrancy_regions(window: &tauri::WebviewWindow, regions: Vec<VibRegion>) {
+    use cocoa::base::{id, nil, YES};
+    use cocoa::foundation::{NSPoint, NSRect, NSSize};
+    use objc::{msg_send, sel, sel_impl};
+
+    let ns_window = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(_) => return,
+    };
+    unsafe {
+        let content_view: id = msg_send![ns_window, contentView];
+        if content_view == nil {
+            return;
+        }
+        let bounds: NSRect = msg_send![content_view, bounds];
+        let content_h = bounds.size.height;
+
+        let mut map = vibrancy_views().lock().unwrap();
+        let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for r in &regions {
+            keep.insert(r.id.clone());
+            // Web rects are top-left origin; NSView is bottom-left → flip Y.
+            let ns_y = content_h - r.y - r.height;
+            let frame = NSRect::new(NSPoint::new(r.x, ns_y), NSSize::new(r.width, r.height));
+
+            if let Some(&ptr) = map.get(&r.id) {
+                let v = ptr as id;
+                let _: () = msg_send![v, setFrame: frame];
+                let layer: id = msg_send![v, layer];
+                if layer != nil {
+                    let _: () = msg_send![layer, setCornerRadius: r.radius];
+                }
+            } else {
+                // Click-through subclass (hitTest:->nil) so the frost never
+                // steals pointer events from panes above/around it.
+                let v: id = msg_send![region_vibrancy_class(), alloc];
+                let v: id = msg_send![v, initWithFrame: frame];
+                // material: sidebar=7, blendingMode: behindWindow=0, state: active=1
+                let _: () = msg_send![v, setMaterial: 7i64];
+                let _: () = msg_send![v, setBlendingMode: 0i64];
+                let _: () = msg_send![v, setState: 1i64];
+                let _: () = msg_send![v, setWantsLayer: YES];
+                let layer: id = msg_send![v, layer];
+                if layer != nil {
+                    let _: () = msg_send![layer, setCornerRadius: r.radius];
+                    let _: () = msg_send![layer, setMasksToBounds: YES];
+                    // Pin behind the webview's layer regardless of subview order
+                    // so the frost can never composite over (and blank) a pane.
+                    let _: () = msg_send![layer, setZPosition: -1.0f64];
+                }
+                // Auto-resize with the window so it doesn't drift before the next
+                // client measurement (NSViewWidthSizable|HeightSizable not ideal
+                // for per-region, but the client re-reports on resize anyway).
+                // Insert at the very bottom so it sits BEHIND the webview.
+                let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
+                map.insert(r.id.clone(), v as usize);
+            }
+        }
+
+        // Drop views whose region disappeared.
+        let stale: Vec<String> = map.keys().filter(|k| !keep.contains(*k)).cloned().collect();
+        for k in stale {
+            if let Some(ptr) = map.remove(&k) {
+                let v = ptr as id;
+                let _: () = msg_send![v, removeFromSuperview];
+            }
+        }
+    }
+}
+
+/// Client-driven: set the full list of vibrancy regions (cards/sidebar) in
+/// window coords. Empty list clears all (e.g. leaving floating mode → fall back
+/// to no per-region vibrancy). No-op off macOS.
+#[tauri::command]
+fn vibrancy_set_regions(window: tauri::WebviewWindow, regions: Vec<VibRegion>) {
+    #[cfg(target_os = "macos")]
+    {
+        let win = window.clone();
+        let _ = window.run_on_main_thread(move || apply_vibrancy_regions(&win, regions));
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, regions);
 }
 
 // ───────────────────────── Native browser pane ─────────────────────────
@@ -350,6 +506,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             perf_metrics,
             set_traffic_lights,
+            vibrancy_set_regions,
             browser_open,
             browser_navigate,
             browser_set_bounds,

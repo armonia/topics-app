@@ -1,34 +1,63 @@
 import { useEffect } from 'react';
+import { isElectron, isTauri } from '../lib/shell';
+import { tauriInvoke } from '../lib/shell/tauri';
 
 /**
- * Drives the native per-region vibrancy addon (macOS, Electron).
+ * Drives native per-region vibrancy on macOS — Electron AND Tauri.
  *
- * The Electron window is transparent when the addon is available, so the frosted
- * "glass" is painted by native NSVisualEffectViews placed under specific rects:
+ * The desktop window is transparent, so the frosted "glass" is painted by native
+ * NSVisualEffectViews placed under specific rects (Electron: the `native/vibrancy`
+ * addon via `electronAPI.vibrancy`; Tauri: the `vibrancy_set_regions` command in
+ * src-tauri/src/lib.rs — one NSVisualEffectView per rect, inserted below the
+ * transparent webview). Same rect-stream, two backends:
  *  - floating-splits ON  → one region per top-level panel (+ the sidebar), so the
  *    GAPS between panels stay transparent and reveal the clear live desktop.
  *  - floating-splits OFF → a single full-window region, so the whole chrome
- *    frosts exactly like the old whole-window vibrancy (no see-through).
+ *    frosts exactly like whole-window vibrancy (no see-through).
  *
  * Latency contract (mirrors the native browser panes): we push rects only on a
  * SETTLED layout (rAF-coalesced) and FREEZE during drag/resize gestures — a
- * JS→IPC→native setFrame loop can't track a 60fps gesture, so we let the frost
- * hold its last position and snap to the final rects on gesture end.
+ * JS→native setFrame loop can't track a 60fps gesture, so we let the frost hold
+ * its last position and snap to the final rects on gesture end.
  *
- * Fully inert when not in Electron or when the addon isn't available (main
- * no-ops): on those paths the window keeps whole-window vibrancy / CSS fallback.
+ * Fully inert off macOS / on web (the resolver returns null → the effect bails),
+ * where the window keeps its CSS fallback.
  */
 const FLOAT_RADIUS = 10; // keep in sync with --float-radius in index.css
 
+type Rect = { x: number; y: number; w: number; h: number; radius?: number };
 type VibrancyApi = {
-  setRegions: (rects: Array<{ x: number; y: number; w: number; h: number; radius?: number }>) => void;
+  setRegions: (rects: Rect[]) => void;
   clear: () => void;
 };
 
-export function useFloatingVibrancy(isElectron: boolean, floatingSplits: boolean) {
-  useEffect(() => {
+/** Resolve the host's per-region vibrancy driver, or null where there's none
+ *  (web, non-mac). Tauri is gated on the `.tauri-mac` html class (set in
+ *  index.html) so we don't fire no-op IPC on Windows/Linux. */
+function resolveVibrancy(): VibrancyApi | null {
+  if (isElectron) {
     const api = (window as unknown as { electronAPI?: { vibrancy?: VibrancyApi } }).electronAPI?.vibrancy;
-    if (!isElectron || !api) return;
+    return api ?? null;
+  }
+  if (isTauri && typeof document !== 'undefined' && document.documentElement.classList.contains('tauri-mac')) {
+    return {
+      setRegions: (rects) => {
+        void tauriInvoke('vibrancy_set_regions', {
+          regions: rects.map((r, i) => ({ id: `r${i}`, x: r.x, y: r.y, width: r.w, height: r.h, radius: r.radius ?? 0 })),
+        }).catch(() => {});
+      },
+      clear: () => {
+        void tauriInvoke('vibrancy_set_regions', { regions: [] }).catch(() => {});
+      },
+    };
+  }
+  return null;
+}
+
+export function useFloatingVibrancy(floatingSplits: boolean) {
+  useEffect(() => {
+    const api = resolveVibrancy();
+    if (!api) return;
 
     let frozen = false;
     let lastKey = '';
