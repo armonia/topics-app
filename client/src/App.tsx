@@ -18,6 +18,13 @@ import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
+import { isDesktop, isTauri } from './lib/shell';
+
+// Tauri-on-macOS: the native traffic lights are always visible (titleBarStyle
+// Overlay) and sit at the window's top-left, over the sidebar header — so that
+// header needs a left inset to clear them (Electron instead hides the lights and
+// reveals them on demand, so it needs no inset).
+const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
 import { useAnimationPause } from './hooks/useAnimationPause';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
@@ -676,7 +683,7 @@ function App() {
     */}
     <PendingActionProvider countdownMs={1500}>
     <div
-      className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isElectron ? 'floating-splits' : ''}`}
+      className={`flex bg-app-bg overflow-hidden max-w-[100vw] ${appSettings.floatingSplits && isDesktop ? 'floating-splits' : ''}`}
       onTouchStart={isMobile ? handleEdgeTouchStart : undefined}
       onTouchEnd={isMobile ? handleEdgeTouchEnd : undefined}
       style={{
@@ -728,8 +735,9 @@ function App() {
             the same 6px the tab strip, the sidebar cards, and the list's
             vertical padding use — one inset on every sidebar axis. */}
         <div
+          data-tauri-drag-region
           className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
-          style={{ paddingInline: ROW_INSET }}
+          style={{ paddingRight: ROW_INSET, paddingLeft: isTauriMac ? 76 : ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {/* Close button on mobile */}
