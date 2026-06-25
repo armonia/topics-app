@@ -187,7 +187,7 @@ export function PerfSection() {
             <PerfStat
               label="Server"
               value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
-              title="RSS del processo server Bun"
+              title={`RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`}
             />
           </>
         ) : (
