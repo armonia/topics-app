@@ -1190,6 +1190,16 @@ html.electron-mac [data-testid="single-terminal-pane"] {
   background-color: transparent !important;
 }
 
+/* Browser pane chrome rides the window vibrancy too: the layout CELL that hosts
+ * a native browser drops its opaque `bg-surface` so the (now transparent)
+ * toolbar inherits the frosted backdrop instead of sitting on a solid slab. The
+ * web content keeps its own opaque background via NativeBrowserPlaceholder, so
+ * only the toolbar strip (the uncovered part of the cell) shows the vibrancy.
+ * `:has(>)` targets the parent cell from the panel child (Chromium ≥105). */
+html.electron-mac :has(> [data-testid="browser-native-panel"]) {
+  background-color: transparent !important;
+}
+
 /* ─── Resize-handle hover/grab affordance ───────────────────────────────────
  * Every split divider (column / row / sub-stack / sidebar handle / project
  * panel sections) is a 1px hairline carrying `cursor-col-resize` /
