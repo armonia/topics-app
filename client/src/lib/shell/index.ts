@@ -39,9 +39,12 @@ export const isDesktop = shellKind !== 'web';
  *  branching on `shellKind`. Browser panes + native pty are desktop-only and
  *  degrade to a fallback UI on web/mobile (PORTING-PLAN.md §2 parity matrix). */
 export const capabilities = {
-  /** Embedded browser pane (Electron WebContentsView / Tauri D1 decision). */
+  /** Embedded browser pane. Electron has a real WebContentsView per pane; Tauri
+   *  does NOT yet (the single-WKWebView shell renders a placeholder — see
+   *  RemoteBrowserPanel; the native CEF pane is the post-Tier-1 "D1" decision),
+   *  so it must report false here. */
   get nativeBrowser(): boolean {
-    return Boolean(window?.electronAPI?.browserNative?.isAvailable) || isTauri;
+    return Boolean(window?.electronAPI?.browserNative?.isAvailable);
   },
   /** Native pseudo-terminal (pty). Desktop only. */
   get nativeTerminal(): boolean {

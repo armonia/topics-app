@@ -15,6 +15,7 @@ import {
   useClosedTabs,
 } from '../../state/pane/adapters';
 import { DND_TYPES } from '../../lib/dndTypes';
+import { isRealUrl } from '../../state/pane/browserPaneUrl';
 import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
@@ -346,12 +347,15 @@ export function ProjectWindowPane({
               contextId={getBrowserContextFromPaneId(pane.id) ?? projectPath}
               isVisible={isVisible}
               // Restore the project browser tab to its last page after a restart
-              // (mount-only). pane.url round-trips via projectLayoutSync.
-              initialUrl={pane.url}
+              // (mount-only). pane.url round-trips via projectLayoutSync. Guard
+              // with isRealUrl so a persisted chrome-error: page doesn't restore.
+              initialUrl={isRealUrl(pane.url) ? pane.url : undefined}
               navigateUrl={isVisible && browserNavigateUrl ? browserNavigateUrl : undefined}
               onNavigateConsumed={isVisible ? () => setBrowserNavigateUrl(null) : undefined}
               // Persist each navigation onto the project pane for next restart.
-              onUrlChange={(u) => { if (u && u !== 'about:blank' && u !== pane.url) updatePane(pane.id, { url: u }); }}
+              // isRealUrl == the standalone path's guard (browserPaneUrl.ts) — it
+              // also drops chrome-error: pages, which the old inline check missed.
+              onUrlChange={(u) => { if (isRealUrl(u) && u !== pane.url) updatePane(pane.id, { url: u }); }}
               onFocusPanel={onFocusPanel}
               topics={topics}
             />
