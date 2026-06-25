@@ -106,12 +106,14 @@ export function PerfSection() {
     return [...m.entries()].sort((a, b) => b[1].cpu - a[1].cpu).slice(0, 5);
   })();
 
-  // Real footprint = every Electron process + the (separate) Bun server.
+  // Electron app memory (footprint ≈ Activity Monitor, or RSS fallback). The Bun
+  // server is a separate process → its own tile, not in the headline total.
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
   // Electron main gets a payload without `memory`, so guard the whole block.
   const serverMemMB = status?.server.memoryMB ?? null;
   const mem = perf?.memory ?? null;
-  const totalMemMB = mem ? mem.totalMB + (serverMemMB ?? 0) : serverMemMB;
+  const totalMemMB = mem ? mem.totalMB : serverMemMB;
+  const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
 
   // Bottleneck verdict — only the unambiguous calls. We no longer guess "PC
   // saturated by other processes": the top-process list below shows the actual
@@ -167,10 +169,12 @@ export function PerfSection() {
           Electron process (renderers, GPU, main, utility) + the server. */}
       <div
         className="flex items-center justify-between px-0.5 pt-0.5"
-        title="Memoria residente (RSS) di tutti i processi Electron + RSS del server Bun. Activity Monitor mostra un valore più alto (footprint), che include anche memoria compressa e superfici GPU."
+        title={memLabel === 'footprint'
+          ? 'Footprint dei processi Electron di Topics — ≈ il valore di Activity Monitor (RSS + memoria compressa + superfici GPU). Il server Bun è un processo separato (tile a parte).'
+          : 'Memoria residente (RSS) dei processi Electron. Activity Monitor mostra un valore più alto (footprint).'}
       >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">RSS</span>
+          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">{memLabel}</span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
           {totalMemMB !== null ? `${totalMemMB} MB` : '—'}

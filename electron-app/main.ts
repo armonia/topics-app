@@ -2681,6 +2681,60 @@ ipcMain.handle('app:get-always-on-top', () => {
 
 ipcMain.handle('app:get-version', () => app.getVersion());
 
+// --- macOS phys_footprint (so the memory number matches Activity Monitor) ---
+// getAppMetrics().memory.workingSetSize is RESIDENT memory (RSS), which on macOS
+// is roughly HALF of what Activity Monitor's "Memory" column shows for the app
+// (Apple reports phys_footprint = RSS + compressed memory + GPU/IOSurface
+// mappings). To align, we read each process's footprint from `top -l1` (its MEM
+// column == phys_footprint, verified against vmmap) and join it to getAppMetrics
+// by pid to get a per-type breakdown. `top -l1` samples every process (~0.8s
+// CPU), so we CACHE it for 60s and refresh lazily/in the background — memory
+// moves slowly, and the perf poll pauses when the window is hidden anyway.
+type FootprintCache = {
+  ts: number;
+  inflight: boolean;
+  total: number; renderer: number; gpu: number; other: number;
+};
+const footprintCache: FootprintCache = { ts: 0, inflight: false, total: 0, renderer: 0, gpu: 0, other: 0 };
+const FOOTPRINT_TTL_MS = 60_000;
+
+function refreshFootprint(): void {
+  if (process.platform !== 'darwin' || footprintCache.inflight) return;
+  footprintCache.inflight = true;
+  // pid → Electron process type, captured at request time so we only count
+  // OUR processes (not other Electron apps) and can bucket renderer/GPU/other.
+  let typeByPid: Map<number, string>;
+  try {
+    typeByPid = new Map(app.getAppMetrics().map(m => [m.pid, m.type]));
+  } catch { footprintCache.inflight = false; return; }
+  import('child_process').then(({ execFile }) => {
+    execFile('/usr/bin/top', ['-l', '1', '-stats', 'pid,mem'], { timeout: 8000, maxBuffer: 4 << 20 }, (err, stdout) => {
+      footprintCache.inflight = false;
+      if (err || !stdout) return;
+      let total = 0, renderer = 0, gpu = 0;
+      for (const line of stdout.split('\n')) {
+        // rows look like:  "75920  165M"  /  "39585  1.2G"  (optional +/- suffix)
+        const m = line.trim().match(/^(\d+)\s+([\d.]+)([KMG])/);
+        if (!m) continue;
+        const type = typeByPid.get(Number(m[1]));
+        if (!type) continue;
+        const v = parseFloat(m[2]);
+        const mb = m[3] === 'G' ? v * 1024 : m[3] === 'K' ? v / 1024 : v;
+        total += mb;
+        if (type === 'Tab') renderer += mb;
+        else if (type === 'GPU') gpu += mb;
+      }
+      if (total > 0) {
+        footprintCache.ts = Date.now();
+        footprintCache.total = Math.round(total);
+        footprintCache.renderer = Math.round(renderer);
+        footprintCache.gpu = Math.round(gpu);
+        footprintCache.other = Math.max(0, Math.round(total - renderer - gpu));
+      }
+    });
+  }).catch(() => { footprintCache.inflight = false; });
+}
+
 // --- Performance metrics (PC + Topics-level diagnostics) ---
 // The renderer's FPS only tells half the story: a low number could mean the
 // machine is saturated (every app is janky) OR that Topics' own renderer is
@@ -2735,9 +2789,32 @@ ipcMain.handle('perf:get-metrics', () => {
   // parts always reconcile to the headline total (independent rounding of each
   // bucket could otherwise drift the sum off the total by a few MB, making the
   // "renderer · GPU · altri" breakdown not add up to the big number).
-  const totalMB = Math.round(totalMem / 1024);
-  const rendererMB = Math.round(rendererMem / 1024);
-  const gpuMB = Math.round(gpuMem / 1024);
+  const rssTotalMB = Math.round(totalMem / 1024);
+  const rssRendererMB = Math.round(rendererMem / 1024);
+  const rssGpuMB = Math.round(gpuMem / 1024);
+
+  // Prefer the macOS footprint (≈ Activity Monitor) when it's fresh; refresh it
+  // in the background when stale. Fall back to RSS on non-mac / before the first
+  // footprint sample lands. `metric` lets the UI label the number honestly.
+  refreshFootprint();
+  const fpFresh = footprintCache.total > 0 && (Date.now() - footprintCache.ts) < FOOTPRINT_TTL_MS * 2;
+  const memory = fpFresh
+    ? {
+        totalMB: footprintCache.total,
+        rendererMB: footprintCache.renderer,
+        gpuMB: footprintCache.gpu,
+        otherMB: footprintCache.other,
+        processCount,
+        metric: 'footprint' as const,
+      }
+    : {
+        totalMB: rssTotalMB,
+        rendererMB: rssRendererMB,
+        gpuMB: rssGpuMB,
+        otherMB: Math.max(0, rssTotalMB - rssRendererMB - rssGpuMB),
+        processCount,
+        metric: 'rss' as const,
+      };
 
   return {
     version: app.getVersion(),
@@ -2746,13 +2823,7 @@ ipcMain.handle('perf:get-metrics', () => {
       gpu: Math.round(gpuCPU),
       total: Math.round(totalCPU),
     },
-    memory: {
-      totalMB,
-      rendererMB,
-      gpuMB,
-      otherMB: Math.max(0, totalMB - rendererMB - gpuMB),
-      processCount,
-    },
+    memory,
     gpu: { accelerated, compositing, webgl },
   };
 });

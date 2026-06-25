@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 export interface PerfMetrics {
   version: string;
   cpu: { renderer: number; gpu: number; total: number };
-  /** Real desktop footprint: working set of every Electron process (MB). */
-  memory: { totalMB: number; rendererMB: number; gpuMB: number; otherMB: number; processCount: number };
+  /** Real desktop memory of every Electron process (MB). `metric` says which
+   *  figure: 'footprint' ≈ Activity Monitor (macOS, RSS+compressed+GPU), or
+   *  'rss' (resident only) as the cross-platform fallback. */
+  memory: { totalMB: number; rendererMB: number; gpuMB: number; otherMB: number; processCount: number; metric: 'footprint' | 'rss' };
   gpu: { accelerated: boolean; compositing: string; webgl: string };
 }
 
