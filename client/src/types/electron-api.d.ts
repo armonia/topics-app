@@ -172,11 +172,11 @@ declare global {
           version: string;
           cpu: { renderer: number; gpu: number; total: number };
           /**
-           * Per-process working-set memory (MB), summed across every Chromium
-           * process Electron runs. `totalMB` is the real desktop footprint —
-           * far larger than the Bun server's RSS the status bar used to show.
+           * Per-process memory (MB) summed across every Chromium process.
+           * `metric` is 'footprint' (≈ Activity Monitor: RSS + compressed + GPU,
+           * macOS) or 'rss' (resident only) as the fallback.
            */
-          memory: { totalMB: number; rendererMB: number; gpuMB: number; otherMB: number; processCount: number };
+          memory: { totalMB: number; rendererMB: number; gpuMB: number; otherMB: number; processCount: number; metric: 'footprint' | 'rss' };
           gpu: { accelerated: boolean; compositing: string; webgl: string };
         }>;
       };
