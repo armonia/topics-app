@@ -236,6 +236,12 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
     pubblicato), `chromiumoxide = "0.9.1"` (client CDP Rust), `raw-window-handle = "0.6.2"`
     (handle nativo da Tauri). Resta da spike: download framework CEF (~170MB) + bundling
     macOS .app (helper processes in `Contents/Frameworks` — fiddly; esiste tool dedicato).
+  - ⚠️ **Blocco macOS confermato (2026-06-25)**: CEF su macOS **non gira come binario nudo**
+    (`cargo build`/`cargo run`) — richiede la struttura `.app` con i sub-process helper
+    (framework in `Contents/Frameworks` + eseguibili helper separati per render/gpu/utility).
+    Lo spike CEF va fatto con `tauri build` + bundling custom del framework (es. crate
+    `bevy_cef_bundle_app` come riferimento) + code-signing degli helper. È una **sessione
+    dedicata**, non un'aggiunta in coda. Download distribuzione CEF ~1GB+.
 - **D2 — Terminale**: ⚠️ **RICLASSIFICATO → Tier 2** (scoperta in implementazione). Con il
   local-serve, i terminali restano serviti dal **pty-bridge del server** via `:3333/ws/terminal`
   (funzionano nel desktop senza codice nativo). Spostare il pty in Rust dentro Tauri
