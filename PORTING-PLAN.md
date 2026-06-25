@@ -222,6 +222,10 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
   - **Rischio principale**: embedding cross-OS oltre macOS (Wayland non reparenta) → spike-first.
   - **Asset**: l'occlusione native-view (il pezzo macOS più duro) è GIÀ risolta in Electron
     (`electron-app/native/vibrancy/vibrancy.mm`, `hitTest:→nil`) → si trapianta.
+  - **Fattibilità crate confermata (2026-06-25)**: `cef = "149.1.0+149.0.4"` (Chromium 149,
+    pubblicato), `chromiumoxide = "0.9.1"` (client CDP Rust), `raw-window-handle = "0.6.2"`
+    (handle nativo da Tauri). Resta da spike: download framework CEF (~170MB) + bundling
+    macOS .app (helper processes in `Contents/Frameworks` — fiddly; esiste tool dedicato).
 - **D2 — Terminale**: ✅ **`portable-pty` Rust nativo subito** (no bun pty-bridge sidecar).
   - **Contratto da rispettare** (oggi `pty-bridge.mjs`, 371 LOC, NDJSON):
     in `create{id,shell,args,cwd,cols,rows,env}` · `write{id,data}` · `resize{id,cols,rows}`
