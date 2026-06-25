@@ -19,6 +19,7 @@ import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { isDesktop, isTauri } from './lib/shell';
+import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
@@ -366,14 +367,14 @@ function App() {
   // folder OR create a new one in the OS dialog). Shared by CommandPalette
   // (onNewProject) and PaneAddMenu's "Apri/Crea Progetto" items, the latter
   // firing a window event so the action needs no prop-threading through every
-  // menu host. No-op outside Electron (selectDirectory is undefined).
+  // menu host. Shell-resolved: Electron IPC dialog OR Tauri dialog plugin; no-op
+  // (null) on web. Previously read electronAPI directly → dead under Tauri.
   const handleOpenProjectPicker = useCallback(async () => {
-    const api = (window as unknown as { electronAPI?: { selectDirectory?: () => Promise<string | null> } }).electronAPI;
-    // Guard the native dialog: a rejected/cancelled IPC must not bubble up as
+    // Guard the native dialog: a rejected/cancelled call must not bubble up as
     // an unhandled promise rejection. (Toast isn't reachable here — this
     // component renders ToastProvider, so swallow + log is the safe floor.)
     try {
-      const path = await api?.selectDirectory?.();
+      const path = await selectDirectory();
       if (path) handleProjectClick(path);
     } catch (err) {
       console.error('Project picker dialog failed', err);

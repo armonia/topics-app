@@ -29,6 +29,8 @@ tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-os = "2"
+# Native file dialogs (the project folder picker — `selectDirectory` was Electron-only).
+tauri-plugin-dialog = "2"
 # Single-instance lock: a second launch (launchd KeepAlive, double-click) must not
 # spawn a duplicate that fails to bind the proxy port — instead it focuses the
 # running window. Registered FIRST in the builder (plugin requirement).
