@@ -280,14 +280,15 @@ fn apply_vibrancy_regions(window: &tauri::WebviewWindow, regions: Vec<VibRegion>
                 if layer != nil {
                     let _: () = msg_send![layer, setCornerRadius: r.radius];
                     let _: () = msg_send![layer, setMasksToBounds: YES];
-                    // Pin behind the webview's layer regardless of subview order
-                    // so the frost can never composite over (and blank) a pane.
-                    let _: () = msg_send![layer, setZPosition: -1.0f64];
+                    // NOTE: do NOT set a negative layer.zPosition. The behind-window
+                    // blur is registered by the WindowServer from the view's NORMAL
+                    // position in the hierarchy; a negative zPosition excludes it
+                    // from that compositing pass → the material renders as nothing
+                    // (clear), which is exactly the "transparent, not blurred" bug.
+                    // `addSubview:positioned:NSWindowBelow` already orders it behind
+                    // the webview, which is all we need.
                 }
-                // Auto-resize with the window so it doesn't drift before the next
-                // client measurement (NSViewWidthSizable|HeightSizable not ideal
-                // for per-region, but the client re-reports on resize anyway).
-                // Insert at the very bottom so it sits BEHIND the webview.
+                // Insert at the very bottom so it sits BEHIND the (transparent) webview.
                 let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
                 map.insert(r.id.clone(), v as usize);
             }
