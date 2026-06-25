@@ -13,6 +13,8 @@
 // click. The window is just above the OS double-click threshold (~500ms);
 // genuinely re-opening the same URL is still possible after it elapses.
 
+import { openExternal } from './shell/app';
+
 const DEDUPE_MS = 600;
 
 let lastUrl = '';
@@ -26,10 +28,7 @@ export function openExternalOnce(url: string): void {
   lastUrl = url;
   lastAt = now;
 
-  const api = (window as unknown as {
-    electronAPI?: { openExternal?: (u: string) => void };
-  }).electronAPI;
-
-  if (api?.openExternal) api.openExternal(url);
-  else window.open(url, '_blank', 'noopener,noreferrer');
+  // Routes through the shell bridge: Electron preload, Tauri opener plugin, or
+  // window.open on web — one decision point for every host (PORTING-PLAN.md §5b).
+  void openExternal(url);
 }
