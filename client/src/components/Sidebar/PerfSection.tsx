@@ -1,4 +1,4 @@
-import { Activity, Cpu, MonitorSmartphone } from 'lucide-react';
+import { Activity, Cpu, MonitorSmartphone, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -90,6 +90,13 @@ export function PerfSection() {
   const accelerated = perf?.gpu.accelerated;
   const topProcesses = status?.topProcesses ?? [];
 
+  // Real footprint = every Electron process + the (separate) Bun server.
+  // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
+  // Electron main gets a payload without `memory`, so guard the whole block.
+  const serverMemMB = status?.server.memoryMB ?? null;
+  const mem = perf?.memory ?? null;
+  const totalMemMB = mem ? mem.totalMB + (serverMemMB ?? 0) : serverMemMB;
+
   // Bottleneck verdict — only the unambiguous calls. We no longer guess "PC
   // saturated by other processes": the top-process list below shows the actual
   // culprits, so the user reads it directly instead of being told.
@@ -146,6 +153,47 @@ export function PerfSection() {
           color={loadPercent !== null && loadPercent > 85 ? 'text-amber-500' : 'text-app-text'}
           title={status?.cpu ? `load avg ${status.cpu.loadAvg1} su ${status.cpu.cores} core` : 'Carico medio del sistema'}
         />
+      </div>
+
+      {/* Memory footprint — the REAL one. The status bar used to show only the
+          Bun server's RSS (~70 MB); this is the full desktop figure: every
+          Electron process (renderers, GPU, main, utility) + the server. */}
+      <div className="flex items-center justify-between px-0.5 pt-0.5">
+        <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+          <HardDrive size={12} /> Memoria
+        </span>
+        <span className="tabular-nums text-[13px] font-semibold text-app-text">
+          {totalMemMB !== null ? `${totalMemMB} MB` : '—'}
+          {mem && (
+            <span className="text-[10px] font-normal text-app-text-muted ml-1.5">
+              {mem.processCount} processi
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="flex gap-1.5">
+        {mem ? (
+          <>
+            <PerfStat
+              label="Renderer"
+              value={`${mem.rendererMB}MB`}
+              title="Memoria dei processi renderer — finestre + ogni pannello browser nativo (WebContentsView)"
+            />
+            <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title="Memoria del processo GPU/compositor" />
+            <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio) di Electron" />
+            <PerfStat
+              label="Server"
+              value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
+              title="RSS del processo server Bun"
+            />
+          </>
+        ) : (
+          <PerfStat
+            label="Server"
+            value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
+            title="In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server"
+          />
+        )}
       </div>
 
       {/* GPU acceleration — the single biggest hidden FPS killer */}
