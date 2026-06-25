@@ -11,6 +11,7 @@ import { PermissionBar } from './PermissionBar';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
+import { openExternalOnce } from '../../lib/openExternal';
 import type { Topic } from '../../types';
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
@@ -76,6 +77,18 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
     );
   }
 
+  // ============ Tauri: no streaming. ============
+  // The Tauri shell is a SINGLE WKWebView, so every streaming browser pane runs
+  // in the one renderer process — each keeps a /ws/browser screencast open (even
+  // when not visible, via keep-alive) and decodes a steady flow of screenshot
+  // frames, which balloons that one renderer's memory. Electron offloads each
+  // browser pane to its own WebContentsView process; Tauri has no equivalent yet
+  // (native CEF pane is post-Tier-1, and the browser pane is explicitly out of
+  // Tier-1 scope). So render a zero-cost placeholder: no hook, no WS, no frames.
+  if (isTauri) {
+    return <TauriBrowserPlaceholder url={navigateUrl || initialUrl} />;
+  }
+
   // ============ Phase 30 streaming code path (web fallback, byte-identical) ============
   return (
     <RemoteBrowserPanelStreaming
@@ -87,6 +100,33 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       onFocusPanel={onFocusPanel}
       topics={topics}
     />
+  );
+}
+
+/** Tauri-only browser-pane stand-in. Mounts no streaming hook (so it costs no
+ *  WebSocket, CDP screencast or image memory in the shared WKWebView renderer)
+ *  and offers to open the page in the system browser instead. */
+function TauriBrowserPlaceholder({ url }: { url?: string }) {
+  const label = url ? url.replace(/^https?:\/\//, '').slice(0, 44) : '';
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center min-h-0 bg-surface text-center px-6 gap-3">
+      <Globe size={34} className="text-app-text-faint" />
+      <div>
+        <p className="text-[13px] text-app-text-muted mb-1">Browser pane off in the Tauri build</p>
+        <p className="text-[11px] text-app-text-faint max-w-[300px] leading-relaxed">
+          The embedded browser is disabled here to keep memory low (no per-pane
+          screencast in the single WebView). It returns with the native engine.
+        </p>
+      </div>
+      {url && (
+        <button
+          onClick={() => openExternalOnce(url)}
+          className="text-[12px] px-3 py-1.5 rounded-md bg-app-hover hover:bg-app-active text-app-text transition-colors app-no-drag"
+        >
+          Open {label} in system browser
+        </button>
+      )}
+    </div>
   );
 }
 
