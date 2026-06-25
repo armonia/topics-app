@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Wifi, RefreshCw, Bot, Hourglass } from 'lucide-react';
+import { Wifi, RefreshCw, RotateCcw, Bot, Hourglass } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
@@ -99,7 +99,6 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   const { status } = useSystemStatus(true, 60000);
   const openclawAvailable = useOpenClawAvailable();
   const gatewayOnline = status?.gateway.online ?? false;
-  const latency = status?.gateway.latencyMs;
   const lastChangeTime = useLastChangeTime();
   // Shared FPS monitor: idle burst-sampling for this number, live 1Hz while the
   // dropdown is open (see useFpsActive below).
@@ -222,9 +221,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               <span className={gatewayOnline ? 'text-app-text-secondary' : 'text-red-500'}>
                 {gatewayOnline ? 'Online' : 'Offline'}
               </span>
-              {gatewayOnline && latency !== undefined && (
-                <span className="text-app-text-muted">{latency}ms</span>
-              )}
+              {/* Latency lives only in the dropdown Gateway row, next to its
+                  "Refresh / Xs ago" control that discloses the 30s cache age —
+                  in the bare bar it looked live but was stale + duplicated. */}
             </>
           ) : (
             <span
@@ -347,9 +346,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
             onClick={handleRefresh}
             disabled={refreshing}
             className={`p-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
-            title={isElectron ? 'Restart App' : updateAvailable ? 'Update available' : 'Reload'}
+            title={isElectron ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
           >
-            <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
+            {/* Distinct glyph from the dropdown's data-refresh (RefreshCw): the
+                bar button RESTARTS the app (Electron) — a different, heavier
+                action that shouldn't look identical sitting next to it. */}
+            {isElectron
+              ? <RotateCcw size={10} className={refreshing ? 'animate-spin' : ''} />
+              : <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />}
           </button>
         </span>
       </div>
