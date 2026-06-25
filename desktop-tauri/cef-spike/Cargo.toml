@@ -1,0 +1,9 @@
+[package]
+name = "cef-spike"
+version = "0.1.0"
+edition = "2021"
+
+# Isolated CEF feasibility spike (PORTING-PLAN.md T1.5a). Separate crate so the
+# heavy CEF deps never touch the validated Tier-1 app in src-tauri/.
+[dependencies]
+cef = "149"

@@ -126,3 +126,6 @@ landing/demo-src/node_modules/
 # Tauri desktop shell
 desktop-tauri/src-tauri/target/
 desktop-tauri/src-tauri/gen/
+
+# CEF spike (heavy build artifacts)
+desktop-tauri/cef-spike/target/
