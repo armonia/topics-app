@@ -32,6 +32,19 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const openclawAvailable = useOpenClawAvailable();
   const [restarting, setRestarting] = useState(false);
   const [confirmingRestart, setConfirmingRestart] = useState(false);
+  // Local spinner state for the manual refresh: useSystemStatus's `loading` only
+  // flips on the initial fetch, not on a manual re-poll, so the icon never spun
+  // on click. A 500ms floor makes the (fast) refresh visibly acknowledged.
+  const [refreshing, setRefreshing] = useState(false);
+  const doRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([refresh(), new Promise(r => setTimeout(r, 500))]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const gatewayOnline = status?.gateway.online ?? false;
 
@@ -111,14 +124,14 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
       {/* Action buttons */}
       <div className="flex gap-1 mt-1">
         <button
-          onClick={refresh}
-          disabled={loading}
+          onClick={doRefresh}
+          disabled={refreshing || loading}
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
         >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={12} className={refreshing || loading ? 'animate-spin' : ''} />
           {status?.gateway.lastCheckedAt
             ? formatTimeAgo(status.gateway.lastCheckedAt)
-            : 'Refresh'}
+            : 'Aggiorna'}
         </button>
         {openclawAvailable && (
           <button
