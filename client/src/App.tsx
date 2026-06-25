@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
@@ -34,6 +34,7 @@ import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction } from './contexts/PendingActionContext';
 import { flushPaneStoreNow } from './state/pane/middleware';
 import { useSignalsSync } from './state/useSignalsSync';
+import { ACTIVE_CLAUDE_PHASES, AWAITING_FEEDBACK_PHASES } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
@@ -271,6 +272,31 @@ function App() {
     onWSMessage,
   });
   const { closedTabs, removeClosedTab } = useClosedTabs();
+
+  // Live agent counts for the status bar, derived from the Claude Code session
+  // phase machine. `working` = running/tool-running (ACTIVE_CLAUDE_PHASES);
+  // `awaiting` = parked for human input (awaiting-user/-approval/paused).
+  //
+  // Scoped to sessions bound to a LIVE surface (a known topic or a live terminal
+  // in the roster). The /api/claude-sessions snapshot retains many stale,
+  // detached sessions (old 'starting'/'awaiting-user' entries that never got
+  // reaped); counting those raw would show phantom agents. Binding to a surface
+  // means "an agent you can actually open", which is the honest thing to count.
+  const agentCounts = useMemo(() => {
+    const liveTermCsids = new Set<string>();
+    for (const t of terminalSessions) if (t.claudeSessionId) liveTermCsids.add(t.claudeSessionId);
+    const liveTopicKeys = new Set<string>();
+    for (const t of Object.values(topics)) if (t.sessionKey) liveTopicKeys.add(t.sessionKey);
+
+    let working = 0, awaiting = 0;
+    for (const st of claudeSessions.values()) {
+      const live = (!!st.sessionKey && liveTopicKeys.has(st.sessionKey)) || liveTermCsids.has(st.claudeSessionId);
+      if (!live) continue;
+      if (ACTIVE_CLAUDE_PHASES.has(st.phase)) working++;
+      else if (AWAITING_FEEDBACK_PHASES.has(st.phase)) awaiting++;
+    }
+    return { working, awaiting };
+  }, [claudeSessions, topics, terminalSessions]);
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
 
@@ -862,7 +888,7 @@ function App() {
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
+        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} agentCounts={agentCounts} />
         </ErrorBoundary>
       </div>
 
