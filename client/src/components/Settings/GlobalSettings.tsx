@@ -5,6 +5,7 @@ import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { isDesktop } from '../../lib/shell';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
 ];
 
-export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange, isElectron = false }: GlobalSettingsProps) {
+export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange }: GlobalSettingsProps) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [section, setSection] = useState<SectionId>('appearance');
 
@@ -90,7 +91,6 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                 themeMode={themeMode}
                 onThemeChange={onThemeChange}
                 onChange={handleChange}
-                isElectron={isElectron}
               />
             )}
             {section === 'notifications' && (
@@ -113,10 +113,9 @@ interface AppearanceSectionProps {
   themeMode: ThemeMode;
   onThemeChange?: (mode: ThemeMode) => void;
   onChange: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => void;
-  isElectron?: boolean;
 }
 
-function AppearanceSection({ settings, themeMode, onThemeChange, onChange, isElectron = false }: AppearanceSectionProps) {
+function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: AppearanceSectionProps) {
   return (
     <div className="space-y-5">
       {/* Font Size */}
@@ -239,8 +238,9 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange, isEle
 
       {/* Floating splits — desktop only (relies on native macOS window
           vibrancy to reveal the backdrop through the gaps). Hidden entirely
-          on web/PWA, where there's no vibrancy to show underneath. */}
-      {isElectron && (
+          on web/PWA, where there's no vibrancy to show underneath. Shown on
+          BOTH desktop shells (Electron + Tauri), hence isDesktop not isElectron. */}
+      {isDesktop && (
         <div>
           <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
             <LayoutGrid size={14} />
