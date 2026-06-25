@@ -91,6 +91,11 @@ async function startTestServer(): Promise<void> {
       // socket gives the test run its own empty bridge. (Honored by
       // getSocketPath() in server/routes/terminal.ts.)
       TOPICS_PTY_SOCKET: "/tmp/topics-pty-bridge-e2e-test.sock",
+      // Never let the test server install the Topics->Claude hooks into the
+      // developer's real global ~/.claude/settings.json (see
+      // server/lib/claude-hooks-install.ts). The TOPICS_PTY_SOCKET marker above
+      // already triggers the skip; this is the explicit, self-documenting opt-out.
+      TOPICS_NO_HOOK_INSTALL: "1",
       // Phase 30 plan 30-05: server's playwright-core ships an older
       // chromium-1208 manifest, but @playwright/test installs the current
       // chromium-1217 binary. Pin the BrowserService Chromium to the

@@ -26,6 +26,37 @@ export const SELECTED_SURFACE_SOFT =
   'bg-black/[0.03] dark:bg-white/[0.06] text-app-text-secondary';
 
 /**
+ * ACTIVE-FOCUS tab surface — the ONE tab that currently holds the app's writing
+ * focus (its pane is app-focused: you're typing there). Topics keeps many tabs
+ * open across splits, so the focused one used to read as just a neutral raised
+ * card (SELECTED_SURFACE) — easy to lose among siblings. This lights it up: the
+ * same neutral fill, but the NAME is tinted in the brand primary. The matching
+ * primary RING + GLOW around the riquadro is applied inline in PaneTabBar (a
+ * multi-shadow with rgba can't live in a Tailwind class cleanly).
+ *
+ * Tab-bar ONLY — deliberately NOT folded into SELECTED_SURFACE, which is shared
+ * with the sidebar; the sidebar's focused row stays neutral. Kept distinct from
+ * [[AWAITING_SURFACE]] (a SOLID blue fill): focus is an OUTLINE in primary
+ * (#0066ff), awaiting is a filled brighter blue (#0a84ff) — outline vs fill
+ * reads apart even at a glance.
+ */
+export const ACTIVE_FOCUS_TAB_SURFACE =
+  'bg-black/[0.06] dark:bg-white/[0.14] text-[#0066ff] dark:text-[#4d94ff]';
+
+/** Contour ring + glow for the active-focus tab's riquadro. The ring is INSET,
+ *  not outset, on purpose: the tab strip is `overflow-x-auto` (which also clips
+ *  the y-axis), so an OUTER 1px ring/glow gets shaved at the top/bottom edges —
+ *  the contour would read as incomplete. An inset ring is painted inside the
+ *  element's own border-box, so it is NEVER clipped by an ancestor's overflow,
+ *  it automatically follows the tab's `border-radius`, and it scales to whatever
+ *  width/height the tab happens to be (h-7 desktop, h-9 touch, fixed or flexed
+ *  widths) — a robust full perimeter for a tab of any shape/size. A soft outer
+ *  glow (best-effort, may clip) + an inset glow add the "lit" halo. Applied via
+ *  inline style, gated on isFullyActive. */
+export const ACTIVE_FOCUS_TAB_SHADOW =
+  'inset 0 0 0 1.5px var(--primary), inset 0 0 9px rgba(0,102,255,0.22), 0 0 8px rgba(0,102,255,0.35)';
+
+/**
  * The RESTING state of the same card grammar: an interactive surface that is
  * not selected (an inactive tab, a sidebar header button). One step quieter
  * than SELECTED_SURFACE_SOFT at rest, raising on hover. Extracted from the

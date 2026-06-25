@@ -393,6 +393,21 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // — see terminalReconcile for why this stops refresh from losing tabs.
           return shouldKeepRestoredTerminalPane(sid, sessionIds, seen);
         });
+        // Reconcile EXISTING terminal panes' titles from the roster name, not
+        // only on add. A rename PATCHes the session name; reflecting it onto
+        // pane.title here is what makes the rename SURVIVE a close→reopen — the
+        // project close path captures pane.title into the closed-tab record and
+        // the recreate POST re-uses it (PaneTabBar's global-store UPDATE_PANE
+        // only reaches standalone panes, not these local project-layout panes).
+        const rosterNameBySid = new Map(
+          projectSessions.map(s => [s.id, s.name || TERMINAL_AGENT_LABELS[normalizeTerminalAgent(s.type)]]),
+        );
+        updated = updated.map(p => {
+          if (p.type !== 'terminal') return p;
+          const sid = getTerminalSessionFromPaneId(p.id) || '';
+          const rosterName = rosterNameBySid.get(sid);
+          return rosterName && rosterName !== p.title ? { ...p, title: rosterName } : p;
+        });
         const existingTermIds = new Set(
           updated.filter(p => p.type === 'terminal').map(p => getTerminalSessionFromPaneId(p.id)),
         );

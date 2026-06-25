@@ -122,6 +122,21 @@ for (const p of ['server.ts', 'server', 'public', 'package.json']) {
   else console.warn('[stage] missing (skipped):', p);
 }
 
+// 2b. Claude Code hook wrapper. The server auto-installs this into
+// ~/.claude/topics-hooks on boot (server/lib/claude-hooks-install.ts), resolving
+// it relative to import.meta.dir — which is <Resources>/server in the packaged
+// app, so the wrapper must ship alongside the server source.
+{
+  const hooksSrc = join(root, 'scripts', 'claude-hooks');
+  if (existsSync(hooksSrc)) {
+    cpSync(hooksSrc, join(out, 'claude-hooks'), { recursive: true });
+    try { chmodSync(join(out, 'claude-hooks', 'post-hook.sh'), 0o755); } catch {}
+    console.log('[stage] claude-hooks wrapper staged');
+  } else {
+    console.warn('[stage] missing (skipped): scripts/claude-hooks');
+  }
+}
+
 // 3. Production node_modules (incl. node-pty native prebuilds, @anthropic-ai/sdk,
 //    web-push, zod, playwright-core). Copied whole for transitive correctness.
 console.log('[stage] copying node_modules (this is the bulky step)…');
