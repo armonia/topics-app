@@ -42,7 +42,9 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
   const openChatTabs = usePaneStore(s => Object.values(s.panes).filter(p => p.type === 'chat').length);
 
   return (
-    <div className="pb-2 px-2">
+    // pt-2: breathing room so the first row isn't squashed against the
+    // PerfSection separator (border-b) directly above this panel.
+    <div className="pt-2 pb-2 px-2">
       {error && !status && (
         <div className="px-2 py-1 text-[11px] text-red-500">{error}</div>
       )}
@@ -168,7 +170,9 @@ function StatusRow({ icon, label, value, detail, color }: StatusRowProps) {
   const dotColor = color === 'green' ? 'bg-emerald-500' : color === 'yellow' ? 'bg-amber-500' : 'bg-red-500';
 
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-app-hover">
+    // No hover highlight: these rows are read-only status, not clickable — a
+    // hover bg made them look interactive when they do nothing.
+    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded">
       <span className={`w-1.5 h-1.5 rounded-full ${dotColor} flex-shrink-0`} />
       <span className="text-app-text-muted flex-shrink-0">{icon}</span>
       <span className="text-[11px] text-app-text-muted flex-shrink-0">{label}</span>
