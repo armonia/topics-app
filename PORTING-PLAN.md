@@ -114,9 +114,16 @@ React e il server Bun come sidecar. Consolidare il path web/PWA.
 - [ ] T1.2 — Bridge IPC: `preload.ts` (48 canali) → Tauri commands (il ~50% non-browser).
 - [ ] T1.3 — Shell nativa: tray, global shortcut, powerMonitor, nativeTheme,
       **vibrancy per-region** (`window-vibrancy` + pezzo custom dello split).
-- [ ] T1.4 — Terminale: pty via `portable-pty` (Rust) **oppure** tieni il bun
-      pty-bridge come sidecar (scelta nel gate).
-- [ ] T1.5 — **DECISIONE browser pane** (opz. 1/2/3) → implementazione.
+- [ ] T1.4 — Terminale: pty via `portable-pty` (Rust nativo, **D2 risolto**); rispetta
+      il contratto NDJSON + migra/bridge la session-layer di `routes/terminal.ts`.
+- [ ] T1.5 — **Browser pane nativo = CEF on-demand** (D1 risolto). Sotto-piano ~14 sett.:
+      - [ ] T1.5a — **SPIKE macOS (sett.1-3, IL gate)**: CEF-in-Tauri come NSView child,
+            `zPosition=-1`, `drawsBackground=NO`, **`hitTest:→nil`** (trapianta `vibrancy.mm`);
+            verifica compositing + cold-init CEF (~0.5-2s) deferribile oltre il first paint.
+      - [ ] T1.5b — CDP layer (sett.3-5): raw-attach a CEF, porta `browser-cdp-raw.ts`.
+      - [ ] T1.5c — Geometry sync (sett.5-6): ResizeObserver→Tauri cmd→`set_bounds`, watchdog 500ms.
+      - [ ] T1.5d — Windows HWND `SetParent` (sett.7-9); Linux X11 (sett.10-13, più debole, no Wayland).
+      - [ ] T1.5e — Init defer + iframe-localhost special-case + overlay menu (sett.13-14).
 - [ ] T1.6 — PWA hardening: audit Lighthouse PWA, offline-shell, install prompt,
       verifica feature-degradation su mobile reale.
 
@@ -196,8 +203,45 @@ con l'equivalente Tauri v2 e il fallback web. Questa è la spec di **T1.2**.
 callsite passano dal facade (oggi delega a `electronAPI`, domani a Tauri `invoke`).
 Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
 
-## 6. Decisioni aperte (servono prima di chiudere T1)
+## 6. Decisioni (aggiornato 2026-06-25)
 
-- **D1 — Browser pane**: opz.1 (WKWebView no-CDP) / opz.2 (sidecar Chromium, *raccomandata*) / opz.3 (descope)?
-- **D2 — Terminale**: `portable-pty` Rust nativo o tieni il bun pty-bridge sidecar?
-- **D3 — Mobile**: PWA è sufficiente o serve wrapper app-store (Tier 3.4)?
+- **D1 — Browser pane**: ✅ **RISOLTO → CEF on-demand (Chromium reale embedded), NON finto.**
+  Requisito utente: webview **reale** (DOM/scroll/interazione veri), non screencast.
+  Esito ricerca multi-agente (workflow `native-browser-pane-tauri`, 11 agenti):
+  - **Engine**: CEF (Chromium Embedded Framework) via `cef-rs`, montato come **child-view
+    nativa** (NSView/HWND/X11) compositata sopra la UI React; main UI su system-webview leggero.
+  - **Nativo davvero**: Chromium reale dipinge su GPU compositor, latenza nativa = analogo
+    di `WebContentsView` Electron senza Electron. Prior art: **OpenHuman**, **atrium**.
+  - **Parità agent 1:1**: CEF parla CDP nativamente → i 23 op del contratto invariati;
+    `browser-cdp-raw.ts` + `browser-cdp-dispatcher.ts` si trapiantano quasi verbatim
+    (cambia solo l'endpoint CDP, raw attach su `--remote-debugging-port` o `chromiumoxide`).
+  - **RAM**: idle ≈117 MB (Chromium parte solo all'apertura di un pannello) → −47%…−87%
+    vs Electron. Bundle +~170 MB Chromium, **lazy-download** (base installer snello).
+  - **Engine non-CDP (WKWebView/WebKitGTK) SCARTATI** apposta: perderebbero console-history,
+    input trusted, cookie httpOnly, screencast efficiente. Con CEF non si perde nulla.
+  - **Rischio principale**: embedding cross-OS oltre macOS (Wayland non reparenta) → spike-first.
+  - **Asset**: l'occlusione native-view (il pezzo macOS più duro) è GIÀ risolta in Electron
+    (`electron-app/native/vibrancy/vibrancy.mm`, `hitTest:→nil`) → si trapianta.
+- **D2 — Terminale**: ✅ **`portable-pty` Rust nativo subito** (no bun pty-bridge sidecar).
+  - **Contratto da rispettare** (oggi `pty-bridge.mjs`, 371 LOC, NDJSON):
+    in `create{id,shell,args,cwd,cols,rows,env}` · `write{id,data}` · `resize{id,cols,rows}`
+    · `kill{id}` · `list` · `buffer{id}` · `ping`; out `created{id,pid}` · `data{id,data}`
+    · `exit{id,exitCode}` · `killed{id}` · `list{sessions}` · `buffer{id,data(b64)}` · `pong`.
+  - ⚠️ **Dipendenza**: `routes/terminal.ts` (1642 LOC) tiene la session-layer (registry,
+    activity-classification, lossless-reattach, ptyPid descendant-tree per i Processi,
+    orchestrator-parenting dei sub-agent). Il pty raw va in Rust; questa logica o **migra**
+    in Rust o **fa da bridge** → si lega alla topologia server (Tier 2). Va progettata
+    insieme, non a pezzi.
+- **D3 — Mobile**: ✅ **PWA è sufficiente** — consolidare manifest/SW/responsive, niente
+  wrapper app-store. (Tier 3.4 cassato.)
+
+## 7. Hardening sicurezza config Tauri (da review)
+
+Lo spike `desktop-tauri/` punta a `http://localhost:3333` con `csp: null` **solo per
+misurare la RAM** contro il server live — config **throwaway, non di produzione**.
+La config Tauri di produzione DEVE:
+- Caricare gli asset **bundled** (`frontendDist` → `tauri://localhost`) o **https**, mai
+  un origin `http` plaintext remoto.
+- Impostare una **CSP stretta** (`app.security.csp`), non `null`.
+- **Non esporre l'IPC Tauri** a origin remoti: `app.security.capabilities`/
+  `dangerousRemoteDomainIpcAccess` lockati al solo origin dell'app.
