@@ -131,14 +131,19 @@ React e il server Bun come sidecar. Consolidare il path web/PWA.
 - [ ] T1.4 — Terminale: pty via `portable-pty` (Rust nativo, **D2 risolto**); rispetta
       il contratto NDJSON + migra/bridge la session-layer di `routes/terminal.ts`.
 - [ ] T1.5 — **Browser pane nativo = CEF on-demand** (D1 risolto). Sotto-piano ~14 sett.:
-      - [~] T1.5a — **SPIKE macOS** (in corso). ✅ **cef-rs COMPILA su questa macchina**
-            (`cef 149.1.0` + `cef-dll-sys`, 38s) — serviva solo **`cmake` + `ninja`** (installati
-            via brew; CEF si auto-scarica). ✅ Il bundling `.app` macOS (framework + helper) è
-            **automatizzato dal tool ufficiale `bundle-cef-app`** (`cargo run --bin bundle-cef-app
-            -- <name> -o target/bundle` → `open …​.app`) — NON è più un blocco manuale.
-            Spike crate isolato in `desktop-tauri/cef-spike/`. Resta: provare `cefsimple` (finestra
-            CEF reale) poi l'embedding NSView-child in Tauri (`zPosition=-1`, `drawsBackground=NO`,
-            **`hitTest:→nil`** trapiantato da `vibrancy.mm`) + compositing.
+      - [x] T1.5a — **SPIKE macOS ✅ GATE VERDE (2026-06-25)**. Tre incognite dure, tutte risolte:
+            1. **cef-rs COMPILA qui** (`cef 149.1.0`+`cef-dll-sys`, 38s) — serviva solo `cmake`+`ninja`
+               (installati via brew; CEF si auto-scarica, framework estratto in `~/.local/share/cef`).
+            2. **Bundling `.app` automatizzato** dal tool ufficiale `bundle-cef-app` → crea
+               `cefsimple.app` con `Chromium Embedded Framework.framework` + i 5 helper app
+               (GPU/Renderer/Alerts/Plugin/main), ad-hoc signed. NON è un blocco manuale.
+            3. **CEF GIRA e RENDERIZZA**: `open cefsimple.app` → albero Chromium multi-processo vivo
+               (gpu-process + 2× renderer + NetworkService + StorageService) che dipinge una pagina
+               web reale (~432 MB browser caricato). Il motore "nativo non finto" funziona sul Mac.
+            **Resta (integrazione, non più feasibility)**: embeddare la CEF view come **NSView child**
+            nella finestra Tauri via `raw-window-handle` (approccio `osr` off-screen O windowed-child),
+            `zPosition=-1`, `drawsBackground=NO`, **`hitTest:→nil`** (trapianto da `vibrancy.mm`) + geometry sync.
+            Riferimento esempi: `tauri-apps/cef-rs/examples/{cefsimple,osr}`.
       - [ ] T1.5b — CDP layer (sett.3-5): raw-attach a CEF, porta `browser-cdp-raw.ts`.
       - [ ] T1.5c — Geometry sync (sett.5-6): ResizeObserver→Tauri cmd→`set_bounds`, watchdog 500ms.
       - [ ] T1.5d — Windows HWND `SetParent` (sett.7-9); Linux X11 (sett.10-13, più debole, no Wayland).
