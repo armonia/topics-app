@@ -375,3 +375,27 @@ Updater — remaining HUMAN/release steps (can't be auto-done):
 
 Net: the Tauri binary is now updater-CAPABLE and signed-release-ready; only the
 release publish + the (testable-only-against-a-release) client trigger remain.
+
+---
+
+## Day 2 (cont.) — split UX polished to top-tier (autonomous)
+
+Decision after reading CellSubStack: **do NOT explode sub-stacks into the tree.**
+CellSubStack already resizes DOM-direct (zero re-render) — exploding it would trade
+that smoothness for marginally-more-uniform dividers. Clean split of duties: the
+tree owns rows/columns, CellSubStack owns the in-column vertical stack; each uses
+the best renderer for its job (and MAX_STACK_DEPTH=32 already removes the depth cap).
+
+Instead, closed the real top-UX gap: the **SplitTree divider is now DOM-direct**
+(was rAF-coalesced React commits). During a drag it mutates the two flanking flex
+children inline (zero re-renders, 1:1 with the cursor), commits to state ONCE on
+release — the committed weight equals the live split exactly (no snap-back), a lazy
+full-viewport overlay catches the pointer over iframes/native panes, start/-end
+stay balanced. Tree-mode resize is now as smooth as the legacy engine.
+
+Adversarially reviewed (1 agent): NO-SNAP / scale / dbl-click / balanced-events all
+CONFIRMED; it caught one real bug — the recursive `<SplitTree>` dropped `onEqualize`
+(column dbl-click-equalize was dead) — fixed. One known-minor (snap when grabbing a
+divider flanking a transient 0-px `__skip` leaf; unreachable in practice).
+
+The `splitTreeEngine` flag is now top-UX-ready for your dogfood (Settings → Appearance).
