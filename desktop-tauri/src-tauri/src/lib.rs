@@ -632,6 +632,43 @@ pub fn run() {
                 )?;
             }
 
+            // Dev hot-reload (Electron-parity). In `tauri dev` the frontendDist is
+            // served from DISK, so watch /public and reload the webview when a
+            // `vite build` lands new assets — the same loop Electron's prod
+            // asset-watcher gives. Compiled out of release (assets are embedded).
+            // NB: Vite HMR via a remote devUrl is NOT an option here — Tauri injects
+            // native IPC ONLY on the tauri:// origin, so an http dev origin would
+            // kill vibrancy/perf/data; a full reload on tauri:// keeps them working.
+            #[cfg(debug_assertions)]
+            {
+                use tauri::Manager;
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    use notify::{RecursiveMode, Watcher};
+                    let public = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../public"));
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let mut watcher = match notify::recommended_watcher(move |res| { let _ = tx.send(res); }) {
+                        Ok(w) => w,
+                        Err(e) => { eprintln!("[hot-reload] init failed: {e}"); return; }
+                    };
+                    if let Err(e) = watcher.watch(&public, RecursiveMode::Recursive) {
+                        eprintln!("[hot-reload] watch {public:?} failed: {e}");
+                        return;
+                    }
+                    eprintln!("[hot-reload] watching {public:?}");
+                    loop {
+                        // Block for the first event of a burst, then drain follow-ups
+                        // until the writes go quiet (a vite build touches many files)
+                        // — reload exactly once per build.
+                        if rx.recv().is_err() { break; }
+                        while rx.recv_timeout(std::time::Duration::from_millis(250)).is_ok() {}
+                        if let Some(win) = handle.get_webview_window("main") {
+                            let _ = win.eval("window.location.reload()");
+                        }
+                    }
+                });
+            }
+
             // Start the loopback TLS-origination proxy so the shell can reach the
             // data server (whose cert WKWebView rejects) over plain HTTP/WS.
             tauri::async_runtime::spawn(run_tls_proxy());
