@@ -19,7 +19,7 @@
  * ADDITIVE / behind the P2 flag — not wired into any surface yet. Integration
  * (swapping PanelGrid/GroupLayout to render via this) is the user-verified step.
  */
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
 
 export interface SplitTreeProps {
@@ -101,13 +101,14 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
   );
 }
 
-/** A stable-ish React key: leaves key on their id; splits on index + first leaf. */
+/** A stable React key for a child slot. Leaves key on their opaque id (so a leaf
+ *  that moves keeps its identity / DOM subtree). A split keys on its sibling
+ *  INDEX alone — NOT its first-leaf id: in a 1:1-with-gridRows tree, closing the
+ *  first column of a row would otherwise re-key that row (split:0:A → split:0:B)
+ *  and remount every untouched sibling subtree (terminal PTY reset, native
+ *  browser reload, lost chat draft). Index matches the legacy `key={rowIdx}`. */
 function keyFor(node: LayoutNode, index: number): string {
-  if (isLeaf(node)) return `leaf:${node.id}`;
-  // cheap first-leaf probe without importing leafIds (avoid a full walk per render)
-  let n: LayoutNode = node;
-  while (!isLeaf(n)) n = n.children[0].node;
-  return `split:${index}:${n.id}`;
+  return isLeaf(node) ? `leaf:${node.id}` : `split:${index}`;
 }
 
 interface DividerProps {
@@ -118,20 +119,42 @@ interface DividerProps {
   onEqualize?: () => void;
 }
 
+/** Px the pointer must travel before the first resize commits — kills the
+ *  phantom sub-pixel resize a jittery click would otherwise produce (and leaves
+ *  room for the double-click→equalize gesture). */
+const DRAG_SLOP_PX = 3;
+
 /** The resize handle between two siblings. A `row` split (children side-by-side)
  *  gets a VERTICAL divider dragged along X; a `col` split a horizontal one along
- *  Y. Reports an incremental pixel delta per move. */
+ *  Y. Pointer moves are coalesced through one rAF per frame (so a 120Hz trackpad
+ *  doesn't fire two state commits per frame), and the gesture self-balances its
+ *  `pane-resize-start`/`-end` even if the divider unmounts mid-drag. */
 function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
-  const lastRef = useRef<number | null>(null);
+  const lastRef = useRef<number | null>(null);   // last pointer coord; null = idle
+  const startRef = useRef<number>(0);            // pointer coord at gesture start (slop)
   const bandRef = useRef<number>(0);
+  const pendingRef = useRef<number>(0);          // accumulated px delta awaiting flush
+  const rafRef = useRef<number | null>(null);
+  const passedSlopRef = useRef<boolean>(false);
   const [hover, setHover] = useState(false);
+
+  const flush = (): void => {
+    rafRef.current = null;
+    const d = pendingRef.current;
+    pendingRef.current = 0;
+    if (d !== 0) onResize(d, bandRef.current);
+  };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    lastRef.current = horizontal ? e.clientX : e.clientY;
+    const pos = horizontal ? e.clientX : e.clientY;
+    lastRef.current = pos;
+    startRef.current = pos;
+    passedSlopRef.current = false;
+    pendingRef.current = 0;
     // The band is the flex container this divider sits in — its size along the
     // split axis is what a pixel drag is a fraction OF.
     const parent = e.currentTarget.parentElement?.getBoundingClientRect();
@@ -141,15 +164,22 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (lastRef.current == null) return;
     const cur = horizontal ? e.clientX : e.clientY;
-    const delta = cur - lastRef.current;
-    if (delta !== 0) {
-      lastRef.current = cur;
-      onResize(delta, bandRef.current);
+    if (!passedSlopRef.current) {
+      if (Math.abs(cur - startRef.current) < DRAG_SLOP_PX) return;
+      passedSlopRef.current = true;
+      lastRef.current = startRef.current; // count the delta from the true start, no jump
     }
+    const delta = cur - lastRef.current;
+    if (delta === 0) return;
+    lastRef.current = cur;
+    pendingRef.current += delta;
+    if (rafRef.current == null) rafRef.current = requestAnimationFrame(flush);
   };
   const end = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (lastRef.current == null) return;
     lastRef.current = null;
+    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (pendingRef.current !== 0) { onResize(pendingRef.current, bandRef.current); pendingRef.current = 0; }
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -157,6 +187,14 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
     }
     window.dispatchEvent(new CustomEvent('topics:pane-resize-end'));
   };
+
+  // If the divider unmounts mid-drag (a concurrent column close re-keys the row),
+  // pointerup never reaches us — balance the start with an end so the per-region
+  // vibrancy / native browser panes don't stay frozen for the rest of the session.
+  useEffect(() => () => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    if (lastRef.current != null) window.dispatchEvent(new CustomEvent('topics:pane-resize-end'));
+  }, []);
 
   // The visible strip is `gutter` wide; an absolutely-positioned wider band
   // (±5px past the gutter on the drag axis) makes a thin gutter easy to grab,
@@ -172,6 +210,7 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
       onPointerMove={onPointerMove}
       onPointerUp={end}
       onPointerCancel={end}
+      onLostPointerCapture={end}
       onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
