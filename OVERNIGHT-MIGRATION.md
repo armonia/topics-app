@@ -73,6 +73,10 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P6 menu zoom DONE** (cargo build green). View ▸ Zoom In (⌘=) / Zoom Out (⌘-) /
+  Actual Size (⌘0), wired to WebviewWindow.set_zoom with a ZOOM_PERCENT static
+  (±10, clamped 50–300). Closes a real menu-parity gap (Electron had zoom). File:
+  desktop-tauri/src-tauri/src/lib.rs. Needs runtime check (⌘+/-/0 zoom the UI).
 - **P2 integration guide DONE** (docs/P2-SPLIT-INTEGRATION.md). Concrete step-by-step
   for the user to wire <SplitTree>+useSplitController into PanelGrid/GroupLayout
   behind a `splitTreeEngine` flag (default off): module map, golden-test-first gate,
