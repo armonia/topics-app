@@ -1225,6 +1225,14 @@ export interface AppSettings {
   // easier to read. Gated to Electron (relies on native vibrancy) and ignored
   // on web/PWA. Surfaced in Settings → Appearance. Defaults OFF.
   floatingSplits: boolean;
+  // EXPERIMENTAL. When on, the standalone grid renders through the unified
+  // n-ary split-tree engine (layoutTree + <SplitTree>) instead of the legacy
+  // PanelGrid row/column/cellStack renderer. Geometry is byte-identical (proven
+  // by the golden-geometry gate) and every drag/drop/split/close gesture routes
+  // through the SAME existing handlers — the tree only owns the structural flex
+  // + divider layout. Lets us dogfood the new engine on the real surface before
+  // making it the default. Surfaced in Settings → Appearance. Defaults OFF.
+  splitTreeEngine: boolean;
 }
 
 export interface ProcessInfo {
