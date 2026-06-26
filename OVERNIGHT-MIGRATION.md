@@ -73,6 +73,9 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P6 Help submenu DONE** (cargo build green). Added a Help menu with "Topics on
+  GitHub" → opens the repo via the opener plugin. Small menu-parity win. File:
+  desktop-tauri/src-tauri/src/lib.rs.
 - **P6 fix misleading `.tauri-mac` comment DONE** (vite green; 56 layout tests still
   green). index.html's head comment claimed Tauri vibrancy came from
   `windowEffects` (removed — it's now per-region via vibrancy_set_regions) and that
