@@ -345,3 +345,33 @@ the definitive ledger of what's left and exactly why it can't be auto-concluded.
 merge into `main` AFTER the browser-pane work commits (expected conflicts only in
 GroupLayout/PaneTabBar, which are hand-resolved). Then
 `git worktree remove ../topics-app-tauri-migration`.
+
+---
+
+## Day 2 (cont.) — updater + window-state infra (autonomous)
+
+More verifiable parity concluded:
+- **Window-state persistence** (`tauri-plugin-window-state`) — the window now
+  remembers size/position/maximized across launches (Electron did; a bare Tauri
+  window always reopened 1400×900 centred). cargo OK.
+- **Auto-updater INFRA** (`tauri-plugin-updater` + `plugins.updater` config +
+  `updater:default` capability + `bundle.createUpdaterArtifacts`). A REAL minisign
+  keypair was generated with the project's tauri-cli; the **public** key is
+  committed in `tauri.conf.json`, the **private** key was handed to you in chat
+  (session scratchpad, NOT committed). The CI (`tauri-release.yml`) already wires
+  the signing secret + builds the manifest. cargo build OK.
+- **Version popover** shows the real OS under Tauri (was "Web").
+
+Updater — remaining HUMAN/release steps (can't be auto-done):
+1. Add the private key as GitHub secret `TAURI_SIGNING_PRIVATE_KEY` (password empty).
+2. Cut a `tauri-vX.Y.Z` tag → **publish** the draft release (the endpoint reads the
+   latest PUBLISHED release; a draft or an Electron `v*` release won't be found →
+   the check just reports "no update", gracefully). If Electron `v*` releases keep
+   shipping as "latest", switch the endpoint to a Tauri-specific channel URL.
+3. Wire + test the client trigger: a `useUpdater` Tauri branch over
+   `plugin:updater|check` / `download_and_install` (raw IPC, matching the codebase's
+   no-`@tauri-apps/*`-npm convention) — done against that first real signed release,
+   NOT blind (the raw-IPC progress Channel can't be verified without a real update).
+
+Net: the Tauri binary is now updater-CAPABLE and signed-release-ready; only the
+release publish + the (testable-only-against-a-release) client trigger remain.
