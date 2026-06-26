@@ -9,7 +9,7 @@
 // APIs the shell bridge calls directly.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 /// Desired traffic-light visibility (hidden by default; the client flips it when
 /// the Topics menu opens). AppKit re-shows the buttons on focus/resize when the
@@ -22,6 +22,10 @@ static TRAFFIC_LIGHTS_VISIBLE: AtomicBool = AtomicBool::new(false);
 /// button / ⌘W parks the app in the tray; the tray quit (and ⌘Q via ExitRequested)
 /// set this so the close is allowed through. Mirrors Electron's hide-to-tray.
 static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// Current webview zoom as a percent (100 = 1.0). Driven by View ▸ Zoom In/Out/
+/// Reset; stepped ±10 and clamped to [50, 300].
+static ZOOM_PERCENT: AtomicI64 = AtomicI64::new(100);
 
 /// Per-process footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU. NOTE: on
@@ -515,6 +519,10 @@ pub fn run() {
             let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
             let force_reload =
                 MenuItem::with_id(handle, "force-reload", "Force Reload", true, Some("CmdOrCtrl+Shift+R"))?;
+            let zoom_in = MenuItem::with_id(handle, "zoom-in", "Zoom In", true, Some("CmdOrCtrl+="))?;
+            let zoom_out = MenuItem::with_id(handle, "zoom-out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
+            let zoom_reset =
+                MenuItem::with_id(handle, "zoom-reset", "Actual Size", true, Some("CmdOrCtrl+0"))?;
             // Custom Quit (not the predefined .quit()) so ⌘Q sets QUITTING before
             // exiting — otherwise the hide-to-tray CloseRequested handler would
             // swallow the quit and trap the app in the tray.
@@ -542,6 +550,10 @@ pub fn run() {
                 .item(&reload)
                 .item(&force_reload)
                 .separator()
+                .item(&zoom_in)
+                .item(&zoom_out)
+                .item(&zoom_reset)
+                .separator()
                 .fullscreen()
                 .build()?;
             // NOTE: no `.close_window()` — its default ⌘W accelerator would close
@@ -568,6 +580,18 @@ pub fn run() {
                 "app-quit" => {
                     QUITTING.store(true, Ordering::Relaxed);
                     app.exit(0);
+                }
+                id @ ("zoom-in" | "zoom-out" | "zoom-reset") => {
+                    let cur = ZOOM_PERCENT.load(Ordering::Relaxed);
+                    let next = match id {
+                        "zoom-in" => (cur + 10).min(300),
+                        "zoom-out" => (cur - 10).max(50),
+                        _ => 100,
+                    };
+                    ZOOM_PERCENT.store(next, Ordering::Relaxed);
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.set_zoom(next as f64 / 100.0);
+                    }
                 }
                 _ => {}
             }
