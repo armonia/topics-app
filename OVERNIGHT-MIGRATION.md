@@ -73,6 +73,15 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P5 Tauri release pipeline DONE** (YAML validates, injection-safe). New
+  `.github/workflows/tauri-release.yml` (tauri-action, universal-apple-darwin +
+  win + linux, draft release + updater manifest) on a SEPARATE `tauri-v*` tag so
+  shipping Tauri is opt-in during migration. Reuses the Electron Apple secrets
+  (APPLE_ID/TEAM_ID/APP_SPECIFIC_PASSWORD, MAC_CSC_LINK→APPLE_CERTIFICATE). NEW
+  secrets the user must add before a signed/auto-updating release:
+  `APPLE_SIGNING_IDENTITY`, `TAURI_SIGNING_PRIVATE_KEY(+_PASSWORD)` (run
+  `cargo tauri signer generate`). Unsigned builds still produce runnable artifacts.
+  NOTE: can't run CI locally — needs a real tag push to validate end-to-end.
 - **P2 controller geometry helpers DONE** (10 tests green). `splitController.ts`:
   `dropZone(rect, px, py, edgeFrac)` → 5-zone (left/right/top/bottom/center, corners
   resolve to the closest edge, out-of-bounds clamps) for tab-drag-to-edge drop-split,
