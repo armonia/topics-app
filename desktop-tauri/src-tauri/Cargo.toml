@@ -37,6 +37,9 @@ tauri-plugin-notification = "2"
 # Remember window size/position/maximized across launches (Electron persisted its
 # bounds; a bare Tauri window always reopens at the default size + centre).
 tauri-plugin-window-state = "2"
+# Auto-update (parity with the Electron updater). Activates once a signed tauri-v*
+# release is published + the endpoint serves its latest.json; inert otherwise.
+tauri-plugin-updater = "2"
 # Single-instance lock: a second launch (launchd KeepAlive, double-click) must not
 # spawn a duplicate that fails to bind the proxy port — instead it focuses the
 # running window. Registered FIRST in the builder (plugin requirement).
