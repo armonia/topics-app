@@ -17,8 +17,8 @@
  * Pure + additive: nothing imports these yet. They run at hydrate behind the P2
  * flag, with the renderer still defaulting to the current engines until verified.
  */
-import type { PanelGridRow, GroupLayoutRow } from '../../types';
-import { type LayoutNode, leaf, split } from './layoutTree';
+import type { PanelGridRow, GroupLayoutRow, PanelGridCellStack, GroupCellStack } from '../../types';
+import { type LayoutNode, leaf, split, isLeaf, isSplit, leafIds } from './layoutTree';
 
 /** A column normalised to its leaf key + (optional) vertical sub-stack. */
 interface NormColumn {
@@ -103,4 +103,92 @@ export function groupRowsToTree(
     }),
   }));
   return buildTree(norm, [...rowHeights]);
+}
+
+// ─────────────────────────── tree → legacy (reverse) ───────────────────────────
+//
+// Decompose a (normalised) tree back into the legacy row/column/sub-stack shape.
+// Lossless for any tree the FORWARD adapters produce (the legacy 3-level model);
+// a deeper tree — which the new engine can create but the legacy model can't hold
+// — is flattened defensively (a nested band collapses to its first leaf), so a
+// reverse adapter never throws. Used to keep legacy persistence in sync while the
+// new engine runs behind a flag, and (via the round-trip test) to PROVE the
+// forward adapters preserve every width/height/key.
+
+const firstKey = (n: LayoutNode): string => (isLeaf(n) ? n.id : leafIds(n)[0]);
+
+function treeToNormRows(tree: LayoutNode): { rows: NormRow[]; rowHeights: number[] } {
+  // Top col-split → its children are rows; anything else → a single row.
+  const rowEntries =
+    isSplit(tree) && tree.dir === 'col'
+      ? tree.children.map((c) => ({ node: c.node, weight: c.weight }))
+      : [{ node: tree, weight: 1 }];
+
+  const rows: NormRow[] = [];
+  const rowHeights: number[] = [];
+  for (const re of rowEntries) {
+    rowHeights.push(re.weight);
+    // A row is a row-split (columns) or a single cell.
+    const colEntries =
+      isSplit(re.node) && re.node.dir === 'row'
+        ? re.node.children.map((c) => ({ node: c.node, weight: c.weight }))
+        : [{ node: re.node, weight: 1 }];
+
+    const cols: NormColumn[] = colEntries.map((ce): NormColumn => {
+      // A column with a col-split is a vertical sub-stack [primary, ...members].
+      if (isSplit(ce.node) && ce.node.dir === 'col') {
+        const members = ce.node.children;
+        return {
+          key: firstKey(members[0].node),
+          stackItems: members.slice(1).map((m) => firstKey(m.node)),
+          stackHeights: members.map((m) => m.weight),
+        };
+      }
+      return { key: firstKey(ce.node), stackItems: [], stackHeights: null };
+    });
+    rows.push({ cols, widths: colEntries.map((c) => c.weight) });
+  }
+  return { rows, rowHeights };
+}
+
+/** Tree → standalone PanelGrid shape (`PanelGridRow[]` + `rowHeights`). */
+export function treeToGridRows(tree: LayoutNode): { rows: PanelGridRow[]; rowHeights: number[] } {
+  const { rows, rowHeights } = treeToNormRows(tree);
+  return {
+    rowHeights,
+    rows: rows.map((r): PanelGridRow => {
+      const cellStacks: Record<string, PanelGridCellStack> = {};
+      for (const c of r.cols) {
+        if (c.stackItems.length > 0 && c.stackHeights) {
+          cellStacks[c.key] = { items: c.stackItems, heights: c.stackHeights };
+        }
+      }
+      return {
+        itemKeys: r.cols.map((c) => c.key),
+        widths: r.widths,
+        ...(Object.keys(cellStacks).length > 0 ? { cellStacks } : {}),
+      };
+    }),
+  };
+}
+
+/** Tree → project GroupLayout shape (`GroupLayoutRow[]` + `rowHeights`). */
+export function treeToGroupRows(tree: LayoutNode): { rows: GroupLayoutRow[]; rowHeights: number[] } {
+  const { rows, rowHeights } = treeToNormRows(tree);
+  return {
+    rowHeights,
+    rows: rows.map((r): GroupLayoutRow => {
+      const cellStacks: Record<string, GroupCellStack> = {};
+      for (const c of r.cols) {
+        if (c.stackItems.length > 0 && c.stackHeights) {
+          cellStacks[c.key] = { groupIds: c.stackItems, heights: c.stackHeights };
+        }
+      }
+      return {
+        groupIds: r.cols.map((c) => c.key),
+        widths: r.widths,
+        ...(Object.keys(cellStacks).length > 0 ? { cellStacks } : {}),
+      };
+    }),
+  };
 }
