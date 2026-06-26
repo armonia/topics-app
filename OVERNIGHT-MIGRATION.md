@@ -73,6 +73,13 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 reverse adapters + round-trip DONE** (11 tests green). `treeToGridRows` /
+  `treeToGroupRows` decompose a tree back to the legacy row/col/sub-stack shape
+  (lossless for any legacy-originated tree; a deeper-than-legacy tree flattens
+  defensively, never throws). The round-trip test (legacy → tree → legacy) PROVES
+  the forward adapters preserve every key + width + height — the migration-safety
+  property. Files: client/src/state/layout/legacyAdapters.ts (+ test). Still pure/
+  additive (nothing imports it).
 - **P2 legacy→tree adapters DONE** (8 unit tests green). `legacyAdapters.ts`:
   `gridRowsToTree(PanelGridRow[], gridRowHeights)` + `groupRowsToTree(GroupLayoutRow[],
   rowHeights)` → one `LayoutNode`. Handles rows (col-split by rowHeights), columns
