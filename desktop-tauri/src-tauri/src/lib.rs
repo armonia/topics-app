@@ -526,6 +526,9 @@ pub fn run() {
         // Persist + restore the window's size / position / maximized state across
         // launches (Electron remembered its bounds; a bare Tauri window didn't).
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Auto-update — reads plugins.updater (endpoint + pubkey) from tauri.conf.json.
+        // Inert until a signed release is published; the client drives check/install.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Native menu — a WKWebView shell with NO app menu also has no working
         // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
         // explicit View ▸ Reload (Cmd+R / Cmd+Shift+R), matching the Electron app.
