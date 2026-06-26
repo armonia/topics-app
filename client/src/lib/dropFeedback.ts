@@ -23,10 +23,11 @@ import type { EdgeZone } from './dropZone';
 
 export const DROP_ACCENT = 'var(--primary)';
 /** Fill of a split-region preview (the translucent footprint of the new pane).
- *  The fill IS the indicator — deliberately NO border or seam line, so a
- *  half-split reads as ONE filled area, not "a line in the middle + an area on
- *  the side". Slightly more opaque than a hairline so the half still reads on
- *  busy content. */
+ *  The fill is the body of the indicator; a single SOLID seam accent on the
+ *  pane's INNER edge (the divider line, facing the content it splits from) marks
+ *  exactly where the split lands — this is the documented law (fill + one inner
+ *  seam, never a dashed perimeter), and the seam is what makes a half-split read
+ *  cleanly on busy terminal/editor content instead of a vague tinted rectangle. */
 export const DROP_REGION_FILL = 'color-mix(in srgb, var(--primary) 22%, transparent)';
 /** Resting fill of the full-width-row gutter while a drag is live but not over
  *  it. Kept clearly visible (not a faint hint) so the "drop here for a
@@ -50,9 +51,10 @@ export const Z_DROP_FULLROW = 50;
 
 /**
  * Inline style for a split-region preview: the translucent half-footprint of
- * the resulting pane. The fill alone is the indicator — no border, no seam line
- * (which would read as a second "preview in the middle"). The filled half's own
- * edge already shows where the split lands.
+ * the resulting pane, plus a single SOLID seam accent on its INNER edge — the
+ * edge that becomes the divider, facing the content being split from. The seam
+ * (one inset box-shadow, never a full/dashed perimeter) tells the user precisely
+ * where the split lands and keeps the half readable on busy content.
  *
  * - `fullWidth` spans the whole container width (the full-width-row preview)
  *   instead of a single column — this is the visual tell vs a column split.
@@ -64,6 +66,14 @@ export function dropRegionStyle(
   opts: { fullWidth?: boolean; gutterInset?: number } = {},
 ): CSSProperties {
   const { fullWidth = false, gutterInset = 0 } = opts;
+  // Inner-edge seam: the region occupies the half on `zone`'s side, so its inner
+  // edge is the OPPOSITE side (a right-split's pane sits on the right → its seam
+  // is on its left). One inset shadow on that edge = the divider line.
+  const seam =
+    zone === 'right' ? `inset ${DROP_SEAM_PX}px 0 0 0 ${DROP_ACCENT}`
+    : zone === 'left' ? `inset -${DROP_SEAM_PX}px 0 0 0 ${DROP_ACCENT}`
+    : zone === 'bottom' ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
+    : `inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`; // top
   return {
     position: 'absolute',
     pointerEvents: 'none',
@@ -73,6 +83,7 @@ export function dropRegionStyle(
     left: fullWidth ? 0 : zone === 'right' ? '50%' : 0,
     right: fullWidth ? 0 : zone === 'left' ? '50%' : 0,
     background: DROP_REGION_FILL,
+    boxShadow: seam,
     borderRadius: DROP_RADIUS,
     transition: 'all 140ms ease',
   };
