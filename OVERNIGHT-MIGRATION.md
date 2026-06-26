@@ -73,6 +73,13 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P5 hide-to-tray window lifecycle DONE** (cargo build green). The window's
+  CloseRequested now HIDES to the tray (red button / ⌘W park the app) instead of
+  quitting; a real quit (tray "Esci" + a custom ⌘Q menu item replacing the
+  predefined quit) sets a `QUITTING` flag so the close passes through — avoids the
+  classic "CloseRequested-prevent traps ⌘Q" bug. Recoverable even if the tray is
+  invisible: re-launch → single-instance shows the hidden window. File:
+  desktop-tauri/src-tauri/src/lib.rs. Needs runtime check (close hides; ⌘Q/Esci quit).
 - **P5 system tray (baseline) DONE** (cargo build green). Added the `tray-icon` +
   `image-png` Tauri features and a tray with Show/Quit in setup() — a hidden window
   is now reachable again (Electron had a tray; Tauri had none). Uses the bundle's
