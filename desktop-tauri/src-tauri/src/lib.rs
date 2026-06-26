@@ -17,6 +17,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// window events — mirroring the Electron shell's re-pin pattern.
 static TRAFFIC_LIGHTS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
+/// True once a real quit is in progress (tray "Esci"). The window's CloseRequested
+/// handler HIDES to the tray instead of closing while this is false, so the red
+/// button / ⌘W parks the app in the tray; the tray quit (and ⌘Q via ExitRequested)
+/// set this so the close is allowed through. Mirrors Electron's hide-to-tray.
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
 /// Per-process footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU. NOTE: on
 /// macOS the WKWebView content/GPU/network processes are XPC services reparented
@@ -509,6 +515,11 @@ pub fn run() {
             let reload = MenuItem::with_id(handle, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
             let force_reload =
                 MenuItem::with_id(handle, "force-reload", "Force Reload", true, Some("CmdOrCtrl+Shift+R"))?;
+            // Custom Quit (not the predefined .quit()) so ⌘Q sets QUITTING before
+            // exiting — otherwise the hide-to-tray CloseRequested handler would
+            // swallow the quit and trap the app in the tray.
+            let app_quit =
+                MenuItem::with_id(handle, "app-quit", "Quit Topics", true, Some("CmdOrCtrl+Q"))?;
             let app_menu = SubmenuBuilder::new(handle, "Topics")
                 .about(None)
                 .separator()
@@ -516,7 +527,7 @@ pub fn run() {
                 .hide_others()
                 .show_all()
                 .separator()
-                .quit()
+                .item(&app_quit)
                 .build()?;
             let edit_menu = SubmenuBuilder::new(handle, "Edit")
                 .undo()
@@ -548,10 +559,17 @@ pub fn run() {
         })
         .on_menu_event(|app, event| {
             use tauri::Manager;
-            if matches!(event.id().0.as_str(), "reload" | "force-reload") {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.eval("window.location.reload()");
+            match event.id().0.as_str() {
+                "reload" | "force-reload" => {
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.eval("window.location.reload()");
+                    }
                 }
+                "app-quit" => {
+                    QUITTING.store(true, Ordering::Relaxed);
+                    app.exit(0);
+                }
+                _ => {}
             }
         })
         .setup(|app| {
@@ -589,6 +607,14 @@ pub fn run() {
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
                         }
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            // Hide to the tray instead of closing (the tray's "Esci"
+                            // and ⌘Q set QUITTING so a real quit still passes through).
+                            if !QUITTING.load(Ordering::Relaxed) {
+                                api.prevent_close();
+                                let _ = w.hide();
+                            }
+                        }
                         _ => {}
                     });
                 }
@@ -617,7 +643,10 @@ pub fn run() {
                                 let _ = w.set_focus();
                             }
                         }
-                        "tray-quit" => app.exit(0),
+                        "tray-quit" => {
+                            QUITTING.store(true, Ordering::Relaxed);
+                            app.exit(0);
+                        }
                         _ => {}
                     });
                 if let Some(icon) = app.default_window_icon() {
