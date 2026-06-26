@@ -121,19 +121,24 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       api.setRegions(rects);
     };
 
-    // Coalesce every passive layout signal into AT MOST one collect() per window.
-    // The previous rAF-per-mutation drove a forced-reflow getBoundingClientRect
-    // sweep every frame; with 9 DOM-rendered terminals + chat streaming mutating
-    // the tree thousands of times a second, that pegged the main thread. Now a
-    // mutation storm can drive no more than ~1 reflow read per SETTLE_MS.
-    const SETTLE_MS = 120;
+    // Coalesce every passive layout signal into AT MOST one collect() per FRAME.
+    // rAF (not setTimeout): a deferred timer is throttled/suspended by WebKit when
+    // the webview is backgrounded AND trails the layout by its delay — so a window
+    // resize, sidebar toggle or any non-gesture reflow only caught the OLD 120ms
+    // debounce visibly LAGGED the vibrancy behind the moving layout ("quando
+    // resizo non segue"). rAF fires the next paint frame when visible and reads
+    // rects post-layout, so the frost tracks per frame. This does NOT reintroduce
+    // the old per-mutation storm: the trigger is the ResizeObserver, which is
+    // SILENT unless an observed box actually changes size (streaming terminals /
+    // chat mutate content, not box size), so the loop only spins during real
+    // resizes — exactly when we want per-frame tracking.
     let settle = 0;
     const schedule = () => {
       if (frozen || settle) return; // already pending → coalesce, do no work
-      settle = window.setTimeout(() => { settle = 0; push(); }, SETTLE_MS);
+      settle = requestAnimationFrame(() => { settle = 0; push(); });
     };
     // Bypass the debounce for end-of-gesture snaps so the frost lands instantly.
-    const flush = () => { if (settle) { clearTimeout(settle); settle = 0; } push(); };
+    const flush = () => { if (settle) { cancelAnimationFrame(settle); settle = 0; } push(); };
 
     // Divider resize: the panes resize live (direct DOM width mutation), so we
     // TRACK the frost live too — a per-frame loop re-reads the panel rects and
@@ -207,7 +212,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       document.removeEventListener('transitionend', onSidebarTransitionEnd, true);
       document.removeEventListener('transitioncancel', onSidebarTransitionEnd, true);
       window.clearInterval(poll);
-      if (settle) clearTimeout(settle);
+      if (settle) cancelAnimationFrame(settle);
       cancelAnimationFrame(liveRaf);
       api.clear();
     };
