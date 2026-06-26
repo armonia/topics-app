@@ -1306,9 +1306,13 @@ html.electron-mac :has(> [data-testid="browser-native-panel"]) {
  * pulling each tiling surface (data-split-surface) out by one gap into its
  * overflow-hidden parent. */
 .floating-splits {
-  /* `--float-gap` is the per-card margin; adjacent cards sit 2×gap apart — a
-   * hair of separation, no more. */
-  --float-gap: 2px;
+  /* `--float-gap` is the per-card margin; adjacent cards sit 2×gap apart. At 2px
+   * the stacco between floating cards read as a hairline — too timid to register
+   * the panels as distinct floating windows. 6px (→ 12px between cards, a hair
+   * over the 10px radius) gives a clear, airy separation; the outermost margins
+   * are still clipped (see [data-split-surface] pull-out) so edge cards stay
+   * flush to the window — only the INTER-card gaps grow. */
+  --float-gap: 6px;
   --float-radius: 10px;
   /* Transparent so the gaps reveal the native window vibrancy underneath.
    * No !important needed: this unlayered rule already beats the layered
