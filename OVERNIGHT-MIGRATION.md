@@ -71,6 +71,66 @@ Workflow tool for big parallelizable chunks when it helps.
    (default OFF) so the current engines stay the default until verified by the
    user. Land it in small green steps (adapters+tests first).
 
+## ✅ FINAL SUMMARY (loop ended 2026-06-26 10:02 Europe/Rome)
+
+**16 commits** on `feat/tauri-migration-overnight` (on top of `main`@e5026f7),
++1370 LOC, **60 layout unit tests green**, every commit builds. Worktree isolated —
+`main` + the concurrent browser-pane session were never touched.
+
+### DONE (this branch, by area)
+**P2 split rewrite — full component layer, additive/behind-a-flag, NOTHING wired in:**
+- `eaa9612` legacy→tree adapters (gridRowsToTree/groupRowsToTree)
+- `7f5336c` tree→legacy reverse adapters + round-trip fidelity tests (proves the fwd adapters lose nothing)
+- `e8536f8` controller geometry helpers (dropZone 5-zone + pxToWeightDelta)
+- `07376b2` `<SplitTree>` recursive renderer + `<Divider>` (flex invariant, z-50, resize events)
+- `0d59cb6` `useSplitController` hook (ties gestures → pure reducers; bandPx resize)
+- `f369fae` engine edge-case tests (nested-path resize/equalize, move-collapse, deep-normalize)
+- `8f8023d` **`P2-SPLIT-INTEGRATION.md`** (root) — the step-by-step swap guide
+- (the `layoutTree` engine itself is `a0f148d`, already on `main`)
+
+**Tauri shell parity/features:**
+- `be1139c` native theme sync (`set_theme` → NSWindow appearance + vibrancy re-tint)
+- `8ac43a6` system tray (Show/Quit) · `ead13e3` hide-to-tray on close (+ ⌘Q-safe quit)
+- `3034640` View ▸ Zoom In/Out/Reset (⌘=/⌘-/⌘0) · `b186164` Help ▸ Topics on GitHub
+- `841b43c` add-menu project actions under Tauri (isElectron→isDesktop, now selectDirectory works)
+
+**Release/infra & cleanup:** `ad4d223` Tauri release pipeline (tauri-action, universal
+mac+win+linux, opt-in `tauri-v*` tag) · `ec4a9cb` fix misleading `.tauri-mac` comment ·
+`79f1fa4` loop backlog/protocol doc.
+
+### NOT DONE (left for the user — mostly GUI/integration)
+- **P2 renderer INTEGRATION** = the actual swap of PanelGrid/GroupLayout to render via
+  `<SplitTree>`+`useSplitController` behind a flag. The pieces are built+tested; the swap
+  needs the GUI + a working `tsc`. Follow `P2-SPLIT-INTEGRATION.md`.
+- **Sidebar-collapse transparent-seam bug** — investigated (CSS margin already handled,
+  region logic reasoned-correct); not reproducible without the GUI. Candidate causes in the
+  log below. Needs your eyes.
+- Native scoped notifications, honest multi-process perf, `tauri-plugin-updater`,
+  empty-space window drag, P3 browser-pane completeness (durability/events/agent-CDP),
+  a full `tsc` pass.
+
+### NEEDS RUNTIME VERIFICATION (built but I couldn't see them)
+Vibrancy frost is CONFIRMED working (your check last night). Unverified-by-me, please eyeball:
+theme light/dark re-tint of the chrome, the tray (icon + Show/Quit), hide-to-tray on close
++ ⌘Q quit, View-menu zoom, and the project-picker dialog (Apri/Crea Progetto).
+
+### HOW TO REVIEW + MERGE
+1. `git -C ../topics-app-tauri-migration log --oneline e5026f7..HEAD` to review; read
+   `P2-SPLIT-INTEGRATION.md` for the split swap.
+2. Run the Tauri app from the worktree and verify the runtime items above.
+3. Merge `feat/tauri-migration-overnight` into `main` **after** the concurrent browser-pane
+   work lands — expected conflicts only in GroupLayout/PaneTabBar (which I avoided editing).
+4. `git worktree remove ../topics-app-tauri-migration` once merged.
+
+### FIX SUMMARY — the two regressions you hit last night
+- **Vibrancy "transparent, not blurred"** → FIXED (`8aee00f`, on `main`): a negative
+  `layer.zPosition` excluded the NSVisualEffectView from the WindowServer's behind-window
+  blur pass. Dropped it; frost renders. (Reduce-Transparency OFF + M2 Max Metal confirmed.)
+- **Sidebar-close transparent line under the floating cards** → STILL OPEN, deferred:
+  needs GUI repro (see candidate causes in the log). Not fixed blind, on purpose.
+
+---
+
 ## Progress log (newest first)
 
 - **P2 engine edge-case tests DONE** (layoutTree now 39 tests; layout suite 60
