@@ -73,6 +73,16 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 legacy→tree adapters DONE** (8 unit tests green). `legacyAdapters.ts`:
+  `gridRowsToTree(PanelGridRow[], gridRowHeights)` + `groupRowsToTree(GroupLayoutRow[],
+  rowHeights)` → one `LayoutNode`. Handles rows (col-split by rowHeights), columns
+  (row-split by widths), and per-column sub-stacks (col-split by cellStacks heights,
+  which INCLUDE the primary at index 0); single-child bands collapse so a plain pane
+  → bare leaf; corrupt stack heights fall back to equal. Both project + standalone
+  also carry `rowHeights` (confirmed useProjectLayout:269). Pure/additive — nothing
+  imports it yet. NOTE: these are STRUCTURAL+geometry unit tests, not golden-vs-the-
+  -real-renderer (can't run the renderer headless); the byte-identical golden check
+  lands at integration. Files: client/src/state/layout/legacyAdapters.ts (+ test).
 - **P4 theme sync DONE** (build green: vite + cargo). Added a Rust `set_theme`
   command (sets NSWindow appearance Aqua/DarkAqua → the traffic lights AND the
   per-region NSVisualEffectViews re-tint to match light/dark for free) + a Tauri
