@@ -19,7 +19,7 @@
  * ADDITIVE / behind the P2 flag — not wired into any surface yet. Integration
  * (swapping PanelGrid/GroupLayout to render via this) is the user-verified step.
  */
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
 
 export interface SplitTreeProps {
@@ -114,106 +114,140 @@ function keyFor(node: LayoutNode, index: number): string {
 interface DividerProps {
   dir: SplitDir;
   gutter: number;
+  /** Commit the resize ONCE on release: the TOTAL signed px the divider moved
+   *  along the split axis, within the parent band of `bandPx`. The host maps it
+   *  via `pxToWeightDelta` + `resizeWeights`. */
   onResize: (deltaPx: number, bandPx: number) => void;
   /** Double-click → even out the band (1/n). */
   onEqualize?: () => void;
 }
 
-/** Px the pointer must travel before the first resize commits — kills the
- *  phantom sub-pixel resize a jittery click would otherwise produce (and leaves
- *  room for the double-click→equalize gesture). */
+/** Px the pointer must travel before the resize engages — kills the phantom
+ *  sub-pixel resize a jittery click would produce, and leaves the double-click →
+ *  equalize gesture room to fire. */
 const DRAG_SLOP_PX = 3;
+/** Floor a child can't shrink past during a drag — matches MIN_PANE_FRACTION so
+ *  the live DOM resize and the committed `resizeWeights` agree exactly. */
+const MIN_CHILD_FRACTION = 0.1;
 
-/** The resize handle between two siblings. A `row` split (children side-by-side)
- *  gets a VERTICAL divider dragged along X; a `col` split a horizontal one along
- *  Y. Pointer moves are coalesced through one rAF per frame (so a 120Hz trackpad
- *  doesn't fire two state commits per frame), and the gesture self-balances its
- *  `pane-resize-start`/`-end` even if the divider unmounts mid-drag. */
+/**
+ * The resize handle between two siblings. A `row` split (children side-by-side)
+ * gets a VERTICAL divider dragged along X; a `col` split a horizontal one along Y.
+ *
+ * DOM-DIRECT, mirroring the legacy useGridResize / CellSubStack path: during the
+ * drag we mutate the two flanking flex children's `flex-grow` INLINE (zero React
+ * re-renders — the pane bodies don't reconcile per mousemove, so a divider drags
+ * 1:1 with the cursor with no jank), and commit the final size to React state
+ * ONCE on release. A lazily-raised full-viewport overlay keeps the pointer from
+ * being swallowed by an iframe / native browser pane, and pairs the
+ * `topics:pane-resize-start` / `-end` so those panes hide for the drag's duration.
+ * The start/end pair is always balanced — even if the divider unmounts mid-drag.
+ */
 function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
-  const lastRef = useRef<number | null>(null);   // last pointer coord; null = idle
-  const startRef = useRef<number>(0);            // pointer coord at gesture start (slop)
-  const bandRef = useRef<number>(0);
-  const pendingRef = useRef<number>(0);          // accumulated px delta awaiting flush
-  const rafRef = useRef<number | null>(null);
-  const passedSlopRef = useRef<boolean>(false);
   const [hover, setHover] = useState(false);
+  const [active, setActive] = useState(false);
+  // Teardown for the in-flight drag so an unmount-mid-drag finishes it cleanly.
+  const cleanupRef = useRef<(() => void) | null>(null);
 
-  const flush = (): void => {
-    rafRef.current = null;
-    const d = pendingRef.current;
-    pendingRef.current = 0;
-    if (d !== 0) onResize(d, bandRef.current);
-  };
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+  const onMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const pos = horizontal ? e.clientX : e.clientY;
-    lastRef.current = pos;
-    startRef.current = pos;
-    passedSlopRef.current = false;
-    pendingRef.current = 0;
-    // The band is the flex container this divider sits in — its size along the
-    // split axis is what a pixel drag is a fraction OF.
-    const parent = e.currentTarget.parentElement?.getBoundingClientRect();
-    bandRef.current = parent ? (horizontal ? parent.width : parent.height) : 0;
-    window.dispatchEvent(new CustomEvent('topics:pane-resize-start'));
-  };
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
-    if (lastRef.current == null) return;
-    const cur = horizontal ? e.clientX : e.clientY;
-    if (!passedSlopRef.current) {
-      if (Math.abs(cur - startRef.current) < DRAG_SLOP_PX) return;
-      passedSlopRef.current = true;
-      lastRef.current = startRef.current; // count the delta from the true start, no jump
-    }
-    const delta = cur - lastRef.current;
-    if (delta === 0) return;
-    lastRef.current = cur;
-    pendingRef.current += delta;
-    if (rafRef.current == null) rafRef.current = requestAnimationFrame(flush);
-  };
-  const end = (e: React.PointerEvent<HTMLDivElement>): void => {
-    if (lastRef.current == null) return;
-    lastRef.current = null;
-    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    if (pendingRef.current !== 0) { onResize(pendingRef.current, bandRef.current); pendingRef.current = 0; }
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* capture may already be gone */
-    }
-    window.dispatchEvent(new CustomEvent('topics:pane-resize-end'));
-  };
+    const dividerEl = e.currentTarget;
+    const container = dividerEl.parentElement;
+    const prevSib = dividerEl.previousElementSibling as HTMLElement | null;
+    const nextSib = dividerEl.nextElementSibling as HTMLElement | null;
+    if (!container || !prevSib || !nextSib) return;
+    // Narrowed non-null for the closures below (a hoisted `finish` wouldn't keep
+    // the early-return narrowing on the nullable bindings otherwise).
+    const prevEl: HTMLElement = prevSib;
+    const nextEl: HTMLElement = nextSib;
+    const rect = container.getBoundingClientRect();
+    const bandPx = horizontal ? rect.width : rect.height;
+    if (bandPx <= 0) return;
 
-  // If the divider unmounts mid-drag (a concurrent column close re-keys the row),
-  // pointerup never reaches us — balance the start with an end so the per-region
-  // vibrancy / native browser panes don't stay frozen for the rest of the session.
-  useEffect(() => () => {
-    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    if (lastRef.current != null) window.dispatchEvent(new CustomEvent('topics:pane-resize-end'));
-  }, []);
+    const startPos = horizontal ? e.clientX : e.clientY;
+    // The flanking children carry their weight as `flex-grow` (SplitTree sets
+    // `flex: <weight> 1 0%`); read it so the new split stays in the SAME scale as
+    // the untouched siblings (3+-column rows resize correctly, not just 2).
+    const startPrev = parseFloat(getComputedStyle(prevEl).flexGrow) || 0;
+    const startNext = parseFloat(getComputedStyle(nextEl).flexGrow) || 0;
+    const combined = startPrev + startNext;
+    const floor = Math.min(MIN_CHILD_FRACTION, combined / 2); // never invert a tiny band
+    const prevTransPrev = prevEl.style.transition;
+    const prevTransNext = nextEl.style.transition;
+    prevEl.style.transition = 'none';
+    nextEl.style.transition = 'none';
 
+    let overlay: HTMLDivElement | null = null;
+    const raiseChrome = (): void => {
+      if (overlay) return;
+      overlay = document.createElement('div');
+      overlay.style.cssText = `position:fixed;inset:0;z-index:2147483647;cursor:${horizontal ? 'col-resize' : 'row-resize'}`;
+      document.body.appendChild(overlay);
+      setActive(true);
+      window.dispatchEvent(new Event('topics:pane-resize-start'));
+    };
+
+    let latestDelta = 0;
+    const onMove = (ev: MouseEvent): void => {
+      // Lost-mouseup recovery: released over another app / native view.
+      if ((ev.buttons & 1) === 0) { finish(); return; }
+      const cur = horizontal ? ev.clientX : ev.clientY;
+      const rawDelta = cur - startPos;
+      if (!overlay && Math.abs(rawDelta) <= DRAG_SLOP_PX) return; // sub-slop = still a click
+      raiseChrome();
+      const deltaFrac = rawDelta / bandPx;
+      let nextPrev = startPrev + deltaFrac;
+      if (nextPrev < floor) nextPrev = floor;
+      else if (nextPrev > combined - floor) nextPrev = combined - floor;
+      const nextNext = combined - nextPrev;
+      prevEl.style.flex = `${nextPrev} 1 0%`;
+      nextEl.style.flex = `${nextNext} 1 0%`;
+      latestDelta = rawDelta;
+    };
+    let finished = false;
+    function finish(): void {
+      if (finished) return;
+      finished = true;
+      cleanupRef.current = null;
+      setActive(false);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', finish);
+      prevEl.style.transition = prevTransPrev;
+      nextEl.style.transition = prevTransNext;
+      if (overlay) {
+        overlay.remove();
+        overlay = null;
+        window.dispatchEvent(new Event('topics:pane-resize-end'));
+      }
+      // Commit ONCE — and only for a real drag. A bare click leaves latestDelta 0
+      // (no phantom resize) so the double-click → equalize handler isn't pre-empted.
+      if (latestDelta !== 0) onResize(latestDelta, bandPx);
+    }
+    cleanupRef.current = finish;
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', finish);
+  }, [horizontal, onResize]);
+
+  // Unmount mid-drag (a concurrent column close re-keys the row): finish so the
+  // listeners, overlay and the resize start/end count stay balanced.
+  useEffect(() => () => { cleanupRef.current?.(); }, []);
+
+  const lit = hover || active;
   // The visible strip is `gutter` wide; an absolutely-positioned wider band
   // (±5px past the gutter on the drag axis) makes a thin gutter easy to grab,
   // without consuming layout space. z-50 keeps it above adjacent pane content.
-  // A 1px hairline (brighter on hover) gives the otherwise-invisible grab strip
-  // a visible seam, matching the legacy dividers.
+  // A 1px hairline (brighter on hover/drag) gives the grab strip a visible seam.
   return (
     <div
       role="separator"
       aria-orientation={horizontal ? 'vertical' : 'horizontal'}
       data-split-divider={dir}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={end}
-      onPointerCancel={end}
-      onLostPointerCapture={end}
+      onMouseDown={onMouseDown}
       onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}
-      onPointerEnter={() => setHover(true)}
-      onPointerLeave={() => setHover(false)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         flex: `0 0 ${gutter}px`,
         position: 'relative',
@@ -240,7 +274,7 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
           ...(horizontal
             ? { top: 0, bottom: 0, left: '50%', width: 1, transform: 'translateX(-0.5px)' }
             : { left: 0, right: 0, top: '50%', height: 1, transform: 'translateY(-0.5px)' }),
-          ...(hover ? { background: 'var(--primary)', boxShadow: '0 0 0 0.5px var(--primary)' } : {}),
+          ...(lit ? { background: 'var(--primary)', boxShadow: '0 0 0 0.5px var(--primary)' } : {}),
         }}
       />
     </div>
