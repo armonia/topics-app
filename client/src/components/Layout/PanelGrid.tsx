@@ -12,20 +12,25 @@ import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
-import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths } from './gridWidths';
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { SplitTree } from './SplitTree';
-import { leaf, normalizeWeights, MIN_CHILD_WEIGHT, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
+import { leaf, normalizeWeights, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
 import { pxToWeightDelta } from '../../state/layout/splitController';
+
+/** Stable empty identity so the keyPos memo can short-circuit with the flag off
+ *  without churning a fresh Map every render. */
+const EMPTY_KEY_POS: ReadonlyMap<string, [number, number]> = new Map();
 
 /**
  * Two-child divider resize on a flat weight array (the split-tree engine's
  * `resizeAt` reduced to one band). Shifts `delta` (a fraction of the band) from
- * child `idx+1` to `idx`, clamped to MIN_CHILD_WEIGHT, others untouched. Used by
+ * child `idx+1` to `idx`, clamped to MIN_PANE_FRACTION (the SAME floor the legacy
+ * useGridResize uses, so the smallest pane matches), others untouched. Used by
  * the splitTreeEngine render path to map a <SplitTree> divider drag back onto the
  * legacy `widths` / `rowHeights` arrays so persistence + sub-stacks are preserved
  * (treeToGridRows can't be used here — the shallow tree carries no cellStacks).
@@ -34,7 +39,8 @@ function resizeWeights(weights: number[], idx: number, delta: number): number[] 
   if (idx < 0 || idx + 1 >= weights.length) return weights;
   const norm = normalizeWeights(weights);
   const sum = norm[idx] + norm[idx + 1];
-  const na = Math.min(Math.max(norm[idx] + delta, MIN_CHILD_WEIGHT), sum - MIN_CHILD_WEIGHT);
+  const floor = Math.min(MIN_PANE_FRACTION, sum / 2); // never invert when the band is already tiny
+  const na = Math.min(Math.max(norm[idx] + delta, floor), sum - floor);
   const nb = sum - na;
   return norm.map((w, i) => (i === idx ? na : i === idx + 1 ? nb : w));
 }
@@ -1821,17 +1827,20 @@ export function PanelGrid({
   // the same intent). All of this is inert unless the flag is on.
 
   // key → [rowIdx, colIdx] for the top-level cells (sub-stack members aren't tree
-  // leaves here — they live inside their host cell's <CellSubStack>).
-  const keyPos = useMemo(() => {
+  // leaves here — they live inside their host cell's <CellSubStack>). Gated on the
+  // flag (like treeRoot below) so the legacy path does zero extra work.
+  const keyPos = useMemo<ReadonlyMap<string, [number, number]>>(() => {
+    if (!splitTreeEngine) return EMPTY_KEY_POS;
     const m = new Map<string, [number, number]>();
     gridRows.forEach((row, r) => row.itemKeys.forEach((k, c) => { if (!m.has(k)) m.set(k, [r, c]); }));
     return m;
-  }, [gridRows]);
+  }, [splitTreeEngine, gridRows]);
 
   // Shallow tree, 1:1 with gridRows (never drops/reorders rows or columns, so the
-  // tree path === gridRows index). Missing / duplicate / empty slots become inert
-  // `__skip:*` placeholder leaves (rendered null) — keeping indices stable without
-  // a React-key collision. Only built when the flag is on.
+  // tree path === gridRows index). Missing / duplicate slots become inert
+  // `__skip:*` placeholder leaves (rendered null) with weight 0 — they keep the
+  // index stable AND reserve no space, so a transient stale key leaves no blank
+  // gap (it self-heals on the next prune). Only built when the flag is on.
   const treeRoot = useMemo<LayoutNode | null>(() => {
     if (!splitTreeEngine) return null;
     const seen = new Set<string>();
@@ -1842,7 +1851,7 @@ export function PanelGrid({
             const live = itemMap.has(key) && !seen.has(key);
             if (live) seen.add(key);
             return {
-              weight: row.widths[ci] ?? 1 / row.itemKeys.length,
+              weight: live ? (row.widths[ci] ?? 1 / row.itemKeys.length) : 0,
               node: leaf(live ? key : `__skip:${ri}:${ci}`),
             };
           });
@@ -2011,13 +2020,16 @@ export function PanelGrid({
         </div>
       )}
 
-      {splitTreeEngine && treeRoot ? (
+      {splitTreeEngine && treeRoot && !isMobile ? (
+        // On a narrow/mobile viewport the legacy path stacks columns vertically
+        // and equalizes them; the tree path has no mobile mode, so fall back to
+        // legacy under 768px (matches isMobile in the legacy branch below).
         <SplitTree
           node={treeRoot}
           renderLeaf={renderTreeLeaf}
           onResize={handleTreeResize}
           onEqualize={handleTreeEqualize}
-          gutter={0}
+          gutter={1}
         />
       ) : gridRows.map((row, rowIdx) => (
         <Fragment key={rowIdx}>
