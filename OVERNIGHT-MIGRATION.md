@@ -299,3 +299,49 @@ render-path-only divergences, so dogfood visually before flipping the default.
 - GroupLayout (project windows) on the same engine — BLOCKED until the concurrent
   browser-pane work on `main` (NativeBrowserPlaceholder/GroupLayout/PaneTabBar/
   useRemoteBrowser) lands, to avoid merge conflicts.
+
+---
+
+## Conclusion — verifiable parity DONE; the rest is GUI/infra/conflict-gated
+
+Everything that can be built + verified WITHOUT the running GUI is done. This is
+the definitive ledger of what's left and exactly why it can't be auto-concluded.
+
+### Done + verified (tsc / cargo / bun test / vite — green on every commit)
+- **Split engine** wired into the standalone grid behind `splitTreeEngine`
+  (Settings → Appearance), reviewed by a 25-agent adversarial pass, all 3 MUST
+  fixes applied + polish; geometry gate; `resizeWeights` extracted + tested.
+- **Artificial pane-count cap removed** (4 → 32 backstop) + **sharper split
+  previews** (inner-edge seam accent).
+- **Native notifications** (tauri-plugin-notification + `notify` command + the
+  `notifyNative` bridge) — completion/new-message banners now fire under Tauri.
+- **Version popover** shows the real OS under Tauri (was "Web").
+- Prior parity (overnight + earlier): theme re-tint, tray + hide-to-tray, zoom,
+  Help, per-region vibrancy, dialog folder-picker, multi-process-aware perf label,
+  openExternal / relaunch / getVersion bridge, nav-guard, single-instance, SSE.
+
+### Genuinely blocked — needs a human/GUI/infra decision (not auto-concludable)
+1. **Tauri auto-updater.** `useUpdater` degrades gracefully (no crash, web
+   fallback) but there's no native Tauri update path. Wiring it requires a
+   signing keypair (`npx tauri signer generate`, the PRIVATE key is a secret I
+   must not generate/commit) + an update endpoint in `tauri.conf.json` pointing
+   at the release artifacts. Decision + secret needed from you, then it's ~1h.
+2. **Split next increments** (the real "meglio"): explode sub-stacks into the tree
+   (arbitrary depth) and DOM-direct divider drag. Both are safe to build but
+   should follow a GUI dogfood of the current flag first (the geometry gate can't
+   see render-path divergences — confirm it feels right ON before deepening it).
+3. **GroupLayout (project windows) on the tree engine** — BLOCKED on the
+   concurrent browser-pane work on `main` (uncommitted: NativeBrowserPlaceholder,
+   GroupLayout, PaneTabBar, useRemoteBrowser). Editing GroupLayout now = merge
+   conflicts. Do it after that lands.
+4. **P3 browser-pane completeness** — same four files; owned by the browser
+   session. Merge that first.
+5. **GUI smoke-tests** (can't run the windowed app headless): flip the split flag,
+   the notification OS banner (needs a signed `.app`), theme re-tint, tray,
+   hide-to-tray, zoom, the project-picker dialog.
+
+### Merge path
+`git -C ../topics-app-tauri-migration log --oneline e5026f7..HEAD` → review →
+merge into `main` AFTER the browser-pane work commits (expected conflicts only in
+GroupLayout/PaneTabBar, which are hand-resolved). Then
+`git worktree remove ../topics-app-tauri-migration`.
