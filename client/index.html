@@ -52,8 +52,19 @@
         // useFloatingVibrancy keys on to drive the Tauri vibrancy command; it has
         // no CSS rules of its own today.
         try {
+          // macOS, robustly: navigator.platform is deprecated and can be empty in
+          // a WKWebView — OR it with the userAgent (always contains "Mac OS X").
+          var __isMac = /Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || '');
+          // Tauri pre-paint, robustly: __TAURI_INTERNALS__ is injected at document-
+          // start but NOT guaranteed before this synchronous <head> script, so we
+          // ALSO key on the custom origin (tauri://localhost — the WKWebview's
+          // protocol/host), which IS available synchronously. Either signal is
+          // enough; this is the gate the whole vibrancy path hangs on.
+          var __isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__)
+            || location.protocol === 'tauri:'
+            || /(^|\.)tauri\.localhost$/i.test(location.hostname || '');
           var __isElectronMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin');
-          var __isTauriMac = !!(window.__TAURI_INTERNALS__ && /Mac/i.test(navigator.platform || ''));
+          var __isTauriMac = __isTauri && __isMac;
           if (__isElectronMac || __isTauriMac) {
             document.documentElement.classList.add('electron-mac');
             if (__isTauriMac) document.documentElement.classList.add('tauri-mac');
