@@ -34,6 +34,9 @@ tauri-plugin-dialog = "2"
 # Native OS notifications: the completion/idle toasts use the web Notification API,
 # which is unreliable in a WKWebView shell — route them through the plugin on Tauri.
 tauri-plugin-notification = "2"
+# Remember window size/position/maximized across launches (Electron persisted its
+# bounds; a bare Tauri window always reopens at the default size + centre).
+tauri-plugin-window-state = "2"
 # Single-instance lock: a second launch (launchd KeepAlive, double-click) must not
 # spawn a duplicate that fails to bind the proxy port — instead it focuses the
 # running window. Registered FIRST in the builder (plugin requirement).
