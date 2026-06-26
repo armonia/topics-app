@@ -594,6 +594,38 @@ pub fn run() {
                 }
             }
 
+            // System tray: keep the app reachable (Show / Quit) when its window is
+            // hidden. Electron ships a tray; without one a hidden Tauri window leaves
+            // the user no way back in or out. Unread / Claude-phase status wiring
+            // stays in the client WS layer (a later step) — this is the baseline.
+            {
+                use tauri::menu::{MenuBuilder, MenuItem};
+                use tauri::tray::TrayIconBuilder;
+                use tauri::Manager;
+                let handle = app.handle();
+                let show = MenuItem::with_id(handle, "tray-show", "Mostra Topics", true, None::<&str>)?;
+                let quit = MenuItem::with_id(handle, "tray-quit", "Esci", true, None::<&str>)?;
+                let tray_menu = MenuBuilder::new(handle).items(&[&show, &quit]).build()?;
+                let mut builder = TrayIconBuilder::new()
+                    .tooltip("Topics")
+                    .menu(&tray_menu)
+                    .on_menu_event(|app, event| match event.id().0.as_str() {
+                        "tray-show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "tray-quit" => app.exit(0),
+                        _ => {}
+                    });
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+                let _ = builder.build(app.handle())?;
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
