@@ -252,3 +252,50 @@ theme light/dark re-tint of the chrome, the tray (icon + Show/Quit), hide-to-tra
   `transitionend`.
 - (loop start) worktree created, backlog set. Vibrancy frost CONFIRMED working
   (the `zPosition=-1` removal fixed it). Sidebar-collapse seam bug is task #1.
+
+---
+
+## Day 2 — split engine wired into the real grid + reviewed (autonomous)
+
+The P2 split engine is now WIRED into the standalone PanelGrid behind the
+`splitTreeEngine` flag (Settings → Appearance, Experimental, default OFF), and
+hardened against a 5-dimension adversarial multi-agent review.
+
+**What shipped (branch `feat/tauri-migration-overnight`):**
+- `0166b8a` golden-geometry gate: an independent legacy-flex reference proves
+  `computeRects(gridRowsToTree/groupRowsToTree(...))` reproduces the legacy pixels
+  (16 cases incl. cellStacks, gutter, length-mismatch fallback).
+- `a595158` the `splitTreeEngine` AppSettings flag + Settings toggle.
+- `de6ceb8` `<SplitTree>` wired into PanelGrid behind the flag. Shallow tree 1:1
+  with gridRows; every gesture reuses the existing handlers (drop/split/move via
+  the same drag-capture wrapper, sub-stacks via `<CellSubStack>`, resize/equalize
+  mapped back onto `widths`/`rowHeights` preserving cellStacks). `renderDivider` +
+  `onEqualize` added to SplitTree.
+- `e0e5dde` review hardening — the 3 MUST fixes: (1) `keyFor` keys splits by INDEX
+  only (closing a row's first column no longer remounts siblings → no PTY reset /
+  browser reload / lost draft); (2) `<Divider>` balances `pane-resize-start/-end`
+  on unmount-mid-drag (+ `onLostPointerCapture`) so a concurrent close can't strand
+  native browser panes hidden; (3) tree path falls back to legacy under 768px
+  (isMobile). Plus polish: rAF-coalesced resize + 3px drag-slop, MIN_PANE_FRACTION
+  floor (was 0.05), keyPos flag-gated, `__skip` placeholder weight 0, gutter=1.
+- `2582ce0` removed the artificial pane-count cap (MAX_COLS/ROWS/STACK 4 → 32, a
+  pure runaway backstop) + sharper split-region preview (restored the inner-edge
+  seam accent the dropRegionStyle had drifted away from).
+- `9c4d382` + `9f55b58` test upkeep: stack-fullness tests track MAX_STACK_DEPTH;
+  `resizeWeights` extracted to splitController with 8 tests.
+
+**Review verdict:** flag-OFF is regression-free (high confidence); flag-ON is safe
+to dogfood after the 3 MUST fixes (all applied). Caveat the review surfaced and is
+worth remembering: the golden-geometry gate exercises the PURE engine, NOT this
+shallow-tree render path (treeRoot is hand-built in PanelGrid) — it can't catch
+render-path-only divergences, so dogfood visually before flipping the default.
+
+**Next increments (deferred, GUI-gated / conflict-gated):**
+- Explode sub-stacks into the tree (arbitrary depth, the real "meglio") — currently
+  sub-stacks stay as `<CellSubStack>` inside a column leaf.
+- DOM-direct divider drag (zero re-render, like legacy useGridResize) before the
+  flag becomes default — today it's rAF-coalesced React commits.
+- Insert-between-divider drops in tree mode (cell-edge drop covers the intent today).
+- GroupLayout (project windows) on the same engine — BLOCKED until the concurrent
+  browser-pane work on `main` (NativeBrowserPlaceholder/GroupLayout/PaneTabBar/
+  useRemoteBrowser) lands, to avoid merge conflicts.
