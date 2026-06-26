@@ -170,6 +170,21 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     document.addEventListener('dragstart', freeze, true);
     document.addEventListener('dragend', unfreeze, true);
     document.addEventListener('drop', unfreeze, true);
+
+    // Sidebar collapse/expand animates `width` over 200ms (.sidebar-transition).
+    // The debounced push lags the moving layout, so the frost trails the sidebar
+    // and a stale grey edge lingers next to it ("non segue i bg / si disallinea /
+    // doppio bordo"). Track it LIVE for the animation's duration — exactly like a
+    // divider drag — then settle on transitionend. Scoped to the sidebar's width
+    // transition so unrelated CSS transitions don't spin the rAF loop.
+    const isSidebarWidth = (e: TransitionEvent) =>
+      e.propertyName === 'width' && e.target instanceof Element && e.target === sidebarEl();
+    const onSidebarTransitionRun = (e: TransitionEvent) => { if (isSidebarWidth(e)) startLive(); };
+    const onSidebarTransitionEnd = (e: TransitionEvent) => { if (isSidebarWidth(e)) stopLive(); };
+    document.addEventListener('transitionrun', onSidebarTransitionRun, true);
+    document.addEventListener('transitionend', onSidebarTransitionEnd, true);
+    document.addEventListener('transitioncancel', onSidebarTransitionEnd, true);
+
     // Safety net for layout changes no observer caught (e.g. native-pane reflow).
     const poll = window.setInterval(schedule, 700);
 
@@ -188,6 +203,9 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       document.removeEventListener('dragstart', freeze, true);
       document.removeEventListener('dragend', unfreeze, true);
       document.removeEventListener('drop', unfreeze, true);
+      document.removeEventListener('transitionrun', onSidebarTransitionRun, true);
+      document.removeEventListener('transitionend', onSidebarTransitionEnd, true);
+      document.removeEventListener('transitioncancel', onSidebarTransitionEnd, true);
       window.clearInterval(poll);
       if (settle) clearTimeout(settle);
       cancelAnimationFrame(liveRaf);
