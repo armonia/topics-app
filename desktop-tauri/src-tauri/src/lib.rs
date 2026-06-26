@@ -565,8 +565,11 @@ pub fn run() {
                 .minimize()
                 .maximize()
                 .build()?;
+            let help_github =
+                MenuItem::with_id(handle, "help-github", "Topics on GitHub", true, None::<&str>)?;
+            let help_menu = SubmenuBuilder::new(handle, "Help").item(&help_github).build()?;
             MenuBuilder::new(handle)
-                .items(&[&app_menu, &edit_menu, &view_menu, &window_menu])
+                .items(&[&app_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
                 .build()
         })
         .on_menu_event(|app, event| {
@@ -592,6 +595,12 @@ pub fn run() {
                     if let Some(win) = app.get_webview_window("main") {
                         let _ = win.set_zoom(next as f64 / 100.0);
                     }
+                }
+                "help-github" => {
+                    use tauri_plugin_opener::OpenerExt;
+                    let _ = app
+                        .opener()
+                        .open_url("https://github.com/armonia/topics-app", None::<&str>);
                 }
                 _ => {}
             }
