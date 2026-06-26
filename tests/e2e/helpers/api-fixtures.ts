@@ -306,6 +306,17 @@ export async function deleteTerminalSession(
   }).catch(() => {});
 }
 
+export async function reloadTerminalSession(
+  request: APIRequestContext,
+  sessionId: string
+): Promise<{ status: number; body: any }> {
+  const res = await request.post(`${BASE}/api/terminal/sessions/${sessionId}/reload`, {
+    ignoreHTTPSErrors: true,
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status(), body };
+}
+
 export async function listTerminalSessions(
   request: APIRequestContext,
   topicId?: string
