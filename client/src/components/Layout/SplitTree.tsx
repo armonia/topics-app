@@ -19,7 +19,7 @@
  * ADDITIVE / behind the P2 flag — not wired into any surface yet. Integration
  * (swapping PanelGrid/GroupLayout to render via this) is the user-verified step.
  */
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
 
 export interface SplitTreeProps {
@@ -33,11 +33,22 @@ export interface SplitTreeProps {
    *  `deltaPx` along the split axis, within a band of `bandPx` total px. The host
    *  maps this onto `resizeAt` via `pxToWeightDelta(bandPx, deltaPx)`. */
   onResize?: (path: number[], dividerIdx: number, deltaPx: number, bandPx: number) => void;
+  /** Double-click the divider after child `dividerIdx` → even out the band at
+   *  `path` (host maps to `equalizeAt`). Double-click-a-divider semantics. */
+  onEqualize?: (path: number[], dividerIdx: number) => void;
+  /** Optional: render the divider strip between siblings yourself instead of the
+   *  built-in <Divider>. Lets a host inject a richer handle (e.g. the legacy
+   *  Column/RowInsertDivider that also does double-click-equalize and accepts
+   *  drag-drop insert-between) while SplitTree still owns the flex structure.
+   *  Receives the split's `path`, the index of the gap (`dividerIdx`, i.e. the
+   *  divider sits AFTER child `dividerIdx`), and the split axis `dir`. Return
+   *  `null` to fall back to the built-in divider for that gap. */
+  renderDivider?: (info: { path: number[]; dividerIdx: number; dir: SplitDir }) => React.ReactNode;
   /** Internal: child-index path from the root (don't pass at the top level). */
   path?: number[];
 }
 
-export function SplitTree({ node, renderLeaf, gutter = 0, onResize, path = [] }: SplitTreeProps): React.ReactElement {
+export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, renderDivider, path = [] }: SplitTreeProps): React.ReactElement {
   if (isLeaf(node)) {
     return (
       <div data-split-leaf={node.id} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
@@ -58,26 +69,34 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, path = [] }:
         minHeight: 0,
       }}
     >
-      {node.children.map((child, i) => (
-        <React.Fragment key={keyFor(child.node, i)}>
-          {i > 0 && (
-            <Divider
-              dir={node.dir}
-              gutter={gutter}
-              onResize={(deltaPx, bandPx) => onResize?.(path, i - 1, deltaPx, bandPx)}
-            />
-          )}
-          <div style={{ flex: `${child.weight} 1 0%`, minWidth: 0, minHeight: 0, position: 'relative' }}>
-            <SplitTree
-              node={child.node}
-              renderLeaf={renderLeaf}
-              gutter={gutter}
-              onResize={onResize}
-              path={[...path, i]}
-            />
-          </div>
-        </React.Fragment>
-      ))}
+      {node.children.map((child, i) => {
+        // A host-supplied divider takes precedence; it returns null to defer to
+        // the built-in one. The host gets (path, dividerIdx=i-1, dir) so it can
+        // map the gap back to its own model (e.g. legacy rowIdx/colIdx).
+        const custom = i > 0 && renderDivider ? renderDivider({ path, dividerIdx: i - 1, dir: node.dir }) : null;
+        return (
+          <React.Fragment key={keyFor(child.node, i)}>
+            {i > 0 && (custom ?? (
+              <Divider
+                dir={node.dir}
+                gutter={gutter}
+                onResize={(deltaPx, bandPx) => onResize?.(path, i - 1, deltaPx, bandPx)}
+                onEqualize={onEqualize ? () => onEqualize(path, i - 1) : undefined}
+              />
+            ))}
+            <div style={{ flex: `${child.weight} 1 0%`, minWidth: 0, minHeight: 0, position: 'relative' }}>
+              <SplitTree
+                node={child.node}
+                renderLeaf={renderLeaf}
+                gutter={gutter}
+                onResize={onResize}
+                renderDivider={renderDivider}
+                path={[...path, i]}
+              />
+            </div>
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -95,15 +114,18 @@ interface DividerProps {
   dir: SplitDir;
   gutter: number;
   onResize: (deltaPx: number, bandPx: number) => void;
+  /** Double-click → even out the band (1/n). */
+  onEqualize?: () => void;
 }
 
 /** The resize handle between two siblings. A `row` split (children side-by-side)
  *  gets a VERTICAL divider dragged along X; a `col` split a horizontal one along
  *  Y. Reports an incremental pixel delta per move. */
-function Divider({ dir, gutter, onResize }: DividerProps): React.ReactElement {
+function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
   const lastRef = useRef<number | null>(null);
   const bandRef = useRef<number>(0);
+  const [hover, setHover] = useState(false);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault();
@@ -139,6 +161,8 @@ function Divider({ dir, gutter, onResize }: DividerProps): React.ReactElement {
   // The visible strip is `gutter` wide; an absolutely-positioned wider band
   // (±5px past the gutter on the drag axis) makes a thin gutter easy to grab,
   // without consuming layout space. z-50 keeps it above adjacent pane content.
+  // A 1px hairline (brighter on hover) gives the otherwise-invisible grab strip
+  // a visible seam, matching the legacy dividers.
   return (
     <div
       role="separator"
@@ -148,6 +172,9 @@ function Divider({ dir, gutter, onResize }: DividerProps): React.ReactElement {
       onPointerMove={onPointerMove}
       onPointerUp={end}
       onPointerCancel={end}
+      onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
       style={{
         flex: `0 0 ${gutter}px`,
         position: 'relative',
@@ -156,12 +183,25 @@ function Divider({ dir, gutter, onResize }: DividerProps): React.ReactElement {
         touchAction: 'none',
       }}
     >
+      {/* widened invisible grab band (no layout cost) */}
       <div
         style={{
           position: 'absolute',
           ...(horizontal
             ? { top: 0, bottom: 0, left: -5, right: -5 }
             : { left: 0, right: 0, top: -5, bottom: -5 }),
+        }}
+      />
+      {/* visible 1px hairline, centered on the gutter */}
+      <div
+        style={{
+          position: 'absolute',
+          background: 'var(--border, rgba(128,128,128,0.25))',
+          transition: 'background 120ms, box-shadow 120ms',
+          ...(horizontal
+            ? { top: 0, bottom: 0, left: '50%', width: 1, transform: 'translateX(-0.5px)' }
+            : { left: 0, right: 0, top: '50%', height: 1, transform: 'translateY(-0.5px)' }),
+          ...(hover ? { background: 'var(--primary)', boxShadow: '0 0 0 0.5px var(--primary)' } : {}),
         }}
       />
     </div>
