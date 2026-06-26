@@ -43,6 +43,10 @@ interface TerminalSession {
 
 const sessions = new Map<string, TerminalSession>();
 const sessionSockets = new Map<string, Set<any>>();
+// Ids with an in-flight POST /reload, to reject a concurrent second reload of the
+// same session (double right-click → "Ricarica", two clients) that would race the
+// kill→recreate sequence.
+const reloadingSessionIds = new Set<string>();
 
 /**
  * Look up a live terminal session by its id. Used by the browser open-pane
@@ -1451,6 +1455,75 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         });
       } catch (err: any) {
         return errorResponse(500, `Failed to revive session: ${err.message}`);
+      }
+    }
+
+    // Restart a LIVE (or dormant) session in place, preserving its id. For
+    // claude-code/codex with a claude_session_id this relaunches with --resume
+    // (conversation preserved); for shell it starts a fresh PTY in the same cwd.
+    // Used by the tab right-click "Ricarica" to unstick a wedged session (e.g. a
+    // claude CLI latched on "Not logged in" after a transient proxy auth gap)
+    // without CLI surgery or restarting the app.
+    const reloadMatch = matchRoute(pathname, "/api/terminal/sessions/:id/reload");
+    if (method === "POST" && reloadMatch) {
+      const id = reloadMatch.id;
+      // Serialize: a concurrent reload of the same id would race the kill→recreate.
+      if (reloadingSessionIds.has(id)) {
+        return errorResponse(409, "Reload already in progress for this session");
+      }
+      reloadingSessionIds.add(id);
+      try {
+        const db = getDatabase();
+        const live = sessions.get(id);
+        const dbRow = db.query("SELECT * FROM terminal_sessions WHERE id = ?").get(id) as any;
+        if (!live && !dbRow) return errorResponse(404, "Terminal session not found");
+        // Capture the recreation snapshot BEFORE the kill — the exit handler may
+        // DELETE the row (shell) or mark it dormant (claude), so we must not rely
+        // on the DB row surviving the kill.
+        const snap = {
+          id,
+          name: live?.name ?? dbRow?.name ?? "Terminal",
+          cwd: live?.cwd ?? dbRow?.cwd ?? process.cwd(),
+          cols: live?.cols ?? dbRow?.cols ?? 120,
+          rows: live?.rows ?? dbRow?.rows ?? 30,
+          topicId: (live?.topicId ?? dbRow?.topic_id ?? undefined) as string | undefined,
+          type: (live?.type ?? dbRow?.type ?? 'shell') as 'shell' | 'claude-code' | 'claude-code-team' | 'codex',
+          skipPermissions: live ? live.skipPermissions : (dbRow?.skip_permissions !== 0),
+          claudeSessionId: (live?.claudeSessionId ?? dbRow?.claude_session_id ?? undefined) as string | undefined,
+          parentSessionKey: (live?.parentSessionKey ?? dbRow?.parent_session_key ?? undefined) as string | undefined,
+        };
+        // Kill the live PTY and wait for it to ACTUALLY exit before recreating.
+        // We must not recreate while the old PTY may still die later: the bridge
+        // 'exit' event is keyed by id only (no pid/generation), so a late exit of
+        // the old PTY would tear down the freshly recreated session (close its
+        // sockets + delete its row). So: recreate ONLY once the old PTY is gone;
+        // if it refuses to die in time, bail with 503 rather than risk that race.
+        if (sessions.has(id)) {
+          sendToBridge({ type: "kill", id });
+          for (let i = 0; i < 24 && sessions.has(id); i++) {
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          if (sessions.has(id)) {
+            return errorResponse(503, "Session did not stop in time — please retry");
+          }
+        }
+        await ensureBridge();
+        // command=undefined (like the revive endpoint): a shell re-resolves to
+        // `$SHELL -l`; claude/codex build their command from `type` + claudeSessionId
+        // (--resume). Forwarding the stored, already-resolved shell path would drop
+        // the login-shell (-l) flag.
+        const session = await createSession(
+          snap.id, snap.name, snap.cwd, undefined,
+          snap.cols, snap.rows, snap.topicId, snap.type,
+          snap.skipPermissions, snap.claudeSessionId, snap.parentSessionKey,
+        );
+        try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [snap.id]); } catch {}
+        broadcastTerminalSessions();
+        return json({ id: session.id, type: session.type, claudeSessionId: session.claudeSessionId || null });
+      } catch (err: any) {
+        return errorResponse(500, `Failed to reload session: ${err.message}`);
+      } finally {
+        reloadingSessionIds.delete(id);
       }
     }
 
