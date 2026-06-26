@@ -32,14 +32,25 @@ type VibrancyApi = {
 };
 
 /** Resolve the host's per-region vibrancy driver, or null where there's none
- *  (web, non-mac). Tauri is gated on the `.tauri-mac` html class (set in
- *  index.html) so we don't fire no-op IPC on Windows/Linux. */
+ *  (web, non-mac). Under Tauri we detect macOS DIRECTLY (isTauri + userAgent)
+ *  rather than trusting the `.tauri-mac` html class — that class is set by the
+ *  pre-paint inline script, whose Tauri detection can miss (internals not yet
+ *  injected at <head> time), and a missed class silently kills the whole frost.
+ *  Detecting here makes the hook self-sufficient and re-asserts the transparency
+ *  classes the CSS needs so the native frost behind the (clear) webview shows. */
 function resolveVibrancy(): VibrancyApi | null {
   if (isElectron) {
     const api = (window as unknown as { electronAPI?: { vibrancy?: VibrancyApi } }).electronAPI?.vibrancy;
     return api ?? null;
   }
-  if (isTauri && typeof document !== 'undefined' && document.documentElement.classList.contains('tauri-mac')) {
+  const isMac = typeof navigator !== 'undefined'
+    && (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
+  if (isTauri && isMac) {
+    if (typeof document !== 'undefined') {
+      // Idempotent safety net: the page bg is opaque without `.electron-mac`, which
+      // would hide the frost even when we DO place the NSVisualEffectViews.
+      document.documentElement.classList.add('electron-mac', 'tauri-mac');
+    }
     return {
       setRegions: (rects) => {
         void tauriInvoke('vibrancy_set_regions', {
@@ -162,7 +173,12 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // Safety net for layout changes no observer caught (e.g. native-pane reflow).
     const poll = window.setInterval(schedule, 700);
 
-    schedule();
+    // Paint the FIRST frame synchronously rather than through the debounce timer.
+    // A deferred setTimeout can be suspended while the webview is occluded (WebKit
+    // throttles background timers), which would leave the chrome unfrosted until
+    // the next layout signal — the "vibrancy missing at launch" bug. A synchronous
+    // push lands the initial regions immediately; schedule() then coalesces updates.
+    push();
 
     return () => {
       ro.disconnect();
