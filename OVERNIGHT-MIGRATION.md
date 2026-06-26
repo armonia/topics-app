@@ -73,6 +73,11 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 engine edge-case tests DONE** (layoutTree now 39 tests; layout suite 60
+  total, green). Added: resizeAt + equalizeAt by NESTED path (inner band only,
+  outer untouched), moveLeaf out of a 2-child split (collapses it, re-inserts), and
+  normalize flattening a 3-level same-axis nest in one pass. Hardens the engine the
+  P2 integration relies on. File: client/src/state/layout/layoutTree.test.ts.
 - **P6 Help submenu DONE** (cargo build green). Added a Help menu with "Topics on
   GitHub" → opens the repo via the opener plugin. Small menu-parity win. File:
   desktop-tauri/src-tauri/src/lib.rs.

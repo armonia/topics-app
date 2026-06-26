@@ -285,3 +285,53 @@ describe('round-trip invariants', () => {
     expect(w[0] + w[1]).toBeCloseTo(1, 6);
   });
 });
+
+describe('nested-path edge cases', () => {
+  // row[ a , col[b,c] ] — resize/equalize the INNER col at path [1]
+  const nested = () => split('row', [leaf('a'), split('col', [leaf('b'), leaf('c')])], [0.5, 0.5]);
+
+  test('resizeAt drives a nested split by path', () => {
+    const r = resizeAt(nested(), [1], 0, 0.2); // shift the inner b/c divider
+    const inner = asSplit(asSplit(r).children[1].node);
+    expect(inner.dir).toBe('col');
+    expect(inner.children[0].weight).toBeCloseTo(0.7, 6);
+    expect(inner.children[1].weight).toBeCloseTo(0.3, 6);
+    // outer band untouched
+    expect(weights(r)).toEqual([0.5, 0.5]);
+  });
+
+  test('equalizeAt evens a nested band by path', () => {
+    const t = split('row', [leaf('a'), split('col', [leaf('b'), leaf('c'), leaf('d')], [0.7, 0.2, 0.1])]);
+    const r = equalizeAt(t, [1]);
+    expect(weights(asSplit(r).children[1].node)).toEqual([1 / 3, 1 / 3, 1 / 3]);
+  });
+
+  test('moveLeaf out of a 2-child split collapses that split, then re-inserts', () => {
+    // row[ a, col[b,c] ] → move b to the right of a → b leaves col (col collapses to c)
+    const r = moveLeaf(nested(), 'b', 'a', 'right');
+    expect(leafIds(r)).toEqual(['a', 'b', 'c']);
+    // the inner col is gone (only c remained → collapsed to a leaf sibling)
+    expect(asSplit(r).children.every((ch) => isLeaf(ch.node))).toBe(true);
+  });
+
+  test('normalize flattens a multi-level same-axis nest in one pass', () => {
+    // row[ row[ row[a,b] , c ] , d ] → row[a,b,c,d]
+    const messy = {
+      kind: 'split' as const,
+      dir: 'row' as const,
+      children: [
+        {
+          weight: 0.5,
+          node: split('row', [split('row', [leaf('a'), leaf('b')]), leaf('c')]),
+        },
+        { weight: 0.5, node: leaf('d') },
+      ],
+    };
+    const r = normalize(messy);
+    expect(isSplit(r)).toBe(true);
+    expect(asSplit(r).dir).toBe('row');
+    expect(asSplit(r).children.every((ch) => isLeaf(ch.node))).toBe(true);
+    expect(leafIds(r)).toEqual(['a', 'b', 'c', 'd']);
+    expect(weights(r).reduce((s, x) => s + x, 0)).toBeCloseTo(1, 6);
+  });
+});
