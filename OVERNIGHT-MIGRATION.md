@@ -73,6 +73,12 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 controller geometry helpers DONE** (10 tests green). `splitController.ts`:
+  `dropZone(rect, px, py, edgeFrac)` → 5-zone (left/right/top/bottom/center, corners
+  resolve to the closest edge, out-of-bounds clamps) for tab-drag-to-edge drop-split,
+  and `pxToWeightDelta(bandPx, deltaPx)` to turn a divider pixel-drag into a
+  `resizeAt` weight delta. Pure/additive — the React hook that owns drag STATE will
+  consume these at integration. Files: client/src/state/layout/splitController.ts (+test).
 - **P2 reverse adapters + round-trip DONE** (11 tests green). `treeToGridRows` /
   `treeToGroupRows` decompose a tree back to the legacy row/col/sub-stack shape
   (lossless for any legacy-originated tree; a deeper-than-legacy tree flattens
