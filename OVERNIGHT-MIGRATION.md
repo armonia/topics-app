@@ -73,6 +73,12 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P5 system tray (baseline) DONE** (cargo build green). Added the `tray-icon` +
+  `image-png` Tauri features and a tray with Show/Quit in setup() — a hidden window
+  is now reachable again (Electron had a tray; Tauri had none). Uses the bundle's
+  default icon. Unread / Claude-phase status + dock badge wiring (client WS layer)
+  is a later step. File: desktop-tauri/src-tauri/src/lib.rs. Needs runtime check
+  (tray appears in the menu bar; Show/Quit work).
 - **P5 Tauri release pipeline DONE** (YAML validates, injection-safe). New
   `.github/workflows/tauri-release.yml` (tauri-action, universal-apple-darwin +
   win + linux, draft release + updater manifest) on a SEPARATE `tauri-v*` tag so
