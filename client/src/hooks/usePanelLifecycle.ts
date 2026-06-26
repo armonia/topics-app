@@ -65,6 +65,7 @@ import {
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
+import { notifyNative } from '../lib/shell/app';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
@@ -667,13 +668,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         msg.topicId !== focusedPanelIdRef.current &&
         document.visibilityState === 'hidden'
       ) {
-        if ('Notification' in window && Notification.permission === 'granted') {
+        {
           const topic = topicsRef.current[msg.topicId];
           if (topic) {
-            new Notification(topic.name, {
-              body: msg.preview || 'New message',
-              tag: `topic-${msg.topicId}`,
-            });
+            // Shell bridge: web Notification on Electron/web, native `notify`
+            // command on Tauri (WKWebView's web Notification API is unreliable).
+            notifyNative(topic.name, msg.preview || 'New message', { tag: `topic-${msg.topicId}` });
           }
         }
       }

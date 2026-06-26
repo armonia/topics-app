@@ -216,6 +216,17 @@ fn set_theme(window: tauri::WebviewWindow, theme: String) {
     let _ = (window, theme);
 }
 
+/// Fire a native OS notification (completion / idle toasts). The renderer's web
+/// `Notification` API is unreliable in a WKWebView shell, so the client routes
+/// through here under Tauri. Permission is requested by the plugin on first use
+/// (macOS shows the system prompt); a denied/failed show is a silent no-op — same
+/// observable contract as the web API, never an error the caller has to handle.
+#[tauri::command]
+fn notify(app: tauri::AppHandle, title: String, body: String) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
 // ─────────────────────── Per-region vibrancy (macOS) ───────────────────────
 //
 // Tauri's `windowEffects` is whole-window — one NSVisualEffectView covers
@@ -511,6 +522,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         // Native menu — a WKWebView shell with NO app menu also has no working
         // Cmd+C/V/X/A/Z and no Reload. Build the standard macOS menus plus an
         // explicit View ▸ Reload (Cmd+R / Cmd+Shift+R), matching the Electron app.
@@ -694,6 +706,7 @@ pub fn run() {
             perf_metrics,
             set_traffic_lights,
             set_theme,
+            notify,
             vibrancy_set_regions,
             browser_open,
             browser_navigate,
