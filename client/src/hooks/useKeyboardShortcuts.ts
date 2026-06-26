@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
-import { isDesktop } from '../lib/shell';
+import { isDesktop, isTauri } from '../lib/shell';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, type ClosedTabRecord } from '../state/pane/adapters';
@@ -252,6 +252,18 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         if (isElectron && (e.key === 't' || e.key === 'T')) return;
         const last = closedTabsRef.current[0];
         if (last) handleReopenClosedTab(last);
+        return;
+      }
+
+      // Tauri only: ⌘R / ⌘⇧R reload the app. The native View ▸ Reload menu item
+      // exists (lib.rs) but its key equivalent is swallowed by the focused
+      // WKWebView before the menu sees it, so the accelerator never fires — we
+      // intercept it here in the renderer (which DOES receive the keydown) and
+      // reload directly. Electron's native menu reload works, and the web build
+      // wants the browser's own reload, so this is gated to Tauri.
+      if (isTauri && isMod && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        window.location.reload();
         return;
       }
 
