@@ -24,7 +24,7 @@ log = "0.4"
 # `unstable` unlocks multi-webview (Window::add_child) — the native browser pane:
 # a real child WKWebView positioned over the React layout slot, like Electron's
 # WebContentsView (vs the laggy WS screencast). See src/lib.rs browser_* commands.
-tauri = { version = "2.11.3", features = ["macos-private-api", "unstable"] }
+tauri = { version = "2.11.3", features = ["macos-private-api", "unstable", "tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
