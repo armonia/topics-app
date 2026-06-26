@@ -73,6 +73,16 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 useSplitController hook DONE** (esbuild verified; 56 layout tests green
+  together). New client/src/hooks/useSplitController.ts owns the live LayoutNode and
+  maps gestures to pure ops: divider drag → pxToWeightDelta+resizeAt, tab drop →
+  dropZone (edge→moveLeaf / center→host tab-into), split/close/move/equalize/
+  equalizeAll. Also extended <SplitTree>'s Divider to report the band px size
+  (measures its flex-container parent) so the px→weight conversion is correct at any
+  depth. The P2 COMPONENT LAYER is now complete & wired together (engine → adapters
+  → controller helpers → <SplitTree> → useSplitController), all behind the flag /
+  additive; only the renderer-swap INTEGRATION + a tsc pass remain (user, tomorrow,
+  in main). Files: client/src/hooks/useSplitController.ts, components/Layout/SplitTree.tsx.
 - **P2 <SplitTree> renderer + <Divider> DONE** (esbuild/vite verified). New
   client/src/components/Layout/SplitTree.tsx: one recursive renderer drawing a
   LayoutNode as nested flex with the `flex: <weight> 1 0%` invariant (replaces
