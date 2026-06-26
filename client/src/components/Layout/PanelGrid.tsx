@@ -19,31 +19,12 @@ import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weighted
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { SplitTree } from './SplitTree';
-import { leaf, normalizeWeights, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
-import { pxToWeightDelta } from '../../state/layout/splitController';
+import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
+import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 
 /** Stable empty identity so the keyPos memo can short-circuit with the flag off
  *  without churning a fresh Map every render. */
 const EMPTY_KEY_POS: ReadonlyMap<string, [number, number]> = new Map();
-
-/**
- * Two-child divider resize on a flat weight array (the split-tree engine's
- * `resizeAt` reduced to one band). Shifts `delta` (a fraction of the band) from
- * child `idx+1` to `idx`, clamped to MIN_PANE_FRACTION (the SAME floor the legacy
- * useGridResize uses, so the smallest pane matches), others untouched. Used by
- * the splitTreeEngine render path to map a <SplitTree> divider drag back onto the
- * legacy `widths` / `rowHeights` arrays so persistence + sub-stacks are preserved
- * (treeToGridRows can't be used here — the shallow tree carries no cellStacks).
- */
-function resizeWeights(weights: number[], idx: number, delta: number): number[] {
-  if (idx < 0 || idx + 1 >= weights.length) return weights;
-  const norm = normalizeWeights(weights);
-  const sum = norm[idx] + norm[idx + 1];
-  const floor = Math.min(MIN_PANE_FRACTION, sum / 2); // never invert when the band is already tiny
-  const na = Math.min(Math.max(norm[idx] + delta, floor), sum - floor);
-  const nb = sum - na;
-  return norm.map((w, i) => (i === idx ? na : i === idx + 1 ? nb : w));
-}
 
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
@@ -1870,10 +1851,10 @@ export function PanelGrid({
     const wd = pxToWeightDelta(bandPx, deltaPx);
     if (wd === 0) return;
     if (path.length === 0) {
-      setGridRowHeights(prev => resizeWeights(prev, dividerIdx, wd));
+      setGridRowHeights(prev => resizeWeights(prev, dividerIdx, wd, MIN_PANE_FRACTION));
     } else if (path.length === 1) {
       const rowIdx = path[0];
-      setGridRows(prev => prev.map((r, i) => (i === rowIdx ? { ...r, widths: resizeWeights(r.widths, dividerIdx, wd) } : r)));
+      setGridRows(prev => prev.map((r, i) => (i === rowIdx ? { ...r, widths: resizeWeights(r.widths, dividerIdx, wd, MIN_PANE_FRACTION) } : r)));
     }
   }, [setGridRowHeights, setGridRows]);
 
