@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
 import { signalsActions, useSignalsStore, projectHasAwaitingChild } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
@@ -263,6 +263,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   }, []);
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
+    console.debug('[dnd-debug] tab dragstart', paneId, 'group', groupId);
     setDraggedPaneId(paneId);
     e.dataTransfer.setData(DND_TYPES.PANE_TAB, paneId);
     if (groupId) {
@@ -364,12 +365,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     // Read the insert position from the ref (state may lag a frame behind the
     // final dragover, which silently dropped the tab nowhere before).
     const overIdx = dragOverIdxRef.current;
-    if (!sourcePaneId || overIdx === null) { resetDrag(); return; }
+    console.debug('[dnd-debug] tabbar DROP on group', groupId, 'source', sourcePaneId, 'overIdx', overIdx);
+    if (!sourcePaneId || overIdx === null) { console.debug('[dnd-debug] DROP rejected: no source/overIdx'); resetDrag(); return; }
 
     // Scope guard: reject a tab dragged in from another window/project. Belt to
     // the dragover suspenders — getData is only readable here, on drop.
     const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) { resetDrag(); return; }
+    if (dndScope && sourceScope && sourceScope !== dndScope) { console.debug('[dnd-debug] DROP rejected: scope mismatch src', sourceScope, 'this', dndScope); resetDrag(); return; }
 
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     const isCrossGroup = sourceGroupId && groupId && sourceGroupId !== groupId;
@@ -643,6 +645,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}
+            data-testid={`pane-tab-${pane.id}`}
             onTouchStart={(e) => handleLongPressStart(pane.id, e.currentTarget)}
             onTouchEnd={handleLongPressCancel}
             onTouchMove={handleLongPressCancel}
@@ -810,6 +813,25 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           className={`fixed ${POPOVER_SURFACE} z-[9999] min-w-[150px]`}
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
         >
+          {/* "Ricarica" — terminal panes only (pane id `terminal:<sessionId>`).
+              Restarts the session in place via POST /reload: claude/codex resume
+              via --resume (conversation preserved, same tab id), shell gets a fresh
+              PTY in the same cwd. Unsticks a wedged session (e.g. a claude CLI
+              latched on "Not logged in") without CLI surgery or an app restart. */}
+          {isTerminalPaneId(ctxMenu.paneId) && (
+            <button
+              onClick={() => {
+                const sid = getTerminalSessionFromPaneId(ctxMenu.paneId);
+                if (sid) void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}/reload`, { method: 'POST' }).catch(() => {});
+                setCtxMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              title="Riavvia la sessione (Claude/codex riprendono via --resume)"
+            >
+              <RotateCw size={14} />
+              <span className="flex-1 text-left">Ricarica</span>
+            </button>
+          )}
           {/* Right-click "Close" is the explicit-confirmation path — bypass
               the PendingAction countdown that gates the default X button.
               Falls back to onClose for legacy callers that don't pass
