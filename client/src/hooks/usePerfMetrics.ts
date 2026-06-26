@@ -23,6 +23,40 @@ export interface PerfMetrics {
  * call walks every Chromium process via `app.getAppMetrics()` — and fires once
  * immediately when the window becomes visible again.
  */
+/**
+ * Probe GPU hardware-acceleration from the renderer itself via WebGL — host-neutral
+ * (Tauri's WKWebView exposes no `getGPUFeatureStatus` like Electron's main process).
+ * A live WebGL context whose UNMASKED_RENDERER is a real GPU (not a software
+ * rasteriser) means compositing is hardware-accelerated. Cached: acceleration can't
+ * change at runtime. macOS WKWebView composites via Core Animation/Metal → reports
+ * `true` there, fixing the false "Accelerazione hardware OFF" the hard-coded value
+ * showed under Tauri.
+ */
+let gpuProbe: PerfMetrics['gpu'] | null = null;
+function probeGpuAcceleration(): PerfMetrics['gpu'] {
+  if (gpuProbe) return gpuProbe;
+  let renderer = '';
+  let accelerated = false;
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = (canvas.getContext('webgl2') || canvas.getContext('webgl')) as WebGLRenderingContext | null;
+    if (gl) {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      renderer = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'webgl';
+      // SwiftShader (Chromium), llvmpipe / "software" (Mesa), Apple's software
+      // renderer → software path; anything else (Apple GPU / M-series / a discrete
+      // GPU) → hardware.
+      accelerated = !/swiftshader|software|llvmpipe|basic render/i.test(renderer);
+    } else {
+      renderer = 'unavailable';
+    }
+  } catch {
+    renderer = 'error';
+  }
+  gpuProbe = { accelerated, compositing: accelerated ? 'hardware' : 'software', webgl: renderer };
+  return gpuProbe;
+}
+
 export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics | null {
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
 
@@ -42,7 +76,7 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
                 version: m.version,
                 cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
                 memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
-                gpu: { accelerated: false, compositing: '', webgl: '' },
+                gpu: probeGpuAcceleration(),
               };
             }
           : null;
