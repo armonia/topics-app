@@ -11,6 +11,7 @@ import {
   reconcileCellStacks,
   pickCellStacks,
 } from './groupLayoutStacks';
+import { MAX_STACK_DEPTH } from './constants';
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const row = (groupIds: string[], cellStacks?: GroupLayoutRow['cellStacks']): GroupLayoutRow => ({
@@ -18,6 +19,16 @@ const row = (groupIds: string[], cellStacks?: GroupLayoutRow['cellStacks']): Gro
   widths: groupIds.map(() => 1 / groupIds.length),
   ...(cellStacks ? { cellStacks } : {}),
 });
+
+// A column 'A' filled to exactly MAX_STACK_DEPTH (primary + MAX_STACK_DEPTH-1
+// members). Built from the constant so the fullness tests track it instead of
+// hardcoding a number that drifts when the cap changes.
+const LAST_FULL_MEMBER = `A${MAX_STACK_DEPTH}`;
+const fullStackRow = (): GroupLayoutRow => {
+  const members = Array.from({ length: MAX_STACK_DEPTH - 1 }, (_, i) => `A${i + 2}`);
+  const heights = Array.from({ length: MAX_STACK_DEPTH }, () => 1 / MAX_STACK_DEPTH);
+  return row(['A'], { A: { groupIds: members, heights } });
+};
 
 describe('rowGroupIds / allGroupIdsInRows', () => {
   it('lists primaries then stacked members in visual order', () => {
@@ -49,10 +60,15 @@ describe('columnDepth / isColumnStackFull', () => {
     expect(columnDepth(r, 'A')).toBe(3);
     expect(columnDepth(r, 'missing')).toBe(1);
   });
-  it('reports full at MAX_STACK_DEPTH (4)', () => {
-    const r = row(['A'], { A: { groupIds: ['A2', 'A3', 'A4'], heights: [0.25, 0.25, 0.25, 0.25] } });
+  it('reports full at MAX_STACK_DEPTH', () => {
+    const r = fullStackRow();
+    expect(columnDepth(r, 'A')).toBe(MAX_STACK_DEPTH);
     expect(isColumnStackFull([r], 'A')).toBe(true);
-    expect(isColumnStackFull([r], 'A4')).toBe(true); // a member reports its column's fullness
+    expect(isColumnStackFull([r], LAST_FULL_MEMBER)).toBe(true); // a member reports its column's fullness
+  });
+  it('is not full one below MAX_STACK_DEPTH', () => {
+    const r = row(['A'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
+    expect(isColumnStackFull([r], 'A')).toBe(false);
   });
 });
 
@@ -83,8 +99,8 @@ describe('addGroupToColumnStack — bottom', () => {
     expect(JSON.stringify(rows)).toBe(snapshot);
   });
   it('no-ops at MAX_STACK_DEPTH', () => {
-    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3', 'A4'], heights: [0.25, 0.25, 0.25, 0.25] } })];
-    expect(addGroupToColumnStack(rows, 'A', 'A5', 'bottom')).toBe(rows);
+    const rows = [fullStackRow()];
+    expect(addGroupToColumnStack(rows, 'A', 'OVERFLOW', 'bottom')).toBe(rows);
   });
   it('no-ops on a missing target', () => {
     const rows = [row(['A'])];
