@@ -941,6 +941,7 @@ function App() {
         {/* Connection status is now shown inline in the sidebar top line */}
         <ErrorBoundary fallbackMessage="Panel error">
         <PanelGrid
+          splitTreeEngine={appSettings.splitTreeEngine}
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
           onFocusPanel={handleFocusPanel}
