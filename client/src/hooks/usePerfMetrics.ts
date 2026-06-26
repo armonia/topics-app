@@ -24,38 +24,17 @@ export interface PerfMetrics {
  * immediately when the window becomes visible again.
  */
 /**
- * Probe GPU hardware-acceleration from the renderer itself via WebGL — host-neutral
- * (Tauri's WKWebView exposes no `getGPUFeatureStatus` like Electron's main process).
- * A live WebGL context whose UNMASKED_RENDERER is a real GPU (not a software
- * rasteriser) means compositing is hardware-accelerated. Cached: acceleration can't
- * change at runtime. macOS WKWebView composites via Core Animation/Metal → reports
- * `true` there, fixing the false "Accelerazione hardware OFF" the hard-coded value
- * showed under Tauri.
+ * GPU hardware-acceleration status for the Tauri shell. WKWebView on macOS ALWAYS
+ * composites through Core Animation / Metal — there is no software-rasteriser
+ * fallback like Chromium's SwiftShader — so acceleration is on by definition.
+ *
+ * We deliberately do NOT probe this with a WebGL context: creating one in a
+ * transparent WKWebView can promote the page to an opaque compositing layer and
+ * silently kill the window vibrancy. A static value is both correct (for the macOS
+ * target) and side-effect-free. Replaces the old hard-coded `false` that showed a
+ * bogus "Accelerazione hardware OFF" alarm.
  */
-let gpuProbe: PerfMetrics['gpu'] | null = null;
-function probeGpuAcceleration(): PerfMetrics['gpu'] {
-  if (gpuProbe) return gpuProbe;
-  let renderer = '';
-  let accelerated = false;
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = (canvas.getContext('webgl2') || canvas.getContext('webgl')) as WebGLRenderingContext | null;
-    if (gl) {
-      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-      renderer = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'webgl';
-      // SwiftShader (Chromium), llvmpipe / "software" (Mesa), Apple's software
-      // renderer → software path; anything else (Apple GPU / M-series / a discrete
-      // GPU) → hardware.
-      accelerated = !/swiftshader|software|llvmpipe|basic render/i.test(renderer);
-    } else {
-      renderer = 'unavailable';
-    }
-  } catch {
-    renderer = 'error';
-  }
-  gpuProbe = { accelerated, compositing: accelerated ? 'hardware' : 'software', webgl: renderer };
-  return gpuProbe;
-}
+const TAURI_GPU: PerfMetrics['gpu'] = { accelerated: true, compositing: 'core-animation', webgl: 'webkit' };
 
 export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics | null {
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
@@ -76,7 +55,7 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
                 version: m.version,
                 cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
                 memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
-                gpu: probeGpuAcceleration(),
+                gpu: TAURI_GPU,
               };
             }
           : null;
