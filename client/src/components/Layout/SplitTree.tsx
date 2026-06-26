@@ -90,6 +90,7 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
                 renderLeaf={renderLeaf}
                 gutter={gutter}
                 onResize={onResize}
+                onEqualize={onEqualize}
                 renderDivider={renderDivider}
                 path={[...path, i]}
               />
