@@ -73,6 +73,17 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 <SplitTree> renderer + <Divider> DONE** (esbuild/vite verified). New
+  client/src/components/Layout/SplitTree.tsx: one recursive renderer drawing a
+  LayoutNode as nested flex with the `flex: <weight> 1 0%` invariant (replaces
+  PanelGrid's row/col + GroupLayout's row/cellStacks render), `renderLeaf(id)`
+  prop (decoupled), dividers in the gutter at z-50 reporting a pixel delta +
+  firing topics:pane-resize-start/-end (so the per-region vibrancy freezes/snaps).
+  ADDITIVE / behind the P2 flag, not wired in. NOTE: the worktree's `tsc` binary
+  is broken through the symlinked node_modules (npx/direct → exit 127), so this is
+  esbuild-verified (syntax + imports) + explicitly-typed by hand; a full `tsc`
+  type-check + the actual renderer-swap integration are the user-verified step
+  tomorrow (in the main checkout). The P2 logic it consumes is fully unit-tested.
 - **Cleanup: PaneAddMenu project-actions under Tauri DONE** (vite green). Flipped
   PaneAddMenu's `isElectron` gate to the shell `isDesktop`, so "Apri / Crea
   Progetto" (+ the ⌘N hint) now show under Tauri — reachable now that the
