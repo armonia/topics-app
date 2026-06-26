@@ -73,6 +73,12 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P6 fix misleading `.tauri-mac` comment DONE** (vite green; 56 layout tests still
+  green). index.html's head comment claimed Tauri vibrancy came from
+  `windowEffects` (removed — it's now per-region via vibrancy_set_regions) and that
+  `.tauri-mac` was for a "titlebar inset clearing always-visible traffic lights"
+  (wrong — lights are hidden-by-default; the class is the gate useFloatingVibrancy
+  keys on, no CSS rules). Comment now accurate. File: client/index.html.
 - **P6 menu zoom DONE** (cargo build green). View ▸ Zoom In (⌘=) / Zoom Out (⌘-) /
   Actual Size (⌘0), wired to WebviewWindow.set_zoom with a ZOOM_PERCENT static
   (±10, clamped 50–300). Closes a real menu-parity gap (Electron had zoom). File:

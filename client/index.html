@@ -44,11 +44,13 @@
 
         // Desktop on macOS: tag <html> so the app can let native window vibrancy
         // show through the chrome. Set before first paint so the opaque base never
-        // masks the blur. Covers BOTH shells: Electron (vibrancy in main.ts) and
-        // Tauri (windowEffects in tauri.conf.json). The CSS class is named
-        // `.electron-mac` for historical reasons but is shell-neutral; Tauri-mac
-        // additionally gets `.tauri-mac` for the few Tauri-only tweaks (e.g. the
-        // titlebar inset that clears the always-visible traffic lights).
+        // masks the blur. Covers BOTH shells via per-region NSVisualEffectViews:
+        // Electron (native/vibrancy addon, main.ts) and Tauri (the vibrancy_set_
+        // regions command, driven by useFloatingVibrancy). The CSS class is named
+        // `.electron-mac` for historical reasons but is shell-neutral (it makes the
+        // base transparent so the frost shows). `.tauri-mac` is the Tauri-mac gate
+        // useFloatingVibrancy keys on to drive the Tauri vibrancy command; it has
+        // no CSS rules of its own today.
         try {
           var __isElectronMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin');
           var __isTauriMac = !!(window.__TAURI_INTERNALS__ && /Mac/i.test(navigator.platform || ''));
