@@ -30,8 +30,9 @@ export interface SplitTreeProps {
    *  panes, where the webview bounds are inset so the divider is hittable). */
   gutter?: number;
   /** Drag on the divider after child `dividerIdx` of the split at `path`, by
-   *  `deltaPx` along the split axis. The host maps this onto `resizeAt`. */
-  onResize?: (path: number[], dividerIdx: number, deltaPx: number) => void;
+   *  `deltaPx` along the split axis, within a band of `bandPx` total px. The host
+   *  maps this onto `resizeAt` via `pxToWeightDelta(bandPx, deltaPx)`. */
+  onResize?: (path: number[], dividerIdx: number, deltaPx: number, bandPx: number) => void;
   /** Internal: child-index path from the root (don't pass at the top level). */
   path?: number[];
 }
@@ -63,7 +64,7 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, path = [] }:
             <Divider
               dir={node.dir}
               gutter={gutter}
-              onResize={(deltaPx) => onResize?.(path, i - 1, deltaPx)}
+              onResize={(deltaPx, bandPx) => onResize?.(path, i - 1, deltaPx, bandPx)}
             />
           )}
           <div style={{ flex: `${child.weight} 1 0%`, minWidth: 0, minHeight: 0, position: 'relative' }}>
@@ -93,7 +94,7 @@ function keyFor(node: LayoutNode, index: number): string {
 interface DividerProps {
   dir: SplitDir;
   gutter: number;
-  onResize: (deltaPx: number) => void;
+  onResize: (deltaPx: number, bandPx: number) => void;
 }
 
 /** The resize handle between two siblings. A `row` split (children side-by-side)
@@ -102,12 +103,17 @@ interface DividerProps {
 function Divider({ dir, gutter, onResize }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
   const lastRef = useRef<number | null>(null);
+  const bandRef = useRef<number>(0);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     lastRef.current = horizontal ? e.clientX : e.clientY;
+    // The band is the flex container this divider sits in — its size along the
+    // split axis is what a pixel drag is a fraction OF.
+    const parent = e.currentTarget.parentElement?.getBoundingClientRect();
+    bandRef.current = parent ? (horizontal ? parent.width : parent.height) : 0;
     window.dispatchEvent(new CustomEvent('topics:pane-resize-start'));
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -116,7 +122,7 @@ function Divider({ dir, gutter, onResize }: DividerProps): React.ReactElement {
     const delta = cur - lastRef.current;
     if (delta !== 0) {
       lastRef.current = cur;
-      onResize(delta);
+      onResize(delta, bandRef.current);
     }
   };
   const end = (e: React.PointerEvent<HTMLDivElement>): void => {
