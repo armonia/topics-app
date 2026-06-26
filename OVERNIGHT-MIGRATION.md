@@ -73,6 +73,13 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **P2 integration guide DONE** (docs/P2-SPLIT-INTEGRATION.md). Concrete step-by-step
+  for the user to wire <SplitTree>+useSplitController into PanelGrid/GroupLayout
+  behind a `splitTreeEngine` flag (default off): module map, golden-test-first gate,
+  hydrate via gridRowsToTree/groupRowsToTree + persist back via the reverse adapters,
+  renderLeaf mapping, the gutter+webview-inset browser-pane fix, the overlay-registry
+  occlusion replacement, the free tree wins (equalize-all/keyboard-resize/maximize/
+  uniform drop-split), and rollout. Makes the whole P2 component layer actionable.
 - **P2 useSplitController hook DONE** (esbuild verified; 56 layout tests green
   together). New client/src/hooks/useSplitController.ts owns the live LayoutNode and
   maps gestures to pure ops: divider drag → pxToWeightDelta+resizeAt, tab drop →
