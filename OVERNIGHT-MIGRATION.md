@@ -73,6 +73,12 @@ Workflow tool for big parallelizable chunks when it helps.
 
 ## Progress log (newest first)
 
+- **Cleanup: PaneAddMenu project-actions under Tauri DONE** (vite green). Flipped
+  PaneAddMenu's `isElectron` gate to the shell `isDesktop`, so "Apri / Crea
+  Progetto" (+ the ⌘N hint) now show under Tauri — reachable now that the
+  dialog-plugin `selectDirectory` works. File: client/src/components/Shared/PaneAddMenu.tsx.
+  (useCompletionNotifier still left on the web-Notification fallback under Tauri —
+  it works; native scoped notifications are a deferred improvement, not a fix.)
 - **P5 hide-to-tray window lifecycle DONE** (cargo build green). The window's
   CloseRequested now HIDES to the tray (red button / ⌘W park the app) instead of
   quitting; a real quit (tray "Esci" + a custom ⌘Q menu item replacing the
