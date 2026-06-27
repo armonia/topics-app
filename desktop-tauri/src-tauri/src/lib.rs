@@ -324,7 +324,7 @@ fn region_vibrancy_class() -> &'static objc::runtime::Class {
 fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSPoint, NSRect, NSSize};
-    use objc::{msg_send, sel, sel_impl};
+    use objc::{class, msg_send, sel, sel_impl};
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -352,6 +352,15 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
 
         let mut map = vibrancy_views().lock().unwrap();
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // CRITICAL for perf: a layer-backed NSView's setFrame/setCornerRadius triggers
+        // an IMPLICIT 0.25s Core Animation by default. During a sidebar/divider drag we
+        // push several frames/sec, so those animations STACK and the WindowServer keeps
+        // recompositing the (expensive) behind-window blur for ~450ms after each push —
+        // the FPS drop on sidebar toggle. Disabling actions makes every frame change
+        // INSTANT: one discrete recomposite per push, no animation tail.
+        let _: () = msg_send![class!(CATransaction), begin];
+        let _: () = msg_send![class!(CATransaction), setDisableActions: YES];
 
         for r in &regions {
             keep.insert(r.id.clone());
@@ -402,6 +411,7 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
                 let _: () = msg_send![v, removeFromSuperview];
             }
         }
+        let _: () = msg_send![class!(CATransaction), commit];
     }
 }
 
