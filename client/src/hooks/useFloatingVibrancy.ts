@@ -29,11 +29,6 @@ type Rect = { x: number; y: number; w: number; h: number; radius?: number };
 type VibrancyApi = {
   setRegions: (rects: Rect[]) => void;
   clear: () => void;
-  /** Optional: show/hide a single full-window autoresizing frost for the duration
-   *  of a resize gesture, so the glass tracks the resize NATIVELY instead of being
-   *  repositioned per-frame from JS (which lags over the bridge). Tauri only;
-   *  Electron's native addon is fast enough to live-track per-region. */
-  cover?: (enabled: boolean) => void;
 };
 
 /** Resolve the host's per-region vibrancy driver, or null where there's none
@@ -64,9 +59,6 @@ function resolveVibrancy(): VibrancyApi | null {
       },
       clear: () => {
         void tauriInvoke('vibrancy_set_regions', { regions: [] }).catch(() => {});
-      },
-      cover: (enabled) => {
-        void tauriInvoke('vibrancy_cover', { enabled }).catch(() => {});
       },
     };
   }
@@ -158,41 +150,25 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       if (key !== lastKey) { lastKey = key; api.setRegions(rects); }
       liveRaf = requestAnimationFrame(liveLoop);
     };
-    // Two strategies for tracking an active gesture:
-    //  - Tauri (api.cover): swap to ONE native autoresizing full-window frost for
-    //    the gesture — AppKit tracks the resize itself, no per-frame JS→native
-    //    round-trips (which lag over the bridge → "non segue"). Clear gaps return
-    //    on stop. FREEZE the per-region path meanwhile.
-    //  - Electron (no cover): the native addon is fast, so re-read + reposition
-    //    per-region every frame for the true "frosted cards follow live" preview.
-    const startLive = () => {
-      frozen = true;
-      if (api.cover) { api.cover(true); return; }
-      cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop);
-    };
-    const stopLive = () => {
-      if (api.cover) { api.cover(false); }
-      else { cancelAnimationFrame(liveRaf); liveRaf = 0; }
-      frozen = false; lastKey = ''; flush();
-    };
+    // DOM drags (divider / sidebar collapse) resize panes WITHOUT resizing the OS
+    // window, so they run in the DEFAULT runloop mode where the JS→IPC push drains
+    // promptly — re-read the rects and reposition the per-region views every frame
+    // for a live "frosted cards follow the split" preview, snapping on end. (The
+    // WINDOW-edge case is handled natively in Rust — reflow_vibrancy_regions — since
+    // its IPC path is starved by AppKit's event-tracking runloop.)
+    const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop); };
+    const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; flush(); };
 
     // Free-form tab drag is bigger/laggier than a divider drag — freeze it (the
     // frost holds, then snaps on drop) rather than chase it frame-by-frame.
     const freeze = () => { frozen = true; };
     const unfreeze = () => { frozen = false; lastKey = ''; setTimeout(flush, 60); };
 
-    // Window resize: during a live resize macOS runs the loop in event-tracking
-    // mode, which STARVES setTimeout (so the debounce wouldn't fire until the drag
-    // ends → the frost snaps instead of following). The display-link rAF keeps
-    // firing though, so reuse the SAME proven live loop the divider drag uses:
-    // first resize event begins live tracking, a quiet timer (which fires once the
-    // loop returns to default mode at drag-end) settles it. Bounded by start/stop;
-    // worst case the loop keeps the frost CORRECT rather than wedging it blank.
-    let resizeQuiet = 0;
-    const onWindowResize = () => {
-      if (!resizeQuiet) startLive(); else clearTimeout(resizeQuiet);
-      resizeQuiet = window.setTimeout(() => { resizeQuiet = 0; stopLive(); }, 150);
-    };
+    // Window resize SETTLE: during the live drag the frost is tracked natively in
+    // Rust (reflow_vibrancy_regions, driven by AppKit) since the JS→IPC path is
+    // starved by the event-tracking runloop. This 'resize' → schedule only needs to
+    // push the pixel-correct rects (widths the native reflow left stale) once the
+    // drag ends and the runloop returns to default mode, where setTimeout fires.
 
     // No MutationObserver: observing body's subtree (even childList-only) forces
     // the engine to QUEUE a MutationRecord for every node a streaming terminal
@@ -203,7 +179,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // 700ms safety poll below backstops any structural change that resized nothing.
     retarget();
 
-    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('resize', schedule);
     window.addEventListener('topics:pane-resize-start', startLive);
     window.addEventListener('topics:pane-resize-end', stopLive);
     document.addEventListener('dragstart', freeze, true);
@@ -236,7 +212,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
 
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', onWindowResize);
+      window.removeEventListener('resize', schedule);
       window.removeEventListener('topics:pane-resize-start', startLive);
       window.removeEventListener('topics:pane-resize-end', stopLive);
       document.removeEventListener('dragstart', freeze, true);
@@ -247,7 +223,6 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       document.removeEventListener('transitioncancel', onSidebarTransitionEnd, true);
       window.clearInterval(poll);
       if (settle) clearTimeout(settle);
-      if (resizeQuiet) clearTimeout(resizeQuiet);
       cancelAnimationFrame(liveRaf);
       api.clear();
     };
