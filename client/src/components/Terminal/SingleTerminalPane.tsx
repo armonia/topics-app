@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, RotateCw } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
-import { signalsActions, useTerminalFinished } from '../../state/signals';
+import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
@@ -125,6 +125,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // also kills the "I paused mid-typing" false finish — composing in an active
   // pane keeps it cleared.
   const finished = useTerminalFinished(sessionId);
+  const reloading = useTerminalReloading(sessionId);
   useEffect(() => {
     if (isActive && finished) signalsActions.clearTerminalFinished(sessionId);
   }, [isActive, finished, sessionId]);
@@ -337,6 +338,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       ws.onopen = () => {
         retryCount = 0;
         setStale(false);
+        // A "Ricarica" reload reconnects here — drop the "Riavvio…" overlay.
+        signalsActions.clearTerminalReloading(sessionId);
         // Each new connection re-sends its backlog; reset the gate so a
         // reconnect (network blip, server restart) also suppresses the
         // replay-induced spinner.
@@ -666,6 +669,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             <div className="text-center">
               <p className="text-app-text-muted text-[12px] mb-3">This terminal session has expired</p>
               <p className="text-app-text-muted text-[11px]">Close this tab and open a new terminal</p>
+            </div>
+          </div>
+        )}
+        {/* "Ricarica" restart in progress — a clear overlay instead of the bare
+            grey gap while the PTY is killed and re-spawned (claude/codex --resume
+            boot). Cleared on WS reconnect (ws.onopen) or a safety timeout. */}
+        {reloading && !stale && (
+          <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
+            <div className="flex items-center gap-2 text-app-text-muted text-[12px]">
+              <RotateCw size={14} className="animate-spin" />
+              <span>Riavvio sessione…</span>
             </div>
           </div>
         )}

@@ -146,12 +146,15 @@ interface SignalsState {
   // from claudeAttentionTopics because `error` belongs to the badge, not blue.
   awaitingFeedbackTopics: Set<string>;
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
+  terminalReloadingIds: Set<string>;    // a terminal is restarting (Ricarica), until it reconnects
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
   setBrowserBusy: (paneId: string, busy: boolean) => void;
   setTerminalBusy: (id: string, busy: boolean) => void;
   markTerminalFinished: (id: string) => void;
   clearTerminalFinished: (id: string) => void;
+  markTerminalReloading: (id: string) => void;
+  clearTerminalReloading: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
   setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>) => void;
 }
@@ -270,6 +273,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   claudeAttentionTopics: new Set(),
   awaitingFeedbackTopics: new Set(),
   terminalFinishedIds: new Set(),
+  terminalReloadingIds: new Set(),
 
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
@@ -296,6 +300,18 @@ export const useSignalsStore = create<SignalsState>((set) => ({
     set((s) => {
       const next = withToggled(s.terminalFinishedIds, id, false);
       return next ? { terminalFinishedIds: next } : s;
+    }),
+
+  markTerminalReloading: (id) =>
+    set((s) => {
+      const next = withToggled(s.terminalReloadingIds, id, true);
+      return next ? { terminalReloadingIds: next } : s;
+    }),
+
+  clearTerminalReloading: (id) =>
+    set((s) => {
+      const next = withToggled(s.terminalReloadingIds, id, false);
+      return next ? { terminalReloadingIds: next } : s;
     }),
 
   reconcileTerminals: (roster) =>
@@ -331,6 +347,8 @@ export const signalsActions = {
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
   clearTerminalFinished: (id: string) => useSignalsStore.getState().clearTerminalFinished(id),
+  markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
+  clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
   setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting),
 };
@@ -562,6 +580,11 @@ export function useTerminalAwaitingFeedback(sessionId: string | undefined): bool
 /** A claude-code session finished a turn and the user hasn't looked yet. */
 export function useTerminalFinished(sessionId: string | undefined): boolean {
   return useSignalsStore((s) => !!sessionId && s.terminalFinishedIds.has(sessionId));
+}
+
+/** A terminal session is restarting via "Ricarica", until it reconnects. */
+export function useTerminalReloading(sessionId: string | undefined): boolean {
+  return useSignalsStore((s) => !!sessionId && s.terminalReloadingIds.has(sessionId));
 }
 
 /** A browser pane is loading (page load or an agent driving it). */
