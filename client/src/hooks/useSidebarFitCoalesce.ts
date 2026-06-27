@@ -32,9 +32,11 @@ export function useSidebarFitCoalesce(): void {
 
     let active = false;
     let safety = 0;
+    let revealRaf = 0;
     const start = () => {
       if (active) return;
       active = true;
+      cancelAnimationFrame(revealRaf); // drop a pending reveal-fit from a rapid prior toggle
       window.dispatchEvent(new Event('topics:sidebar-resize-start')); // (1) coalesce fits — all platforms
       if (isTauri) root.classList.add('sidebar-animating'); // (2) skip terminal layout — WebKit only
     };
@@ -42,12 +44,14 @@ export function useSidebarFitCoalesce(): void {
       if (!active) return;
       active = false;
       clearTimeout(safety);
-      // Order matters: run the settle fit FIRST, while `.xterm` is still
-      // content-visibility:hidden, so the row-DOM rebuild is deferred (cheap); THEN
-      // drop the class so the terminals lay out exactly ONCE at the final geometry.
-      // Revealing before fitting costs two layouts (reveal + rebuild) — measured ~2x.
-      window.dispatchEvent(new Event('topics:sidebar-resize-end'));
+      // Reveal the terminals FIRST (drop the content-visibility class), then fit on the
+      // NEXT frame. FitAddon measures the rendered glyph cell to compute columns, so a
+      // fit while `.xterm` is still content-visibility:hidden can read stale/zero cell
+      // dims and resize to the wrong size; the rAF lets the just-revealed terminal paint
+      // before we fit (mirrors SingleTerminalPane's own become-active re-fit).
       root.classList.remove('sidebar-animating');
+      cancelAnimationFrame(revealRaf);
+      revealRaf = requestAnimationFrame(() => window.dispatchEvent(new Event('topics:sidebar-resize-end')));
     };
 
     const onRun = (e: TransitionEvent) => {
@@ -68,7 +72,8 @@ export function useSidebarFitCoalesce(): void {
       document.removeEventListener('transitionend', onEnd, true);
       document.removeEventListener('transitioncancel', onEnd, true);
       clearTimeout(safety);
-      end();
+      cancelAnimationFrame(revealRaf);
+      root.classList.remove('sidebar-animating');
     };
   }, []);
 }
