@@ -239,7 +239,7 @@ fn notify(app: tauri::AppHandle, title: String, body: String) {
 // webview is translucent (chrome) the vibrancy shows; the gaps between regions
 // have no view, so they fall through to the real desktop.
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct VibRegion {
     id: String,
     x: f64,
@@ -255,6 +255,18 @@ fn vibrancy_views() -> &'static std::sync::Mutex<std::collections::HashMap<Strin
     static V: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, usize>>> =
         std::sync::OnceLock::new();
     V.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Last region set the client pushed, by id. The window-resize handler reflows the
+/// live NSVisualEffectViews from THIS cache on the AppKit thread — see
+/// `reflow_vibrancy_regions`. Kept separate from `vibrancy_views` (the live view
+/// pointers) so the resize handler and the IPC push never deadlock: the IPC path
+/// writes the cache BEFORE taking the views lock; the resize path takes cache then
+/// views — a single consistent order.
+#[cfg(target_os = "macos")]
+fn vibrancy_cache() -> &'static std::sync::Mutex<Vec<VibRegion>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<Vec<VibRegion>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(Vec::new()))
 }
 
 /// `hitTest:` override for the frost views: always return nil so the
@@ -302,6 +314,12 @@ fn apply_vibrancy_regions(window: &tauri::WebviewWindow, regions: Vec<VibRegion>
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSPoint, NSRect, NSSize};
     use objc::{msg_send, sel, sel_impl};
+
+    // Cache the request for the native resize reflow FIRST, in its own lock scope,
+    // before touching `vibrancy_views` — keeps the lock order (cache → views) the
+    // same as `reflow_vibrancy_regions`, so the IPC thread and the main-thread
+    // resize handler can never deadlock.
+    *vibrancy_cache().lock().unwrap() = regions.clone();
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
@@ -384,87 +402,59 @@ fn vibrancy_set_regions(window: tauri::WebviewWindow, regions: Vec<VibRegion>) {
     let _ = (window, regions);
 }
 
-// ── Resize cover: one autoresizing full-window frost shown DURING a gesture ──
+// ── Native resize tracking: reposition the frost views from AppKit's own loop ──
 //
-// Repositioning N per-region frost views from JS every frame (collect → IPC →
-// setFrame) can't track a live resize — the round-trips lag and AppKit starves
-// the work behind the gesture, so the glass trails the panes ("non segue"). The
-// fix is to NOT move anything per frame: for the duration of a resize/divider/
-// sidebar gesture we swap the per-region views for a SINGLE NSVisualEffectView
-// that fills the window and carries an autoresizing mask, so AppKit keeps it
-// covering the whole content view natively as the window resizes — zero JS. For
-// a divider drag (window size unchanged) it simply blankets every pane, so the
-// frost is always aligned. On gesture end the client removes it and re-pushes the
-// per-region rects (restoring the clear gaps).
+// A live WINDOW-edge resize runs the main runloop in NSEventTrackingRunLoopMode,
+// where tao services its `run_on_main_thread` wakeup source only in default mode —
+// so the JS→IPC path that repositions the per-region views is STARVED for the
+// whole drag and the frost holds its mount-time frame, snapping only on mouse-up
+// ("quando resizo non segue"). Electron dodges this because its setRegions is a
+// synchronous same-thread N-API call. The fix: reposition NATIVELY from the cached
+// rects inside AppKit's resize delivery (WindowEvent::Resized fires on the main
+// thread every step of the drag, even in tracking mode), with no JS and no IPC.
+// Divider/sidebar are DOM drags (window size constant) — they keep their JS rAF
+// loop and this reflow is a no-op for them (contentView bounds don't change).
 #[cfg(target_os = "macos")]
-fn vibrancy_cover_slot() -> &'static std::sync::Mutex<usize> {
-    static V: std::sync::OnceLock<std::sync::Mutex<usize>> = std::sync::OnceLock::new();
-    V.get_or_init(|| std::sync::Mutex::new(0))
-}
-
-#[cfg(target_os = "macos")]
-fn apply_vibrancy_cover(window: &tauri::WebviewWindow, enabled: bool) {
-    use cocoa::base::{id, nil, YES};
-    use cocoa::foundation::NSRect;
+fn reflow_vibrancy_regions(window: &tauri::WebviewWindow) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::{NSPoint, NSRect, NSSize};
     use objc::{msg_send, sel, sel_impl};
 
     let ns_window = match window.ns_window() {
         Ok(p) => p as id,
         Err(_) => return,
     };
+    let regions = vibrancy_cache().lock().unwrap().clone();
+    if regions.is_empty() {
+        return;
+    }
     unsafe {
         let content_view: id = msg_send![ns_window, contentView];
         if content_view == nil {
             return;
         }
-        let mut cover = vibrancy_cover_slot().lock().unwrap();
-        if enabled {
-            if *cover != 0 {
-                return; // already covering
+        let bounds: NSRect = msg_send![content_view, bounds];
+        let (cw, ch) = (bounds.size.width, bounds.size.height);
+        let map = vibrancy_views().lock().unwrap();
+        // A single region pinned to the top-left is the whole-window (floating OFF)
+        // frost → stretch it to fill the content view as it resizes.
+        let full = regions.len() == 1 && regions[0].x <= 1.0 && regions[0].y <= 1.0;
+        for r in &regions {
+            if let Some(&ptr) = map.get(&r.id) {
+                let v = ptr as id;
+                let frame = if full {
+                    NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(cw, ch))
+                } else {
+                    // Re-flip Y against the CURRENT content height so top-anchored
+                    // cards stay pinned to the top as the window grows/shrinks. Width
+                    // stays at the last pushed value; JS corrects it on gesture-settle.
+                    let ns_y = ch - r.y - r.height;
+                    NSRect::new(NSPoint::new(r.x, ns_y), NSSize::new(r.width, r.height))
+                };
+                let _: () = msg_send![v, setFrame: frame];
             }
-            // The cover REPLACES the per-region views for the gesture — remove them
-            // so they can't show through stale; the client re-pushes on gesture end.
-            {
-                let mut map = vibrancy_views().lock().unwrap();
-                for (_, ptr) in map.drain() {
-                    let v = ptr as id;
-                    let _: () = msg_send![v, removeFromSuperview];
-                }
-            }
-            let bounds: NSRect = msg_send![content_view, bounds];
-            let v: id = msg_send![region_vibrancy_class(), alloc];
-            let v: id = msg_send![v, initWithFrame: bounds];
-            let _: () = msg_send![v, setMaterial: 7i64];
-            let _: () = msg_send![v, setBlendingMode: 0i64];
-            let _: () = msg_send![v, setState: 1i64];
-            let _: () = msg_send![v, setWantsLayer: YES];
-            // NSViewWidthSizable(2) | NSViewHeightSizable(16) = 18 → AppKit resizes
-            // the cover with the content view on every (live) window resize, natively.
-            let _: () = msg_send![v, setAutoresizingMask: 18u64];
-            let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
-            *cover = v as usize;
-        } else {
-            if *cover == 0 {
-                return;
-            }
-            let v = *cover as id;
-            let _: () = msg_send![v, removeFromSuperview];
-            *cover = 0;
         }
     }
-}
-
-/// Client-driven: show/hide the full-window autoresizing frost cover for the
-/// duration of a resize gesture (see comment above). No-op off macOS.
-#[tauri::command]
-fn vibrancy_cover(window: tauri::WebviewWindow, enabled: bool) {
-    #[cfg(target_os = "macos")]
-    {
-        let win = window.clone();
-        let _ = window.run_on_main_thread(move || apply_vibrancy_cover(&win, enabled));
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = (window, enabled);
 }
 
 // ───────────────────────── Native browser pane ─────────────────────────
@@ -768,7 +758,18 @@ pub fn run() {
                     // reappear on the first focus of a transparent-titlebar window.
                     let w = win.clone();
                     win.on_window_event(move |event| match event {
-                        tauri::WindowEvent::Focused(_) | tauri::WindowEvent::Resized(_) => {
+                        tauri::WindowEvent::Resized(_) => {
+                            // Reflow the per-region frost NATIVELY from the cache —
+                            // tao forwards windowDidResize: here on the main thread
+                            // every step of a live drag (incl. NSEventTrackingRunLoopMode),
+                            // exactly where the JS→IPC reposition path is starved.
+                            reflow_vibrancy_regions(&w);
+                            // Same titlebar re-pin as a focus change.
+                            let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
+                                || w.is_fullscreen().unwrap_or(false);
+                            apply_traffic_lights(&w, visible);
+                        }
+                        tauri::WindowEvent::Focused(_) => {
                             // In fullscreen the titlebar is gone, so FORCE the
                             // traffic lights visible — otherwise (hidden-by-default
                             // + hidden green button) the only way out is the View ▸
@@ -834,7 +835,6 @@ pub fn run() {
             set_theme,
             notify,
             vibrancy_set_regions,
-            vibrancy_cover,
             browser_open,
             browser_navigate,
             browser_set_bounds,
