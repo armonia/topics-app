@@ -121,24 +121,22 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       api.setRegions(rects);
     };
 
-    // Coalesce every passive layout signal into AT MOST one collect() per FRAME.
-    // rAF (not setTimeout): a deferred timer is throttled/suspended by WebKit when
-    // the webview is backgrounded AND trails the layout by its delay — so a window
-    // resize, sidebar toggle or any non-gesture reflow only caught the OLD 120ms
-    // debounce visibly LAGGED the vibrancy behind the moving layout ("quando
-    // resizo non segue"). rAF fires the next paint frame when visible and reads
-    // rects post-layout, so the frost tracks per frame. This does NOT reintroduce
-    // the old per-mutation storm: the trigger is the ResizeObserver, which is
-    // SILENT unless an observed box actually changes size (streaming terminals /
-    // chat mutate content, not box size), so the loop only spins during real
-    // resizes — exactly when we want per-frame tracking.
+    // Coalesce passive layout signals into AT MOST one collect() per SETTLE_MS.
+    // setTimeout (not rAF) for this generic path: a requested rAF that never fires
+    // because the webview is occluded would leave `settle` non-zero forever and
+    // wedge every future schedule() (the `if (settle) return` guard) — observed as
+    // the frost going blank and never recovering. setTimeout always fires when the
+    // view is visible, so the path self-heals. Smooth tracking of an ACTIVE gesture
+    // (divider / sidebar / window resize) is handled by the live rAF loops below,
+    // which are bounded by explicit start/stop and can't get stuck.
+    const SETTLE_MS = 90;
     let settle = 0;
     const schedule = () => {
       if (frozen || settle) return; // already pending → coalesce, do no work
-      settle = requestAnimationFrame(() => { settle = 0; push(); });
+      settle = window.setTimeout(() => { settle = 0; push(); }, SETTLE_MS);
     };
     // Bypass the debounce for end-of-gesture snaps so the frost lands instantly.
-    const flush = () => { if (settle) { cancelAnimationFrame(settle); settle = 0; } push(); };
+    const flush = () => { if (settle) { clearTimeout(settle); settle = 0; } push(); };
 
     // Divider resize: the panes resize live (direct DOM width mutation), so we
     // TRACK the frost live too — a per-frame loop re-reads the panel rects and
@@ -160,6 +158,19 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     const freeze = () => { frozen = true; };
     const unfreeze = () => { frozen = false; lastKey = ''; setTimeout(flush, 60); };
 
+    // Window resize: during a live resize macOS runs the loop in event-tracking
+    // mode, which STARVES setTimeout (so the debounce wouldn't fire until the drag
+    // ends → the frost snaps instead of following). The display-link rAF keeps
+    // firing though, so reuse the SAME proven live loop the divider drag uses:
+    // first resize event begins live tracking, a quiet timer (which fires once the
+    // loop returns to default mode at drag-end) settles it. Bounded by start/stop;
+    // worst case the loop keeps the frost CORRECT rather than wedging it blank.
+    let resizeQuiet = 0;
+    const onWindowResize = () => {
+      if (!resizeQuiet) startLive(); else clearTimeout(resizeQuiet);
+      resizeQuiet = window.setTimeout(() => { resizeQuiet = 0; stopLive(); }, 150);
+    };
+
     // No MutationObserver: observing body's subtree (even childList-only) forces
     // the engine to QUEUE a MutationRecord for every node a streaming terminal
     // adds/removes — thousands per second — which costs real main-thread time
@@ -169,7 +180,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // 700ms safety poll below backstops any structural change that resized nothing.
     retarget();
 
-    window.addEventListener('resize', schedule);
+    window.addEventListener('resize', onWindowResize);
     window.addEventListener('topics:pane-resize-start', startLive);
     window.addEventListener('topics:pane-resize-end', stopLive);
     document.addEventListener('dragstart', freeze, true);
@@ -202,7 +213,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
 
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', schedule);
+      window.removeEventListener('resize', onWindowResize);
       window.removeEventListener('topics:pane-resize-start', startLive);
       window.removeEventListener('topics:pane-resize-end', stopLive);
       document.removeEventListener('dragstart', freeze, true);
@@ -212,7 +223,8 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       document.removeEventListener('transitionend', onSidebarTransitionEnd, true);
       document.removeEventListener('transitioncancel', onSidebarTransitionEnd, true);
       window.clearInterval(poll);
-      if (settle) cancelAnimationFrame(settle);
+      if (settle) clearTimeout(settle);
+      if (resizeQuiet) clearTimeout(resizeQuiet);
       cancelAnimationFrame(liveRaf);
       api.clear();
     };
