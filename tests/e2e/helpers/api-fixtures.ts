@@ -317,6 +317,17 @@ export async function reloadTerminalSession(
   return { status: res.status(), body };
 }
 
+export async function getTerminalSessionBuffer(
+  request: APIRequestContext,
+  sessionId: string
+): Promise<string> {
+  const res = await request.get(`${BASE}/api/terminal/sessions/${sessionId}/buffer`, {
+    ignoreHTTPSErrors: true,
+  });
+  if (!res.ok()) return "";
+  return (await res.json()).buffer ?? "";
+}
+
 export async function listTerminalSessions(
   request: APIRequestContext,
   topicId?: string
@@ -327,6 +338,25 @@ export async function listTerminalSessions(
   const res = await request.get(url, { ignoreHTTPSErrors: true });
   if (!res.ok()) return [];
   return res.json();
+}
+
+/**
+ * Delete every terminal session (active AND dormant) on the test server. Used to
+ * get a clean slate: a stale /tmp shell left by a prior run would otherwise be
+ * reconnected/revived by the project-terminal open flow and render an empty pane.
+ */
+export async function deleteAllTerminalSessions(request: APIRequestContext): Promise<void> {
+  for (const s of await listTerminalSessions(request)) {
+    await deleteTerminalSession(request, s.id);
+  }
+  try {
+    const res = await request.get(`${BASE}/api/terminal/sessions/dormant`, { ignoreHTTPSErrors: true });
+    if (res.ok()) {
+      for (const s of (await res.json()) as Array<{ id: string }>) {
+        await deleteTerminalSession(request, s.id);
+      }
+    }
+  } catch { /* dormant endpoint optional */ }
 }
 
 // --- Cleanup helper ---

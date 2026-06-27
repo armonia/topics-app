@@ -822,7 +822,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             <button
               onClick={() => {
                 const sid = getTerminalSessionFromPaneId(ctxMenu.paneId);
-                if (sid) void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}/reload`, { method: 'POST' }).catch(() => {});
+                if (sid) {
+                  // Show a "Riavvio…" overlay over the pane during the kill→respawn
+                  // gap (cleared on WS reconnect); safety-clear if it never comes back.
+                  signalsActions.markTerminalReloading(sid);
+                  window.setTimeout(() => signalsActions.clearTerminalReloading(sid), 15000);
+                  void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}/reload`, { method: 'POST' }).catch(() => {});
+                }
                 setCtxMenu(null);
               }}
               className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
