@@ -263,7 +263,18 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // 700ms safety poll below backstops any structural change that resized nothing.
     retarget();
 
-    window.addEventListener('resize', schedule);
+    // Force a NON-deduped reconcile on window resize and on tab/tray re-show. A
+    // spurious *same-size* native Resized (tray re-show, Space/display switch) yields
+    // identical rects, so the lastKey dedupe (below) would skip the settle push that
+    // tears down any stranded full-window frost cover — leaving panes "tutte grigie".
+    // Resetting lastKey defeats that dedupe so the push always reaches native, whose
+    // apply_vibrancy_regions unconditionally removes the cover. Belt-and-suspenders to
+    // the native fix in vibrancy_resize_cover (which stops the cover being raised here
+    // at all).
+    const forceReconcile = () => { lastKey = ''; schedule(); };
+    const onVisible = () => { if (!document.hidden) forceReconcile(); };
+    window.addEventListener('resize', forceReconcile);
+    document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('topics:pane-resize-start', startLive);
     window.addEventListener('topics:pane-resize-end', stopLive);
     document.addEventListener('dragstart', freeze, true);
@@ -296,7 +307,8 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
 
     return () => {
       ro.disconnect();
-      window.removeEventListener('resize', schedule);
+      window.removeEventListener('resize', forceReconcile);
+      document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('topics:pane-resize-start', startLive);
       window.removeEventListener('topics:pane-resize-end', stopLive);
       document.removeEventListener('dragstart', freeze, true);
