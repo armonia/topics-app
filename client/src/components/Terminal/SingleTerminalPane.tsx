@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check, RotateCw } from 'lucide-react';
+import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
@@ -112,6 +112,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     () => terminalSessions.some((s) => s.id === sessionId),
     [terminalSessions, sessionId],
   );
+  // Last-known session metadata, captured while the session is still in the
+  // authoritative roster. A *stale* session is ABSENT from the roster, so at
+  // overlay-time its live entry is already gone — we surface this snapshot
+  // instead so the "expired" overlay can still report id / type / cwd / resume.
+  const sessionInfo = useMemo(
+    () => terminalSessions.find((s) => s.id === sessionId),
+    [terminalSessions, sessionId],
+  );
+  const lastInfoRef = useRef<(typeof terminalSessions)[number] | null>(null);
+  useEffect(() => { if (sessionInfo) lastInfoRef.current = sessionInfo; }, [sessionInfo]);
   const sessionListedRef = useRef(sessionListed);
   const staleRef = useRef(stale);
   const reconnectRef = useRef<(() => void) | null>(null);
@@ -665,11 +675,42 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           </button>
         )}
         {stale && (
-          <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
-            <div className="text-center">
-              <p className="text-app-text-muted text-[12px] mb-3">This terminal session has expired</p>
-              <p className="text-app-text-muted text-[11px]">Close this tab and open a new terminal</p>
+          <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
+            <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
+              <Clock size={13} />
+              <span>Sessione scaduta</span>
             </div>
+            {(() => {
+              const info = lastInfoRef.current;
+              return (
+                <div
+                  data-testid="terminal-stale-info"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-[10px] leading-relaxed text-app-text-muted/70"
+                >
+                  {info?.type && (
+                    <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
+                  )}
+                  <span>id {sessionId.slice(0, 8)}{info?.claudeSessionId ? ` · resume ${info.claudeSessionId.slice(0, 8)}` : ''}</span>
+                </div>
+              );
+            })()}
+            {/* Self-service recovery: the same in-place reload as the tab's
+                "Ricarica" menu item — for claude/codex this resumes the
+                conversation (--resume), so the session isn't a dead-end. */}
+            <button
+              type="button"
+              disabled={reloading}
+              onClick={() => {
+                signalsActions.markTerminalReloading(sessionId);
+                window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
+                void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
+              }}
+              title="Riavvia la sessione in-place (riprende la conversazione per claude/codex)"
+              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
+            >
+              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              <span>{reloading ? 'Riavvio…' : 'Ricarica'}</span>
+            </button>
           </div>
         )}
         {/* "Ricarica" restart in progress — a clear overlay instead of the bare
