@@ -164,12 +164,22 @@ fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
 /// Reveal or hide the window's traffic lights. Driven by the client when the
 /// Topics dropdown opens/closes (mirrors Electron's `window:showTrafficLights`).
 #[tauri::command]
-fn set_traffic_lights(window: tauri::WebviewWindow, visible: bool) {
+fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
+    // Resolve the main window via the AppHandle (label "main") rather than taking a
+    // `WebviewWindow` param: once native browser PANES (child webviews) are mounted,
+    // the main window is multi-webview and the `WebviewWindow` invoke-extractor rejects
+    // with "current webview is not a WebviewWindow" — same root cause that froze the
+    // vibrancy. `get_webview_window("main")` looks up by label and works regardless.
     TRAFFIC_LIGHTS_VISIBLE.store(visible, Ordering::Relaxed);
     #[cfg(target_os = "macos")]
-    apply_traffic_lights(&window, visible);
+    {
+        use tauri::Manager;
+        if let Some(win) = app.get_webview_window("main") {
+            apply_traffic_lights(&win, visible);
+        }
+    }
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let _ = (app, visible);
 }
 
 /// Set the NSWindow's appearance to match the app's resolved light/dark theme.
@@ -205,15 +215,20 @@ fn apply_appearance(window: &tauri::WebviewWindow, dark: bool) {
 /// Client-driven: sync native chrome (window appearance + vibrancy tint) to the
 /// resolved theme ("dark" | "light"). Mirrors Electron's `theme.setResolved`.
 #[tauri::command]
-fn set_theme(window: tauri::WebviewWindow, theme: String) {
+fn set_theme(app: tauri::AppHandle, theme: String) {
+    // Same multi-webview safety as `set_traffic_lights`: resolve the main window via
+    // the AppHandle, not a `WebviewWindow` param (rejected once browser panes mount).
     #[cfg(target_os = "macos")]
     {
+        use tauri::Manager;
         let dark = theme == "dark";
-        let win = window.clone();
-        let _ = window.run_on_main_thread(move || apply_appearance(&win, dark));
+        if let Some(win) = app.get_webview_window("main") {
+            let win2 = win.clone();
+            let _ = win.run_on_main_thread(move || apply_appearance(&win2, dark));
+        }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (window, theme);
+    let _ = (app, theme);
 }
 
 /// Fire a native OS notification (completion / idle toasts). The renderer's web
@@ -306,7 +321,7 @@ fn region_vibrancy_class() -> &'static objc::runtime::Class {
 /// (create new, move/resize existing, remove dropped). MUST run on the main
 /// thread (AppKit view mutation).
 #[cfg(target_os = "macos")]
-fn apply_vibrancy_regions(window: &tauri::WebviewWindow, regions: Vec<VibRegion>) {
+fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSPoint, NSRect, NSSize};
     use objc::{msg_send, sel, sel_impl};
@@ -394,7 +409,13 @@ fn apply_vibrancy_regions(window: &tauri::WebviewWindow, regions: Vec<VibRegion>
 /// window coords. Empty list clears all (e.g. leaving floating mode → fall back
 /// to no per-region vibrancy). No-op off macOS.
 #[tauri::command]
-fn vibrancy_set_regions(window: tauri::WebviewWindow, regions: Vec<VibRegion>) {
+fn vibrancy_set_regions(window: tauri::Window, regions: Vec<VibRegion>) {
+    // Param is `Window`, NOT `WebviewWindow`: once the layout mounts native browser
+    // PANES (child webviews of the main window), the window is multi-webview and the
+    // `WebviewWindow` extractor rejects every invoke with "current webview is not a
+    // WebviewWindow" — silently freezing the frost at its boot layout (the root cause
+    // of "la vibrancy non segue" on every drag/resize/sidebar). `Window` resolves the
+    // invoking webview's parent window regardless of how many webviews it hosts.
     #[cfg(target_os = "macos")]
     {
         let win = window.clone();
@@ -404,25 +425,53 @@ fn vibrancy_set_regions(window: tauri::WebviewWindow, regions: Vec<VibRegion>) {
     let _ = (window, regions);
 }
 
-// ── Native resize cover: one full-window frost, explicitly sized every step ──
+// ── Native resize cover: one full-window frost that AUTORESIZES with the window ──
 //
-// A live WINDOW-edge resize runs the main runloop in NSEventTrackingRunLoopMode,
-// where tao services its `run_on_main_thread` wakeup source only in default mode —
-// so the JS→IPC path that repositions the per-region views is STARVED for the
-// whole drag and the frost holds its mount-time frame, snapping only on mouse-up
-// ("quando resizo non segue"). The native side also can't know the NEW per-card
-// layout mid-drag (only JS has the reflowed DOM rects). So instead of trying to
-// track each card, we show ONE full-window NSVisualEffectView for the gesture and
-// set its frame to the content view's bounds on EVERY WindowEvent::Resized (which
-// AppKit delivers on the main thread every step, even in tracking mode) — perfect
-// tracking, no per-card approximation, no reliance on autoresizingMask (the
-// contentView may use Auto Layout). The clear gaps are briefly covered while you
-// drag; `apply_vibrancy_regions` removes the cover the moment JS pushes on settle,
-// restoring the per-region cards. Divider/sidebar are DOM drags (window size
-// constant → no Resized) and keep their JS rAF loop unchanged.
+// A live WINDOW-edge resize runs the main runloop in NSEventTrackingRunLoopMode.
+// Two things are starved for the whole drag: (a) the JS→IPC path that repositions
+// the per-region views (WKWebView JS doesn't run), and (b) — critically — tao's
+// queued `WindowEvent::Resized` is only DRAINED by its run-loop observer when the
+// loop goes idle, which during a continuous drag happens at gesture END, not per
+// step. So we CANNOT drive tracking off `Resized` (it arrives once, on mouse-up →
+// "draggo e non segue"). Instead:
+//   • `NSWindowWillStartLiveResize` (a notification, posted SYNCHRONOUSLY when the
+//     drag begins) → swap the per-region cards for ONE full-window frost cover.
+//   • The cover carries an autoresizing mask (NSViewWidth|HeightSizable), so AppKit
+//     itself resizes it on every `setFrameSize:` of the content view DURING the
+//     drag — no event, no IPC, perfectly live.
+//   • `apply_vibrancy_regions` (JS push on settle) tears the cover down and restores
+//     the per-region cards + clear gaps. (We deliberately do NOT remove it on
+//     `DidEndLiveResize` — that would flash transparent until JS re-pushes.)
+// The clear gaps are briefly covered while you drag. Divider/sidebar are DOM drags
+// (window size constant → no live resize) and keep their JS rAF loop unchanged.
+// `vibrancy_resize_cover` (below) remains as the PROGRAMMATIC-resize path (set_size
+// / zoom DO deliver `Resized` promptly, no live-resize notification fires for them).
+
+/// Build + insert the full-window frost cover UNDER the (transparent) webview, with
+/// an autoresizing mask so AppKit keeps it filling the content view through every
+/// live-resize step with no event/IPC. Caller holds the cover slot + has drained the
+/// per-region cards. Returns the new view ptr.
+#[cfg(target_os = "macos")]
+unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::foundation::NSRect) -> cocoa::base::id {
+    use cocoa::base::{id, nil, YES};
+    use objc::{msg_send, sel, sel_impl};
+    let _: () = msg_send![content_view, setAutoresizesSubviews: YES];
+    let v: id = msg_send![region_vibrancy_class(), alloc];
+    let v: id = msg_send![v, initWithFrame: bounds];
+    let _: () = msg_send![v, setMaterial: 7i64];
+    let _: () = msg_send![v, setBlendingMode: 0i64];
+    let _: () = msg_send![v, setState: 1i64];
+    let _: () = msg_send![v, setWantsLayer: YES];
+    // NSViewWidthSizable(2) | NSViewHeightSizable(16) = 18 → fixed margins to all
+    // edges (here 0) maintained as the superview grows/shrinks ⇒ always full-window.
+    let _: () = msg_send![v, setAutoresizingMask: 18u64];
+    let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
+    v
+}
+
 #[cfg(target_os = "macos")]
 fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, nil, YES};
+    use cocoa::base::{id, nil};
     use cocoa::foundation::NSRect;
     use objc::{msg_send, sel, sel_impl};
 
@@ -456,14 +505,7 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
                     let _: () = msg_send![v, removeFromSuperview];
                 }
             }
-            let v: id = msg_send![region_vibrancy_class(), alloc];
-            let v: id = msg_send![v, initWithFrame: bounds];
-            let _: () = msg_send![v, setMaterial: 7i64];
-            let _: () = msg_send![v, setBlendingMode: 0i64];
-            let _: () = msg_send![v, setState: 1i64];
-            let _: () = msg_send![v, setWantsLayer: YES];
-            let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
-            *cover = v as usize;
+            *cover = vibrancy_insert_cover(content_view, bounds) as usize;
         } else {
             // Subsequent steps: keep the cover glued to the (now larger/smaller)
             // content view — explicit setFrame each step, so it tracks regardless of
@@ -471,6 +513,131 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
             let v = *cover as id;
             let _: () = msg_send![v, setFrame: bounds];
         }
+    }
+}
+
+/// Show the full-window frost cover for a live window-edge resize, operating
+/// directly on the `NSWindow` (the notification's `object`) — the per-region cards
+/// are removed and a single autoresizing cover is inserted, which AppKit then keeps
+/// glued to the window through the whole drag. No-op if a cover is already up or no
+/// frost was ever placed (web gate / pre-mount).
+#[cfg(target_os = "macos")]
+unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSRect;
+    use objc::{msg_send, sel, sel_impl};
+    if ns_window == nil {
+        return;
+    }
+    let content_view: id = msg_send![ns_window, contentView];
+    if content_view == nil {
+        return;
+    }
+    let mut cover = vibrancy_cover_slot().lock().unwrap();
+    if *cover != 0 {
+        return; // already covering
+    }
+    {
+        let mut map = vibrancy_views().lock().unwrap();
+        if map.is_empty() {
+            return; // nothing placed yet — don't frost a bare window
+        }
+        for (_, ptr) in map.drain() {
+            let v = ptr as id;
+            let _: () = msg_send![v, removeFromSuperview];
+        }
+    }
+    let bounds: NSRect = msg_send![content_view, bounds];
+    *cover = vibrancy_insert_cover(content_view, bounds) as usize;
+}
+
+/// `NSWindowWillStartLiveResize` observer callback → raise the cover for the drag.
+#[cfg(target_os = "macos")]
+extern "C" fn on_live_resize_start(
+    _this: &objc::runtime::Object,
+    _sel: objc::runtime::Sel,
+    notif: cocoa::base::id,
+) {
+    use objc::{msg_send, sel, sel_impl};
+    unsafe {
+        let ns_window: cocoa::base::id = msg_send![notif, object];
+        vibrancy_begin_cover(ns_window);
+    }
+}
+
+/// `NSWindowDidEndLiveResize` observer callback. Intentionally a near-no-op: we
+/// LEAVE the cover up and let the JS settle push (`apply_vibrancy_regions`) swap it
+/// back to per-region cards, so there's no transparent flash between drag-end and
+/// the first reflowed push.
+#[cfg(target_os = "macos")]
+extern "C" fn on_live_resize_end(
+    _this: &objc::runtime::Object,
+    _sel: objc::runtime::Sel,
+    _notif: cocoa::base::id,
+) {
+}
+
+/// Lazily register `TopicsLiveResizeObserver` with the two notification callbacks,
+/// returning a (leaked, process-lifetime) instance to register with the default
+/// NSNotificationCenter.
+#[cfg(target_os = "macos")]
+fn live_resize_observer_instance() -> cocoa::base::id {
+    use cocoa::base::id;
+    use objc::declare::ClassDecl;
+    use objc::runtime::{Class, Object, Sel};
+    use objc::{class, msg_send, sel, sel_impl};
+    static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let class_ptr = *PTR.get_or_init(|| unsafe {
+        let superclass = class!(NSObject);
+        let mut decl = ClassDecl::new("TopicsLiveResizeObserver", superclass)
+            .expect("register TopicsLiveResizeObserver");
+        decl.add_method(
+            sel!(onLiveResizeStart:),
+            on_live_resize_start as extern "C" fn(&Object, Sel, id),
+        );
+        decl.add_method(
+            sel!(onLiveResizeEnd:),
+            on_live_resize_end as extern "C" fn(&Object, Sel, id),
+        );
+        decl.register() as *const Class as usize
+    });
+    unsafe {
+        let cls = class_ptr as *const Class;
+        let obj: id = msg_send![cls, new];
+        obj
+    }
+}
+
+/// Wire the live-resize notifications for one window's NSWindow to the cover swap.
+/// Idempotent per process is NOT required (each window registers its own observer).
+#[cfg(target_os = "macos")]
+fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
+    use cocoa::base::{id, nil};
+    use objc::{class, msg_send, sel, sel_impl};
+    let ns_window = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(_) => return,
+    };
+    if ns_window == nil {
+        return;
+    }
+    // AppKit notification-name globals (NSNotificationName = NSString*).
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSWindowWillStartLiveResizeNotification: id;
+        static NSWindowDidEndLiveResizeNotification: id;
+    }
+    unsafe {
+        let obs = live_resize_observer_instance();
+        let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let _: () = msg_send![nc, addObserver: obs
+                                   selector: sel!(onLiveResizeStart:)
+                                   name: NSWindowWillStartLiveResizeNotification
+                                   object: ns_window];
+        let _: () = msg_send![nc, addObserver: obs
+                                   selector: sel!(onLiveResizeEnd:)
+                                   name: NSWindowDidEndLiveResizeNotification
+                                   object: ns_window];
     }
 }
 
@@ -770,16 +937,21 @@ pub fn run() {
                 use tauri::Manager;
                 for (_label, win) in app.webview_windows() {
                     apply_traffic_lights(&win, false);
+                    // Live window-edge resize: AppKit posts WillStart/DidEnd live-resize
+                    // notifications SYNCHRONOUSLY (unlike tao's WindowEvent::Resized, which
+                    // is only drained at gesture end), so we swap to an autoresizing frost
+                    // cover for the duration of the drag.
+                    wire_live_resize_cover(&win);
                     // Re-assert the desired visibility whenever AppKit might have
                     // reset it (focus gained/lost, resize) — otherwise the buttons
                     // reappear on the first focus of a transparent-titlebar window.
                     let w = win.clone();
                     win.on_window_event(move |event| match event {
                         tauri::WindowEvent::Resized(_) => {
-                            // Track the resize NATIVELY with a full-window frost cover
-                            // — tao forwards windowDidResize: here on the main thread
-                            // every step of a live drag (incl. NSEventTrackingRunLoopMode),
-                            // exactly where the JS→IPC reposition path is starved.
+                            // PROGRAMMATIC resize path (set_size / zoom): these deliver
+                            // Resized promptly and post NO live-resize notification, so the
+                            // cover is sized here. (Interactive drags are handled by the
+                            // notification + autoresizing mask above.)
                             vibrancy_resize_cover(&w);
                             // Same titlebar re-pin as a focus change.
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
