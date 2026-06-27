@@ -263,7 +263,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   }, []);
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
-    console.debug('[dnd-debug] tab dragstart', paneId, 'group', groupId);
     setDraggedPaneId(paneId);
     e.dataTransfer.setData(DND_TYPES.PANE_TAB, paneId);
     if (groupId) {
@@ -290,16 +289,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     }
     e.dataTransfer.effectAllowed = 'move';
     // Custom drag image: a compact tab-like chip instead of the browser's
-    // default file icon. The element must be in the DOM and rendered at
-    // setDragImage time; we remove it after one frame (the browser captures the
-    // image synchronously). Styled to match app chrome (elevated surface +
-    // border + a small accent dot) and the title is truncated so a long label
-    // (e.g. a browser pane's URL) can't blow the chip up into an ugly wall of
-    // text — the old version was a bare full-width primary block.
+    // default file icon. The element must be in the DOM AND on-screen at
+    // setDragImage time: Chromium snapshots an off-screen element fine, but
+    // WKWebView (Tauri) returns an EMPTY image for anything outside the visual
+    // viewport and falls back to the generic macOS document icon — the "tab
+    // looks like a file while dragging" report. So we render it AT THE CURSOR
+    // for the single capture frame (setDragImage's offset governs the final
+    // image placement, so this on-screen position causes no perceptible flash)
+    // and remove it next frame. Styled to match app chrome (elevated surface +
+    // border + a small accent dot); the title is truncated so a long label
+    // (e.g. a browser pane's URL) can't blow the chip up into a wall of text.
     const ghost = document.createElement('div');
     const pane = panes.find(p => p.id === paneId);
     ghost.style.cssText = `
-      position:fixed;left:-300px;top:-300px;
+      position:fixed;left:${e.clientX}px;top:${e.clientY}px;
       display:inline-flex;align-items:center;gap:7px;
       max-width:240px;padding:5px 11px;border-radius:9px;
       font:500 12px/1.2 Inter,system-ui,sans-serif;
@@ -365,13 +368,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     // Read the insert position from the ref (state may lag a frame behind the
     // final dragover, which silently dropped the tab nowhere before).
     const overIdx = dragOverIdxRef.current;
-    console.debug('[dnd-debug] tabbar DROP on group', groupId, 'source', sourcePaneId, 'overIdx', overIdx);
-    if (!sourcePaneId || overIdx === null) { console.debug('[dnd-debug] DROP rejected: no source/overIdx'); resetDrag(); return; }
+    if (!sourcePaneId || overIdx === null) { resetDrag(); return; }
 
     // Scope guard: reject a tab dragged in from another window/project. Belt to
     // the dragover suspenders — getData is only readable here, on drop.
     const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) { console.debug('[dnd-debug] DROP rejected: scope mismatch src', sourceScope, 'this', dndScope); resetDrag(); return; }
+    if (dndScope && sourceScope && sourceScope !== dndScope) { resetDrag(); return; }
 
     const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
     const isCrossGroup = sourceGroupId && groupId && sourceGroupId !== groupId;
