@@ -29,6 +29,11 @@ type Rect = { x: number; y: number; w: number; h: number; radius?: number };
 type VibrancyApi = {
   setRegions: (rects: Rect[]) => void;
   clear: () => void;
+  /** Optional: show/hide a single full-window autoresizing frost for the duration
+   *  of a resize gesture, so the glass tracks the resize NATIVELY instead of being
+   *  repositioned per-frame from JS (which lags over the bridge). Tauri only;
+   *  Electron's native addon is fast enough to live-track per-region. */
+  cover?: (enabled: boolean) => void;
 };
 
 /** Resolve the host's per-region vibrancy driver, or null where there's none
@@ -59,6 +64,9 @@ function resolveVibrancy(): VibrancyApi | null {
       },
       clear: () => {
         void tauriInvoke('vibrancy_set_regions', { regions: [] }).catch(() => {});
+      },
+      cover: (enabled) => {
+        void tauriInvoke('vibrancy_cover', { enabled }).catch(() => {});
       },
     };
   }
@@ -150,8 +158,23 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       if (key !== lastKey) { lastKey = key; api.setRegions(rects); }
       liveRaf = requestAnimationFrame(liveLoop);
     };
-    const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop); };
-    const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; flush(); };
+    // Two strategies for tracking an active gesture:
+    //  - Tauri (api.cover): swap to ONE native autoresizing full-window frost for
+    //    the gesture — AppKit tracks the resize itself, no per-frame JS→native
+    //    round-trips (which lag over the bridge → "non segue"). Clear gaps return
+    //    on stop. FREEZE the per-region path meanwhile.
+    //  - Electron (no cover): the native addon is fast, so re-read + reposition
+    //    per-region every frame for the true "frosted cards follow live" preview.
+    const startLive = () => {
+      frozen = true;
+      if (api.cover) { api.cover(true); return; }
+      cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop);
+    };
+    const stopLive = () => {
+      if (api.cover) { api.cover(false); }
+      else { cancelAnimationFrame(liveRaf); liveRaf = 0; }
+      frozen = false; lastKey = ''; flush();
+    };
 
     // Free-form tab drag is bigger/laggier than a divider drag — freeze it (the
     // frost holds, then snaps on drop) rather than chase it frame-by-frame.
