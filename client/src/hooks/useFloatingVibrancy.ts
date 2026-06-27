@@ -26,10 +26,61 @@ import { tauriInvoke } from '../lib/shell/tauri';
 const FLOAT_RADIUS = 10; // keep in sync with --float-radius in index.css
 
 type Rect = { x: number; y: number; w: number; h: number; radius?: number };
+type Timing = [number, number, number, number];
 type VibrancyApi = {
   setRegions: (rects: Rect[]) => void;
   clear: () => void;
+  // Tauri+mac only: hand a FIXED, known animation (the sidebar width transition) to
+  // AppKit's animator in ONE IPC, so the frost rides the same Core Animation /
+  // WindowServer clock as the CSS transition — no per-frame rAF→IPC, no stepping.
+  animateRegions?: (rects: Rect[], durationMs: number, timing: Timing) => void;
 };
+
+// CSS easing keyword → cubic-bezier control points (so the native CAMediaTimingFunction
+// matches the CSS curve exactly). getComputedStyle may already return the bezier form.
+const EASE_KEYWORDS: Record<string, Timing> = {
+  ease: [0.25, 0.1, 0.25, 1], linear: [0, 0, 1, 1],
+  'ease-in': [0.42, 0, 1, 1], 'ease-out': [0, 0, 0.58, 1], 'ease-in-out': [0.42, 0, 0.58, 1],
+};
+
+/** Read the element's `width` transition duration + timing curve straight from CSS
+ *  (the single source of truth), or null if there's no parseable width transition. */
+function readWidthTiming(el: HTMLElement): { durationMs: number; timing: Timing } | null {
+  const cs = getComputedStyle(el);
+  const props = cs.transitionProperty.split(',').map((s) => s.trim());
+  let idx = props.indexOf('width');
+  if (idx < 0) idx = props.indexOf('all');
+  if (idx < 0) return null;
+  const durs = cs.transitionDuration.split(',').map((s) => s.trim());
+  // Don't split timing-functions inside cubic-bezier(...)'s own commas.
+  const fns = cs.transitionTimingFunction.split(/,(?![^(]*\))/).map((s) => s.trim());
+  const durStr = durs[idx] ?? durs[0] ?? '';
+  const fnStr = fns[idx] ?? fns[0] ?? '';
+  const durationMs = parseFloat(durStr) * (durStr.trim().endsWith('ms') ? 1 : 1000);
+  if (!durationMs || !Number.isFinite(durationMs)) return null;
+  let timing: Timing | null = EASE_KEYWORDS[fnStr] ?? null;
+  const m = fnStr.match(/cubic-bezier\(([^)]+)\)/);
+  if (m) {
+    const p = m[1].split(',').map(Number) as Timing;
+    if (p.length === 4 && p.every((n) => Number.isFinite(n))) timing = p;
+  }
+  return timing ? { durationMs, timing } : null;
+}
+
+/** Predict the END rect set of a sidebar width toggle analytically from the START
+ *  rects + the target sidebar width — NO DOM mutation, NO forced reflow. collect()
+ *  yields [sidebar, ...cards]; the sidebar is the leftmost box and the content area
+ *  is winW - sidebarWidth, so the cards scale around the content origin. Exact for
+ *  the sidebar + single-card case; the transitionend settle push pins exact pixels. */
+function predictSidebarEnd(start: Rect[], sbStartW: number, sbTargetW: number): Rect[] {
+  const winW = window.innerWidth;
+  const cw0 = winW - sbStartW;
+  const cw1 = winW - sbTargetW;
+  const s = cw0 > 0 ? cw1 / cw0 : 1;
+  return start.map((r, i) => i === 0
+    ? { ...r, w: Math.round(sbTargetW) }
+    : { ...r, x: Math.round(sbTargetW + (r.x - sbStartW) * s), w: Math.round(r.w * s) });
+}
 
 /** Resolve the host's per-region vibrancy driver, or null where there's none
  *  (web, non-mac). Under Tauri we detect macOS DIRECTLY (isTauri + userAgent)
@@ -60,6 +111,12 @@ function resolveVibrancy(): VibrancyApi | null {
       clear: () => {
         void tauriInvoke('vibrancy_set_regions', { regions: [] }).catch(() => {});
       },
+      animateRegions: (rects, durationMs, timing) => {
+        void tauriInvoke('vibrancy_animate_regions', {
+          regions: rects.map((r, i) => ({ id: `r${i}`, x: r.x, y: r.y, width: r.w, height: r.h, radius: r.radius ?? 0 })),
+          durationMs, timing,
+        }).catch(() => {});
+      },
     };
   }
   return null;
@@ -85,15 +142,19 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
         // One full-window region → frost the whole chrome (vibrancy parity).
         return [{ x: 0, y: 0, w: window.innerWidth, h: window.innerHeight, radius: 0 }];
       }
-      const cards = topLevelCards();
-      const sidebar = sidebarEl();
-      const els = sidebar ? [sidebar, ...cards] : cards;
-      return els
-        .map((el) => {
-          const r = el.getBoundingClientRect();
-          return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), radius: FLOAT_RADIUS };
-        })
-        .filter((r) => r.w > 1 && r.h > 1);
+      const toRect = (el: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), radius: FLOAT_RADIUS };
+      };
+      const cards = topLevelCards().map(toRect).filter((r) => r.w > 1 && r.h > 1);
+      // ALWAYS include the sidebar region (even collapsed → w≈0), so the region SET
+      // and its id (r0) stay STABLE across collapse↔expand. The native sidebar
+      // animation maps views by id; if a collapsed sidebar dropped out of the set,
+      // every id would shift and the expand animation would fly the wrong views into
+      // the sidebar slot. A w=0 region is an invisible native view — harmless at rest.
+      const sb = sidebarEl();
+      const sbRect = sb ? toRect(sb) : null;
+      return sbRect && sbRect.h > 1 ? [sbRect, ...cards] : cards;
     };
 
     // Re-point the ResizeObserver at the CURRENT top-level cards + sidebar. A
@@ -159,6 +220,29 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop); };
     const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; flush(); };
 
+    // Sidebar toggle = a FIXED 200ms CSS width transition. Instead of chasing it with
+    // the rAF→IPC loop (which lands ~5 discrete, IPC-jittered steps), hand the whole
+    // move to AppKit's animator in ONE IPC: read the curve from CSS, predict the END
+    // rects analytically, and let Core Animation interpolate the frost on the SAME
+    // clock as the CSS transition (continuous, no stepping). Falls back to startLive()
+    // on Electron / non-floating / any unparseable input — zero regression. The
+    // transitionend handler keeps calling stopLive(), which flush()es pixel-exact
+    // final rects (correcting any sub-px prediction drift).
+    const beginSidebarFrostAnimation = () => {
+      const el = sidebarEl();
+      if (!floatingSplits || !api.animateRegions || !el) { startLive(); return; }
+      const sbTargetW = parseFloat(el.style.width); // React set inline width = target at transitionrun
+      const t = readWidthTiming(el);
+      const startRects = collect();
+      const sb = startRects[0]; // collect() always yields the sidebar first (even collapsed)
+      if (!Number.isFinite(sbTargetW) || !t || !sb) { startLive(); return; }
+      const end = predictSidebarEnd(startRects, sb.w, sbTargetW);
+      frozen = true; // suspend settle/poll/RO pushes for the duration of the native anim
+      if (settle) { clearTimeout(settle); settle = 0; }
+      lastKey = JSON.stringify(end); // so the end-of-toggle flush only re-pushes if pixels differ
+      api.animateRegions(end, t.durationMs, t.timing);
+    };
+
     // Free-form tab drag is bigger/laggier than a divider drag — freeze it (the
     // frost holds, then snaps on drop) rather than chase it frame-by-frame.
     const freeze = () => { frozen = true; };
@@ -194,7 +278,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // transition so unrelated CSS transitions don't spin the rAF loop.
     const isSidebarWidth = (e: TransitionEvent) =>
       e.propertyName === 'width' && e.target instanceof Element && e.target === sidebarEl();
-    const onSidebarTransitionRun = (e: TransitionEvent) => { if (isSidebarWidth(e)) startLive(); };
+    const onSidebarTransitionRun = (e: TransitionEvent) => { if (isSidebarWidth(e)) beginSidebarFrostAnimation(); };
     const onSidebarTransitionEnd = (e: TransitionEvent) => { if (isSidebarWidth(e)) stopLive(); };
     document.addEventListener('transitionrun', onSidebarTransitionRun, true);
     document.addEventListener('transitionend', onSidebarTransitionEnd, true);
