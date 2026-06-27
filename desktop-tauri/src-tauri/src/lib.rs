@@ -384,6 +384,89 @@ fn vibrancy_set_regions(window: tauri::WebviewWindow, regions: Vec<VibRegion>) {
     let _ = (window, regions);
 }
 
+// ── Resize cover: one autoresizing full-window frost shown DURING a gesture ──
+//
+// Repositioning N per-region frost views from JS every frame (collect → IPC →
+// setFrame) can't track a live resize — the round-trips lag and AppKit starves
+// the work behind the gesture, so the glass trails the panes ("non segue"). The
+// fix is to NOT move anything per frame: for the duration of a resize/divider/
+// sidebar gesture we swap the per-region views for a SINGLE NSVisualEffectView
+// that fills the window and carries an autoresizing mask, so AppKit keeps it
+// covering the whole content view natively as the window resizes — zero JS. For
+// a divider drag (window size unchanged) it simply blankets every pane, so the
+// frost is always aligned. On gesture end the client removes it and re-pushes the
+// per-region rects (restoring the clear gaps).
+#[cfg(target_os = "macos")]
+fn vibrancy_cover_slot() -> &'static std::sync::Mutex<usize> {
+    static V: std::sync::OnceLock<std::sync::Mutex<usize>> = std::sync::OnceLock::new();
+    V.get_or_init(|| std::sync::Mutex::new(0))
+}
+
+#[cfg(target_os = "macos")]
+fn apply_vibrancy_cover(window: &tauri::WebviewWindow, enabled: bool) {
+    use cocoa::base::{id, nil, YES};
+    use cocoa::foundation::NSRect;
+    use objc::{msg_send, sel, sel_impl};
+
+    let ns_window = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(_) => return,
+    };
+    unsafe {
+        let content_view: id = msg_send![ns_window, contentView];
+        if content_view == nil {
+            return;
+        }
+        let mut cover = vibrancy_cover_slot().lock().unwrap();
+        if enabled {
+            if *cover != 0 {
+                return; // already covering
+            }
+            // The cover REPLACES the per-region views for the gesture — remove them
+            // so they can't show through stale; the client re-pushes on gesture end.
+            {
+                let mut map = vibrancy_views().lock().unwrap();
+                for (_, ptr) in map.drain() {
+                    let v = ptr as id;
+                    let _: () = msg_send![v, removeFromSuperview];
+                }
+            }
+            let bounds: NSRect = msg_send![content_view, bounds];
+            let v: id = msg_send![region_vibrancy_class(), alloc];
+            let v: id = msg_send![v, initWithFrame: bounds];
+            let _: () = msg_send![v, setMaterial: 7i64];
+            let _: () = msg_send![v, setBlendingMode: 0i64];
+            let _: () = msg_send![v, setState: 1i64];
+            let _: () = msg_send![v, setWantsLayer: YES];
+            // NSViewWidthSizable(2) | NSViewHeightSizable(16) = 18 → AppKit resizes
+            // the cover with the content view on every (live) window resize, natively.
+            let _: () = msg_send![v, setAutoresizingMask: 18u64];
+            let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
+            *cover = v as usize;
+        } else {
+            if *cover == 0 {
+                return;
+            }
+            let v = *cover as id;
+            let _: () = msg_send![v, removeFromSuperview];
+            *cover = 0;
+        }
+    }
+}
+
+/// Client-driven: show/hide the full-window autoresizing frost cover for the
+/// duration of a resize gesture (see comment above). No-op off macOS.
+#[tauri::command]
+fn vibrancy_cover(window: tauri::WebviewWindow, enabled: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let win = window.clone();
+        let _ = window.run_on_main_thread(move || apply_vibrancy_cover(&win, enabled));
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, enabled);
+}
+
 // ───────────────────────── Native browser pane ─────────────────────────
 //
 // Electron parity: each browser pane is a real native child webview (own
@@ -751,6 +834,7 @@ pub fn run() {
             set_theme,
             notify,
             vibrancy_set_regions,
+            vibrancy_cover,
             browser_open,
             browser_navigate,
             browser_set_bounds,
