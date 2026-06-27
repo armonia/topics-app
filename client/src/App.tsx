@@ -18,7 +18,7 @@ import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
-import { useSidebarAnimationClass } from './hooks/useSidebarAnimationClass';
+import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
@@ -147,9 +147,9 @@ function App() {
   // panel rects to the transparent window so floating-splits gaps show the clear
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
-  // While the sidebar width animates, skip DOM-terminal layout (WebKit/Tauri) so
-  // the slide stays smooth — they re-fit once on transitionend. See the hook.
-  useSidebarAnimationClass();
+  // Coalesce xterm fit() across the sidebar collapse/expand (one fit at the settled
+  // size instead of per-frame) so the slide doesn't jank from terminal re-fits.
+  useSidebarFitCoalesce();
   // Stop the always-running loaders / awaiting-pulse breathers from burning the
   // compositor while the window is backgrounded (minimized / occluded / blurred).
   useAnimationPause();

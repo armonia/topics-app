@@ -517,12 +517,21 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const onResizeEnd = () => { resizing = false; if (missed) { missed = false; fit(); } };
     const observer = new ResizeObserver(handleResize);
     observer.observe(el);
+    // Coalesce fits during BOTH a divider drag (pane-resize-*) and a sidebar
+    // collapse/expand (sidebar-resize-*): per-frame fit() over a 200ms slide forces a
+    // layout + row-DOM rebuild each frame (~190-300ms jank for ~6 terminals → measured).
+    // Holding the fits and running one at the settled size drops that to a single ~84ms
+    // re-fit. See useSidebarFitCoalesce for the sidebar dispatcher.
     window.addEventListener('topics:pane-resize-start', onResizeStart);
     window.addEventListener('topics:pane-resize-end', onResizeEnd);
+    window.addEventListener('topics:sidebar-resize-start', onResizeStart);
+    window.addEventListener('topics:sidebar-resize-end', onResizeEnd);
     return () => {
       observer.disconnect();
       window.removeEventListener('topics:pane-resize-start', onResizeStart);
       window.removeEventListener('topics:pane-resize-end', onResizeEnd);
+      window.removeEventListener('topics:sidebar-resize-start', onResizeStart);
+      window.removeEventListener('topics:sidebar-resize-end', onResizeEnd);
     };
   }, []);
 
