@@ -594,35 +594,23 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
         if content_view == nil {
             return;
         }
-        // Nothing to cover if no per-region frost has ever been placed (web gate off
-        // / pre-mount) — avoid frosting a bare window.
-        let has_regions = {
-            let map = vibrancy_views().lock().unwrap();
-            !map.is_empty()
-        };
-        let mut cover = vibrancy_cover_slot().lock().unwrap();
-        let bounds: NSRect = msg_send![content_view, bounds];
+        let cover = vibrancy_cover_slot().lock().unwrap();
+        // A programmatic / spurious *same-size* `Resized` (tray re-show, Space or
+        // display switch, scale/focus change all emit one at the SAME size) must NOT
+        // raise a cover here: there is no continuous drag to hide, and the cover's
+        // ONLY teardown is a JS settle push that the client dedupes away when the size
+        // is unchanged — so a cover raised on this path strands as one flat
+        // full-window frost over everything ("tutte grigie", recurring on every
+        // tray/Space round-trip). Genuine live-edge drags are covered via
+        // on_live_resize_start → vibrancy_begin_cover and self-heal on drag-end (the
+        // size actually changed, so the settle push isn't deduped and removes it).
+        // Here we ONLY keep an already-raised live-resize cover glued to the new size.
         if *cover == 0 {
-            if !has_regions {
-                return;
-            }
-            // First resize step of the gesture: hide the per-region cards behind a
-            // single full-window frost (remove them; JS recreates on settle).
-            {
-                let mut map = vibrancy_views().lock().unwrap();
-                for (_, ptr) in map.drain() {
-                    let v = ptr as id;
-                    let _: () = msg_send![v, removeFromSuperview];
-                }
-            }
-            *cover = vibrancy_insert_cover(content_view, bounds) as usize;
-        } else {
-            // Subsequent steps: keep the cover glued to the (now larger/smaller)
-            // content view — explicit setFrame each step, so it tracks regardless of
-            // whether AppKit honours an autoresizing mask here.
-            let v = *cover as id;
-            let _: () = msg_send![v, setFrame: bounds];
+            return;
         }
+        let bounds: NSRect = msg_send![content_view, bounds];
+        let v = *cover as id;
+        let _: () = msg_send![v, setFrame: bounds];
     }
 }
 
