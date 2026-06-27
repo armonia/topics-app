@@ -295,9 +295,15 @@ export function GroupLayout({
     const edge = detectDropZone(e, rect, 'edges') as EdgeZone | null;
 
     if (edge) {
-      const next = { groupId, edge };
-      edgeDropTargetRef.current = next;
-      setEdgeDropTarget(next);
+      // DEDUP: dragover fires ~60fps+; only re-render when the target edge/group
+      // actually changes, else the project window re-rendered every frame of the
+      // drag ("preview delle aree di drop laggano").
+      const cur = edgeDropTargetRef.current;
+      if (!cur || cur.groupId !== groupId || cur.edge !== edge) {
+        const next = { groupId, edge };
+        edgeDropTargetRef.current = next;
+        setEdgeDropTarget(next);
+      }
     } else {
       if (edgeDropTargetRef.current?.groupId === groupId) {
         edgeDropTargetRef.current = null;
@@ -479,7 +485,8 @@ export function GroupLayout({
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const yRatio = (e.clientY - rect.top) / rect.height;
     const side = yRatio < 0.5 ? 'top' : 'bottom';
-    setRowDropTarget({ idx: rowIdx, side });
+    // DEDUP: only re-render when the row/side actually changes (dragover is ~60fps).
+    setRowDropTarget((prev) => (prev && prev.idx === rowIdx && prev.side === side ? prev : { idx: rowIdx, side }));
   }, []);
 
   const handleRowDrop = useCallback((e: React.DragEvent) => {

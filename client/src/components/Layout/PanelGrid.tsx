@@ -1168,6 +1168,17 @@ export function PanelGrid({
       return;
     }
 
+    // Commit the hover target, but DEDUP: dragover fires ~60fps+ and re-creating the
+    // same target object every event re-rendered the whole grid each frame — the
+    // "preview delle aree di drop laggano". Only setState when the zone/cell actually
+    // changes, so a steady cursor produces zero re-renders.
+    const commitTarget = (target: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right'; isTab: boolean }) => {
+      const p = gridDropTargetRef.current;
+      if (p && p.rowIdx === target.rowIdx && p.colIdx === target.colIdx && p.zone === target.zone && p.centerSide === target.centerSide && p.isTab === target.isTab) return;
+      setGridDropTarget(target);
+      gridDropTargetRef.current = target;
+    };
+
     // The tab bar owns its own band: a PANE_TAB dragged ANYWHERE over a tab bar
     // (including its left/right corners, where detectDropZone returns 'left'/
     // 'right' rather than the suppressed 'top') must show ONLY the bar's insert
@@ -1198,17 +1209,13 @@ export function PanelGrid({
     // release time and let children handle the reorder/drop. We don't
     // stopPropagation here so the child's dragover can also run.
     if (isTabDrag && !isGridDrag && (zone === 'center' || zone === 'top')) {
-      const target = { rowIdx, colIdx, zone, centerSide, isTab: true };
-      setGridDropTarget(target);
-      gridDropTargetRef.current = target;
+      commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true });
       return;
     }
 
     // Edge zone (or any GRID_ITEM drag): handle at grid level
     e.stopPropagation(); // Prevent children from also handling this edge drag
-    const target = { rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag };
-    setGridDropTarget(target);
-    gridDropTargetRef.current = target; // sync update for immediate drop access
+    commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
   }, [gridDropTargetRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
