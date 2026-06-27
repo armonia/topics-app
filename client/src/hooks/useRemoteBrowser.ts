@@ -115,8 +115,22 @@ function mapCoordinates(
   };
 }
 
-export function useRemoteBrowser(contextId: string): RemoteBrowser {
+/**
+ * @param isVisible When false (pane is hidden behind another tab/split), inbound
+ *   screencast frames are dropped instead of applied — the last frame is retained
+ *   so there's no blank on reveal, but the per-frame base64 decode + `<img>` repaint
+ *   is skipped. This keeps the single-WKWebView Tauri renderer's memory/CPU in check
+ *   when many browser panes exist but only one is on screen. The WS stays open
+ *   (so agent-active / nav state still update); only the costly frame paint pauses.
+ */
+export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBrowser {
   const encodedId = useMemo(() => encodeURIComponent(contextId), [contextId]);
+
+  // Read inside the long-lived WS `onmessage` closure without re-subscribing the
+  // socket on every visibility toggle (re-running the WS effect would close+reopen
+  // the connection — churn + lost in-flight state).
+  const isVisibleRef = useRef(isVisible);
+  useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
   const [state, setState] = useState<RemoteBrowserState>({
     url: '',
     title: '',
@@ -297,6 +311,9 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
         const msg = result.data;
         switch (msg.type) {
           case 'frame': {
+            // Hidden pane: drop the frame (keep the last one painted) to skip the
+            // base64 decode + img repaint. See the isVisible param docs above.
+            if (!isVisibleRef.current) break;
             const psf = msg.metadata?.pageScaleFactor;
             if (psf) {
               pageScaleFactorRef.current = psf;
