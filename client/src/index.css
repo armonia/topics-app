@@ -443,13 +443,12 @@ html, body {
   opacity: 0;
 }
 
-/* Sidebar-toggle perf (WebKit/Tauri only — see useSidebarAnimationClass).
-   While the sidebar WIDTH animates, the content area resizes every frame, which
-   forces WebKit to re-flow every mounted DOM terminal each frame (~300ms for 6 →
-   measured sidebar-toggle jank). Skip the terminal screens' layout for the slide;
-   they repaint once when `sidebar-animating` is dropped on transitionend (the same
-   single re-fit the end-of-resize already does). The class is added only in Tauri,
-   so Chromium/Electron — fast enough not to need it — is untouched. */
+/* Sidebar-toggle perf (WebKit/Tauri only — see useSidebarFitCoalesce, which adds the
+   class only in Tauri). While the sidebar WIDTH animates, the content area resizes
+   every frame and WebKit re-flows every mounted DOM terminal each frame (~340ms for 6,
+   on top of the per-frame fit() the hook also coalesces). Skip the terminal screens'
+   layout for the ~200ms slide; they lay out once when the class drops on transitionend.
+   Chromium/Electron is fast enough not to need it and is left untouched. */
 html.sidebar-animating .xterm {
   content-visibility: hidden;
 }
