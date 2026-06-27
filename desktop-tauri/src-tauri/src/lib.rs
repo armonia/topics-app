@@ -415,6 +415,106 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
     }
 }
 
+/// Map CSS cubic-bezier control points → the matching named CAMediaTimingFunction.
+/// The sidebar transition is `ease` = (0.25,0.1,0.25,1) = kCAMediaTimingFunctionDefault
+/// EXACTLY, so this gives perfect lockstep with the CSS curve for the real case; other
+/// CSS keywords map to their CA equivalents, anything else falls back to Default. (We
+/// match names rather than build from raw control points because the objc crate can't
+/// cleanly express CAMediaTimingFunction's `initWithControlPoints::::` selector.)
+#[cfg(target_os = "macos")]
+unsafe fn ca_timing_for(timing: [f64; 4]) -> cocoa::base::id {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+    #[link(name = "QuartzCore", kind = "framework")]
+    extern "C" {
+        static kCAMediaTimingFunctionDefault: id;
+        static kCAMediaTimingFunctionLinear: id;
+        static kCAMediaTimingFunctionEaseIn: id;
+        static kCAMediaTimingFunctionEaseOut: id;
+        static kCAMediaTimingFunctionEaseInEaseOut: id;
+    }
+    let approx = |a: [f64; 4], b: [f64; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
+    let name: id = if approx(timing, [0.0, 0.0, 1.0, 1.0]) {
+        kCAMediaTimingFunctionLinear
+    } else if approx(timing, [0.42, 0.0, 1.0, 1.0]) {
+        kCAMediaTimingFunctionEaseIn
+    } else if approx(timing, [0.0, 0.0, 0.58, 1.0]) {
+        kCAMediaTimingFunctionEaseOut
+    } else if approx(timing, [0.42, 0.0, 0.58, 1.0]) {
+        kCAMediaTimingFunctionEaseInEaseOut
+    } else {
+        kCAMediaTimingFunctionDefault // (0.25,0.1,0.25,1) = CSS `ease`
+    };
+    msg_send![class!(CAMediaTimingFunction), functionWithName: name]
+}
+
+/// Hand a FIXED, known move (the sidebar width transition) to AppKit's animator: each
+/// existing frost view's frame is set through its `animator` proxy inside an
+/// NSAnimationContext grouping with the CSS duration + matched timing function. AppKit
+/// then drives the frame change on the Core Animation / WindowServer clock — the SAME
+/// clock compositing the WKWebView's CSS transition — so the frost rides the move
+/// continuously (no per-frame IPC, no ~5 discrete steps). The transitionend settle push
+/// (`apply_vibrancy_regions`) pins pixel-exact final rects.
+#[cfg(target_os = "macos")]
+fn apply_vibrancy_animation(window: &tauri::Window, regions: Vec<VibRegion>, duration_ms: f64, timing: [f64; 4]) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::{NSPoint, NSRect, NSSize};
+    use objc::{class, msg_send, sel, sel_impl};
+
+    let ns_window = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(_) => return,
+    };
+    unsafe {
+        let content_view: id = msg_send![ns_window, contentView];
+        if content_view == nil {
+            return;
+        }
+        // Tear down any window-resize cover so the per-region cards animate (parity
+        // with apply_vibrancy_regions' lock order).
+        {
+            let mut cover = vibrancy_cover_slot().lock().unwrap();
+            if *cover != 0 {
+                let v = *cover as id;
+                let _: () = msg_send![v, removeFromSuperview];
+                *cover = 0;
+            }
+        }
+        let bounds: NSRect = msg_send![content_view, bounds];
+        let content_h = bounds.size.height;
+        let map = vibrancy_views().lock().unwrap();
+
+        let tf = ca_timing_for(timing);
+        let _: () = msg_send![class!(NSAnimationContext), beginGrouping];
+        let ctx: id = msg_send![class!(NSAnimationContext), currentContext];
+        let _: () = msg_send![ctx, setDuration: (duration_ms / 1000.0)];
+        let _: () = msg_send![ctx, setTimingFunction: tf];
+        for r in &regions {
+            let ns_y = content_h - r.y - r.height; // web top-left → NSView bottom-left
+            let frame = NSRect::new(NSPoint::new(r.x, ns_y), NSSize::new(r.width, r.height));
+            if let Some(&ptr) = map.get(&r.id) {
+                let v = ptr as id;
+                let anim: id = msg_send![v, animator];
+                let _: () = msg_send![anim, setFrame: frame]; // CA-driven, WindowServer clock
+            }
+        }
+        let _: () = msg_send![class!(NSAnimationContext), endGrouping];
+    }
+}
+
+/// Client-driven: hand the sidebar width toggle (a fixed CSS transition) to AppKit's
+/// animator in ONE IPC. See `apply_vibrancy_animation`.
+#[tauri::command]
+fn vibrancy_animate_regions(window: tauri::Window, regions: Vec<VibRegion>, duration_ms: f64, timing: [f64; 4]) {
+    #[cfg(target_os = "macos")]
+    {
+        let win = window.clone();
+        let _ = window.run_on_main_thread(move || apply_vibrancy_animation(&win, regions, duration_ms, timing));
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, regions, duration_ms, timing);
+}
+
 /// Client-driven: set the full list of vibrancy regions (cards/sidebar) in
 /// window coords. Empty list clears all (e.g. leaving floating mode → fall back
 /// to no per-region vibrancy). No-op off macOS.
@@ -1034,6 +1134,7 @@ pub fn run() {
             set_theme,
             notify,
             vibrancy_set_regions,
+            vibrancy_animate_regions,
             browser_open,
             browser_navigate,
             browser_set_bounds,
