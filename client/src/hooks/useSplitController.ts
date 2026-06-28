@@ -12,7 +12,7 @@
  * splitController. ADDITIVE / behind the P2 flag; the host swaps PanelGrid /
  * GroupLayout to drive this at the (user-verified) integration step.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   type LayoutNode,
   type DropEdge,
@@ -50,6 +50,13 @@ export interface SplitController {
 
 export function useSplitController(initial: LayoutNode): SplitController {
   const [tree, setTree] = useState<LayoutNode>(initial);
+  // Mirror the committed tree in a ref. `close` must decide its boolean return from the
+  // CURRENT tree synchronously; reading a `[tree]`-dep closure made its identity churn on
+  // every resize AND risked a stale value if called twice before a re-render. The ref is
+  // kept current on every render and advanced eagerly by `close`, so the callback can be
+  // `[]`-stable like every other op.
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
 
   const onResize = useCallback(
     (path: number[], dividerIdx: number, deltaPx: number, bandPx: number) => {
@@ -66,12 +73,13 @@ export function useSplitController(initial: LayoutNode): SplitController {
 
   const close = useCallback(
     (targetId: string): boolean => {
-      const next = closeLeaf(tree, targetId);
-      if (next == null) return false;
+      const next = closeLeaf(treeRef.current, targetId);
+      if (next == null) return false; // last leaf — host decides what an empty layout means
+      treeRef.current = next; // advance the ref ahead of the async state commit
       setTree(next);
       return true;
     },
-    [tree],
+    [],
   );
 
   const move = useCallback((sourceId: string, targetId: string, edge: DropEdge, ratio?: number) => {
