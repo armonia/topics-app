@@ -1,4 +1,5 @@
 import type { AppSettings } from '../types';
+import { isTauri } from './shell';
 
 const DEFAULT_SETTINGS: AppSettings = {
   fontSize: 13,
@@ -16,9 +17,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   enableNewChat: false,
   // Experimental floating-splits layout — OFF by default, desktop-only.
   floatingSplits: false,
-  // Overlay sidebar (slides over content instead of pushing it) — OFF by
-  // default, desktop-only. Eliminates the sidebar-toggle terminal relayout.
-  overlaySidebar: false,
+  // Overlay sidebar (slides over content instead of pushing it). Defaults ON on
+  // Tauri — the migration target, where eliminating the sidebar-toggle terminal
+  // relayout (literal zero frame-drop, content offset is constant) is the goal;
+  // Electron/web stay push (false). Reversible from Settings ▸ Appearance.
+  overlaySidebar: isTauri,
   // Experimental split-tree engine — OFF by default. Renders the standalone
   // grid through the unified layoutTree/<SplitTree> renderer; flip to dogfood.
   splitTreeEngine: false,
