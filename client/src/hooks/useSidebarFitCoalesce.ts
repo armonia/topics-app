@@ -21,23 +21,44 @@ export function useSidebarFitCoalesce(): void {
       (e.propertyName === 'transform' || e.propertyName === 'width') &&
       e.target instanceof Element && e.target === sidebar();
 
-    let active = false;
+    let active = false; // a slide is currently animating (dedupes overlapping transitionrun)
+    let bracketOpen = false; // we've dispatched -start not yet matched by -end (consumer contract)
     let safety = 0;
-    let revealRaf = 0;
+    let endRaf = 0;
+    // Open the consumer bracket. CRITICAL: keep -start/-end BALANCED across a rapid
+    // collapse→expand burst. The previous slide's -end is dispatched on a deferred rAF
+    // (so the settled width paints first); if a new slide starts before it fires, we
+    // CANCEL that pending -end and stay inside the SAME open bracket rather than emitting
+    // a second unmatched -start. Consumers that ref-count the bracket (SingleTerminalPane's
+    // resizeDepth, NativeBrowserPlaceholder's freeze) would otherwise stick held forever.
+    const openBracket = () => {
+      if (endRaf) { cancelAnimationFrame(endRaf); endRaf = 0; } // continuing a burst — keep it open
+      if (!bracketOpen) {
+        bracketOpen = true;
+        window.dispatchEvent(new Event('topics:sidebar-resize-start')); // hold fits during the slide
+      }
+    };
+    // Run exactly one fit() at the settled width on the next frame (the rAF lets the final
+    // width paint first — FitAddon measures the rendered glyph cell for columns). If another
+    // slide starts before this fires, openBracket() cancels it so one bracket spans the burst.
+    const scheduleClose = () => {
+      if (endRaf) cancelAnimationFrame(endRaf);
+      endRaf = requestAnimationFrame(() => {
+        endRaf = 0;
+        bracketOpen = false;
+        window.dispatchEvent(new Event('topics:sidebar-resize-end'));
+      });
+    };
     const start = () => {
       if (active) return;
       active = true;
-      cancelAnimationFrame(revealRaf); // drop a pending reveal-fit from a rapid prior toggle
-      window.dispatchEvent(new Event('topics:sidebar-resize-start')); // hold fits during the slide
+      openBracket();
     };
     const end = () => {
       if (!active) return;
       active = false;
       clearTimeout(safety);
-      // Run exactly one fit() at the settled width on the next frame (the rAF lets the
-      // final width paint first — FitAddon measures the rendered glyph cell for columns).
-      cancelAnimationFrame(revealRaf);
-      revealRaf = requestAnimationFrame(() => window.dispatchEvent(new Event('topics:sidebar-resize-end')));
+      scheduleClose();
     };
 
     const onRun = (e: TransitionEvent) => {
@@ -58,7 +79,10 @@ export function useSidebarFitCoalesce(): void {
       document.removeEventListener('transitionend', onEnd, true);
       document.removeEventListener('transitioncancel', onEnd, true);
       clearTimeout(safety);
-      cancelAnimationFrame(revealRaf);
+      if (endRaf) cancelAnimationFrame(endRaf);
+      // Never leave an open bracket behind (would stick a consumer's hold) if we unmount
+      // mid-slide before the deferred -end fired.
+      if (bracketOpen) { bracketOpen = false; window.dispatchEvent(new Event('topics:sidebar-resize-end')); }
     };
   }, []);
 }
