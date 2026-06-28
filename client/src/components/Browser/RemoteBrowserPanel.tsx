@@ -164,6 +164,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const focusUrlBarRef = useRef<(() => void) | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
+  const [findCount, setFindCount] = useState<number | null>(null);
 
   // Surface URL changes to the layout (tab title / persisted pane url) + record
   // in per-topic history. browser.url now tracks in-page nav via the poll.
@@ -217,8 +218,19 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const closeFind = useCallback(() => {
     setFindOpen(false);
     setFindText('');
+    setFindCount(null);
     void browser.stopFind();
   }, [browser]);
+
+  // Live match count (window.find gives none, so countMatches walks the page text).
+  useEffect(() => {
+    if (!findOpen || !findText) { setFindCount(null); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      void browser.countMatches?.(findText).then((n) => { if (!cancelled) setFindCount(n); });
+    }, 150);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [findOpen, findText, browser]);
 
   const findBtn = 'w-6 h-6 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0';
 
@@ -259,6 +271,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
             data-testid="browser-find-input"
             className="flex-1 h-6 px-2 text-[12px] rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
           />
+          {findCount !== null && (
+            <span className="text-[11px] text-app-text-muted tabular-nums flex-shrink-0 min-w-[3ch] text-right" data-testid="browser-find-count">
+              {findCount}
+            </span>
+          )}
           <button className={findBtn} title="Precedente (⇧⏎)" onClick={() => runFind(false)}><ChevronUp size={14} aria-hidden /></button>
           <button className={findBtn} title="Successivo (⏎)" onClick={() => runFind(true)}><ChevronDown size={14} aria-hidden /></button>
           <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
