@@ -1319,7 +1319,7 @@ const FPS_SELFTEST_JS: &str = r#"(async function(){
   if(!d.length){ report({error:'no frames sampled'}); return; }
   var max=0,sum=0,dropped=0,bad=0;
   for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)dropped++; if(x>33)bad++; }
-  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6});
+  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6,xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
 })();"#;
 
 /// Diagnostic sink for the FPS self-test: the injected probe posts its frame-timing
