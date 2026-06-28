@@ -1,5 +1,5 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useNativeBrowser } from '../../hooks/useNativeBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -146,25 +146,34 @@ function useBackToSpawner(
 /**
  * Tauri native browser pane. Mirrors the Electron native path: a real child
  * WKWebView (driven by useTauriBrowser → browser_* Rust commands) composited
- * over the React layout via the shared NativeBrowserPlaceholder. The toolbar is
- * a compact native-feel address bar; full BrowserToolbar parity (devtools,
- * find, zoom, device modes) comes once those WKWebView capabilities are bridged.
+ * over the React layout via the shared NativeBrowserPlaceholder, now with the
+ * FULL BrowserToolbar — back/forward/reload, favicon, address bar, per-topic
+ * history dropdown, zoom, find-in-page and back-to-spawner, plus the Chrome
+ * keyboard shortcuts. Real WKWebView history (browser_back/forward/reload) + a
+ * live state poll in useTauriBrowser (url/title/favicon/loading off the page's
+ * own readyState) keep the chrome in sync with IN-PAGE navigation too. DevTools,
+ * console capture and device emulation stay hidden — their WKWebView bridges
+ * aren't wired yet and BrowserToolbar self-hides a control whose handler is
+ * absent, so there are no dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true }: RemoteBrowserPanelProps) {
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl);
-  const [urlInput, setUrlInput] = useState(initialUrl ?? '');
-  const editingRef = useRef(false);
   useReportBrowserActivity(contextId, browser.loading);
+  const { history, push: pushHistory } = useBrowserHistory(contextId);
+  const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
+  const focusUrlBarRef = useRef<(() => void) | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
 
-  // Reflect the live URL into the address bar (unless the user is mid-edit).
+  // Surface URL changes to the layout (tab title / persisted pane url) + record
+  // in per-topic history. browser.url now tracks in-page nav via the poll.
   useEffect(() => {
-    if (!editingRef.current) setUrlInput(browser.url);
+    if (browser.url) {
+      onUrlChange?.(browser.url);
+      pushHistory(browser.url);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on url change only
   }, [browser.url]);
-
-  // Surface URL changes to the layout (tab title / persisted pane url).
-  useEffect(() => {
-    if (browser.url) onUrlChange?.(browser.url);
-  }, [browser.url, onUrlChange]);
 
   // External navigation (agent / spawner / restored pane url).
   useEffect(() => {
@@ -175,31 +184,81 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when navigateUrl changes
   }, [navigateUrl]);
 
-  const btn = 'w-7 h-7 flex items-center justify-center rounded-md text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0 disabled:opacity-40 app-no-drag';
+  // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
+  // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·
+  // Cmd+(+/-/0) zoom. Skip when typing in a different text field.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? '';
+      const isTextField = tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable;
+      const isUrlBar = (target as HTMLInputElement | null)?.dataset?.testid === 'browser-url-input';
+      if (isTextField && !isUrlBar) return;
+      const k = e.key.toLowerCase();
+      if (!e.altKey && !e.shiftKey && k === 'l') { e.preventDefault(); focusUrlBarRef.current?.(); }
+      else if (!e.altKey && !e.shiftKey && k === 'r') { e.preventDefault(); void browser.reload(); }
+      else if (!e.altKey && !e.shiftKey && e.key === '[') { e.preventDefault(); void browser.goBack(); }
+      else if (!e.altKey && !e.shiftKey && e.key === ']') { e.preventDefault(); void browser.goForward(); }
+      else if (!e.altKey && !e.shiftKey && k === 'f') { e.preventDefault(); setFindOpen(true); }
+      else if (!e.shiftKey && (e.key === '+' || e.key === '=')) { e.preventDefault(); void browser.setZoom(0.5); }
+      else if (!e.shiftKey && e.key === '-') { e.preventDefault(); void browser.setZoom(-0.5); }
+      else if (!e.shiftKey && e.key === '0') { e.preventDefault(); void browser.setZoom('reset'); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [browser]);
+
+  const runFind = useCallback(
+    (forward: boolean) => { if (findText) void browser.findInPage(findText, { forward, findNext: true }); },
+    [browser, findText],
+  );
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindText('');
+    void browser.stopFind();
+  }, [browser]);
+
+  const findBtn = 'w-6 h-6 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0';
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-surface" data-testid="browser-native-panel">
-      <div className="flex items-center gap-1 px-2 h-10 border-b border-app-border flex-shrink-0 app-no-drag">
-        <button className={btn} title="Indietro" onClick={() => void browser.goBack()}><ArrowLeft size={16} aria-hidden /></button>
-        <button className={btn} title="Avanti" onClick={() => void browser.goForward()}><ArrowRight size={16} aria-hidden /></button>
-        <button className={btn} title="Ricarica" onClick={() => void browser.reload()}>
-          {browser.loading ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <RotateCw size={15} aria-hidden />}
-        </button>
-        <form
-          className="flex-1 min-w-0"
-          onSubmit={(e) => { e.preventDefault(); editingRef.current = false; void browser.navigate(urlInput); }}
-        >
+      <BrowserToolbar
+        url={browser.url}
+        onUrlChange={browser.navigate}
+        onBack={browser.goBack}
+        onForward={browser.goForward}
+        onRefresh={browser.reload}
+        canGoBack={true}
+        canGoForward={true}
+        loading={browser.loading}
+        history={history}
+        faviconUrl={browser.faviconUrl}
+        onRegisterFocus={(fn) => { focusUrlBarRef.current = fn; }}
+        onBackToSpawner={backToSpawner?.onBackToSpawner}
+        spawnerLabel={backToSpawner?.spawnerLabel}
+        onZoom={browser.setZoom}
+      />
+      {findOpen && (
+        <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
           <input
-            value={urlInput}
-            onChange={(e) => { editingRef.current = true; setUrlInput(e.target.value); }}
-            onBlur={() => { editingRef.current = false; setUrlInput(browser.url); }}
-            placeholder="Cerca o inserisci un indirizzo"
-            data-testid="browser-url-input"
-            spellCheck={false}
-            className="w-full h-7 px-3 text-[12px] rounded-md bg-app-bg border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary transition-colors"
+            autoFocus
+            value={findText}
+            onChange={(e) => setFindText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); runFind(!e.shiftKey); }
+              else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+            }}
+            placeholder="Trova nella pagina"
+            data-testid="browser-find-input"
+            className="flex-1 h-6 px-2 text-[12px] rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
           />
-        </form>
-      </div>
+          <button className={findBtn} title="Precedente (⇧⏎)" onClick={() => runFind(false)}><ChevronUp size={14} aria-hidden /></button>
+          <button className={findBtn} title="Successivo (⏎)" onClick={() => runFind(true)}><ChevronDown size={14} aria-hidden /></button>
+          <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
+        </div>
+      )}
       <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
     </div>
   );

@@ -904,21 +904,105 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
 /// agent primitive for the native pane (extract DOM text, current url/title, any
 /// `JSON.stringify(...)` payload). The action ops (click/fill/scroll) go through
 /// `webview.eval()` which doesn't need a return value.
+///
+/// MUST be `async`: `eval_js_blocking` blocks the calling thread until the
+/// WKWebView completion handler runs ON THE MAIN THREAD. A sync command runs ON
+/// main, so it would block main waiting for main → deadlock (8s timeout every
+/// poll tick = a frozen app). As `async` Tauri drives it off-main; we further
+/// hop to the blocking pool via `spawn_blocking` so we never stall an async
+/// runtime worker, leaving main free to service the completion handler.
 #[tauri::command]
-fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Result<String, String> {
+async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return eval_js_blocking(&wv, js);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = (wv, js);
+            Err("browser_eval_js: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Fire-and-forget JS in a pane (no return value) — the ACTION side: zoom via
+/// `document.body.style.zoom`, `window.find(...)`, click/fill/scroll. Uses the
+/// cross-platform `webview.eval()` (no native bridge needed).
+#[tauri::command]
+fn browser_exec_js(app: tauri::AppHandle, id: String, js: String) -> Result<(), String> {
     use tauri::Manager;
     let wv = app
         .get_webview(&browser_label(&id))
         .ok_or("no such browser pane")?;
+    wv.eval(&js).map_err(|e| e.to_string())
+}
+
+/// Native WKWebView history nav — REAL `goBack`/`goForward`/`reload` (vs the old
+/// JS-history hack that just re-navigated to the current URL). `which`: 0=back,
+/// 1=forward, 2=reload. UI methods, so they run on the main thread via
+/// `with_webview`. macOS only (Win/Linux WebView2/WebKitGTK have own nav APIs).
+#[cfg(target_os = "macos")]
+fn wk_nav(wv: &tauri::Webview, which: u8) {
+    let _ = wv.with_webview(move |platform| unsafe {
+        use cocoa::base::id;
+        use objc::{msg_send, sel, sel_impl};
+        let wk = platform.inner() as id;
+        match which {
+            0 => {
+                let _: id = msg_send![wk, goBack];
+            }
+            1 => {
+                let _: id = msg_send![wk, goForward];
+            }
+            _ => {
+                let _: id = msg_send![wk, reload];
+            }
+        }
+    });
+}
+
+/// Real "Back" — WKWebView document history (not a JS re-nav).
+#[tauri::command]
+fn browser_back(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
     #[cfg(target_os = "macos")]
-    {
-        return eval_js_blocking(&wv, js);
-    }
-    #[allow(unreachable_code)]
-    {
-        let _ = (wv, js);
-        Err("browser_eval_js: macOS only".into())
-    }
+    wk_nav(&wv, 0);
+    #[cfg(not(target_os = "macos"))]
+    let _ = wv;
+    Ok(())
+}
+
+/// Real "Forward" — WKWebView document history.
+#[tauri::command]
+fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+    #[cfg(target_os = "macos")]
+    wk_nav(&wv, 1);
+    #[cfg(not(target_os = "macos"))]
+    let _ = wv;
+    Ok(())
+}
+
+/// Real "Reload" — WKWebView reload (preserves history position, vs re-navigate).
+#[tauri::command]
+fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+    #[cfg(target_os = "macos")]
+    wk_nav(&wv, 2);
+    #[cfg(not(target_os = "macos"))]
+    let _ = wv;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1244,7 +1328,11 @@ pub fn run() {
             browser_navigate,
             browser_set_bounds,
             browser_close,
-            browser_eval_js
+            browser_eval_js,
+            browser_exec_js,
+            browser_back,
+            browser_forward,
+            browser_reload
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
