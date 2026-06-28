@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
-import { isOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
+import { slotIsOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { parseBrowserWsMessage } from '../types/browser-ws-messages';
@@ -69,13 +69,33 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   const pendingRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const initialUrlRef = useRef(initialUrl);
 
+  // ── Freeze-frame ──────────────────────────────────────────────────────────
+  // A native child WKWebView ALWAYS composites above the DOM, so it can't be
+  // z-ordered under a dropdown nor cheaply moved per-frame. When an HTML overlay
+  // opens over it, or a sidebar/divider animation is in flight, we capture a PNG
+  // still (browser_screenshot), show it as a DOM <img> in the placeholder, and
+  // park the live view off-screen. Overlays then render over the still by normal
+  // z-index (the page no longer vanishes), and animations move the cheap image,
+  // not the native view. `frozenRef` makes applyBounds a no-op while frozen so the
+  // placeholder's bounds-tracking can't re-park/thrash; `freezeSeqRef` correlates
+  // each freeze/thaw so a rapid toggle never shows a stale still.
+  const [frozenImage, setFrozenImage] = useState<string | null>(null);
+  const frozenRef = useRef(false);
+  const freezeSeqRef = useRef(0);
+  const thawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Apply the effective bounds = the last slot rect, letterboxed to the device
   // dims when emulating. Centralised so device-mode switches can re-letterbox
   // without the placeholder re-measuring.
   const applyBounds = useCallback(() => {
+    // While frozen the live view is parked behind a DOM still; ignore every
+    // bounds push (poll / ResizeObserver / device switch) so nothing re-parks or
+    // re-shows it mid-overlay/animation. thaw() restores it via reflow-request.
+    if (frozenRef.current) return;
     const slot = pendingRectRef.current;
     if (!slot || !openedRef.current) return;
-    const hide = slot.width <= 0 || slot.height <= 0 || isOccluded();
+    // Overlay-hiding is handled by the freeze path (intersection-scoped), not here.
+    const hide = slot.width <= 0 || slot.height <= 0;
     let rect = slot;
     const dims = deviceDimsRef.current;
     if (!hide && dims) {
@@ -109,21 +129,62 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     [applyBounds, id],
   );
 
-  // Overlay occlusion: park the webview while a dropdown/menu/modal is open,
-  // restore (re-measure) when the last one closes. Native views can't be
-  // z-ordered under DOM, so hiding is the parity-safe fix (the user's
-  // "i dropdown vanno sotto il browser").
-  useEffect(() => {
-    return onOcclusionChange((occ) => {
-      if (!openedRef.current) return;
-      if (occ) {
-        void tauriInvoke('browser_set_bounds', { id, ...OFFSCREEN }).catch(() => {});
-      } else {
-        // Bust the placeholder's coalescing cache so it re-issues the real rect.
-        window.dispatchEvent(new CustomEvent('browser:reflow-request'));
-      }
-    });
+  // Capture a still, show it, then park the live view. Capturing FIRST (while the
+  // view is on-screen) makes the swap seamless — the page never visibly vanishes.
+  const freeze = useCallback(() => {
+    if (!openedRef.current || frozenRef.current) return;
+    frozenRef.current = true; // applyBounds is now a no-op — the poll can't fight us
+    const seq = ++freezeSeqRef.current;
+    if (thawTimerRef.current) { clearTimeout(thawTimerRef.current); thawTimerRef.current = null; }
+    void tauriInvoke<string>('browser_screenshot', { id })
+      .then((data) => {
+        if (freezeSeqRef.current === seq && data) setFrozenImage(`data:image/png;base64,${data}`);
+      })
+      .catch(() => {})
+      .finally(() => {
+        // Park regardless (even if the shot failed, the overlay must show through);
+        // skip if a thaw already superseded this freeze.
+        if (freezeSeqRef.current === seq) void tauriInvoke('browser_set_bounds', { id, ...OFFSCREEN }).catch(() => {});
+      });
   }, [id]);
+
+  // Restore the live view at the real slot, then drop the still once the view is
+  // surely back on top (it composites above the DOM, so an overlapping image
+  // underneath is invisible — a generous delay is artifact-free).
+  const thaw = useCallback(() => {
+    if (!frozenRef.current) return;
+    frozenRef.current = false;
+    const seq = ++freezeSeqRef.current;
+    window.dispatchEvent(new CustomEvent('browser:reflow-request'));
+    if (thawTimerRef.current) clearTimeout(thawTimerRef.current);
+    thawTimerRef.current = setTimeout(() => {
+      if (freezeSeqRef.current === seq) setFrozenImage(null);
+    }, 240);
+  }, []);
+
+  // Overlay occlusion: freeze ONLY while an overlay actually intersects THIS pane's
+  // slot (a menu elsewhere leaves it untouched), so the still shows through and the
+  // overlay renders over it; thaw when nothing covers it anymore. Replaces the old
+  // global off-screen park, whose 30ms-debounce vs per-frame-poll race left a
+  // visible 20-50ms vanish — and which hid every pane for any overlay anywhere.
+  useEffect(() => {
+    return onOcclusionChange(() => {
+      if (!openedRef.current) return;
+      const slot = pendingRectRef.current;
+      if (slot && slotIsOccluded(slot)) freeze(); else thaw();
+    });
+  }, [freeze, thaw]);
+
+  // NOTE: deliberately NO freeze-on-sidebar-animation. Hiding the live pane behind
+  // a still just to survive the slide would be a kludge (same family as blanking
+  // terminals during a resize). The structural fixes are: overlay-sidebar mode
+  // (constant content width → the pane never moves) and disabling the WKWebView's
+  // implicit Core Animation so the per-frame moves of PUSH mode are cheap (see
+  // browser_open in src-tauri/src/lib.rs). Freeze stays scoped to its one
+  // unavoidable case: an HTML overlay that must composite over the native view.
+
+  // Drop a pending thaw timer on unmount.
+  useEffect(() => () => { if (thawTimerRef.current) clearTimeout(thawTimerRef.current); }, []);
 
   // Create the native webview once per contextId; close on unmount. (Electron
   // keeps the view durable across unmount; for Tier-1 we close — simpler, and a
@@ -453,6 +514,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     ready,
     viewId: ready ? id : null,
     faviconUrl,
+    frozenImage,
     navigate,
     goBack,
     goForward,
