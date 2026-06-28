@@ -147,15 +147,38 @@ function App() {
   // panel rects to the transparent window so floating-splits gaps show the clear
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
-  // Overlay sidebar: floats over fixed-width content (collapse via composited
-  // translateX) so NOTHING reflows on toggle — no terminal re-fit, no frame drop,
-  // nothing to blank. FORCED on Tauri (WebKit re-flows terminals per frame in push
-  // mode → the cost the old content-visibility kludge masked). Electron keeps the
-  // user's setting (its push mode lays out fast enough; default push, unchanged).
+  // Overlay sidebar: floats over the content via a composited translateX. The slide
+  // itself reflows NOTHING (pad is held); the content reclaims the freed strip in ONE
+  // discrete step at slide-end (see reclaimedCollapsed / commitReclaim below) — the real
+  // push behaviour, but without the per-frame freeze. FORCED on Tauri (WebKit's DOM
+  // renderer re-flows terminals expensively; paired with the canvas renderer +
+  // staggered fit so the settle stays cheap). Electron keeps the user's setting.
   const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
+  // DEFER-RECLAIM: the content's overlay-mode paddingLeft reflects this COMMITTED
+  // collapse state, flipped at slide-END (not at toggle). So collapsing genuinely
+  // reclaims the freed strip (content + terminals widen to full width — the real push
+  // behaviour) but the reflow is ONE discrete layout pass at the end (≈ the divider-
+  // drag-release cost), not a per-frame freeze across the 200ms slide.
+  const [reclaimedCollapsed, setReclaimedCollapsed] = useState(sidebarCollapsed);
+  const commitReclaim = useCallback(() => {
+    if (!desktopOverlay) { setReclaimedCollapsed(sidebarCollapsed); return; }
+    // Authoritative direct-DOM write so React batching can't leave the pad on its
+    // pre-toggle value when the coalesced fit measures the new width one frame later.
+    const mc = document.getElementById('main-content');
+    if (mc) mc.style.paddingLeft = `${sidebarCollapsed ? 0 : sidebarWidth}px`;
+    setReclaimedCollapsed(sidebarCollapsed);
+  }, [desktopOverlay, sidebarCollapsed, sidebarWidth]);
   // Coalesce xterm fit() across the sidebar collapse/expand (one fit at the settled
-  // size instead of per-frame) so the slide doesn't jank from terminal re-fits.
-  useSidebarFitCoalesce();
+  // size) AND commit the strip reclaim at slide-end via commitReclaim.
+  useSidebarFitCoalesce({ commitReclaim });
+  // Fallback: a toggle that produces NO transition (reduced-motion, or an already-
+  // settled no-op) won't fire the coalesce end() — commit shortly after so paddingLeft
+  // can never get stuck on the pre-toggle value. Idempotent with the coalesce commit.
+  useEffect(() => {
+    if (!desktopOverlay) { setReclaimedCollapsed(sidebarCollapsed); return; }
+    const t = window.setTimeout(() => setReclaimedCollapsed(sidebarCollapsed), 300);
+    return () => clearTimeout(t);
+  }, [sidebarCollapsed, desktopOverlay]);
   // Diagnostic (Tauri): expose the sidebar toggle so the env-gated FPS self-test
   // (TOPICS_FPS_SELFTEST, injected at boot by src-tauri) can drive a real
   // collapse/expand and sample rAF frame timing. Inert when the test isn't running.
@@ -965,14 +988,15 @@ function App() {
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
           // Overlay-sidebar mode (desktop): the sidebar is `position: fixed` and out of
-          // flow, so reserve its column with a CONSTANT left pad. Constant is deliberate:
-          // RECLAIMING it on collapse (pad → 0) widens the content, which re-flows all
-          // mounted DOM terminals — MEASURED at a 352ms freeze per toggle with 8 terminals
-          // (the exact cost the old content-visibility blank used to mask). There is no
-          // reflow-free way to reclaim it with live DOM terminals, so we keep the column
-          // reserved (a sidebar-width strip while collapsed) and stay smooth. See the
-          // collapsed-rail option if the empty strip needs filling without a reflow.
-          ...(desktopOverlay ? { paddingLeft: `${sidebarWidth}px` } : {}),
+          // flow, so its column is reserved with a left pad. DEFER-RECLAIM: this pad
+          // follows `reclaimedCollapsed` (committed at slide-END by commitReclaim), not
+          // the live `sidebarCollapsed`. During the slide the pad is UNCHANGED so nothing
+          // re-flows; on collapse-end it flips to 0 in ONE discrete layout pass (content +
+          // terminals reclaim the strip — the real push behaviour) + one coalesced fit.
+          // `transition:none` keeps that flip a discrete commit, never a per-frame animation.
+          ...(desktopOverlay
+            ? { paddingLeft: `${reclaimedCollapsed ? 0 : sidebarWidth}px`, transition: 'none' }
+            : {}),
         }}
 >
 

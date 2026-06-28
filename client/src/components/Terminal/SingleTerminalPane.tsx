@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
+import { isTauri } from '../../lib/shell';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
@@ -218,14 +220,20 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // lazy chunk never fetched outside the demo, and wrapped so any
     // incompatibility silently falls back to the DOM renderer.
     //
-    // NB: measured 2026-06-28 — enabling Canvas on Tauri desktop shaved only
-    // ~7ms off the ~43ms single-terminal sidebar-toggle settle (canvas deletes
-    // per-row DOM, which only dominates with many split terminals). Not worth
-    // adopting the upstream-REMOVED, v5-pinned addon's maintenance risk for the
-    // common case. Kept demo-only. See project_rewrite-tiers-verdict memory.
-    if ((window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
+    // CANVAS RENDERER ON TAURI (WebKit desktop). The single-terminal toggle barely
+    // benefits (~7ms), but the per-row DOM the canvas deletes is EXACTLY what dominates
+    // when MANY split terminals re-fit at once: reclaiming the sidebar strip with 8
+    // visible terminals measured ~570ms of frozen row-relayout on the DOM renderer →
+    // ~110ms with canvas (5×), and it scales down to 0 dropped frames for the common
+    // 1-2 terminal case. Crucially the canvas addon HONOURS `allowTransparency:true`
+    // (unlike WebGL, which triggers the unfixed thin/black-text bug #4212 and forfeits
+    // the frosted-glass look) — verified: crisp text at 2× DPR, transparency preserved,
+    // canvasOk=8/8 loads cleanly on xterm v6. DOM is kept on web/mobile (native text
+    // selection) and Electron (Chromium re-flows rows fast enough in push mode). The
+    // try/catch silently falls back to DOM if the v5-pinned addon ever rejects.
+    if (isTauri || (window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
       import('@xterm/addon-canvas')
-        .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ } })
+        .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); (window as unknown as {__canvasOk?:number}).__canvasOk = ((window as unknown as {__canvasOk?:number}).__canvasOk||0)+1; } catch { /* DOM fallback */ } })
         .catch(() => { /* DOM fallback */ });
     }
 
@@ -527,9 +535,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     let resizing = false;
     let missed = false;
     const fit = () => { if (termRef.current) { try { termRef.current.fit.fit(); } catch {} } };
-    const handleResize = () => { if (resizing) { missed = true; return; } fit(); };
+    // Stagger fits ONE PER FRAME (staggeredFit): N terminals fitting in one tick thrash
+    // layout (each fit reads layout after the previous wrote → full reflow per fit →
+    // ~570ms for 8 on a sidebar reclaim). Spreading lets layout settle between fits so
+    // each is cheap, and the app stays interactive. Dedupes per terminal.
+    const handleResize = () => { if (resizing) { missed = true; return; } enqueueFit(fit); };
     const onResizeStart = () => { resizing = true; };
-    const onResizeEnd = () => { resizing = false; if (missed) { missed = false; fit(); } };
+    const onResizeEnd = () => { resizing = false; if (missed) { missed = false; enqueueFit(fit); } };
     const observer = new ResizeObserver(handleResize);
     observer.observe(el);
     // Coalesce fits during BOTH a divider drag (pane-resize-*) and a sidebar
@@ -543,6 +555,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     window.addEventListener('topics:sidebar-resize-end', onResizeEnd);
     return () => {
       observer.disconnect();
+      cancelFit(fit); // drop any queued fit so we never call into a disposed terminal
       window.removeEventListener('topics:pane-resize-start', onResizeStart);
       window.removeEventListener('topics:pane-resize-end', onResizeEnd);
       window.removeEventListener('topics:sidebar-resize-start', onResizeStart);
