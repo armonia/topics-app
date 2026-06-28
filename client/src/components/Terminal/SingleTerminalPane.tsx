@@ -208,6 +208,21 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // native mobile text selection), dynamically imported so the addon is a
     // lazy chunk never fetched outside the demo, and wrapped so any
     // incompatibility silently falls back to the DOM renderer.
+    // Landing demo only: swap in the Canvas renderer, which DRAWS box-drawing
+    // and block-element glyphs itself (customGlyphs) instead of using the font.
+    // The marketing demo shows the real Claude Code block-art logo, and the
+    // default DOM renderer paints those sub-cell quadrant blocks from the font
+    // → hairline seams between them. Canvas renders them seam-free. Gated on a
+    // flag the demo boot shim sets (the real app keeps the DOM renderer for
+    // native mobile text selection), dynamically imported so the addon is a
+    // lazy chunk never fetched outside the demo, and wrapped so any
+    // incompatibility silently falls back to the DOM renderer.
+    //
+    // NB: measured 2026-06-28 — enabling Canvas on Tauri desktop shaved only
+    // ~7ms off the ~43ms single-terminal sidebar-toggle settle (canvas deletes
+    // per-row DOM, which only dominates with many split terminals). Not worth
+    // adopting the upstream-REMOVED, v5-pinned addon's maintenance risk for the
+    // common case. Kept demo-only. See project_rewrite-tiers-verdict memory.
     if ((window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
       import('@xterm/addon-canvas')
         .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ } })
