@@ -50,8 +50,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
   const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
   const consoleIdRef = useRef(0);
+  const selectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Device emulation: when set, the pane is letterboxed to these dims inside its
   // layout slot (centered) + a device UA is applied. null = desktop (full slot).
   const deviceDimsRef = useRef<{ width: number; height: number } | null>(null);
@@ -223,6 +225,86 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
   }, [id]);
 
+  // Select-element: inspect the DOM node at page coords (document.elementFromPoint)
+  // and return a css/dom path + bbox + text — the data the chat reference needs.
+  const inspectAt = useCallback(
+    async (x: number, y: number) => {
+      const js =
+        `(function(x,y){try{var el=document.elementFromPoint(x,y);if(!el)return null;` +
+        `function cp(e){var p=[],n=0;while(e&&e.nodeType===1&&n++<8){var s=e.tagName.toLowerCase();` +
+        `if(e.id){p.unshift(s+'#'+e.id);break}var c=e.className&&e.className.toString().trim().split(/\\s+/)[0];if(c)s+='.'+c;` +
+        `var par=e.parentNode;if(par){var sib=Array.prototype.filter.call(par.children,function(z){return z.tagName===e.tagName});` +
+        `if(sib.length>1)s+=':nth-of-type('+(sib.indexOf(e)+1)+')'}p.unshift(s);e=e.parentNode}return p.join(' > ')}` +
+        `function dp(e){var p=[];while(e&&e.nodeType===1){p.unshift(e.tagName.toLowerCase());e=e.parentNode}return p.join('/')}` +
+        `var r=el.getBoundingClientRect();var t=(el.innerText||el.textContent||'').trim().slice(0,120);` +
+        `return JSON.stringify({cssPath:cp(el),domPath:dp(el),bbox:{x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)},text:t})}catch(e){return null}})(${Math.round(x)},${Math.round(y)})`;
+      try {
+        const raw = await tauriInvoke<string>('browser_eval_js', { id, js });
+        if (!raw || raw === 'null') return null;
+        return JSON.parse(raw) as { cssPath: string; domPath: string; bbox: { x: number; y: number; w: number; h: number }; text: string };
+      } catch {
+        return null;
+      }
+    },
+    [id],
+  );
+
+  // ── Select-element (Cmd+Shift+E) ──────────────────────────────────────────
+  // The native pane composites ABOVE the DOM, so a React overlay can't catch a
+  // click on it. Instead inject an in-PAGE picker (hover outline + banner +
+  // capturing click/Esc) and poll `window.__topicsPick` for the result, then
+  // dispatch `chat:insert-text` — the same protocol the streaming/Electron
+  // overlays use, so the chat input picks it up identically.
+  const exitSelectMode = useCallback(() => {
+    if (selectPollRef.current) { clearInterval(selectPollRef.current); selectPollRef.current = null; }
+    setSelectMode(false);
+    void tauriInvoke('browser_exec_js', {
+      id,
+      js: 'try{window.__topicsSelCleanup&&window.__topicsSelCleanup()}catch(e){}',
+    }).catch(() => {});
+  }, [id]);
+
+  const enterSelectMode = useCallback(() => {
+    setSelectMode(true);
+    const inject =
+      `(function(){if(window.__topicsSelMode)return;window.__topicsSelMode=true;window.__topicsPick=null;` +
+      `var ov=document.createElement('div');ov.style.cssText='position:fixed;z-index:2147483647;border:2px solid #06f;background:rgba(0,102,255,.12);pointer-events:none;transition:all .04s';` +
+      `var bn=document.createElement('div');bn.textContent='Click per selezionare un elemento · Esc per annullare';bn.style.cssText='position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#06f;color:#fff;font:12px -apple-system,sans-serif;padding:4px 12px;border-radius:99px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.3)';` +
+      `document.documentElement.appendChild(ov);document.documentElement.appendChild(bn);` +
+      `function cp(e){var p=[],n=0;while(e&&e.nodeType===1&&n++<8){var s=e.tagName.toLowerCase();if(e.id){p.unshift(s+'#'+e.id);break}var c=e.className&&e.className.toString().trim().split(/\\s+/)[0];if(c)s+='.'+c;var pa=e.parentNode;if(pa){var sb=Array.prototype.filter.call(pa.children,function(z){return z.tagName===e.tagName});if(sb.length>1)s+=':nth-of-type('+(sb.indexOf(e)+1)+')'}p.unshift(s);e=e.parentNode}return p.join(' > ')}` +
+      `function dp(e){var p=[];while(e&&e.nodeType===1){p.unshift(e.tagName.toLowerCase());e=e.parentNode}return p.join('/')}` +
+      `function at(x,y){return document.elementFromPoint(x,y)}` +
+      `function mm(e){var el=at(e.clientX,e.clientY);if(!el||el===ov||el===bn)return;var r=el.getBoundingClientRect();ov.style.left=r.left+'px';ov.style.top=r.top+'px';ov.style.width=r.width+'px';ov.style.height=r.height+'px'}` +
+      `function ck(e){e.preventDefault();e.stopPropagation();var el=at(e.clientX,e.clientY);if(!el){return}var r=el.getBoundingClientRect();window.__topicsPick=JSON.stringify({cssPath:cp(el),domPath:dp(el),bbox:{x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)},text:(el.innerText||el.textContent||'').trim().slice(0,120)});cl()}` +
+      `function ke(e){if(e.key==='Escape'){window.__topicsPick='CANCEL';cl()}}` +
+      `function cl(){window.__topicsSelMode=false;document.removeEventListener('mousemove',mm,true);document.removeEventListener('click',ck,true);document.removeEventListener('keydown',ke,true);try{ov.remove();bn.remove()}catch(e){}window.__topicsSelCleanup=null}` +
+      `window.__topicsSelCleanup=cl;document.addEventListener('mousemove',mm,true);document.addEventListener('click',ck,true);document.addEventListener('keydown',ke,true)})()`;
+    void tauriInvoke('browser_exec_js', { id, js: inject }).catch(() => {});
+    if (selectPollRef.current) clearInterval(selectPollRef.current);
+    selectPollRef.current = setInterval(() => {
+      void tauriInvoke<string>('browser_eval_js', {
+        id,
+        js: '(function(){var p=window.__topicsPick;if(p)window.__topicsPick=null;return p||""})()',
+      })
+        .then((raw) => {
+          if (!raw) return;
+          // stop polling regardless of pick vs cancel
+          if (selectPollRef.current) { clearInterval(selectPollRef.current); selectPollRef.current = null; }
+          setSelectMode(false);
+          if (raw === 'CANCEL') return;
+          try {
+            const info = JSON.parse(raw) as { cssPath: string; domPath: string; bbox: { x: number; y: number; w: number; h: number }; text: string };
+            const payload = `Selected element on ${id}: ${info.cssPath} @ ${info.domPath} (bbox: ${info.bbox.x},${info.bbox.y},${info.bbox.w},${info.bbox.h})${info.text ? ` — "${info.text}"` : ''}`;
+            window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text: payload } }));
+          } catch { /* malformed pick — ignore */ }
+        })
+        .catch(() => {});
+    }, 150);
+  }, [id]);
+
+  // Tear down the select poll if the pane unmounts mid-pick.
+  useEffect(() => () => { if (selectPollRef.current) clearInterval(selectPollRef.current); }, []);
+
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). delta is a step (+/-0.5 ≈ ±10%), 'reset' → 100%.
   const setZoom = useCallback(
@@ -337,6 +419,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     onFindResult: () => () => {},
     setZoom,
     countMatches,
+    inspectAt,
+    selectMode,
+    enterSelectMode,
+    exitSelectMode,
     deviceMode,
     setDevice,
     responsiveSize,
