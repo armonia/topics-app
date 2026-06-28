@@ -821,6 +821,44 @@ const CONSOLE_PROXY_JS: &str = r#"(function(){
   window.addEventListener('unhandledrejection',function(e){push('error','Unhandled promise rejection: '+((e&&e.reason)||''))});
 })();"#;
 
+/// Disable the WKWebView layer's IMPLICIT Core Animation actions (position/bounds/
+/// frame/…). A layer-backed NSView animates its frame over ~0.25s by default; for a
+/// browser pane that the layout moves every frame — a divider drag, a PUSH-mode
+/// sidebar slide, a window resize — those implicit animations STACK and the
+/// WindowServer keeps recompositing for ~450ms after each push (the FPS drop).
+/// Mapping the layer's actions to NSNull makes every set_position/set_size land
+/// INSTANTLY: one discrete frame per push, no animation tail. Same intent as the
+/// CATransaction(setDisableActions:YES) the vibrancy frost uses, but set ONCE at
+/// open since the view persists. This is the structural fix — we do NOT hide the
+/// pane during the move. macOS only.
+#[cfg(target_os = "macos")]
+fn disable_layer_implicit_animations(wv: &tauri::Webview) {
+    let _ = wv.with_webview(move |platform| unsafe {
+        use cocoa::base::{id, nil, YES};
+        use cocoa::foundation::NSString;
+        use objc::{class, msg_send, sel, sel_impl};
+        let view = platform.inner() as id;
+        if view == nil {
+            return;
+        }
+        let _: () = msg_send![view, setWantsLayer: YES];
+        let layer: id = msg_send![view, layer];
+        if layer == nil {
+            return;
+        }
+        let null: id = msg_send![class!(NSNull), null];
+        let dict: id = msg_send![class!(NSMutableDictionary), dictionary];
+        // Geometry/visibility keys whose default action is an implicit animation.
+        for key in [
+            "position", "bounds", "frame", "contents", "hidden", "onOrderIn", "onOrderOut", "sublayers",
+        ] {
+            let k: id = NSString::alloc(nil).init_str(key);
+            let _: () = msg_send![dict, setObject: null forKey: k];
+        }
+        let _: () = msg_send![layer, setActions: dict];
+    });
+}
+
 /// Create (or, if it already exists, reuse) the native webview for a browser
 /// pane and place it at the given window-relative rect.
 #[tauri::command]
@@ -911,6 +949,12 @@ fn browser_open(
             tauri::LogicalSize::new(width.max(1.0), height.max(1.0)),
         )
         .map_err(|e| e.to_string())?;
+    // Structural FPS fix: make the pane's frame changes instant (no implicit CA
+    // animation to stack during a divider/sidebar/window-resize move).
+    #[cfg(target_os = "macos")]
+    if let Some(wv) = app.get_webview(&label) {
+        disable_layer_implicit_animations(&wv);
+    }
     Ok(())
 }
 
@@ -1221,6 +1265,36 @@ fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), Stri
     } else {
         wv.open_devtools();
     }
+    Ok(())
+}
+
+/// Return AppKit first-responder to the MAIN webview (the React chrome). A native
+/// browser pane is a sibling WKWebView that can hold keyboard first-responder, so
+/// after interacting with a page a tab click can feel "stuck" in the pane. The tab
+/// strip calls this on pointer-down. Principled AppKit hygiene (not a hide/kludge):
+/// worst case it's a no-op. macOS only.
+#[tauri::command]
+fn browser_release_focus(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        if let Some(main_wv) = app.get_webview("main") {
+            let _ = main_wv.with_webview(move |platform| unsafe {
+                use cocoa::base::{id, nil};
+                use objc::{msg_send, sel, sel_impl};
+                let view = platform.inner() as id;
+                if view == nil {
+                    return;
+                }
+                let ns_window: id = msg_send![view, window];
+                if ns_window != nil {
+                    let _: () = msg_send![ns_window, makeFirstResponder: view];
+                }
+            });
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     Ok(())
 }
 
@@ -1582,6 +1656,7 @@ pub fn run() {
             browser_reload,
             browser_set_user_agent,
             browser_toggle_devtools,
+            browser_release_focus,
             browser_take_download_events
         ])
         .run(tauri::generate_context!())

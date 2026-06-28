@@ -24,6 +24,7 @@ import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { releaseNativeFocus } from '../../lib/shell/tauri';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -644,6 +645,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     ? SELECTED_SURFACE_SOFT
                     : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
+            // Tauri: a native browser pane (sibling WKWebView) can hold AppKit
+            // first-responder; yank it back to the chrome on pointer-down so the
+            // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
+            onPointerDown={() => releaseNativeFocus()}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}

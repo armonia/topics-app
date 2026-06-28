@@ -22,3 +22,12 @@ export function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkn
 export function hasTauri(): boolean {
   return internals() !== null;
 }
+
+/** Tauri only — return AppKit first-responder to the main webview (the React
+ *  chrome). A native browser pane is a sibling WKWebView that can hold keyboard
+ *  first-responder; without handing it back, switching tabs can feel like the
+ *  click/focus is "stuck" in the pane. Fire-and-forget; no-op off Tauri. */
+export function releaseNativeFocus(): void {
+  if (!internals()) return;
+  void tauriInvoke('browser_release_focus').catch(() => {});
+}

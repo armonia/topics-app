@@ -339,6 +339,24 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
           Initializing native browser...
         </div>
       )}
+
+      {/* Freeze-frame (Tauri only — `frozenImage` is undefined on Electron). A
+          native child webview composites ABOVE the DOM, so while a dropdown
+          overlaps it or a sidebar/divider animation is in flight the live view is
+          parked off-screen and this PNG still stands in. Overlays render over it
+          by normal z-index; animations stretch a cheap bitmap instead of moving
+          the native view per-frame. pointer-events-none — it's a non-interactive
+          stand-in, and the live view is parked while it shows. */}
+      {browser.frozenImage && (
+        <img
+          src={browser.frozenImage}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover object-left-top pointer-events-none select-none"
+          data-testid="browser-frozen-frame"
+        />
+      )}
       {/* The "agent is controlling" indicator lives in the toolbar
           (AgentActivityPill) — it no longer insets this view, so the page
           never jumps when the agent acts. */}
