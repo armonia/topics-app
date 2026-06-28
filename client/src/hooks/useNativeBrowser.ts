@@ -48,6 +48,20 @@ export interface NativeBrowserHandle {
    *  where window.find gives no count). Undefined on backends that report counts
    *  via onFindResult (Electron CDP). */
   countMatches?(text: string): Promise<number>;
+  /** Optional — inspect the element at page CSS coords (Tauri select-element;
+   *  Electron uses electronAPI.browserNative.inspectAtPoint instead). */
+  inspectAt?(x: number, y: number): Promise<{
+    cssPath: string;
+    domPath: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    text: string;
+  } | null>;
+  /** Optional — Cmd+Shift+E select-element. On the Tauri pane the picking runs
+   *  IN-PAGE (the native view sits above the DOM, so a React overlay can't catch
+   *  the click); the hook dispatches `chat:insert-text` with the picked node. */
+  selectMode?: boolean;
+  enterSelectMode?(): void;
+  exitSelectMode?(): void;
   /** Phase 30.1 — Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
   setZoom(delta: number | 'reset'): Promise<number>;
   /** Current device-emulation mode (default 'desktop'). */

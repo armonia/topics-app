@@ -207,6 +207,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       else if (!e.shiftKey && (e.key === '+' || e.key === '=')) { e.preventDefault(); void browser.setZoom(0.5); }
       else if (!e.shiftKey && e.key === '-') { e.preventDefault(); void browser.setZoom(-0.5); }
       else if (!e.shiftKey && e.key === '0') { e.preventDefault(); void browser.setZoom('reset'); }
+      else if (e.shiftKey && k === 'e') {
+        e.preventDefault();
+        if (browser.selectMode) browser.exitSelectMode?.(); else browser.enterSelectMode?.();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
