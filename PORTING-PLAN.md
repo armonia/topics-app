@@ -64,7 +64,7 @@ Accoppiamento client→shell: **un solo bridge** (`window.electronAPI`, 17 file,
 | File explorer / git | ✅ | ✅ | ✅ | bassa (API già REST) |
 | Split / layout | ✅ | ✅ | ⚠️ stack singolo | media (mobile) |
 | **Terminale (pty)** | ❌→fallback | ✅ | ❌→fallback | **alta** (vedi T1) |
-| **Browser pane (CDP)** | ❌→fallback | ⚠️ vedi decisione | ❌→fallback | **altissima** (il blocco) |
+| **Browser pane** | ❌→fallback | ⚠️ degradato — WKWebView+JS, agent **5/13 op** (vedi D1) | ❌→fallback | **altissima** (il blocco) |
 | Vibrancy macOS | n/a | ✅ | n/a | media (cosmetica) |
 | Tray / shortcut / power | n/a | ✅ | n/a | bassa |
 | Push notifications | ✅ (web-push) | ✅ | ✅ | nessuna (già c'è) |
@@ -229,9 +229,20 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
 
 ## 6. Decisioni (aggiornato 2026-06-25)
 
-- **D1 — Browser pane**: ✅ **RISOLTO → CEF on-demand (Chromium reale embedded), NON finto.**
-  Requisito utente: webview **reale** (DOM/scroll/interazione veri), non screencast.
-  Esito ricerca multi-agente (workflow `native-browser-pane-tauri`, 11 agenti):
+- **D1 — Browser pane**: ⚠️ **REVERSAL (2026-06-29) → IMPLEMENTATO come WKWebView child + JS-injection, NON CEF.**
+  Il pane Tauri spedito è una **child view WKWebView nativa** (`lib.rs` `browser_open`/`browser_navigate`/
+  `browser_eval_js`/`browser_screenshot` via `takeSnapshot`), pilotata per **iniezione JS**, non CEF/CDP.
+  CEF è stato **abbandonato** (nessuna dep `cef` in `Cargo.toml`). Differenze vs il piano CEF qui sotto:
+  - **Parità agent ridotta: 5/13 op** (`NATIVE_SUPPORTED_OPS` in `client/src/lib/shell/tauriBrowserOps.ts` =
+    open / eval / get_text / console / screenshot). Mancano **observe/act** (il loop DOM ref-based su cui è
+    costruita l'intera tool-spec) + **point** (vision) → fallback al path streaming/Playwright del server.
+  - **Persi vs WebContentsView+CDP**: console-history early, input *trusted* (`isTrusted`), cookie httpOnly,
+    nav-entries reali (back/forward menu è uno stub), eventi load nativi (url/title oggi via poll `eval` 800ms).
+  - **Guadagnato**: leggerezza (niente bundle Chromium +170MB), nessun bundling `.app`/helper, vibrancy/glass
+    nativi sotto il pane. Scelta deliberata Tier-1, non stopgap accidentale.
+  > Storico della decisione CEF originale (SUPERATA — tenuta solo per contesto):
+  - Requisito utente: webview **reale** (DOM/scroll/interazione veri), non screencast.
+  - Esito ricerca multi-agente (workflow `native-browser-pane-tauri`, 11 agenti):
   - **Engine**: CEF (Chromium Embedded Framework) via `cef-rs`, montato come **child-view
     nativa** (NSView/HWND/X11) compositata sopra la UI React; main UI su system-webview leggero.
   - **Nativo davvero**: Chromium reale dipinge su GPU compositor, latenza nativa = analogo
@@ -273,6 +284,23 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
     insieme, non a pezzi.
 - **D3 — Mobile**: ✅ **PWA è sufficiente** — consolidare manifest/SW/responsive, niente
   wrapper app-store. (Tier 3.4 cassato.)
+- **D4 — Cap Electron "senza port Tauri" (audit 2026-06-29)**: l'audit segnalava 4 cap a zero
+  impl Tauri. Verifica dei **consumer reali** → 2 sono falsi positivi, gli altri descope/defer:
+  - `app.toggleAlwaysOnTop`: ✅ **GIÀ MIGRATO** (non era un gap). Funziona via nativo — global
+    shortcut Cmd/Ctrl+Alt+T (`lib.rs` `GlobalShortcutBuilder`) + menu View ▸ Always on Top +
+    stato `ALWAYS_ON_TOP`. Il renderer **non lo consuma né su Electron né su Tauri** (nessun
+    `toggleAlwaysOnTop`/`getAlwaysOnTop` in `client/src`), quindi nessun command/facade da costruire.
+  - `caffeinate` (powerSaveBlocker): ❌ **DESCOPE — API orfana**. `electronAPI.caffeinate` non è
+    chiamato da nessuna parte (zero hit in `client/src` su Electron *e* Tauri). Non è una lacuna di
+    parità: è una preload-API Electron mai consumata. Niente da portare finché non serve a un caller.
+  - `notification.showScoped` (banner con **deep-link al topic on-click**): **DEFER** — `notify`
+    base c'è; il valore (click→naviga) richiede le azioni del plugin notification + listener client +
+    verifica live. Follow-up, non mezza-feature ora.
+  - `daemon launchagent` (install/uninstall/status come servizio launchd): **DESCOPE → Tier 2**.
+    È accoppiato alla topologia server (come il pty, D2); fuori scope Tier-1. Su web/mobile = no-op.
+  - `multiwindow detach` (estrai un topic in finestra propria): **DEFER** (parità ridotta, non
+    blocco). Tauri lo regge via `WebviewWindow` multiwindow + registry detached; sessione dedicata.
+  → Lascia come unico P0 di parità l'**updater** (consumer vivo `UpdaterToast`, vedi sotto).
 
 ## 7. Hardening sicurezza config Tauri (da review)
 
