@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   // relayout (literal zero frame-drop, content offset is constant) is the goal;
   // Electron/web stay push (false). Reversible from Settings ▸ Appearance.
   overlaySidebar: isTauri,
+  // Tauri browser: native WKWebView pane by default (fast); flip ON to use the
+  // streaming/headless path instead, which the agent can drive end-to-end. OFF.
+  tauriBrowserStreaming: false,
   // Experimental split-tree engine — OFF by default. Renders the standalone
   // grid through the unified layoutTree/<SplitTree> renderer; flip to dogfood.
   splitTreeEngine: false,

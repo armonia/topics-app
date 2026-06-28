@@ -12,7 +12,24 @@ import { PermissionBar } from './PermissionBar';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
+import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import type { Topic } from '../../types';
+
+/** Live-read a single app setting (re-reads on the in-process settings-changed
+ *  event). Used so the Tauri browser can switch native↔streaming without a reload. */
+function useAppSettingFlag(key: 'tauriBrowserStreaming'): boolean {
+  const [val, setVal] = useState<boolean>(() => Boolean(loadSettings()[key]));
+  useEffect(() => {
+    const reread = () => setVal(Boolean(loadSettings()[key]));
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reread);
+    window.addEventListener('storage', reread);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reread);
+      window.removeEventListener('storage', reread);
+    };
+  }, [key]);
+  return val;
+}
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
  *  into the unified signals store, so its tab spinner + the project rollup
@@ -61,6 +78,9 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   // no <img> rendering). The native hook wires its own /ws/browser/:contextId
   // subscription for agent_active.
   const isElectronNative = Boolean(window.electronAPI?.browserNative?.isAvailable);
+  // Tauri can run the browser as a native WKWebView pane (default, fast) OR via
+  // the streaming/headless path (agent-drivable). The setting flips which.
+  const tauriStreaming = useAppSettingFlag('tauriBrowserStreaming');
 
   if (isElectronNative) {
     return (
@@ -80,7 +100,9 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
   // ============ Tauri NATIVE path — real child WKWebView (multi-webview). ============
   // Like Electron's WebContentsView but via Window::add_child (browser_* commands).
   // Reuses NativeBrowserPlaceholder for the layout-slot → setBounds geometry.
-  if (isTauri) {
+  // Skipped when the user opts into streaming (so the agent can drive the pane via
+  // the server's headless browser) — then we fall through to the streaming path.
+  if (isTauri && !tauriStreaming) {
     return (
       <TauriBrowserPanelInner
         contextId={contextId}
