@@ -912,6 +912,11 @@ pub fn run() {
             let zoom_out = MenuItem::with_id(handle, "zoom-out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
             let zoom_reset =
                 MenuItem::with_id(handle, "zoom-reset", "Actual Size", true, Some("CmdOrCtrl+0"))?;
+            // No accelerator: the Cmd/Ctrl+Alt+T chord is owned by the global
+            // shortcut (works unfocused too); a menu accelerator on the same chord
+            // would double-fire and cancel the toggle when the window is focused.
+            let always_on_top =
+                MenuItem::with_id(handle, "always-on-top", "Always on Top", true, None::<&str>)?;
             // Custom Quit (not the predefined .quit()) so ⌘Q sets QUITTING before
             // exiting — otherwise the hide-to-tray CloseRequested handler would
             // swallow the quit and trap the app in the tray.
@@ -943,6 +948,8 @@ pub fn run() {
                 .item(&zoom_out)
                 .item(&zoom_reset)
                 .separator()
+                .item(&always_on_top)
+                .separator()
                 .fullscreen()
                 .build()?;
             // NOTE: no `.close_window()` — its default ⌘W accelerator would close
@@ -973,6 +980,7 @@ pub fn run() {
                     QUITTING.store(true, Ordering::Relaxed);
                     app.exit(0);
                 }
+                "always-on-top" => toggle_always_on_top(app),
                 id @ ("zoom-in" | "zoom-out" | "zoom-reset") => {
                     let cur = ZOOM_PERCENT.load(Ordering::Relaxed);
                     let next = match id {
