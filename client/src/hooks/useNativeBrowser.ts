@@ -31,6 +31,15 @@ export interface NativeBrowserHandle {
   agentAction: string | null;
   ready: boolean;             // viewId resolved + cdpTargetId registered
   viewId: string | null;
+  /** Optional — Tauri only. A base64 PNG data-URL still of the page, shown in the
+   *  placeholder while the native WKWebView is parked off-screen (a dropdown/menu
+   *  overlaps it, or a sidebar/divider animation is in flight). A native child
+   *  webview always composites ABOVE the DOM, so it can't be z-ordered under an
+   *  HTML overlay nor cheaply moved per-frame; freezing to a DOM <img> lets
+   *  overlays render over a pixel-perfect still and lets animations move the image,
+   *  not the native view. Electron uses overlay windows instead and leaves this
+   *  undefined. */
+  frozenImage?: string | null;
   /** Favicon URL emitted by Chromium page-favicon-updated. Empty during navigation. */
   faviconUrl: string;
   navigate(url: string): Promise<void>;
