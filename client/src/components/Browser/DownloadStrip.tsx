@@ -10,6 +10,8 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { Check, X as XIcon, FolderOpen, Loader2 } from 'lucide-react';
+import { isTauri } from '../../lib/shell';
+import { tauriInvoke } from '../../lib/shell/tauri';
 
 interface DownloadEntry {
   id: string;
@@ -25,6 +27,31 @@ const RECENT_KEEP_MS = 30_000;
 
 export function DownloadStrip() {
   const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
+
+  // Tauri: poll the Rust download-event queue (browser_take_download_events) and
+  // apply start/done events to the same per-pane list the Electron path builds.
+  // wry gives no progress + (macOS) no final path, so it's a spinner→check, no %.
+  useEffect(() => {
+    if (!isTauri) return;
+    let stop = false;
+    const iv = window.setInterval(() => {
+      void tauriInvoke<Array<{ kind: string; id: string; url: string; filename: string; success: boolean; state: string; savedPath: string }>>('browser_take_download_events')
+        .then((events) => {
+          if (stop || !events || !events.length) return;
+          for (const ev of events) {
+            if (ev.kind === 'start') {
+              setDownloads((prev) => [...prev, { id: ev.id, url: ev.url, filename: ev.filename || 'download', totalBytes: 0, received: 0, state: 'progressing', savedPath: ev.savedPath }]);
+            } else {
+              setDownloads((prev) => prev.map((d) => d.id === ev.id ? { ...d, state: ev.state as DownloadEntry['state'], savedPath: ev.savedPath || d.savedPath } : d));
+              const doneId = ev.id;
+              setTimeout(() => setDownloads((prev) => prev.filter((d) => d.id !== doneId)), RECENT_KEEP_MS);
+            }
+          }
+        })
+        .catch(() => {});
+    }, 1000);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, []);
 
   useEffect(() => {
     const api = window.electronAPI?.browserNative;
@@ -55,6 +82,11 @@ export function DownloadStrip() {
   }, []);
 
   const showInFolder = useCallback((path: string) => {
+    if (isTauri) {
+      // opener plugin: select the file in Finder.
+      void tauriInvoke('plugin:opener|reveal_item_in_dir', { path }).catch(() => {});
+      return;
+    }
     void window.electronAPI?.browserNative?.showDownloadInFolder(path);
   }, []);
   const dismiss = useCallback((id: string) => {

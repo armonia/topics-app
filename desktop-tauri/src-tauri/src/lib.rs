@@ -773,6 +773,37 @@ fn browser_label(id: &str) -> String {
     format!("browserpane-{id}")
 }
 
+// ── Downloads ────────────────────────────────────────────────────────────────
+// wry exposes WKWebView's download delegate via WebviewBuilder::on_download, but
+// gives only Requested + Finished (no progress, and on macOS the final path is
+// empty). We choose the save path (~/Downloads/<name>) on Requested and queue
+// start/done events the client drains (browser_take_download_events) to drive the
+// DownloadStrip — a start spinner then a done check, no %.
+#[derive(Clone, Serialize)]
+struct DownloadEventMsg {
+    kind: String, // "start" | "done"
+    id: String,
+    url: String,
+    filename: String,
+    success: bool,
+    state: String, // done: "completed" | "interrupted"
+    #[serde(rename = "savedPath")]
+    saved_path: String,
+}
+
+static DOWNLOAD_EVENTS: std::sync::Mutex<Vec<DownloadEventMsg>> = std::sync::Mutex::new(Vec::new());
+static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath)
+static DOWNLOAD_ID: AtomicI64 = AtomicI64::new(1);
+
+/// Drain queued download start/done events for the DownloadStrip to apply.
+#[tauri::command]
+fn browser_take_download_events() -> Vec<DownloadEventMsg> {
+    match DOWNLOAD_EVENTS.lock() {
+        Ok(mut v) => std::mem::take(&mut *v),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Injected before any page script, on every navigation: a tiny console proxy so
 /// the toolbar's console badge can show page log/warn/error counts (WKWebView has
 /// no console-message delegate bridged). Buffers into `window.__topicsConsole`,
@@ -814,7 +845,68 @@ fn browser_open(
     window
         .add_child(
             tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
-                .initialization_script(CONSOLE_PROXY_JS),
+                .initialization_script(CONSOLE_PROXY_JS)
+                .on_download(|_webview, event| {
+                    use tauri::webview::DownloadEvent;
+                    match event {
+                        DownloadEvent::Requested { url, destination } => {
+                            let url_s = url.to_string();
+                            let filename = url
+                                .path_segments()
+                                .and_then(|mut s| s.next_back().map(|x| x.to_string()))
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or_else(|| "download".to_string());
+                            let saved = if let Ok(home) = std::env::var("HOME") {
+                                let dest = std::path::PathBuf::from(home).join("Downloads").join(&filename);
+                                let s = dest.to_string_lossy().to_string();
+                                *destination = dest;
+                                s
+                            } else {
+                                String::new()
+                            };
+                            let id = DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst);
+                            if let Ok(mut p) = DOWNLOAD_PENDING.lock() {
+                                p.push((url_s.clone(), id, saved.clone()));
+                            }
+                            if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+                                v.push(DownloadEventMsg {
+                                    kind: "start".into(),
+                                    id: id.to_string(),
+                                    url: url_s,
+                                    filename,
+                                    success: false,
+                                    state: "progressing".into(),
+                                    saved_path: saved,
+                                });
+                            }
+                        }
+                        DownloadEvent::Finished { url, path: _, success } => {
+                            let url_s = url.to_string();
+                            let (id, saved) = {
+                                let mut p = DOWNLOAD_PENDING.lock().unwrap_or_else(|e| e.into_inner());
+                                if let Some(pos) = p.iter().position(|(u, _, _)| *u == url_s) {
+                                    let (_, i, s) = p.remove(pos);
+                                    (i, s)
+                                } else {
+                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new())
+                                }
+                            };
+                            if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+                                v.push(DownloadEventMsg {
+                                    kind: "done".into(),
+                                    id: id.to_string(),
+                                    url: url_s,
+                                    filename: String::new(),
+                                    success,
+                                    state: if success { "completed".into() } else { "interrupted".into() },
+                                    saved_path: saved,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                    true
+                }),
             tauri::LogicalPosition::new(x, y),
             tauri::LogicalSize::new(width.max(1.0), height.max(1.0)),
         )
@@ -1394,7 +1486,8 @@ pub fn run() {
             browser_forward,
             browser_reload,
             browser_set_user_agent,
-            browser_toggle_devtools
+            browser_toggle_devtools,
+            browser_take_download_events
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
