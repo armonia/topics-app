@@ -179,7 +179,7 @@ function useBackToSpawner(
  * absent, so there are no dead buttons.
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
-  const browser = useTauriBrowser(contextId, initialUrl);
+  const browser = useTauriBrowser(contextId, initialUrl, isVisible);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
