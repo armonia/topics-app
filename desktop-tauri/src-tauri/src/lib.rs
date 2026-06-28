@@ -1478,32 +1478,31 @@ const SPLIT_SELFTEST_JS: &str = r#"(async function(){
     var count=document.querySelectorAll(SEL).length;
     report({mode:'split-drag',phase:'searched',found:!!div,dividerCount:count,panes:document.querySelectorAll('[data-pane-id]').length});
     if(!div){ return; }
-    // Replicate the divider's onMove EXACTLY (DOM-direct flex mutation) inside a real
-    // pane-resize-start/-end pair, so terminals coalesce + native panes behave as in a
-    // genuine drag — but without fragile synthetic mouse events.
+    // rAF-DRIVEN measurement: mutate the divider's flanking flex-grow ONCE PER FRAME
+    // inside the rAF callback (NOT a setTimeout loop — WKWebView throttles timers in an
+    // injected script after ~1s, which stalled the old harness). This is exactly the
+    // per-frame work a real divider drag does (DOM-direct flex; React doesn't re-render),
+    // wrapped in a genuine pane-resize-start/-end pair so terminals coalesce their fits.
     var g0p=parseFloat(getComputedStyle(prevEl).flexGrow)||1, g0n=parseFloat(getComputedStyle(nextEl).flexGrow)||1, comb=g0p+g0n;
     prevEl.style.transition='none'; nextEl.style.transition='none';
     window.dispatchEvent(new Event('topics:pane-resize-start'));
-    var deltas=[],last=0,running=true;
-    function loop(t){ if(last)deltas.push(t-last); last=t; if(running)requestAnimationFrame(loop); }
-    requestAnimationFrame(loop);
-    await sleep(120);
-    var steps=90, moved=0;
-    for(var i=0;i<steps;i++){
-      var frac=0.5+0.38*Math.sin(i/steps*Math.PI*4); // oscillate the split ratio
-      var np=comb*frac, nn=comb-np;
-      prevEl.style.flex=np+' 1 0%'; nextEl.style.flex=nn+' 1 0%';
-      moved++;
-      await sleep(16);
+    var deltas=[], last=0, frame=0, N=120;
+    function finish(){
+      prevEl.style.flex=g0p+' 1 0%'; nextEl.style.flex=g0n+' 1 0%';
+      window.dispatchEvent(new Event('topics:pane-resize-end'));
+      var d=deltas.filter(function(x){return x>0&&x<2000});
+      var max=0,sum=0,b20=0,b33=0;
+      for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)b20++; if(x>33)b33++; }
+      report({mode:'split-drag',dividerCount:count,frames:d.length,avgFps:d.length?Math.round(1000/(sum/d.length)):0,maxFrameMs:Math.round(max),droppedGt20ms:b20,droppedGt33ms:b33,xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
     }
-    prevEl.style.flex=g0p+' 1 0%'; nextEl.style.flex=g0n+' 1 0%';
-    window.dispatchEvent(new Event('topics:pane-resize-end'));
-    running=false;
-    report({mode:'split-drag',phase:'osc-done',moved:moved,framesSoFar:deltas.length});
-    var d=deltas.filter(function(x){return x>0&&x<2000});
-    var max=0,sum=0,b20=0,b33=0;
-    for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)b20++; if(x>33)b33++; }
-    report({mode:'split-drag',dividerCount:count,moved:moved,frames:d.length,avgFps:d.length?Math.round(1000/(sum/d.length)):0,maxFrameMs:Math.round(max),droppedGt20ms:b20,droppedGt33ms:b33,xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
+    function step(t){
+      if(last) deltas.push(t-last);
+      last=t; frame++;
+      var frac=0.5+0.40*Math.sin(frame/N*Math.PI*6); // oscillate the split ratio
+      prevEl.style.flex=(comb*frac)+' 1 0%'; nextEl.style.flex=(comb*(1-frac))+' 1 0%';
+      if(frame<N) requestAnimationFrame(step); else finish();
+    }
+    requestAnimationFrame(step);
   }catch(e){ report({mode:'split-drag',error:String(e&&e.stack||e)}); }
 })();"#;
 
@@ -2102,12 +2101,13 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_secs(6));
                     let h = handle.clone();
                     let _ = handle.run_on_main_thread(move || {
-                        // Park the window on the PRIMARY display (global 100,100) so an
-                        // external screenshot can reliably capture the rounded corner.
+                        // Park the window on the PRIMARY display (global 30,80 — fits a
+                        // 1656-wide window inside the 1728pt-wide main display, so the
+                        // bottom-right corner is on-screen) for a reliable screenshot.
                         {
                             use tauri::Manager;
                             if let Some(win) = h.get_window("main") {
-                                let _ = win.set_position(tauri::LogicalPosition::new(100.0, 100.0));
+                                let _ = win.set_position(tauri::LogicalPosition::new(30.0, 80.0));
                             }
                         }
                         if let Some((ww, wh)) = main_window_logical_size(&h) {
