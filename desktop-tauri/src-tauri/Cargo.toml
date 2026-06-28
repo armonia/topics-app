@@ -64,3 +64,7 @@ native-tls = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
 objc = "0.2"
+# ObjC blocks: WKWebView's evaluateJavaScript:/takeSnapshot: take a completion
+# handler block; we bridge its async result back to the synchronous command via
+# a channel. Pins the same 0.1.x already in the tree (transitive from cocoa/objc).
+block = "0.1"
