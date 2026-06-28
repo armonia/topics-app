@@ -288,6 +288,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         </div>
       )}
       <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
+      <DownloadStrip />
     </div>
   );
 }
