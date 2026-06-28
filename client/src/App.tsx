@@ -154,31 +154,37 @@ function App() {
   // renderer re-flows terminals expensively; paired with the canvas renderer +
   // staggered fit so the settle stays cheap). Electron keeps the user's setting.
   const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
-  // DEFER-RECLAIM: the content's overlay-mode paddingLeft reflects this COMMITTED
-  // collapse state, flipped at slide-END (not at toggle). So collapsing genuinely
-  // reclaims the freed strip (content + terminals widen to full width — the real push
-  // behaviour) but the reflow is ONE discrete layout pass at the end (≈ the divider-
-  // drag-release cost), not a per-frame freeze across the 200ms slide.
-  const [reclaimedCollapsed, setReclaimedCollapsed] = useState(sidebarCollapsed);
-  const commitReclaim = useCallback(() => {
-    if (!desktopOverlay) { setReclaimedCollapsed(sidebarCollapsed); return; }
-    // Authoritative direct-DOM write so React batching can't leave the pad on its
-    // pre-toggle value when the coalesced fit measures the new width one frame later.
-    const mc = document.getElementById('main-content');
-    if (mc) mc.style.paddingLeft = `${sidebarCollapsed ? 0 : sidebarWidth}px`;
-    setReclaimedCollapsed(sidebarCollapsed);
-  }, [desktopOverlay, sidebarCollapsed, sidebarWidth]);
-  // Coalesce xterm fit() across the sidebar collapse/expand (one fit at the settled
-  // size) AND commit the strip reclaim at slide-end via commitReclaim.
-  useSidebarFitCoalesce({ commitReclaim });
-  // Fallback: a toggle that produces NO transition (reduced-motion, or an already-
-  // settled no-op) won't fire the coalesce end() — commit shortly after so paddingLeft
-  // can never get stuck on the pre-toggle value. Idempotent with the coalesce commit.
+  // SYNCHRONISED PUSH: the content's overlay-mode paddingLeft ANIMATES in lockstep with
+  // the sidebar's 200ms translateX slide, so the content edge tracks the sidebar's edge
+  // (real push — the content widens AS the sidebar leaves, not a jump at the end). The
+  // per-frame terminal re-fit this would normally cost is held by useSidebarFitCoalesce
+  // (one fit at the settled size) and the canvas renderer keeps the per-frame box relayout
+  // cheap (see SingleTerminalPane). In FLOATING-SPLITS mode the expanded pad gets the same
+  // inter-card gap (2×--float-gap = 4px) the floating sidebar card uses, so the gap between
+  // the sidebar and the content matches the gaps between the floating split cards.
+  const FLOAT_SIDEBAR_GAP = 4; // px — keep in sync with index.css --float-gap (2px) ×2
+  const expandedPad = sidebarWidth + (appSettings.floatingSplits ? FLOAT_SIDEBAR_GAP : 0);
+  // ADAPTIVE sync: continuously animating the content pad re-rasters every VISIBLE
+  // terminal each frame (measured ~25fps with 8). So we animate (true synchronised push)
+  // only when few terminals are visible — the common case, where it's smooth — and snap
+  // the pad instantly (one ~110ms reclaim, no sustained jank) when many are visible. The
+  // user thus never sees the per-frame jank: synchronised when it's cheap, clean when not.
+  const [manyTerminals, setManyTerminals] = useState(false);
   useEffect(() => {
-    if (!desktopOverlay) { setReclaimedCollapsed(sidebarCollapsed); return; }
-    const t = window.setTimeout(() => setReclaimedCollapsed(sidebarCollapsed), 300);
-    return () => clearTimeout(t);
-  }, [sidebarCollapsed, desktopOverlay]);
+    if (!desktopOverlay) return;
+    const count = () =>
+      setManyTerminals(
+        Array.from(document.querySelectorAll('.xterm')).filter(
+          (e) => (e as HTMLElement).offsetParent !== null,
+        ).length > 5,
+      );
+    count();
+    const iv = window.setInterval(count, 1500); // re-check as splits/tabs change
+    return () => clearInterval(iv);
+  }, [desktopOverlay]);
+  // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one
+  // fit at the settled size) so the synchronised push doesn't jank from per-frame re-fits.
+  useSidebarFitCoalesce();
   // Diagnostic (Tauri): expose the sidebar toggle so the env-gated FPS self-test
   // (TOPICS_FPS_SELFTEST, injected at boot by src-tauri) can drive a real
   // collapse/expand and sample rAF frame timing. Inert when the test isn't running.
@@ -988,14 +994,18 @@ function App() {
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
           // Overlay-sidebar mode (desktop): the sidebar is `position: fixed` and out of
-          // flow, so its column is reserved with a left pad. DEFER-RECLAIM: this pad
-          // follows `reclaimedCollapsed` (committed at slide-END by commitReclaim), not
-          // the live `sidebarCollapsed`. During the slide the pad is UNCHANGED so nothing
-          // re-flows; on collapse-end it flips to 0 in ONE discrete layout pass (content +
-          // terminals reclaim the strip — the real push behaviour) + one coalesced fit.
-          // `transition:none` keeps that flip a discrete commit, never a per-frame animation.
+          // flow, so its column is reserved with a left pad that ANIMATES in lockstep with
+          // the sidebar's 200ms slide — the content edge tracks the sidebar edge (real
+          // synchronised push, content widens as the sidebar leaves). Fits are coalesced +
+          // the canvas renderer keeps the per-frame relayout cheap. Expanded pad includes
+          // the floating-splits inter-card gap when that mode is on (see expandedPad).
           ...(desktopOverlay
-            ? { paddingLeft: `${reclaimedCollapsed ? 0 : sidebarWidth}px`, transition: 'none' }
+            ? {
+                paddingLeft: `${sidebarCollapsed ? 0 : expandedPad}px`,
+                // Animate (synchronised push) only when few terminals are visible — else
+                // snap instantly (one reclaim, no per-frame jank). See manyTerminals.
+                transition: manyTerminals ? 'none' : 'padding-left 200ms ease',
+              }
             : {}),
         }}
 >
