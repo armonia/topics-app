@@ -131,35 +131,6 @@ async fn run_tls_proxy() {
     }
 }
 
-/// Clip the window's content view to the macOS rounded-window shape so native
-/// CHILD webviews (browser panes) can't paint SQUARE corners past the window's
-/// rounded edge. The transparent window's main webview is clipped by the window
-/// surface, but a wry child webview is a separate compositing layer that bypasses
-/// that — masking the shared content view rounds every child at the 4 OUTER window
-/// corners only (internal tiled-pane junctions are nowhere near the corners, so
-/// they stay square). ~10pt matches the macOS 11+ window radius. macOS only.
-#[cfg(target_os = "macos")]
-fn round_window_content_corners(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, nil, YES};
-    use objc::{msg_send, sel, sel_impl};
-    let ns_window = match window.ns_window() {
-        Ok(p) => p as id,
-        Err(_) => return,
-    };
-    unsafe {
-        let content: id = msg_send![ns_window, contentView];
-        if content == nil {
-            return;
-        }
-        let _: () = msg_send![content, setWantsLayer: YES];
-        let layer: id = msg_send![content, layer];
-        if layer != nil {
-            let _: () = msg_send![layer, setCornerRadius: 10.0f64];
-            let _: () = msg_send![layer, setMasksToBounds: YES];
-        }
-    }
-}
-
 /// Show/hide the macOS traffic-light buttons (close/miniaturise/zoom) on the
 /// given window. WKWebView's frameless `Overlay` titlebar shows them by default;
 /// the Electron shell hides them and reveals them only while the Topics menu is
@@ -888,6 +859,121 @@ fn disable_layer_implicit_animations(wv: &tauri::Webview) {
     });
 }
 
+/// Round the browser pane's WKWebView layer at the corners that are FLUSH with the
+/// window's own rounded corners — otherwise the opaque native child webview paints a
+/// square corner over the window's ~10pt radius (the "border radius non corretto"
+/// the user saw where a browser sits). Inner corners (where the pane abuts another
+/// pane) stay square. We round the CHILD webview's layer, NOT the window content view
+/// (that broke auto-resize + sidebar spacing). `win_w`/`win_h` are the window's
+/// LOGICAL content size; the pane rect is window-relative logical. macOS only.
+/// Per-pane cache of the last applied corner-flush state (flip-independent 4-bit
+/// visual code: tl|tr<<1|bl<<2|br<<3). browser_set_bounds runs every frame during a
+/// drag, but the pane stays flush to the SAME window corner(s) throughout — so this lets
+/// us skip the objc/with_webview work on every frame except the one where it changes.
+#[cfg(target_os = "macos")]
+fn browser_corner_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, u8>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u8>>> =
+        std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(target_os = "macos")]
+fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64) {
+    const RADIUS: f64 = 10.0; // standard macOS window corner radius
+    const EPS: f64 = 2.0;
+    let flush_left = x <= EPS;
+    let flush_top = y <= EPS;
+    let flush_right = win_w > 0.0 && (x + w) >= (win_w - EPS);
+    let flush_bottom = win_h > 0.0 && (y + h) >= (win_h - EPS);
+    let tl = flush_left && flush_top;
+    let tr = flush_right && flush_top;
+    let bl = flush_left && flush_bottom;
+    let br = flush_right && flush_bottom;
+    // Skip the (main-thread) objc round-trip when the flush state is unchanged for this
+    // pane — the common case on every drag frame after the first.
+    let visual: u8 = (tl as u8) | ((tr as u8) << 1) | ((bl as u8) << 2) | ((br as u8) << 3);
+    {
+        let mut g = match browser_corner_cache().lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        if g.get(id) == Some(&visual) {
+            return;
+        }
+        g.insert(id.to_string(), visual);
+    }
+    let _ = wv.with_webview(move |platform| unsafe {
+        use cocoa::base::{id, nil, NO, YES};
+        use objc::{msg_send, sel, sel_impl};
+        let view = platform.inner() as id;
+        if view == nil {
+            return;
+        }
+        let _: () = msg_send![view, setWantsLayer: YES];
+        let layer: id = msg_send![view, layer];
+        if layer == nil {
+            return;
+        }
+        if !(tl || tr || bl || br) {
+            // No corner coincides with a window corner → keep it square.
+            let _: () = msg_send![layer, setMasksToBounds: NO];
+            let _: () = msg_send![layer, setCornerRadius: 0.0_f64];
+            return;
+        }
+        // CACornerMask bits depend on whether the layer geometry is flipped (web
+        // content usually is): flipped → MinY is the VISUAL top.
+        const MINX_MINY: u64 = 1;
+        const MAXX_MINY: u64 = 2;
+        const MINX_MAXY: u64 = 4;
+        const MAXX_MAXY: u64 = 8;
+        let flipped: bool = {
+            let b: cocoa::base::BOOL = msg_send![layer, isGeometryFlipped];
+            b != NO
+        };
+        let (tl_bit, tr_bit, bl_bit, br_bit) = if flipped {
+            (MINX_MINY, MAXX_MINY, MINX_MAXY, MAXX_MAXY)
+        } else {
+            (MINX_MAXY, MAXX_MAXY, MINX_MINY, MAXX_MINY)
+        };
+        let mut mask: u64 = 0;
+        if tl {
+            mask |= tl_bit;
+        }
+        if tr {
+            mask |= tr_bit;
+        }
+        if bl {
+            mask |= bl_bit;
+        }
+        if br {
+            mask |= br_bit;
+        }
+        let _: () = msg_send![layer, setCornerRadius: RADIUS];
+        let _: () = msg_send![layer, setMaskedCorners: mask];
+        let _: () = msg_send![layer, setMasksToBounds: YES];
+        if std::env::var("TOPICS_CORNER_DEMO").is_ok() {
+            let rback: f64 = msg_send![layer, cornerRadius];
+            let mback: u64 = msg_send![layer, maskedCorners];
+            let clips: cocoa::base::BOOL = msg_send![layer, masksToBounds];
+            eprintln!(
+                "[corner-mask] flush(l{} t{} r{} b{}) tl{} tr{} bl{} br{} flipped={} mask={} -> radius={} maskedBack={} clips={}",
+                flush_left as u8, flush_top as u8, flush_right as u8, flush_bottom as u8,
+                tl as u8, tr as u8, bl as u8, br as u8, flipped as u8, mask, rback, mback, clips != NO
+            );
+        }
+    });
+}
+
+/// Window LOGICAL content size (points), for corner-flush math. macOS only.
+#[cfg(target_os = "macos")]
+fn main_window_logical_size(app: &tauri::AppHandle) -> Option<(f64, f64)> {
+    use tauri::Manager;
+    let win = app.get_window("main")?;
+    let sf = win.scale_factor().ok()?;
+    let is = win.inner_size().ok()?;
+    Some((is.width as f64 / sf, is.height as f64 / sf))
+}
+
 /// Create (or, if it already exists, reuse) the native webview for a browser
 /// pane and place it at the given window-relative rect.
 #[tauri::command]
@@ -983,6 +1069,9 @@ fn browser_open(
     #[cfg(target_os = "macos")]
     if let Some(wv) = app.get_webview(&label) {
         disable_layer_implicit_animations(&wv);
+        if let Some((win_w, win_h)) = main_window_logical_size(&app) {
+            apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h);
+        }
     }
     Ok(())
 }
@@ -1019,6 +1108,13 @@ fn browser_set_bounds(
         .map_err(|e| e.to_string())?;
     wv.set_size(tauri::LogicalSize::new(width.max(1.0), height.max(1.0)))
         .map_err(|e| e.to_string())?;
+    // Re-evaluate which corners are flush with the window edge (it changes as the
+    // pane moves/resizes) and round only those — cached, so the objc work runs only
+    // when the flush state actually changes (not every drag frame). See apply_browser_corner_mask.
+    #[cfg(target_os = "macos")]
+    if let Some((win_w, win_h)) = main_window_logical_size(&app) {
+        apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h);
+    }
     Ok(())
 }
 
@@ -1028,6 +1124,11 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
     if let Some(wv) = app.get_webview(&browser_label(&id)) {
         wv.close().map_err(|e| e.to_string())?;
+    }
+    // Drop the corner-mask cache entry so a re-opened pane on the same id re-applies.
+    #[cfg(target_os = "macos")]
+    if let Ok(mut g) = browser_corner_cache().lock() {
+        g.remove(&id);
     }
     Ok(())
 }
@@ -1351,6 +1452,61 @@ const FPS_SELFTEST_JS: &str = r#"(async function(){
   report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6,xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
 })();"#;
 
+/// Injected probe for the env-gated SPLIT-resize FPS self-test (`TOPICS_SPLIT_SELFTEST`).
+/// Finds a layout divider and synthesizes a sustained oscillating drag (real mousedown
+/// on the divider + window mousemoves with buttons=1 + mouseup), sampling rAF deltas
+/// throughout. A divider drag moves browser panes (instant via NSNull) and resizes the
+/// flex cells; terminals coalesce their fits to the drag end — so this should hold ~60fps
+/// with zero dropped frames. Posts to `fps_report`.
+const SPLIT_SELFTEST_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
+  var SEL='[data-split-divider],[data-panel-divider-row],[data-panel-divider-col]';
+  try{
+    // Wait for app-ready (same gate the FPS probe uses) before any invoke/drag.
+    for(var rk=0;rk<40;rk++){ if(typeof window.__topicsToggleSidebar==='function')break; await sleep(500); }
+    report({mode:'split-drag',phase:'ready'});
+    var div=null, prevEl=null, nextEl=null;
+    for(var k=0;k<20;k++){
+      var cands=document.querySelectorAll(SEL);
+      for(var c=0;c<cands.length;c++){
+        var dd=cands[c], p=dd.previousElementSibling, n=dd.nextElementSibling;
+        if(p&&n){ var gp=parseFloat(getComputedStyle(p).flexGrow)||0, gn=parseFloat(getComputedStyle(n).flexGrow)||0; if(gp>0&&gn>0){ div=dd; prevEl=p; nextEl=n; break; } }
+      }
+      if(div)break; await sleep(300);
+    }
+    var count=document.querySelectorAll(SEL).length;
+    report({mode:'split-drag',phase:'searched',found:!!div,dividerCount:count,panes:document.querySelectorAll('[data-pane-id]').length});
+    if(!div){ return; }
+    // Replicate the divider's onMove EXACTLY (DOM-direct flex mutation) inside a real
+    // pane-resize-start/-end pair, so terminals coalesce + native panes behave as in a
+    // genuine drag — but without fragile synthetic mouse events.
+    var g0p=parseFloat(getComputedStyle(prevEl).flexGrow)||1, g0n=parseFloat(getComputedStyle(nextEl).flexGrow)||1, comb=g0p+g0n;
+    prevEl.style.transition='none'; nextEl.style.transition='none';
+    window.dispatchEvent(new Event('topics:pane-resize-start'));
+    var deltas=[],last=0,running=true;
+    function loop(t){ if(last)deltas.push(t-last); last=t; if(running)requestAnimationFrame(loop); }
+    requestAnimationFrame(loop);
+    await sleep(120);
+    var steps=90, moved=0;
+    for(var i=0;i<steps;i++){
+      var frac=0.5+0.38*Math.sin(i/steps*Math.PI*4); // oscillate the split ratio
+      var np=comb*frac, nn=comb-np;
+      prevEl.style.flex=np+' 1 0%'; nextEl.style.flex=nn+' 1 0%';
+      moved++;
+      await sleep(16);
+    }
+    prevEl.style.flex=g0p+' 1 0%'; nextEl.style.flex=g0n+' 1 0%';
+    window.dispatchEvent(new Event('topics:pane-resize-end'));
+    running=false;
+    report({mode:'split-drag',phase:'osc-done',moved:moved,framesSoFar:deltas.length});
+    var d=deltas.filter(function(x){return x>0&&x<2000});
+    var max=0,sum=0,b20=0,b33=0;
+    for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)b20++; if(x>33)b33++; }
+    report({mode:'split-drag',dividerCount:count,moved:moved,frames:d.length,avgFps:d.length?Math.round(1000/(sum/d.length)):0,maxFrameMs:Math.round(max),droppedGt20ms:b20,droppedGt33ms:b33,xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
+  }catch(e){ report({mode:'split-drag',error:String(e&&e.stack||e)}); }
+})();"#;
+
 /// Diagnostic sink for the FPS self-test: the injected probe posts its frame-timing
 /// summary here and we persist it to a fixed path the driver reads. Inert unless the
 /// self-test runs.
@@ -1360,6 +1516,222 @@ fn fps_report(result: String) -> Result<(), String> {
     std::fs::write(&path, &result).map_err(|e| e.to_string())?;
     eprintln!("[fps-selftest] {result}");
     Ok(())
+}
+
+/// Diagnostic: read the MAIN window's current AppKit first-responder by IDENTITY.
+/// Both the React chrome and every browser pane are `WryWebView` instances, so the
+/// CLASS NAME cannot tell them apart — we return raw pointers so a caller can compare
+/// `responder` against `mainView` (and against a browser view's pointer from
+/// `focus_grab_browser`). This is how the tab-focus fix is verified WITHOUT any OS
+/// accessibility / synthetic-input permission. macOS only.
+#[tauri::command]
+fn focus_read(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        return Err("macos only".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+    use tauri::Manager;
+    let main_wv = app.get_webview("main").ok_or("no main webview")?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    main_wv
+        .with_webview(move |platform| unsafe {
+            use cocoa::base::{id, nil};
+            use objc::{msg_send, sel, sel_impl};
+            let view = platform.inner() as id;
+            let mut out = String::from("{\"error\":\"nil view\"}");
+            if view != nil {
+                let ns_window: id = msg_send![view, window];
+                let fr: id = if ns_window != nil {
+                    msg_send![ns_window, firstResponder]
+                } else {
+                    nil
+                };
+                let cls = if fr != nil {
+                    (*fr).class().name().to_string()
+                } else {
+                    String::from("nil")
+                };
+                out = format!(
+                    "{{\"responder\":\"{:p}\",\"mainView\":\"{:p}\",\"class\":\"{}\"}}",
+                    fr, view, cls
+                );
+            }
+            let _ = tx.send(out);
+        })
+        .map_err(|e| e.to_string())?;
+    rx.recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|e| e.to_string())
+    }
+}
+
+/// Diagnostic counterpart to `focus_read`: FORCE AppKit first-responder onto a browser
+/// pane's WKWebView (simulating the "stuck in the page" state the tab-click fix must
+/// recover from) and return that view's pointer so the caller can assert it. macOS only.
+#[tauri::command]
+fn focus_grab_browser(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, id);
+        return Err("macos only".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+    use tauri::Manager;
+    let wv = app
+        .get_webview(&browser_label(&id))
+        .ok_or("no such browser pane")?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    wv.with_webview(move |platform| unsafe {
+        use cocoa::base::{id, nil};
+        use objc::{msg_send, sel, sel_impl};
+        let view = platform.inner() as id;
+        let mut out = String::from("nil");
+        if view != nil {
+            let ns_window: id = msg_send![view, window];
+            if ns_window != nil {
+                let _: () = msg_send![ns_window, makeFirstResponder: view];
+            }
+            out = format!("{:p}", view);
+        }
+        let _ = tx.send(out);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|e| e.to_string())
+    }
+}
+
+/// Diagnostic: move AppKit first-responder OFF the main webview onto the NSWindow
+/// itself (via `makeFirstResponder:nil`). A no-browser-pane fallback for the focus
+/// self-test — `browser_release_focus` must reclaim first-responder to the main
+/// webview regardless of WHAT held it, so a non-main holder is enough to prove the
+/// reclaim. Returns the new first-responder pointer. macOS only.
+#[tauri::command]
+fn focus_grab_window(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        return Err("macos only".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        let main_wv = app.get_webview("main").ok_or("no main webview")?;
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        main_wv
+            .with_webview(move |platform| unsafe {
+                use cocoa::base::{id, nil, BOOL};
+                use objc::{msg_send, sel, sel_impl};
+                let view = platform.inner() as id;
+                let mut out = String::from("nil");
+                if view != nil {
+                    let ns_window: id = msg_send![view, window];
+                    if ns_window != nil {
+                        let _ok: BOOL = msg_send![ns_window, makeFirstResponder: nil];
+                        let fr: id = msg_send![ns_window, firstResponder];
+                        out = format!("{:p}", fr);
+                    }
+                }
+                let _ = tx.send(out);
+            })
+            .map_err(|e| e.to_string())?;
+        rx.recv_timeout(std::time::Duration::from_secs(2))
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// Injected probe for the env-gated tab-focus self-test (`TOPICS_FOCUS_SELFTEST=1`).
+/// Discovers a live browser pane from the DOM, then drives the AppKit round-trip:
+/// grab first-responder to the pane → read (expect responder == browser view) →
+/// `browser_release_focus` → read (expect responder == main view). Posts a verdict to
+/// `focus_report`. Proves the tab strip's focus-reclaim works at the AppKit level with
+/// zero OS input synthesis.
+const FOCUS_SELFTEST_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function inv(c,a){return window.__TAURI_INTERNALS__.invoke(c,a||{})}
+  function report(o){ try{inv('focus_report',{result:JSON.stringify(o)})}catch(e){} }
+  // Prefer a real, NATIVELY-MOUNTED browser pane; else fall back to grabbing the
+  // window itself. Either way `browser_release_focus` must win first-responder back.
+  var grabbedTo=null, mode='window', paneId=null;
+  for(var k=0;k<20;k++){
+    var el=document.querySelector('[data-pane-id^="browser:"]');
+    if(el){
+      var pid=el.getAttribute('data-pane-id').slice('browser:'.length);
+      try{ var bv=await inv('focus_grab_browser',{id:pid}); if(bv&&bv!=='nil'){ grabbedTo=bv; mode='browser'; paneId=pid; break; } }catch(e){}
+    }
+    await sleep(400);
+  }
+  try{
+    if(!grabbedTo){ grabbedTo=await inv('focus_grab_window'); mode='window'; }
+    await sleep(120);
+    var afterGrab=JSON.parse(await inv('focus_read'));
+    await inv('browser_release_focus');
+    await sleep(120);
+    var afterRelease=JSON.parse(await inv('focus_read'));
+    var grabbedAway=(afterGrab.responder!==afterGrab.mainView);
+    var grabIdentity=(mode!=='browser')||(afterGrab.responder===grabbedTo);
+    var releasedToMain=(afterRelease.responder===afterRelease.mainView);
+    report({mode:mode,pane:paneId,grabbedTo:grabbedTo,afterGrab:afterGrab,afterRelease:afterRelease,
+            grabbedAway:grabbedAway,grabIdentity:grabIdentity,releasedToMain:releasedToMain,
+            pass:(grabbedAway&&grabIdentity&&releasedToMain)});
+  }catch(e){ report({error:String(e)}); }
+})();"#;
+
+/// Diagnostic sink for the tab-focus self-test (mirror of `fps_report`).
+#[tauri::command]
+fn focus_report(result: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from("/tmp/topics-focus-selftest.json");
+    std::fs::write(&path, &result).map_err(|e| e.to_string())?;
+    eprintln!("[focus-selftest] {result}");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Self-managed window-SIZE persistence (LOGICAL units).
+//
+// tauri-plugin-window-state was dropped: on this mixed-DPI multi-monitor setup it
+// mis-handled the scale factor — a 2x display made it persist PHYSICAL pixels as if
+// they were logical (2800x1800 written, which on the next launch is a giant window),
+// and it failed to restore the real 1656x896. It also restored POSITION, which on a
+// now-narrower/disconnected monitor CLAMPS the width and (with save-on-resize) ratchets
+// the window smaller every launch. We persist ONLY the size, in scale-independent
+// logical units, and keep the window centered (`center: true`) so it always fits.
+// ---------------------------------------------------------------------------
+
+/// Path of our window-size store: `<app_config_dir>/topics-win-size.json`.
+fn win_size_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("topics-win-size.json"))
+}
+
+/// Write `{ "w": <logical>, "h": <logical> }`. Ignores bogus/minimized sizes.
+fn save_win_size_logical(path: &std::path::Path, w: f64, h: f64) {
+    if !(w >= 200.0 && h >= 200.0 && w.is_finite() && h.is_finite()) {
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, format!("{{\"w\":{:.0},\"h\":{:.0}}}", w, h));
+}
+
+/// Read back the saved logical size, validated.
+fn read_win_size_logical(path: &std::path::Path) -> Option<(f64, f64)> {
+    let s = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+    let w = v.get("w")?.as_f64()?;
+    let h = v.get("h")?.as_f64()?;
+    if w >= 200.0 && h >= 200.0 {
+        Some((w, h))
+    } else {
+        None
+    }
 }
 
 /// Override the pane's User-Agent (device emulation). WKWebView
@@ -1434,9 +1806,11 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        // Persist + restore the window's size / position / maximized state across
-        // launches (Electron remembered its bounds; a bare Tauri window didn't).
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // NOTE: tauri-plugin-window-state was REMOVED — it mis-handled scale on this
+        // mixed-DPI multi-monitor setup (persisted physical pixels as logical, failed to
+        // restore, and ratcheted the window smaller via clamped-position saves). Window
+        // SIZE is now persisted ourselves in logical units (see win_size_file + the setup
+        // restore/save wiring); position stays centered (`center: true` in tauri.conf.json).
         // Auto-update — reads plugins.updater (endpoint + pubkey) from tauri.conf.json.
         // Inert until a signed release is published; the client drives check/install.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1639,6 +2013,128 @@ pub fn run() {
                 });
             }
 
+            // Env-gated SPLIT-resize FPS self-test: drive a divider drag and sample rAF.
+            if std::env::var("TOPICS_SPLIT_SELFTEST").is_ok() {
+                eprintln!("[split-selftest] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[split-selftest] injecting via get_webview(main)");
+                            match wv.eval(SPLIT_SELFTEST_JS) {
+                                Ok(()) => eprintln!("[split-selftest] eval ok"),
+                                Err(e) => eprintln!("[split-selftest] eval err: {e}"),
+                            }
+                        } else {
+                            eprintln!("[split-selftest] no main webview");
+                        }
+                    });
+                });
+            }
+
+            // Delayed window-size probe: the window-state plugin may apply the RESTORED
+            // geometry slightly AFTER this setup closure runs, so the immediate read above
+            // can report the config default. Re-read on the main thread after 5s for the
+            // TRUE post-restore size. Diagnostic-only (stderr).
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        // get_webview_window("main") can be None in this multi-webview app;
+                        // iterate webview_windows() (proven reliable) and match the label.
+                        for (label, win) in h.webview_windows() {
+                            if label != "main" { continue; }
+                            if let (Ok(os), Ok(pos), Ok(sf)) =
+                                (win.outer_size(), win.outer_position(), win.scale_factor())
+                            {
+                                eprintln!(
+                                    "[window-restore+5s] outer={}x{} pos={},{} scale={} logical={}x{}",
+                                    os.width, os.height, pos.x, pos.y, sf,
+                                    (os.width as f64 / sf).round(),
+                                    (os.height as f64 / sf).round()
+                                );
+                            }
+                        }
+                    });
+                });
+            }
+
+            // Env-gated tab-focus self-test: drive the AppKit first-responder round-trip
+            // (grab to a browser pane → release → assert it returned to the main webview),
+            // writing the verdict to /tmp/topics-focus-selftest.json. OFF unless
+            // TOPICS_FOCUS_SELFTEST is set. Needs a browser pane in the restored layout.
+            if std::env::var("TOPICS_FOCUS_SELFTEST").is_ok() {
+                eprintln!("[focus-selftest] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[focus-selftest] injecting via get_webview(main)");
+                            match wv.eval(FOCUS_SELFTEST_JS) {
+                                Ok(()) => eprintln!("[focus-selftest] eval ok"),
+                                Err(e) => eprintln!("[focus-selftest] eval err: {e}"),
+                            }
+                        } else {
+                            eprintln!("[focus-selftest] no main webview");
+                        }
+                    });
+                });
+            }
+
+            // Env-gated browser-corner visual demo: open a native browser pane in the
+            // BOTTOM-RIGHT quadrant (flush right+bottom, NOT left/top) so a screenshot can
+            // confirm only the bottom-right corner is rounded to the window radius while the
+            // pane's inner (top-left) corner stays square. OFF unless TOPICS_CORNER_DEMO set.
+            #[cfg(target_os = "macos")]
+            if std::env::var("TOPICS_CORNER_DEMO").is_ok() {
+                eprintln!("[corner-demo] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(6));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        // Park the window on the PRIMARY display (global 100,100) so an
+                        // external screenshot can reliably capture the rounded corner.
+                        {
+                            use tauri::Manager;
+                            if let Some(win) = h.get_window("main") {
+                                let _ = win.set_position(tauri::LogicalPosition::new(100.0, 100.0));
+                            }
+                        }
+                        if let Some((ww, wh)) = main_window_logical_size(&h) {
+                            let x = (ww / 2.0).round();
+                            let y = (wh / 2.0).round();
+                            let w = (ww - x).round();
+                            let ht = (wh - y).round();
+                            eprintln!("[corner-demo] open at {x},{y} {w}x{ht} (win {ww}x{wh})");
+                            match browser_open(
+                                h.clone(),
+                                "cornerdemo".into(),
+                                "https://example.com".into(),
+                                x,
+                                y,
+                                w,
+                                ht,
+                            ) {
+                                Ok(()) => eprintln!("[corner-demo] opened ok"),
+                                Err(e) => eprintln!("[corner-demo] open err: {e}"),
+                            }
+                        } else {
+                            eprintln!("[corner-demo] no window size");
+                        }
+                    });
+                });
+            }
+
             // Start the loopback TLS-origination proxy so the shell can reach the
             // data server (whose cert WKWebView rejects) over plain HTTP/WS.
             tauri::async_runtime::spawn(run_tls_proxy());
@@ -1650,18 +2146,61 @@ pub fn run() {
                 use tauri::Manager;
                 for (_label, win) in app.webview_windows() {
                     apply_traffic_lights(&win, false);
-                    // Round the content view so native browser child-webviews don't
-                    // poke square corners past the window's rounded edge.
-                    round_window_content_corners(&win);
+                    // NOTE: masking the content view (round_window_content_corners) to
+                    // round browser-pane corners BROKE main-window auto-resize + sidebar
+                    // spacing (masksToBounds/wantsLayer on the content view disturbs the
+                    // transparent-titlebar layout + the vibrancy resize cover). Reverted;
+                    // round the child browser webview's own layer instead if needed.
                     // Live window-edge resize: AppKit posts WillStart/DidEnd live-resize
                     // notifications SYNCHRONOUSLY (unlike tao's WindowEvent::Resized, which
                     // is only drained at gesture end), so we swap to an autoresizing frost
                     // cover for the duration of the drag.
                     wire_live_resize_cover(&win);
+                    // RESTORE the saved LOGICAL size ourselves (see win_size_file): the
+                    // tauri-plugin-window-state plugin mis-handled scale on this mixed-DPI
+                    // multi-monitor setup — it saved PHYSICAL pixels as logical (a 2x display
+                    // wrote 2800x1800) and failed to restore 1656x896. We store size only, in
+                    // logical units, and re-apply it here. Position stays centered.
+                    if _label == "main" {
+                        if let Some((lw, lh)) = win_size_file(app.handle()).and_then(|p| read_win_size_logical(&p)) {
+                            let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
+                            // set_size grows from the top-left, so re-center to keep the
+                            // restored-size window centered on its display.
+                            let _ = win.center();
+                            eprintln!("[window-restore] applied logical {lw}x{lh}");
+                        }
+                        if let (Ok(os), Ok(sf)) = (win.outer_size(), win.scale_factor()) {
+                            eprintln!(
+                                "[window-restore] main now outer={}x{} scale={} logical={}x{}",
+                                os.width, os.height, sf,
+                                (os.width as f64 / sf).round(),
+                                (os.height as f64 / sf).round()
+                            );
+                        }
+                    }
                     // Re-assert the desired visibility whenever AppKit might have
                     // reset it (focus gained/lost, resize) — otherwise the buttons
                     // reappear on the first focus of a transparent-titlebar window.
                     let w = win.clone();
+                    // Persist window SIZE on resize (throttled) so a SIGTERM, crash, or the
+                    // dev relaunch loop NEVER loses it (the plugin only saved on graceful quit,
+                    // and CloseRequested hides to tray, so a plain kill saved nothing). Self-
+                    // managed in LOGICAL units — see win_size_file for why we don't use the plugin.
+                    let save_gate = std::sync::Arc::new(std::sync::Mutex::new(
+                        std::time::Instant::now() - std::time::Duration::from_secs(2),
+                    ));
+                    let size_file = win_size_file(app.handle());
+                    let save_state_throttled = move |w: &tauri::WebviewWindow| {
+                        let mut g = match save_gate.lock() { Ok(g) => g, Err(_) => return };
+                        if g.elapsed() >= std::time::Duration::from_millis(500) {
+                            *g = std::time::Instant::now();
+                            if let (Some(p), Ok(os), Ok(sf)) =
+                                (size_file.as_ref(), w.outer_size(), w.scale_factor())
+                            {
+                                save_win_size_logical(p, os.width as f64 / sf, os.height as f64 / sf);
+                            }
+                        }
+                    };
                     win.on_window_event(move |event| match event {
                         tauri::WindowEvent::Resized(_) => {
                             // PROGRAMMATIC resize path (set_size / zoom): these deliver
@@ -1669,10 +2208,14 @@ pub fn run() {
                             // cover is sized here. (Interactive drags are handled by the
                             // notification + autoresizing mask above.)
                             vibrancy_resize_cover(&w);
+                            save_state_throttled(&w);
                             // Same titlebar re-pin as a focus change.
                             let visible = TRAFFIC_LIGHTS_VISIBLE.load(Ordering::Relaxed)
                                 || w.is_fullscreen().unwrap_or(false);
                             apply_traffic_lights(&w, visible);
+                        }
+                        tauri::WindowEvent::Moved(_) => {
+                            save_state_throttled(&w);
                         }
                         tauri::WindowEvent::Focused(_) => {
                             // In fullscreen the titlebar is gone, so FORCE the
@@ -1755,6 +2298,10 @@ pub fn run() {
             browser_toggle_devtools,
             browser_release_focus,
             fps_report,
+            focus_read,
+            focus_grab_browser,
+            focus_grab_window,
+            focus_report,
             browser_take_download_events
         ])
         .run(tauri::generate_context!())

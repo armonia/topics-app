@@ -13,6 +13,7 @@
         "title": "Topics",
         "width": 1400,
         "height": 900,
+        "center": true,
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
