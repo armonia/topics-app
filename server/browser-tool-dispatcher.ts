@@ -10,6 +10,7 @@
 
 import type { BrowserService } from "./browser-service";
 import type { Topic } from "./types";
+import { nativeDelegateRegistry } from "./browser-native-delegate";
 import {
   handleBrowserOpen,
   handleBrowserObserve,
@@ -127,6 +128,13 @@ export async function dispatchBrowserToolCallByContext(
   // this is a best-effort UX side-effect, so a partial/legacy service (or a test
   // mock) without setAgentAction must never break actual tool dispatch.
   browserService.setAgentAction?.(contextId, describeBrowserAction(toolName, args));
+  // Tauri native pane: this contextId belongs to a real WKWebView the server can't
+  // reach via CDP/Playwright. A Tauri client has registered as its executor over
+  // /ws/browser, so forward the WHOLE tool-call there and return the client's reply.
+  // (Electron/web contexts are never registered, so this is a no-op for them.)
+  if (nativeDelegateRegistry.isDelegated(contextId)) {
+    return nativeDelegateRegistry.delegateOp(contextId, toolName, args);
+  }
   switch (toolName) {
     case "browser_open":
       // Args validated by handler
