@@ -1512,6 +1512,84 @@ const SPLIT_SELFTEST_JS: &str = r#"(async function(){
   }catch(e){ report({mode:'split-drag',error:String(e&&e.stack||e)}); }
 })();"#;
 
+/// Env-gated polish-bug verifier (`TOPICS_BUGFIX_VERIFY`). DOM-observable checks for
+/// two of the three reported Tauri bugs (the native-pane lag is OS-side, verified by
+/// screen capture, not here): (1) the status/FPS dropdown must dismiss when the
+/// overlay sidebar collapses — it's portaled to <body>, so it used to float on over
+/// the content; (2) WebKit must render a VISIBLE scrollbar colour at rest (the global
+/// `scrollbar-color: transparent transparent` hid them until hover on the Tauri build).
+/// Posts a findings object to the same `fps_report` sink.
+const BUGFIX_VERIFY_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
+  var toggle=null;
+  for(var k=0;k<40;k++){ toggle=window.__topicsToggleSidebar; if(typeof toggle==='function')break; await sleep(500); }
+  if(typeof toggle!=='function'){ report({error:'no toggle after 20s'}); return; }
+  await sleep(600);
+  var out={};
+  // ---- bug3: scrollbar visibility (WebKit honours scrollbar-color on *) ----
+  out.htmlClass=document.documentElement.className;
+  out.bodyScrollbarColor=getComputedStyle(document.body).scrollbarColor;
+  var sc=null, all=document.querySelectorAll('*');
+  for(var i=0;i<all.length;i++){ var e=all[i]; if(e.scrollHeight>e.clientHeight+4){ var ov=getComputedStyle(e).overflowY; if(ov==='auto'||ov==='scroll'){ sc=e; break; } } }
+  out.scrollEl = sc ? String(sc.className||sc.tagName).slice(0,60) : null;
+  out.scrollElColor = sc ? getComputedStyle(sc).scrollbarColor : null;
+  // ---- ensure sidebar expanded ----
+  function sb(){return document.querySelector('[aria-label="Topics sidebar"]');}
+  function collapsed(){ var s=sb(); if(!s)return true; var r=s.getBoundingClientRect(); return r.width<10 || r.right<10; }
+  if(collapsed()){ toggle(); await sleep(450); }
+  out.sidebarExpanded=!collapsed();
+  // ---- bug1: open the status dropdown, collapse the sidebar, expect it dismissed ----
+  var btn=document.querySelector('button[title^="Performance"]');
+  out.foundStatusBtn=!!btn;
+  function dropdown(){ return Array.prototype.find.call(document.querySelectorAll('.glass-surface'), function(e){return e.style && e.style.zIndex==='9999';}); }
+  if(btn){
+    btn.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+    btn.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+    await sleep(400);
+    out.dropdownOpened=!!dropdown();
+    toggle(); // collapse
+    await sleep(500);
+    out.dropdownAfterCollapse=!!dropdown();
+    out.dropdownClosedOnCollapse = !!(out.dropdownOpened && !out.dropdownAfterCollapse);
+    if(collapsed()){ toggle(); await sleep(450); } // restore for visual capture
+  }
+  report(out);
+})();"#;
+
+/// Env-gated SLOW-MOTION sidebar slide (`TOPICS_SLIDE_DEMO`). Stretches the sidebar
+/// translateX and the #main-content padding push to 1.4s and oscillates the toggle, so
+/// a screenshot burst can confirm a native browser pane's left edge stays glued to the
+/// sidebar's right edge throughout the slide (the per-frame rAF reposition in
+/// NativeBrowserPlaceholder) instead of trailing it. Needs a browser pane in the layout.
+const SLIDE_DEMO_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
+  var toggle=null;
+  for(var k=0;k<40;k++){ toggle=window.__topicsToggleSidebar; if(typeof toggle==='function')break; await sleep(500); }
+  if(typeof toggle!=='function'){ report({slide:'no toggle'}); return; }
+  // Reveal a native browser pane (its placeholder is on-screen) — click through the open
+  // tabs until one mounts a visible native webview. That's the OS view we're confirming.
+  function nativeVisible(){ var p=document.querySelector('[data-testid="browser-native-placeholder"]'); if(!p)return null; var r=p.getBoundingClientRect(); return (p.offsetParent!==null&&r.width>80&&r.height>80)?r:null; }
+  if(!nativeVisible()){
+    var tabs=document.querySelectorAll('[data-testid^="pane-tab-"]');
+    for(var ti=0; ti<tabs.length; ti++){
+      tabs[ti].dispatchEvent(new MouseEvent('pointerdown',{bubbles:true}));
+      tabs[ti].dispatchEvent(new MouseEvent('click',{bubbles:true}));
+      await sleep(800);
+      if(nativeVisible()) break;
+    }
+  }
+  var rr=nativeVisible();
+  report({slide:'ready',browserVisible:!!rr,rect:rr?{x:Math.round(rr.x),y:Math.round(rr.y),w:Math.round(rr.width),h:Math.round(rr.height)}:null,tabs:document.querySelectorAll('[data-testid^="pane-tab-"]').length});
+  var st=document.createElement('style');
+  st.textContent='.sidebar-transition{transition:width 1400ms ease,transform 1400ms ease,opacity 300ms ease!important}'+
+                 '#main-content{transition:padding-left 1400ms ease!important}';
+  document.head.appendChild(st);
+  await sleep(500);
+  for(var i=0;i<6;i++){ try{toggle()}catch(e){} await sleep(2300); }
+})();"#;
+
 /// Diagnostic sink for the FPS self-test: the injected probe posts its frame-timing
 /// summary here and we persist it to a fixed path the driver reads. Inert unless the
 /// self-test runs.
@@ -2013,6 +2091,49 @@ pub fn run() {
                             let _ = win.eval(FPS_SELFTEST_JS);
                         } else {
                             eprintln!("[fps-selftest] no main webview/window");
+                        }
+                    });
+                });
+            }
+
+            // Env-gated polish-bug verifier: drives the dropdown/sidebar and dumps
+            // DOM findings to /tmp/topics-fps-selftest.json. OFF unless set.
+            if std::env::var("TOPICS_BUGFIX_VERIFY").is_ok() {
+                eprintln!("[bugfix-verify] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[bugfix-verify] injecting via get_webview(main)");
+                            match wv.eval(BUGFIX_VERIFY_JS) {
+                                Ok(()) => eprintln!("[bugfix-verify] eval ok"),
+                                Err(e) => eprintln!("[bugfix-verify] eval err: {e}"),
+                            }
+                        } else if let Some(win) = h.get_webview_window("main") {
+                            let _ = win.eval(BUGFIX_VERIFY_JS);
+                        } else {
+                            eprintln!("[bugfix-verify] no main webview/window");
+                        }
+                    });
+                });
+            }
+
+            // Env-gated SLOW-MOTION sidebar slide: stretch the slide so a capture burst
+            // can confirm the native browser pane tracks the sidebar edge. OFF unless set.
+            if std::env::var("TOPICS_SLIDE_DEMO").is_ok() {
+                eprintln!("[slide-demo] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[slide-demo] injecting via get_webview(main)");
+                            let _ = wv.eval(SLIDE_DEMO_JS);
                         }
                     });
                 });
