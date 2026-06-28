@@ -332,10 +332,9 @@ Item che richiedono un **run Tauri live** (impossibile verificarli staticamente)
    per il drain console e si usano gli eventi solo per url/title/loading. VERIFICA: run Tauri,
    navigare un SPA e confermare niente lag address-bar + spinner reale. Tenere il poll come
    fallback finché non provato.
-2. **Poll gating su visibilità** (efficienza): il poll gira per OGNI pane montato (keep-alive
-   ladder = pane inattivi montati+nascosti). Gating su pane attivo/visibile taglia gli eval
-   ridondanti. Entry: `useTauriBrowser` + `RemoteBrowserPanel` (serve un segnale `isActive`).
-   VERIFICA: confermare che al ritorno-visibile il poll riprende + refresh immediato.
+2. **Poll gating su visibilità** ✅ FATTO (commit `a1985516`): `useTauriBrowser` ora ricava un
+   param `isVisible` (passato da `RemoteBrowserPanel`, stesso segnale dello screencast) e il poll
+   800ms gira solo per il pane visibile; al ritorno-visibile l'effetto ri-parte e prime un tick.
 3. **Browser-pane agent observe/act** (parità 5/13 → ~80%): un walker JS di accessibilità +
    ref-map iniettato, NON CEF. Entry: `NATIVE_SUPPORTED_OPS` in `lib/shell/tauriBrowserOps.ts`;
    contratto in `browser-tool-spec.ts`. QUANTIFICARE prima: input non-trusted perde i siti
