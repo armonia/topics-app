@@ -21,6 +21,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { isOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
+import { serverWsBase } from '../lib/shell/net';
+import { parseBrowserWsMessage } from '../types/browser-ws-messages';
 import type { NativeBrowserHandle } from './useNativeBrowser';
 import type { DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
@@ -51,6 +53,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
   const [selectMode, setSelectMode] = useState(false);
+  const [agentActive, setAgentActive] = useState(false);
+  const [agentAction, setAgentAction] = useState<string | null>(null);
   const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
   const consoleIdRef = useRef(0);
   const selectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -305,6 +309,27 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   // Tear down the select poll if the pane unmounts mid-pick.
   useEffect(() => () => { if (selectPollRef.current) clearInterval(selectPollRef.current); }, []);
 
+  // Agent activity pill: subscribe to /ws/browser/:contextId for the server's
+  // `agent_active` broadcast — the SAME client-side WS the Electron + streaming
+  // paths use (the server already emits it per-context; no server change). Lights
+  // the toolbar pill when an agent is driving this browser context.
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(`${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`);
+      ws.addEventListener('message', (e) => {
+        try {
+          const raw = JSON.parse(typeof e.data === 'string' ? e.data : '');
+          const result = parseBrowserWsMessage(raw);
+          if (!result.ok || result.data.type !== 'agent_active') return;
+          setAgentActive(Boolean(result.data.active));
+          if (result.data.active && result.data.action) setAgentAction(result.data.action);
+        } catch { /* ignore non-JSON / malformed frames */ }
+      });
+    } catch { /* ws construction failed — pill just stays off */ }
+    return () => { try { ws?.close(); } catch { /* ignore */ } };
+  }, [id]);
+
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). delta is a step (+/-0.5 ≈ ±10%), 'reset' → 100%.
   const setZoom = useCallback(
@@ -402,8 +427,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     url,
     title,
     loading,
-    agentActive: false,
-    agentAction: null,
+    agentActive,
+    agentAction,
     ready,
     viewId: ready ? id : null,
     faviconUrl,
