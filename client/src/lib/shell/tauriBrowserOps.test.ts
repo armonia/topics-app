@@ -37,6 +37,14 @@ test('browser_console parses the drained buffer JSON', async () => {
   expect(out).toEqual({ result: [{ level: 'error', text: 'boom' }] });
 });
 
+test('browser_screenshot returns the native PNG as base64 in the streaming-compatible shape', async () => {
+  const { invoke, calls } = recordingInvoke({ browser_screenshot: 'iVBORw0KGgo=' });
+  const out = await executeNativeBrowserOp('ctx', 'browser_screenshot', {}, invoke);
+  expect(calls[0]).toEqual(['browser_screenshot', { id: 'ctx' }]);
+  expect(out).toEqual({ result: { data: 'iVBORw0KGgo=', mime: 'image/png', encoding: 'base64' } });
+  expect(NATIVE_SUPPORTED_OPS.has('browser_screenshot')).toBe(true);
+});
+
 test('unsupported ops return a structured streaming-mode hint (no invoke)', async () => {
   const { invoke, calls } = recordingInvoke();
   for (const tool of ['browser_act', 'browser_observe', 'browser_read_screen', 'browser_save_state', 'browser_import_chrome']) {
