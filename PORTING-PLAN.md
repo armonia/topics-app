@@ -240,6 +240,12 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
     nav-entries reali (back/forward menu è uno stub), eventi load nativi (url/title oggi via poll `eval` 800ms).
   - **Guadagnato**: leggerezza (niente bundle Chromium +170MB), nessun bundling `.app`/helper, vibrancy/glass
     nativi sotto il pane. Scelta deliberata Tier-1, non stopgap accidentale.
+  - **Correzioni audit (verificate 2026-06-29)**: (a) il pane **NON** si ricarica al tab-switch — i pane
+    visitati restano montati nella keep-alive ladder (`GroupLayout` `display:none`), quindi `browser_close`
+    scatta solo alla chiusura reale → durabilità già ottenuta (l'audit l'aveva sovra-segnalato). (b) Il poll
+    `eval` 800ms (url/title/loading + drain console) è **deliberato e commentato**; ritirarlo serve un bridge
+    `WKNavigationDelegate`→eventi nativi + infra di event-listening lato client (oggi assente per scelta, no
+    SDK `@tauri-apps`) + verifica a runtime → **DEFER**, non è un gap di correttezza.
   > Storico della decisione CEF originale (SUPERATA — tenuta solo per contesto):
   - Requisito utente: webview **reale** (DOM/scroll/interazione veri), non screencast.
   - Esito ricerca multi-agente (workflow `native-browser-pane-tauri`, 11 agenti):
