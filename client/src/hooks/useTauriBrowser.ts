@@ -249,6 +249,22 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){}' }).catch(() => {});
   }, [id]);
 
+  // window.find gives no count, so count case-insensitive occurrences in the page
+  // text ourselves (browser_eval_js returns the number stringified).
+  const countMatches = useCallback(async (text: string): Promise<number> => {
+    if (!text) return 0;
+    const js =
+      `(function(q){try{var t=(document.body&&document.body.innerText)||'';var lq=q.toLowerCase();` +
+      `if(!t||!lq)return 0;var lc=t.toLowerCase(),n=0,i=0;while((i=lc.indexOf(lq,i))!==-1){n++;i+=lq.length}return n}catch(e){return 0}})(${JSON.stringify(text)})`;
+    try {
+      const raw = await tauriInvoke<string>('browser_eval_js', { id, js });
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  }, [id]);
+
   const clearConsole = useCallback(() => {
     setConsoleEntries([]);
     void tauriInvoke('browser_exec_js', { id, js: 'try{window.__topicsConsole&&(window.__topicsConsole.length=0)}catch(e){}' }).catch(() => {});
@@ -316,6 +332,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     stopFind,
     onFindResult: () => () => {},
     setZoom,
+    countMatches,
     deviceMode,
     setDevice,
     responsiveSize,
