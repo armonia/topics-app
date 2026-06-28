@@ -773,6 +773,23 @@ fn browser_label(id: &str) -> String {
     format!("browserpane-{id}")
 }
 
+/// Injected before any page script, on every navigation: a tiny console proxy so
+/// the toolbar's console badge can show page log/warn/error counts (WKWebView has
+/// no console-message delegate bridged). Buffers into `window.__topicsConsole`,
+/// drained by useTauriBrowser's state poll. Idempotent + preserves native console.
+const CONSOLE_PROXY_JS: &str = r#"(function(){
+  if(window.__topicsConsoleInstalled)return;window.__topicsConsoleInstalled=true;
+  window.__topicsConsole=[];var L=['log','info','warn','error','debug'],o={};
+  function push(lvl,txt){try{window.__topicsConsole.push({level:lvl,text:String(txt).slice(0,2000)});
+    if(window.__topicsConsole.length>500)window.__topicsConsole.shift();}catch(e){}}
+  L.forEach(function(lvl){o[lvl]=console[lvl];console[lvl]=function(){
+    try{push(lvl,Array.prototype.map.call(arguments,function(a){
+      try{return typeof a==='string'?a:JSON.stringify(a)}catch(e){return String(a)}}).join(' '))}catch(e){}
+    return o[lvl].apply(console,arguments);};});
+  window.addEventListener('error',function(e){push('error',(e&&e.message||'error')+' @'+(e&&e.filename||'')+':'+(e&&e.lineno||0))});
+  window.addEventListener('unhandledrejection',function(e){push('error','Unhandled promise rejection: '+((e&&e.reason)||''))});
+})();"#;
+
 /// Create (or, if it already exists, reuse) the native webview for a browser
 /// pane and place it at the given window-relative rect.
 #[tauri::command]
@@ -796,7 +813,8 @@ fn browser_open(
     let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
     window
         .add_child(
-            tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed)),
+            tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
+                .initialization_script(CONSOLE_PROXY_JS),
             tauri::LogicalPosition::new(x, y),
             tauri::LogicalSize::new(width.max(1.0), height.max(1.0)),
         )

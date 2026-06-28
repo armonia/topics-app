@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { isOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import type { NativeBrowserHandle } from './useNativeBrowser';
-import type { DeviceMode } from '@/components/Browser/browserDevTypes';
+import type { DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 
 /** Parking spot far outside any display — keeps the webview alive (no reload)
  *  while hidden, vs destroying it. Matches Electron's zero-bounds hide intent. */
@@ -46,7 +46,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   const [title, setTitle] = useState('');
   const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
+  const consoleIdRef = useRef(0);
 
   const openedRef = useRef(false);
   // Buffer the last requested rect until the webview exists, then flush it — the
@@ -154,17 +156,29 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     let stop = false;
     const READ =
       "JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
-      "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'})";
+      "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'," +
+      "c:(window.__topicsConsole?window.__topicsConsole.splice(0,window.__topicsConsole.length):[])})";
     const tick = async () => {
       if (stop) return;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: READ });
         if (stop || !raw) return;
-        const s = JSON.parse(raw) as { u: string; t: string; r: string; f: string };
+        const s = JSON.parse(raw) as {
+          u: string; t: string; r: string; f: string;
+          c?: { level: BrowserConsoleEntry['level']; text: string }[];
+        };
         if (s.u && s.u !== 'about:blank') setUrl(s.u);
         setTitle(s.t || '');
         if (s.f) setFaviconUrl(s.f);
         setLoading(s.r !== 'complete');
+        // Drain any console entries buffered by the injected proxy (CONSOLE_PROXY_JS).
+        if (s.c && s.c.length) {
+          setConsoleEntries((prev) => {
+            const add = s.c!.map((e) => ({ id: ++consoleIdRef.current, level: e.level, text: e.text }));
+            const next = prev.concat(add);
+            return next.length > 500 ? next.slice(next.length - 500) : next;
+          });
+        }
       } catch {
         /* pane closing / eval timeout — ignore, next tick retries */
       }
@@ -209,6 +223,16 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){}' }).catch(() => {});
   }, [id]);
 
+  const clearConsole = useCallback(() => {
+    setConsoleEntries([]);
+    void tauriInvoke('browser_exec_js', { id, js: 'try{window.__topicsConsole&&(window.__topicsConsole.length=0)}catch(e){}' }).catch(() => {});
+  }, [id]);
+
+  const consoleSummary = {
+    errors: consoleEntries.reduce((n, e) => (e.level === 'error' ? n + 1 : n), 0),
+    warnings: consoleEntries.reduce((n, e) => (e.level === 'warn' ? n + 1 : n), 0),
+  };
+
   return {
     url,
     title,
@@ -233,9 +257,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     setDevice: () => {},
     responsiveSize: null,
     setResponsiveSize: () => {},
-    consoleEntries: [],
-    consoleSummary: { errors: 0, warnings: 0 },
-    clearConsole: () => {},
+    consoleEntries,
+    consoleSummary,
+    clearConsole,
     getNavEntries: async () => ({ entries: [], activeIndex: 0 }),
     goToNavIndex: noop,
   };
