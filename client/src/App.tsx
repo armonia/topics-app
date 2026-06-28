@@ -147,6 +147,12 @@ function App() {
   // panel rects to the transparent window so floating-splits gaps show the clear
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
+  // Overlay sidebar: floats over fixed-width content (collapse via composited
+  // translateX) so NOTHING reflows on toggle — no terminal re-fit, no frame drop,
+  // nothing to blank. FORCED on Tauri (WebKit re-flows terminals per frame in push
+  // mode → the cost the old content-visibility kludge masked). Electron keeps the
+  // user's setting (its push mode lays out fast enough; default push, unchanged).
+  const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
   // Coalesce xterm fit() across the sidebar collapse/expand (one fit at the settled
   // size instead of per-frame) so the slide doesn't jank from terminal re-fits.
   useSidebarFitCoalesce();
@@ -728,7 +734,7 @@ function App() {
         aria-label="Topics sidebar"
         className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
-            : (appSettings.overlaySidebar && isDesktop ? 'fixed inset-y-0 left-0 z-40 shadow-2xl' : '')
+            : (desktopOverlay ? 'fixed inset-y-0 left-0 z-40 shadow-2xl' : '')
         }`}
         style={{
           // Overlay mode (desktop, opt-in): keep the width CONSTANT and collapse via a
@@ -736,10 +742,10 @@ function App() {
           // terminal relayout. Push mode (default): animate width 0↔sidebarWidth.
           width: isMobile
             ? (sidebarCollapsed ? 0 : '100vw')
-            : (appSettings.overlaySidebar && isDesktop)
+            : (desktopOverlay)
               ? `${sidebarWidth}px`
               : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
-          transform: ((isMobile && sidebarCollapsed) || (appSettings.overlaySidebar && isDesktop && sidebarCollapsed))
+          transform: ((isMobile && sidebarCollapsed) || (desktopOverlay && sidebarCollapsed))
             ? 'translateX(-100%)' : 'translateX(0)',
           // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
           // there's no inset (desktop, non-notched), so gating it on isPWA was
@@ -957,7 +963,7 @@ function App() {
           // sidebar's composited translateX moves), so the DOM terminals never re-fit
           // → literal zero frame-drop on toggle. Trade-off: a sidebar-width empty strip
           // shows while collapsed (rare, focus-only state). Push mode leaves this unset.
-          ...(appSettings.overlaySidebar && isDesktop ? { paddingLeft: `${sidebarWidth}px` } : {}),
+          ...(desktopOverlay ? { paddingLeft: `${sidebarWidth}px` } : {}),
         }}
 >
 
