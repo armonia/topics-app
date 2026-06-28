@@ -1043,6 +1043,44 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Resul
     .map_err(|e| e.to_string())?
 }
 
+/// The novel/risky part of screenshotting, isolated so it's unit-testable headless
+/// (no webview/app/run-loop): an `NSImage*` → base64 PNG string via
+/// `CGImageForProposedRect → NSBitmapImageRep → representationUsingType:4 (PNG) →
+/// base64EncodedStringWithOptions`. SAFETY: `img` must be a valid NSImage id.
+#[cfg(target_os = "macos")]
+unsafe fn nsimage_to_png_base64(img: cocoa::base::id) -> Result<String, String> {
+    use cocoa::base::{id, nil};
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::ffi::CStr;
+    use std::os::raw::c_char;
+    if img == nil {
+        return Err("nil NSImage".to_string());
+    }
+    // NSImage → CGImage → NSBitmapImageRep → PNG NSData → base64 NSString.
+    let null_rect: *const cocoa::foundation::NSRect = std::ptr::null();
+    let cg: id = msg_send![img, CGImageForProposedRect: null_rect context: nil hints: nil];
+    if cg == nil {
+        return Err("no CGImage".to_string());
+    }
+    let rep: id = msg_send![class!(NSBitmapImageRep), alloc];
+    let rep: id = msg_send![rep, initWithCGImage: cg];
+    if rep == nil {
+        return Err("no NSBitmapImageRep".to_string());
+    }
+    let props: id = msg_send![class!(NSDictionary), dictionary];
+    // NSBitmapImageFileTypePNG = 4
+    let png: id = msg_send![rep, representationUsingType: 4u64 properties: props];
+    if png == nil {
+        return Err("no PNG data".to_string());
+    }
+    let b64: id = msg_send![png, base64EncodedStringWithOptions: 0u64];
+    let c: *const c_char = msg_send![b64, UTF8String];
+    if c.is_null() {
+        return Err("no base64".to_string());
+    }
+    Ok(CStr::from_ptr(c).to_string_lossy().into_owned())
+}
+
 /// Capture the pane as a base64 PNG via WKWebView `takeSnapshotWithConfiguration:`
 /// (async completion handler → channel, same off-main pattern as eval). Feeds the
 /// agent's `browser_screenshot` op on the native pane. macOS only.
@@ -1054,41 +1092,16 @@ fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
     wv.with_webview(move |platform| {
         use cocoa::base::{id, nil};
         use objc::{class, msg_send, sel, sel_impl};
-        use std::ffi::CStr;
-        use std::os::raw::c_char;
         unsafe {
             let wk = platform.inner() as id;
             let cfg: id = msg_send![class!(WKSnapshotConfiguration), new];
             let tx2 = tx.clone();
             let handler = block::ConcreteBlock::new(move |img: id, err: id| {
-                let out: Result<String, String> = (|| {
-                    if err != nil || img == nil {
-                        return Err("takeSnapshot failed".to_string());
-                    }
-                    // NSImage → CGImage → NSBitmapImageRep → PNG NSData → base64 NSString.
-                    let null_rect: *const cocoa::foundation::NSRect = std::ptr::null();
-                    let cg: id = msg_send![img, CGImageForProposedRect: null_rect context: nil hints: nil];
-                    if cg == nil {
-                        return Err("no CGImage".to_string());
-                    }
-                    let rep: id = msg_send![class!(NSBitmapImageRep), alloc];
-                    let rep: id = msg_send![rep, initWithCGImage: cg];
-                    if rep == nil {
-                        return Err("no NSBitmapImageRep".to_string());
-                    }
-                    let props: id = msg_send![class!(NSDictionary), dictionary];
-                    // NSBitmapImageFileTypePNG = 4
-                    let png: id = msg_send![rep, representationUsingType: 4u64 properties: props];
-                    if png == nil {
-                        return Err("no PNG data".to_string());
-                    }
-                    let b64: id = msg_send![png, base64EncodedStringWithOptions: 0u64];
-                    let c: *const c_char = msg_send![b64, UTF8String];
-                    if c.is_null() {
-                        return Err("no base64".to_string());
-                    }
-                    Ok(CStr::from_ptr(c).to_string_lossy().into_owned())
-                })();
+                let out: Result<String, String> = if err != nil {
+                    Err("takeSnapshot failed".to_string())
+                } else {
+                    unsafe { nsimage_to_png_base64(img) }
+                };
                 let _ = tx2.send(out);
             });
             let handler = handler.copy();
@@ -1573,4 +1586,48 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod screenshot_tests {
+    use super::nsimage_to_png_base64;
+    use cocoa::base::{id, nil, NO, YES};
+    use cocoa::foundation::{NSSize, NSString};
+    use objc::{class, msg_send, sel, sel_impl};
+
+    // Headless proof of the novel conversion chain (no webview / app / run-loop):
+    // a synthetic 4x4 RGBA NSImage → nsimage_to_png_base64 → a string whose bytes
+    // are a real PNG. PNG magic (\x89PNG\r\n\x1a\n) base64-encodes to a fixed
+    // "iVBORw0KGgo" prefix, so a prefix check needs no base64 decoder.
+    #[test]
+    fn nsimage_converts_to_valid_png_base64() {
+        unsafe {
+            let cs = NSString::alloc(nil).init_str("NSDeviceRGBColorSpace");
+            let rep: id = msg_send![class!(NSBitmapImageRep), alloc];
+            let rep: id = msg_send![rep,
+                initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>()
+                pixelsWide: 4i64
+                pixelsHigh: 4i64
+                bitsPerSample: 8i64
+                samplesPerPixel: 4i64
+                hasAlpha: YES
+                isPlanar: NO
+                colorSpaceName: cs
+                bytesPerRow: 0i64
+                bitsPerPixel: 0i64];
+            assert!(rep != nil, "failed to create NSBitmapImageRep");
+
+            let img: id = msg_send![class!(NSImage), alloc];
+            let img: id = msg_send![img, initWithSize: NSSize::new(4.0, 4.0)];
+            let _: () = msg_send![img, addRepresentation: rep];
+
+            let out = nsimage_to_png_base64(img).expect("conversion failed");
+            assert!(
+                out.starts_with("iVBORw0KGgo"),
+                "not a PNG; got prefix {:?}",
+                &out[..out.len().min(16)]
+            );
+            assert!(out.len() > 32, "PNG base64 implausibly short: {}", out.len());
+        }
+    }
 }
