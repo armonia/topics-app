@@ -318,3 +318,37 @@ La config Tauri di produzione DEVE:
 - Impostare una **CSP stretta** (`app.security.csp`), non `null`.
 - **Non esporre l'IPC Tauri** a origin remoti: `app.security.capabilities`/
   `dangerousRemoteDomainIpcAccess` lockati al solo origin dell'app.
+
+## 8. Follow-up audit deferiti (2026-06-29) — entry-point + verifica richiesta
+
+Item che richiedono un **run Tauri live** (impossibile verificarli staticamente) o sono
+"large". NON spedirli alla cieca: ognuno ha bisogno della verifica indicata.
+
+1. **WKNavigationDelegate event bridge** (ritira il poll `eval` 800ms). Entry: il poll è in
+   `client/src/hooks/useTauriBrowser.ts` (~riga 248); il pane WKWebView nasce in `lib.rs`
+   `browser_open` via `WebviewBuilder`/`add_child`. Approccio: emettere eventi load nativi
+   (Rust → `app.emit`) e ascoltarli lato client. BLOCCO: il client evita l'SDK `@tauri-apps`
+   (no event-listening); o si aggiunge `@tauri-apps/api` solo per `listen`, o si tiene il poll
+   per il drain console e si usano gli eventi solo per url/title/loading. VERIFICA: run Tauri,
+   navigare un SPA e confermare niente lag address-bar + spinner reale. Tenere il poll come
+   fallback finché non provato.
+2. **Poll gating su visibilità** (efficienza): il poll gira per OGNI pane montato (keep-alive
+   ladder = pane inattivi montati+nascosti). Gating su pane attivo/visibile taglia gli eval
+   ridondanti. Entry: `useTauriBrowser` + `RemoteBrowserPanel` (serve un segnale `isActive`).
+   VERIFICA: confermare che al ritorno-visibile il poll riprende + refresh immediato.
+3. **Browser-pane agent observe/act** (parità 5/13 → ~80%): un walker JS di accessibilità +
+   ref-map iniettato, NON CEF. Entry: `NATIVE_SUPPORTED_OPS` in `lib/shell/tauriBrowserOps.ts`;
+   contratto in `browser-tool-spec.ts`. QUANTIFICARE prima: input non-trusted perde i siti
+   `isTrusted`-gated, no cookie httpOnly, `point`/`save_state` restano fuori. Decisione di
+   prodotto + verifica con un agente reale su una pagina viva. WKUIDelegate per i permessi.
+4. **Wiring `splitTreeEngine`** (P3/large): engine+adapter+golden-test pronti ma 3 comportamenti
+   live (project GroupLayout, sub-stack, insert-between) restano su codice legacy, e il golden
+   prova solo la geometria statica, non la parità di gesture. Prima del flip: wire (o cancella)
+   `useSplitController`, unifica il floor `MIN_CHILD_WEIGHT`↔`MIN_PANE_FRACTION` (0.05→0.1) con
+   aggiornamento dei golden test. VERIFICA: parità gesture drag/drop misurata, non solo statica.
+5. **Spike `ghostty-web`** (fronte 2, opzionale): unico core WASM xterm-compatibile che tiene il
+   modello canvas+DOM (no child-view nativa, no occlusione, agent-scrape preservato — API
+   buffer/selection verificate 1:1). GATE UNICO: il suo canvas rende `rgba(0,0,0,0)` su `.chrome-glass`
+   con glifi nitidi a 2× DPR? Untestabile dai doc → spike di 1-2 giorni dietro feature-flag su UN
+   pane. Se la trasparenza fallisce, rigetta come xterm-WebGL. Pretendere l'API RenderState (non il
+   viewport-grab per-riga). Priorità bassa: il terminale attuale è solido.
