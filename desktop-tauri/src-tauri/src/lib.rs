@@ -1023,6 +1023,33 @@ fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Override the pane's User-Agent (device emulation). WKWebView
+/// `setCustomUserAgent:` — empty string resets to the default. Takes effect on
+/// the next load, so the client reloads after setting it. macOS only.
+#[tauri::command]
+fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+    #[cfg(target_os = "macos")]
+    {
+        let _ = wv.with_webview(move |platform| unsafe {
+            use cocoa::base::{id as objid, nil};
+            use cocoa::foundation::NSString;
+            use objc::{msg_send, sel, sel_impl};
+            let wk = platform.inner() as objid;
+            if ua.is_empty() {
+                let _: () = msg_send![wk, setCustomUserAgent: nil];
+            } else {
+                let s: objid = NSString::alloc(nil).init_str(&ua);
+                let _: () = msg_send![wk, setCustomUserAgent: s];
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (wv, ua);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1350,7 +1377,8 @@ pub fn run() {
             browser_exec_js,
             browser_back,
             browser_forward,
-            browser_reload
+            browser_reload,
+            browser_set_user_agent
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

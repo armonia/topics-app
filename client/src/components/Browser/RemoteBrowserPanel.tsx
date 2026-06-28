@@ -239,6 +239,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
         onZoom={browser.setZoom}
+        deviceMode={browser.deviceMode}
+        onSetDevice={browser.setDevice}
         consoleEntries={browser.consoleEntries}
         consoleSummary={browser.consoleSummary}
         onClearConsole={browser.clearConsole}
