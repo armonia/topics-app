@@ -125,3 +125,31 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
 /** Process-wide singleton used by the live server (routes wire register/resolve,
  *  the dispatcher calls isDelegated/delegateOp). Tests use createNativeDelegateRegistry. */
 export const nativeDelegateRegistry = createNativeDelegateRegistry();
+
+/**
+ * Server /ws/browser inbound classifier for the two delegation frames. Extracted
+ * from server.ts so the REAL handler logic is unit-tested without booting the
+ * server: `register_native_executor` registers this socket's `send`,
+ * `browser_op_result` resolves the pending op. Returns what it did (or null if the
+ * frame isn't ours — the caller then falls through to the streaming Zod parse).
+ * The caller still owns socket-specific side-effects (e.g. tearing down the
+ * screencast on 'registered').
+ */
+export function handleNativeDelegationFrame(
+  raw: unknown,
+  contextId: string,
+  send: SendFn,
+  registry: NativeDelegateRegistry,
+): 'registered' | 'result' | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const m = raw as { type?: string; opId?: string; result?: unknown; error?: string };
+  if (m.type === 'register_native_executor') {
+    registry.register(contextId, send);
+    return 'registered';
+  }
+  if (m.type === 'browser_op_result' && typeof m.opId === 'string') {
+    registry.resolveOp({ opId: m.opId, result: m.result, error: m.error });
+    return 'result';
+  }
+  return null;
+}
