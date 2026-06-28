@@ -1,8 +1,9 @@
 /**
  * Phase E · UpdaterToast — opt-in update notifications.
  *
- * Listens to `updater:status` events broadcast from `electron-app/main.ts`
- * and renders a small fixed-position toast in the bottom-right corner.
+ * Subscribes to the host updater (Electron's `updater:*` IPC, or the Tauri
+ * updater adapter in lib/updater.ts) and renders a small fixed-position toast
+ * in the bottom-right corner.
  *
  * Behaviour (revised 2026-05-11 — opt-in only, no surprise downloads):
  *   · `idle`              → nothing rendered
@@ -15,38 +16,13 @@
  *                           ready" + "Restart to Update" CTA
  *   · `error`             → small dismissable error
  *
- * The toast is rendered at the App root and consumes
- * `window.electronAPI.updater` directly — no React state plumbing
- * needed beyond the listener.
+ * The toast is rendered at the App root and consumes the host updater via
+ * `getUpdaterApi()` (lib/updater.ts) — no React state plumbing needed beyond
+ * the listener.
  */
 import { useEffect, useState } from 'react';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
-
-interface UpdaterStatus {
-  state: 'idle' | 'checking' | 'update-available' | 'downloading' | 'ready' | 'error';
-  progress?: number;
-  error?: string;
-}
-
-interface ElectronUpdater {
-  checkForUpdates: () => Promise<{ ok: boolean; reason?: string }>;
-  /** Explicit download trigger — required when `autoDownload: false` server-side. */
-  downloadUpdate?: () => Promise<{ ok: boolean; reason?: string }>;
-  status: () => Promise<UpdaterStatus>;
-  quitAndInstall: () => Promise<{ ok: boolean; reason?: string }>;
-  onStatus: (cb: (s: UpdaterStatus) => void) => () => void;
-}
-
-/**
- * Read the Electron updater bridge off `window`. The global `electronAPI`
- * type doesn't lock down `updater` (it's exposed via the preload's ad-hoc
- * index signature), so we narrow it locally to `ElectronUpdater` rather than
- * widening the whole window object. Returns `undefined` in web mode.
- */
-function getUpdaterApi(): ElectronUpdater | undefined {
-  const api = window.electronAPI as { updater?: ElectronUpdater } | undefined;
-  return api?.updater;
-}
+import { getUpdaterApi, type UpdaterStatus } from '@/lib/updater';
 
 export function UpdaterToast() {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });

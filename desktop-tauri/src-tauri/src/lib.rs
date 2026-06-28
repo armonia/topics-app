@@ -247,6 +247,52 @@ fn notify(app: tauri::AppHandle, title: String, body: String) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// Update metadata handed to the renderer by `updater_check`.
+#[derive(Serialize)]
+struct UpdateInfo {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+}
+
+/// Check the configured endpoint for a newer signed release. Returns the update
+/// metadata, or `None` when already current. Errors (no manifest / not yet
+/// published / network) surface as a string for the client to show. Electron
+/// parity: `updater:check-for-updates`. Inert until a signed tauri-v* release is
+/// published (see `plugins.updater` in tauri.conf.json).
+#[tauri::command]
+async fn updater_check(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let found = updater.check().await.map_err(|e| e.to_string())?;
+    Ok(found.map(|u| UpdateInfo {
+        version: u.version.clone(),
+        current_version: u.current_version.clone(),
+        notes: u.body.clone(),
+    }))
+}
+
+/// Download + install the available update, then restart into it. Tauri's update
+/// is atomic (download and install are one call), so the client maps its
+/// "download" affordance to a no-op transition and drives the real work from here
+/// (the "Restart to update" action). Never returns on success — the process is
+/// replaced. Electron parity: `updater:quit-and-install`.
+#[tauri::command]
+async fn updater_install(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no update available".to_string())?;
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart()
+}
+
 /// Toggle the main window's always-on-top (floating) state and remember it, so
 /// the global hotkey and the menu item stay in sync. Electron parity:
 /// electron-app/main.ts `toggleAlwaysOnTop` (same Cmd/Ctrl+Alt+T global shortcut).
@@ -2457,7 +2503,9 @@ pub fn run() {
             focus_grab_browser,
             focus_grab_window,
             focus_report,
-            browser_take_download_events
+            browser_take_download_events,
+            updater_check,
+            updater_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
