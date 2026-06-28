@@ -36,6 +36,7 @@ import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
 import { setBrowserCdpDispatcher, clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
+import { nativeDelegateRegistry } from "./server/browser-native-delegate";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
 import { ActivityMonitor } from "./server/activity-monitor";
@@ -849,6 +850,24 @@ const server = Bun.serve<WSData>({
         const ctxId = ws.data.browserContextId;
         try {
           const raw = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+          // Tauri native-pane delegation — raw types OUTSIDE the strict browser-ws
+          // Zod envelope (kept out of it on purpose so the schema stays the
+          // streaming protocol). Handled before parseBrowserWsMessage.
+          if (raw && raw.type === 'register_native_executor') {
+            // This client's WKWebView pane will execute the agent's browser ops.
+            nativeDelegateRegistry.register(ctxId, (m) => { try { ws.send(JSON.stringify(m)); } catch {} });
+            // A native pane runs ops itself — it never views server frames, so tear
+            // down the screencast the open handler auto-started (no wasted headless
+            // Chromium / bandwidth for a context that isn't streaming).
+            try { void ws.data._browserCleanup?.(); } catch {}
+            ws.data._browserCleanup = undefined;
+            console.log(`[WS][browser] native executor registered for ctx ${ctxId}`);
+            return;
+          }
+          if (raw && raw.type === 'browser_op_result') {
+            nativeDelegateRegistry.resolveOp({ opId: raw.opId, result: raw.result, error: raw.error });
+            return;
+          }
           const result = parseBrowserWsMessage(raw);
           if (!result.ok) {
             console.warn(`[WS][browser] Invalid message from ${ws.data.id}: ${result.error}`);
@@ -942,6 +961,9 @@ const server = Bun.serve<WSData>({
           bset.delete(ws);
           if (bset.size === 0) browserWsClients.delete(ws.data.browserContextId);
         }
+        // Drop any native-executor registration for this pane + fail its in-flight
+        // ops (Tauri delegation) — no-op if this context never registered.
+        nativeDelegateRegistry.unregister(ws.data.browserContextId);
         ws.data._browserCleanup?.().catch(err =>
           console.warn(`[WS][browser] cleanup failed:`, err.message)
         );

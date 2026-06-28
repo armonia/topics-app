@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { isOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
+import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { parseBrowserWsMessage } from '../types/browser-ws-messages';
 import type { NativeBrowserHandle } from './useNativeBrowser';
 import type { DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
@@ -309,25 +310,45 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   // Tear down the select poll if the pane unmounts mid-pick.
   useEffect(() => () => { if (selectPollRef.current) clearInterval(selectPollRef.current); }, []);
 
-  // Agent activity pill: subscribe to /ws/browser/:contextId for the server's
-  // `agent_active` broadcast — the SAME client-side WS the Electron + streaming
-  // paths use (the server already emits it per-context; no server change). Lights
-  // the toolbar pill when an agent is driving this browser context.
+  // /ws/browser/:contextId — two jobs over the one socket the Electron + streaming
+  // paths also use (server already serves it; no server change for the pill):
+  //  • agent_active broadcast → the toolbar pill, AND
+  //  • NATIVE-PANE AGENT DELEGATION: register this pane as the executor for its
+  //    contextId, then run each delegated `browser_op` against the real WKWebView
+  //    via the native browser_* commands and reply — so a server-side agent can
+  //    drive the native pane (the ops that map; the rest get a streaming-mode hint).
   useEffect(() => {
     let ws: WebSocket | null = null;
+    let closed = false;
     try {
       ws = new WebSocket(`${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`);
-      ws.addEventListener('message', (e) => {
-        try {
-          const raw = JSON.parse(typeof e.data === 'string' ? e.data : '');
-          const result = parseBrowserWsMessage(raw);
-          if (!result.ok || result.data.type !== 'agent_active') return;
-          setAgentActive(Boolean(result.data.active));
-          if (result.data.active && result.data.action) setAgentAction(result.data.action);
-        } catch { /* ignore non-JSON / malformed frames */ }
+      const socket = ws;
+      socket.addEventListener('open', () => {
+        // Claim this contextId as a native executor (raw msg, outside the strict
+        // browser-ws Zod envelope — the server handles it before parsing).
+        try { socket.send(JSON.stringify({ type: 'register_native_executor' })); } catch { /* ignore */ }
       });
-    } catch { /* ws construction failed — pill just stays off */ }
-    return () => { try { ws?.close(); } catch { /* ignore */ } };
+      socket.addEventListener('message', (e) => {
+        let raw: unknown;
+        try { raw = JSON.parse(typeof e.data === 'string' ? e.data : ''); } catch { return; }
+        const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown; active?: boolean; action?: string };
+        // Delegated agent op → execute on the native pane, reply with the result.
+        if (m && m.type === 'browser_op' && typeof m.opId === 'string' && typeof m.tool === 'string') {
+          void executeNativeBrowserOp(id, m.tool, m.args, tauriInvoke)
+            .then((out) => {
+              if (closed) return;
+              try { socket.send(JSON.stringify({ type: 'browser_op_result', opId: m.opId, ...out })); } catch { /* ignore */ }
+            });
+          return;
+        }
+        // Otherwise it's a strict-envelope message (agent_active for the pill).
+        const result = parseBrowserWsMessage(raw);
+        if (!result.ok || result.data.type !== 'agent_active') return;
+        setAgentActive(Boolean(result.data.active));
+        if (result.data.active && result.data.action) setAgentAction(result.data.action);
+      });
+    } catch { /* ws construction failed — pill stays off, no delegation */ }
+    return () => { closed = true; try { ws?.close(); } catch { /* ignore */ } };
   }, [id]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
