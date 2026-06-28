@@ -1023,6 +1023,21 @@ fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Toggle the pane's Web Inspector (DevTools). Uses Tauri's own
+/// open/close_devtools (the `devtools` Cargo feature is enabled so it's live in
+/// release too) — no private API. Opens Safari's Web Inspector for the pane.
+#[tauri::command]
+fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+    if wv.is_devtools_open() {
+        wv.close_devtools();
+    } else {
+        wv.open_devtools();
+    }
+    Ok(())
+}
+
 /// Override the pane's User-Agent (device emulation). WKWebView
 /// `setCustomUserAgent:` — empty string resets to the default. Takes effect on
 /// the next load, so the client reloads after setting it. macOS only.
@@ -1378,7 +1393,8 @@ pub fn run() {
             browser_back,
             browser_forward,
             browser_reload,
-            browser_set_user_agent
+            browser_set_user_agent,
+            browser_toggle_devtools
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

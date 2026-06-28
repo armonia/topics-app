@@ -219,6 +219,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
 
   const noop = useCallback(async () => {}, []);
 
+  const toggleDevTools = useCallback(async () => {
+    await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
+  }, [id]);
+
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). delta is a step (+/-0.5 ≈ ±10%), 'reset' → 100%.
   const setZoom = useCallback(
@@ -327,7 +331,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     reload,
     goHome,
     setBounds,
-    toggleDevTools: noop,
+    toggleDevTools,
     findInPage,
     stopFind,
     onFindResult: () => () => {},
