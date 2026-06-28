@@ -1043,6 +1043,87 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Resul
     .map_err(|e| e.to_string())?
 }
 
+/// Capture the pane as a base64 PNG via WKWebView `takeSnapshotWithConfiguration:`
+/// (async completion handler → channel, same off-main pattern as eval). Feeds the
+/// agent's `browser_screenshot` op on the native pane. macOS only.
+#[cfg(target_os = "macos")]
+fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    wv.with_webview(move |platform| {
+        use cocoa::base::{id, nil};
+        use objc::{class, msg_send, sel, sel_impl};
+        use std::ffi::CStr;
+        use std::os::raw::c_char;
+        unsafe {
+            let wk = platform.inner() as id;
+            let cfg: id = msg_send![class!(WKSnapshotConfiguration), new];
+            let tx2 = tx.clone();
+            let handler = block::ConcreteBlock::new(move |img: id, err: id| {
+                let out: Result<String, String> = (|| {
+                    if err != nil || img == nil {
+                        return Err("takeSnapshot failed".to_string());
+                    }
+                    // NSImage → CGImage → NSBitmapImageRep → PNG NSData → base64 NSString.
+                    let null_rect: *const cocoa::foundation::NSRect = std::ptr::null();
+                    let cg: id = msg_send![img, CGImageForProposedRect: null_rect context: nil hints: nil];
+                    if cg == nil {
+                        return Err("no CGImage".to_string());
+                    }
+                    let rep: id = msg_send![class!(NSBitmapImageRep), alloc];
+                    let rep: id = msg_send![rep, initWithCGImage: cg];
+                    if rep == nil {
+                        return Err("no NSBitmapImageRep".to_string());
+                    }
+                    let props: id = msg_send![class!(NSDictionary), dictionary];
+                    // NSBitmapImageFileTypePNG = 4
+                    let png: id = msg_send![rep, representationUsingType: 4u64 properties: props];
+                    if png == nil {
+                        return Err("no PNG data".to_string());
+                    }
+                    let b64: id = msg_send![png, base64EncodedStringWithOptions: 0u64];
+                    let c: *const c_char = msg_send![b64, UTF8String];
+                    if c.is_null() {
+                        return Err("no base64".to_string());
+                    }
+                    Ok(CStr::from_ptr(c).to_string_lossy().into_owned())
+                })();
+                let _ = tx2.send(out);
+            });
+            let handler = handler.copy();
+            let _: () = msg_send![wk, takeSnapshotWithConfiguration: cfg completionHandler: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(10))
+        .map_err(|_| "screenshot timeout".to_string())?
+}
+
+/// Screenshot the pane → base64 PNG. Async (off-main) for the same reason as
+/// browser_eval_js — the completion handler runs on the main thread.
+#[tauri::command]
+async fn browser_screenshot(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return screenshot_blocking(&wv);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = wv;
+            Err("browser_screenshot: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Fire-and-forget JS in a pane (no return value) — the ACTION side: zoom via
 /// `document.body.style.zoom`, `window.find(...)`, click/fill/scroll. Uses the
 /// cross-platform `webview.eval()` (no native bridge needed).
@@ -1481,6 +1562,7 @@ pub fn run() {
             browser_set_bounds,
             browser_close,
             browser_eval_js,
+            browser_screenshot,
             browser_exec_js,
             browser_back,
             browser_forward,

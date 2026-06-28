@@ -61,6 +61,13 @@ export async function executeNativeBrowserOp(
         try { entries = JSON.parse(raw || '[]'); } catch { entries = []; }
         return { result: entries };
       }
+      case 'browser_screenshot': {
+        // Native WKWebView snapshot → base64 PNG. The agent's screenshot tool
+        // expects { data } base64; mirror that shape so the streaming and native
+        // panes are interchangeable to the caller.
+        const data = await invoke<string>('browser_screenshot', { id });
+        return { result: { data, mime: 'image/png', encoding: 'base64' } };
+      }
       default:
         return {
           error: `browser tool '${tool}' is not supported on the native Tauri pane yet — ${STREAMING_HINT}.`,
@@ -77,4 +84,5 @@ export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
   'browser_eval',
   'browser_get_text',
   'browser_console',
+  'browser_screenshot',
 ]);
