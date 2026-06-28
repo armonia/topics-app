@@ -261,6 +261,13 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
             value={settings.floatingSplits}
             onChange={(v) => onChange('floatingSplits', v)}
           />
+
+          <ToggleRow
+            label="Overlay sidebar"
+            description="Slide the sidebar over the content instead of pushing it — no frame drop on open/close, but it covers the left edge of the content while open."
+            value={settings.overlaySidebar}
+            onChange={(v) => onChange('overlaySidebar', v)}
+          />
         </div>
       )}
 

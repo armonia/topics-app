@@ -16,6 +16,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   enableNewChat: false,
   // Experimental floating-splits layout — OFF by default, desktop-only.
   floatingSplits: false,
+  // Overlay sidebar (slides over content instead of pushing it) — OFF by
+  // default, desktop-only. Eliminates the sidebar-toggle terminal relayout.
+  overlaySidebar: false,
   // Experimental split-tree engine — OFF by default. Renders the standalone
   // grid through the unified layoutTree/<SplitTree> renderer; flip to dogfood.
   splitTreeEngine: false,
