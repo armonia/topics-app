@@ -443,15 +443,12 @@ html, body {
   opacity: 0;
 }
 
-/* Sidebar-toggle perf (WebKit/Tauri only — see useSidebarFitCoalesce, which adds the
-   class only in Tauri). While the sidebar WIDTH animates, the content area resizes
-   every frame and WebKit re-flows every mounted DOM terminal each frame (~340ms for 6,
-   on top of the per-frame fit() the hook also coalesces). Skip the terminal screens'
-   layout for the ~200ms slide; they lay out once when the class drops on transitionend.
-   Chromium/Electron is fast enough not to need it and is left untouched. */
-html.sidebar-animating .xterm {
-  content-visibility: hidden;
-}
+/* (Removed) The `html.sidebar-animating .xterm { content-visibility: hidden }` blank
+   was a kludge to survive PUSH-mode sidebar toggles, where the content area resizes
+   every frame and WebKit re-flows every mounted terminal. The structural fix is
+   OVERLAY mode (now the only desktop mode): the sidebar floats over fixed-width
+   content via a composited translateX, so NOTHING resizes on toggle — terminals
+   never re-flow, so there is nothing to hide. No blanking, no frame drop. */
 
 /* Code block styles */
 pre {
