@@ -309,6 +309,21 @@ html {
   background-color: rgba(100, 116, 139, 0.4);
 }
 
+/* WebKit (Tauri) scrollbar visibility. The global `* { scrollbar-color:
+   transparent transparent }` above is the STANDARD property; WebKit honours it
+   and, once set, renders the standard scrollbar and IGNORES the styled
+   `::-webkit-scrollbar-thumb` pseudo (Chromium does the opposite — it keeps the
+   legacy pseudo). The net effect on WebKit is a fully transparent scrollbar at
+   rest that only the `*:hover` rule reveals → on the Tauri build scrollbars
+   "disappear" from every pane/tab until you happen to hover the exact element.
+   Give WebKit a faint, always-visible cool-grey rest colour (native macOS thin
+   look), a touch stronger on hover. Scoped to `.tauri-mac` so Electron/web,
+   which take the Chromium pseudo path, are untouched. */
+.tauri-mac * { scrollbar-color: rgba(148, 163, 184, 0.32) transparent; }
+.tauri-mac *:hover { scrollbar-color: rgba(148, 163, 184, 0.5) transparent; }
+.dark.tauri-mac * { scrollbar-color: rgba(118, 132, 158, 0.36) transparent; }
+.dark.tauri-mac *:hover { scrollbar-color: rgba(140, 154, 180, 0.55) transparent; }
+
 /* Sidebar scroll — show scrollbar on container hover */
 .sidebar-scroll {
   scrollbar-color: transparent transparent;

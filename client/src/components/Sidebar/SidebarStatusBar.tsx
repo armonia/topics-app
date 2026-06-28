@@ -215,6 +215,19 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
     return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
   }, [showStatusDropdown]);
 
+  // Close on sidebar collapse. The status bar lives inside the sidebar but the
+  // dropdown is portaled to <body> (position:fixed), so when the (overlay)
+  // sidebar slides away the dropdown stays floating over the content — "la
+  // finestra degli fps restava anche da [sidebar] chiusa". The sidebar slide
+  // dispatches `topics:sidebar-resize-start` (useSidebarFitCoalesce); dismiss on
+  // it so the panel leaves with the sidebar. Harmless on expand (nothing open).
+  useEffect(() => {
+    if (!showStatusDropdown) return;
+    const close = () => setShowStatusDropdown(false);
+    window.addEventListener('topics:sidebar-resize-start', close);
+    return () => window.removeEventListener('topics:sidebar-resize-start', close);
+  }, [showStatusDropdown]);
+
   return (
     <>
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
