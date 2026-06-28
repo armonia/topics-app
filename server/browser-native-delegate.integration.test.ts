@@ -7,8 +7,10 @@
  * JSON transport (standard, and the subscription mirrors the proven agent-pill WS).
  */
 import { test, expect } from 'bun:test';
-import { createNativeDelegateRegistry } from './browser-native-delegate';
+import { createNativeDelegateRegistry, nativeDelegateRegistry } from './browser-native-delegate';
 import { executeNativeBrowserOp, type Invoke } from '../client/src/lib/shell/tauriBrowserOps';
+import { dispatchBrowserToolCallByContext } from './browser-tool-dispatcher';
+import type { BrowserService } from './browser-service';
 
 // Wire a registry so each forwarded op is executed by the client executor (with a
 // mock native `invoke`) and its result piped back — exactly what the WS does.
@@ -50,4 +52,35 @@ test('a crashing native command round-trips as a structured error, never hangs',
   const reg = wired(invoke);
   const out = (await reg.delegateOp('ctx', 'browser_eval', { expression: '1' })) as { error: string };
   expect(out.error).toContain('pane closed');
+});
+
+// The REAL dispatcher's guard: when a contextId is registered on the PROCESS
+// singleton, dispatchBrowserToolCallByContext must forward the whole call there
+// (never the CDP/Playwright path). Exercises the actual server-side integration
+// point with the real dispatcher + real registry (no boot, no socket).
+test('dispatchBrowserToolCallByContext delegates a registered native context', async () => {
+  const seen: Array<{ tool: string; args: unknown }> = [];
+  // Simulate the Tauri client: on a forwarded op, run it through the executor and reply.
+  const invoke: Invoke = async (cmd) => (cmd === 'browser_eval_js' ? 'pong' : '') as never;
+  nativeDelegateRegistry.register('ctx-real', (m) => {
+    seen.push({ tool: m.tool, args: m.args });
+    void executeNativeBrowserOp('ctx-real', m.tool, m.args, invoke).then((out) =>
+      nativeDelegateRegistry.resolveOp({ opId: m.opId, ...out }),
+    );
+  });
+  // A minimal service: only setAgentAction is touched before the guard delegates.
+  const svc = { setAgentAction: () => {} } as unknown as BrowserService;
+  try {
+    const result = await dispatchBrowserToolCallByContext('browser_eval', { expression: '6*7' }, 'ctx-real', svc);
+    expect(seen).toEqual([{ tool: 'browser_eval', args: { expression: '6*7' } }]);
+    expect(result).toBe('pong'); // came back through the native executor, NOT CDP
+  } finally {
+    nativeDelegateRegistry.unregister('ctx-real');
+  }
+});
+
+test('dispatch does NOT delegate an unregistered context (guard is a no-op for Electron/web)', async () => {
+  expect(nativeDelegateRegistry.isDelegated('ctx-none')).toBe(false);
+  // With no executor registered the guard is skipped; we assert that rather than
+  // exercising the real CDP handler (which needs a full BrowserService).
 });
