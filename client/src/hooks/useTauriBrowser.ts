@@ -43,7 +43,7 @@ function normalizeUrl(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
 }
 
-export function useTauriBrowser(contextId: string, initialUrl?: string): NativeBrowserHandle {
+export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true): NativeBrowserHandle {
   const id = contextId;
   const [ready, setReady] = useState(false);
   const [url, setUrl] = useState(initialUrl ?? '');
@@ -246,7 +246,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   // clicking a link left the address bar stale). One cheap `browser_eval_js`
   // read per tick; `loading` is driven off the real document.readyState.
   useEffect(() => {
-    if (!ready) return;
+    // Only poll the VISIBLE pane. With the keep-alive ladder every visited browser pane
+    // stays mounted (display:none when inactive), so an ungated poll runs a browser_eval_js
+    // round-trip every 800ms for EACH backgrounded pane. Gate on isVisible (same signal the
+    // streaming variant uses for the screencast); when a pane re-shows, this effect re-runs
+    // and primes a fresh tick immediately. The page-side console buffer stays capped at 500
+    // (CONSOLE_PROXY_JS) while unobserved, so nothing is lost.
+    if (!ready || !isVisible) return;
     let stop = false;
     const READ =
       "JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
@@ -283,7 +289,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
       stop = true;
       window.clearInterval(iv);
     };
-  }, [id, ready]);
+  }, [id, ready, isVisible]);
 
   const noop = useCallback(async () => {}, []);
 
