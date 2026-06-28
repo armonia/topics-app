@@ -239,6 +239,9 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
         onZoom={browser.setZoom}
+        consoleEntries={browser.consoleEntries}
+        consoleSummary={browser.consoleSummary}
+        onClearConsole={browser.clearConsole}
       />
       {findOpen && (
         <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
