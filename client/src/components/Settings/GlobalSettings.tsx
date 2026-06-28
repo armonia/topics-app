@@ -5,7 +5,7 @@ import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { isDesktop } from '../../lib/shell';
+import { isDesktop, isTauri } from '../../lib/shell';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -268,6 +268,15 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
             value={settings.overlaySidebar}
             onChange={(v) => onChange('overlaySidebar', v)}
           />
+
+          {isTauri && (
+            <ToggleRow
+              label="Browser pilotabile dall'agente"
+              description="Usa il browser in streaming (headless lato server) invece del pannello nativo, così l'agente può pilotarlo end-to-end. Più pesante del pannello nativo."
+              value={settings.tauriBrowserStreaming}
+              onChange={(v) => onChange('tauriBrowserStreaming', v)}
+            />
+          )}
         </div>
       )}
 
