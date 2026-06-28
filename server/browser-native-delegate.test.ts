@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { createNativeDelegateRegistry, type BrowserOpMessage } from './browser-native-delegate';
+import { createNativeDelegateRegistry, handleNativeDelegationFrame, type BrowserOpMessage } from './browser-native-delegate';
 
 test('register / isDelegated / unregister', () => {
   const r = createNativeDelegateRegistry();
@@ -57,4 +57,28 @@ test('unregister fails the in-flight ops of that context', async () => {
 test('a stale/unknown result is ignored (no throw)', () => {
   const r = createNativeDelegateRegistry();
   expect(() => r.resolveOp({ opId: 'ghost', result: 1 })).not.toThrow();
+});
+
+// The exact classifier server.ts runs on inbound /ws/browser frames.
+test('handleNativeDelegationFrame: register frame registers this socket', () => {
+  const r = createNativeDelegateRegistry();
+  const out = handleNativeDelegationFrame({ type: 'register_native_executor' }, 'ctx', () => {}, r);
+  expect(out).toBe('registered');
+  expect(r.isDelegated('ctx')).toBe(true);
+});
+
+test('handleNativeDelegationFrame: result frame resolves the matching pending op', async () => {
+  const r = createNativeDelegateRegistry({ genOpId: () => 'A' });
+  r.register('ctx', () => {});
+  const p = r.delegateOp('ctx', 'browser_eval', {});
+  const out = handleNativeDelegationFrame({ type: 'browser_op_result', opId: 'ctx::A', result: 'ok' }, 'ctx', () => {}, r);
+  expect(out).toBe('result');
+  expect(await p).toBe('ok');
+});
+
+test('handleNativeDelegationFrame: a non-delegation frame falls through (null)', () => {
+  const r = createNativeDelegateRegistry();
+  expect(handleNativeDelegationFrame({ type: 'agent_active', active: true }, 'ctx', () => {}, r)).toBeNull();
+  expect(handleNativeDelegationFrame(null, 'ctx', () => {}, r)).toBeNull();
+  expect(handleNativeDelegationFrame('nope', 'ctx', () => {}, r)).toBeNull();
 });
