@@ -964,12 +964,14 @@ function App() {
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
-          // Overlay-sidebar mode (desktop): the sidebar is `position: fixed` and out
-          // of flow, so reserve its column here with a CONSTANT left pad. Constant =
-          // the content's inner width never changes on collapse/expand (only the
-          // sidebar's composited translateX moves), so the DOM terminals never re-fit
-          // → literal zero frame-drop on toggle. Trade-off: a sidebar-width empty strip
-          // shows while collapsed (rare, focus-only state). Push mode leaves this unset.
+          // Overlay-sidebar mode (desktop): the sidebar is `position: fixed` and out of
+          // flow, so reserve its column with a CONSTANT left pad. Constant is deliberate:
+          // RECLAIMING it on collapse (pad → 0) widens the content, which re-flows all
+          // mounted DOM terminals — MEASURED at a 352ms freeze per toggle with 8 terminals
+          // (the exact cost the old content-visibility blank used to mask). There is no
+          // reflow-free way to reclaim it with live DOM terminals, so we keep the column
+          // reserved (a sidebar-width strip while collapsed) and stay smooth. See the
+          // collapsed-rail option if the empty strip needs filling without a reflow.
           ...(desktopOverlay ? { paddingLeft: `${sidebarWidth}px` } : {}),
         }}
 >

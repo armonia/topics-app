@@ -131,6 +131,35 @@ async fn run_tls_proxy() {
     }
 }
 
+/// Clip the window's content view to the macOS rounded-window shape so native
+/// CHILD webviews (browser panes) can't paint SQUARE corners past the window's
+/// rounded edge. The transparent window's main webview is clipped by the window
+/// surface, but a wry child webview is a separate compositing layer that bypasses
+/// that — masking the shared content view rounds every child at the 4 OUTER window
+/// corners only (internal tiled-pane junctions are nowhere near the corners, so
+/// they stay square). ~10pt matches the macOS 11+ window radius. macOS only.
+#[cfg(target_os = "macos")]
+fn round_window_content_corners(window: &tauri::WebviewWindow) {
+    use cocoa::base::{id, nil, YES};
+    use objc::{msg_send, sel, sel_impl};
+    let ns_window = match window.ns_window() {
+        Ok(p) => p as id,
+        Err(_) => return,
+    };
+    unsafe {
+        let content: id = msg_send![ns_window, contentView];
+        if content == nil {
+            return;
+        }
+        let _: () = msg_send![content, setWantsLayer: YES];
+        let layer: id = msg_send![content, layer];
+        if layer != nil {
+            let _: () = msg_send![layer, setCornerRadius: 10.0f64];
+            let _: () = msg_send![layer, setMasksToBounds: YES];
+        }
+    }
+}
+
 /// Show/hide the macOS traffic-light buttons (close/miniaturise/zoom) on the
 /// given window. WKWebView's frameless `Overlay` titlebar shows them by default;
 /// the Electron shell hides them and reveals them only while the Topics menu is
@@ -1621,6 +1650,9 @@ pub fn run() {
                 use tauri::Manager;
                 for (_label, win) in app.webview_windows() {
                     apply_traffic_lights(&win, false);
+                    // Round the content view so native browser child-webviews don't
+                    // poke square corners past the window's rounded edge.
+                    round_window_content_corners(&win);
                     // Live window-edge resize: AppKit posts WillStart/DidEnd live-resize
                     // notifications SYNCHRONOUSLY (unlike tao's WindowEvent::Resized, which
                     // is only drained at gesture end), so we swap to an autoresizing frost
