@@ -948,7 +948,17 @@ function App() {
 
       {/* Main Content */}
       <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ contain: 'layout style', paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        style={{
+          contain: 'layout style',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          // Overlay-sidebar mode (desktop): the sidebar is `position: fixed` and out
+          // of flow, so reserve its column here with a CONSTANT left pad. Constant =
+          // the content's inner width never changes on collapse/expand (only the
+          // sidebar's composited translateX moves), so the DOM terminals never re-fit
+          // → literal zero frame-drop on toggle. Trade-off: a sidebar-width empty strip
+          // shows while collapsed (rare, focus-only state). Push mode leaves this unset.
+          ...(appSettings.overlaySidebar && isDesktop ? { paddingLeft: `${sidebarWidth}px` } : {}),
+        }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
