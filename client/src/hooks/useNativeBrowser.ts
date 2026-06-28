@@ -44,6 +44,10 @@ export interface NativeBrowserHandle {
   findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
   stopFind(): Promise<void>;
   onFindResult(cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
+  /** Optional — count case-insensitive matches of `text` in the page (Tauri pane,
+   *  where window.find gives no count). Undefined on backends that report counts
+   *  via onFindResult (Electron CDP). */
+  countMatches?(text: string): Promise<number>;
   /** Phase 30.1 — Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
   setZoom(delta: number | 'reset'): Promise<number>;
   /** Current device-emulation mode (default 'desktop'). */
