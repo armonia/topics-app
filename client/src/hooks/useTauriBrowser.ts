@@ -43,7 +43,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   const id = contextId;
   const [ready, setReady] = useState(false);
   const [url, setUrl] = useState(initialUrl ?? '');
+  const [title, setTitle] = useState('');
+  const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
 
   const openedRef = useRef(false);
   // Buffer the last requested rect until the webview exists, then flush it — the
@@ -124,29 +127,97 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
 
   const reload = useCallback(async () => {
     setLoading(true);
-    await tauriInvoke('browser_navigate', { id, url: url || 'about:blank' }).catch(() => {});
-    window.setTimeout(() => setLoading(false), 700);
-  }, [id, url]);
+    await tauriInvoke('browser_reload', { id }).catch(() => {});
+  }, [id]);
 
-  // Back/forward need history APIs not yet exposed; drive them via injected JS
-  // history as a stop-gap (works for same-origin SPA + normal nav).
+  // Real WKWebView history nav (browser_back/forward) — not the old re-navigate
+  // hack. The state poll below reflects the resulting url/title back into the UI.
   const goBack = useCallback(async () => {
-    await tauriInvoke('browser_navigate', { id, url: url || 'about:blank' }).catch(() => {});
-  }, [id, url]);
-  const goForward = goBack;
+    setLoading(true);
+    await tauriInvoke('browser_back', { id }).catch(() => {});
+  }, [id]);
+  const goForward = useCallback(async () => {
+    setLoading(true);
+    await tauriInvoke('browser_forward', { id }).catch(() => {});
+  }, [id]);
   const goHome = useCallback(async () => navigate(initialUrlRef.current ?? 'about:blank'), [navigate]);
+
+  // ── Live state poll ──────────────────────────────────────────────────────
+  // WKWebView's navigation-delegate load events aren't bridged, so a poll is the
+  // robust way to keep the address bar, tab title and favicon in sync with what
+  // the page actually does — IN-PAGE link clicks, redirects and SPA route
+  // changes included (the old hook only updated `url` on explicit navigate(), so
+  // clicking a link left the address bar stale). One cheap `browser_eval_js`
+  // read per tick; `loading` is driven off the real document.readyState.
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    const READ =
+      "JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
+      "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'})";
+    const tick = async () => {
+      if (stop) return;
+      try {
+        const raw = await tauriInvoke<string>('browser_eval_js', { id, js: READ });
+        if (stop || !raw) return;
+        const s = JSON.parse(raw) as { u: string; t: string; r: string; f: string };
+        if (s.u && s.u !== 'about:blank') setUrl(s.u);
+        setTitle(s.t || '');
+        if (s.f) setFaviconUrl(s.f);
+        setLoading(s.r !== 'complete');
+      } catch {
+        /* pane closing / eval timeout — ignore, next tick retries */
+      }
+    };
+    const iv = window.setInterval(tick, 800);
+    void tick(); // prime immediately
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+    };
+  }, [id, ready]);
 
   const noop = useCallback(async () => {}, []);
 
+  // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
+  // portable stop-gap). delta is a step (+/-0.5 ≈ ±10%), 'reset' → 100%.
+  const setZoom = useCallback(
+    async (delta: number | 'reset'): Promise<number> => {
+      const next = delta === 'reset' ? 100 : Math.min(300, Math.max(30, zoomRef.current + delta * 20));
+      zoomRef.current = next;
+      await tauriInvoke('browser_exec_js', {
+        id,
+        js: `document.documentElement.style.zoom='${next / 100}'`,
+      }).catch(() => {});
+      return next;
+    },
+    [id],
+  );
+
+  // Find-in-page via WebKit's window.find (highlights + scrolls to the match).
+  const findInPage = useCallback(
+    async (text: string, opts?: { forward?: boolean; findNext?: boolean }) => {
+      const fwd = opts?.forward !== false;
+      await tauriInvoke('browser_exec_js', {
+        id,
+        js: `try{window.find(${JSON.stringify(text)},false,${!fwd},true)}catch(e){}`,
+      }).catch(() => {});
+    },
+    [id],
+  );
+  const stopFind = useCallback(async () => {
+    await tauriInvoke('browser_exec_js', { id, js: 'try{getSelection().removeAllRanges()}catch(e){}' }).catch(() => {});
+  }, [id]);
+
   return {
     url,
-    title: '',
+    title,
     loading,
     agentActive: false,
     agentAction: null,
     ready,
     viewId: ready ? id : null,
-    faviconUrl: '',
+    faviconUrl,
     navigate,
     goBack,
     goForward,
@@ -154,10 +225,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     goHome,
     setBounds,
     toggleDevTools: noop,
-    findInPage: noop,
-    stopFind: noop,
+    findInPage,
+    stopFind,
     onFindResult: () => () => {},
-    setZoom: async () => 100,
+    setZoom,
     deviceMode: 'desktop' as DeviceMode,
     setDevice: () => {},
     responsiveSize: null,
